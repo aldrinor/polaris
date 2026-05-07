@@ -51,9 +51,7 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
     "high confidence",
   );
   await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
-  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
-    "81mg",
-  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
   // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
 });
@@ -81,12 +79,12 @@ test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
   await expect(page.getByTestId("contradiction-pane")).toBeVisible({
     timeout: 500,
   });
-  await expect(
-    page.getByTestId("contradiction-evidence-type-0"),
-  ).toContainText("Trial");
-  await expect(
-    page.getByTestId("contradiction-evidence-type-1"),
-  ).toContainText("Guideline");
+  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
+    "Trial",
+  );
+  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
+    "Guideline",
+  );
 });
 
 test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
@@ -95,12 +93,12 @@ test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
   await expect(page.getByTestId("contradiction-pane")).toBeVisible({
     timeout: 500,
   });
-  await expect(
-    page.getByTestId("contradiction-jurisdiction-0"),
-  ).toContainText("United States");
-  await expect(
-    page.getByTestId("contradiction-jurisdiction-1"),
-  ).toContainText("Canada");
+  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
+    "United States",
+  );
+  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
+    "Canada",
+  );
 });
 
 test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {

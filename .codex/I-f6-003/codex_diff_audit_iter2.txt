@@ -1,0 +1,3688 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e04cb-c00a-7ed0-a4d2-30c036497599
+--------
+user
+# Codex Diff Review — I-f6-003 (ITER 2 of 5)
+
+## Iter 2 changes vs iter 1
+
+The PR diff now also includes **5 mechanical lint fixes** to satisfy the required `lint + format + typecheck + build` CI check that turned out to fail on PR #288 with **pre-existing** `react/no-unescaped-entities` errors (4 sites) and one `no-state-update-in-effect` error in files unrelated to I-f6-003 substance. None of those files is on the I-f6-003 substance scope.
+
+The CI required check on `polaris` evidently tightened OR the prior I-f9-002 / I-f5-008 PRs landed before lint became a hard gate. Either way, the merge is blocked until lint is clean. Per `feedback_route_policy_questions_to_codex.md` this is a CI-gate question: rather than route to user (option enumeration anti-pattern) or block on a separate cleanup PR (queue-fatigue), I bundled the trivial fixes into this PR.
+
+Lint fixes — diff summary:
+- `web/app/benchmark/components/benchmark_board.tsx:107` `server's` → `server&rsquo;s`
+- `web/app/benchmark/page.tsx:77` `Carney's` → `Carney&rsquo;s`
+- `web/app/generation/components/evaluator_pane.tsx:34` `generator's` → `generator&rsquo;s`
+- `web/app/generation/page.tsx:83` `POLARIS's` → `POLARIS&rsquo;s`
+- `web/app/intake/components/pdf_drop_banner.tsx:35` `setReady(true)` (sync inside useEffect) → `queueMicrotask(() => setReady(true))` (defer one microtask out of effect body)
+
+`npx eslint app/**/*.{ts,tsx} components/**/*.{ts,tsx}` exits 0 locally.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only — DO NOT spawn dev servers.
+
+**Issue:** I-f6-003 — Mobile tap-to-show fallback
+**Brief:** APPROVED iter 4
+**Canonical-diff-sha256:** `8365e5feeab943432fca5202c3697fba4bc5a6946d87b9a40cf4fb20b6d17e5d`
+**LOC:** ~133 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/components/ui/evidence-tooltip.tsx        +95 -1 (I-f6-003 substance: fully-controlled Tooltip + touch handler + dual timer refs)
+web/tests/e2e/evidence_tooltip_mobile.spec.ts NEW +33 (iPhone 12 device profile + tap + auto-close)
+web/app/benchmark/components/benchmark_board.tsx +1 -1 (lint fix: &rsquo;)
+web/app/benchmark/page.tsx                       +1 -1 (lint fix: &rsquo;)
+web/app/generation/components/evaluator_pane.tsx +1 -1 (lint fix: &rsquo;)
+web/app/generation/page.tsx                      +1 -1 (lint fix: &rsquo;)
+web/app/intake/components/pdf_drop_banner.tsx    +1 -1 (lint fix: queueMicrotask)
+```
+
+## What changed (I-f6-003 substance, unchanged from iter 1)
+
+### Component (`web/components/ui/evidence-tooltip.tsx`)
+- `Tooltip.Root` is now **fully controlled**: `open={open}`, `onOpenChange={handleOpenChange}` for the entire lifetime — no undefined↔boolean toggling, so Base UI's `useControlledProp` does not error.
+- `Tooltip.Trigger` receives `closeOnClick={false}` to suppress Base UI's `useDismiss(referencePress)` close path that would otherwise cancel touch-open in the same event (per Codex iter-3 brief P1 finding).
+- Refs: `hoverDebounceRef`, `touchAutoCloseRef`, `touchSessionRef`.
+- Trigger button handlers: `onMouseEnter` / `onMouseLeave` / `onFocus` / `onBlur` (all suppressed when `touchSessionRef.current === true`); `onPointerDown` with `pointerType === "touch"` opens + starts 3000ms auto-close.
+- `useEffect` cleanup clears both timers on unmount.
+- `handleOpenChange(false)` clears both timers and resets `touchSessionRef`.
+
+### Playwright spec (`web/tests/e2e/evidence_tooltip_mobile.spec.ts`)
+- `devices['iPhone 12']` mobile profile, taps trigger, asserts popup visible within 500ms with content, asserts auto-close by 3600ms.
+
+## Verification
+- `npx tsc --noEmit` (web/): exit 0.
+- `npx eslint app/**/*.{ts,tsx} components/**/*.{ts,tsx}` (web/): exit 0.
+
+## Risks for Codex Red-Team
+
+1. **I-f6-003 substance unchanged from iter-1 APPROVE:** the substance diff (`evidence-tooltip.tsx` + `evidence_tooltip_mobile.spec.ts`) is byte-identical to iter 1 (which Codex APPROVE'd 0 P0 / 0 P1).
+2. **Lint fixes are mechanical:** each is a single character/line change with no semantic effect on user-visible behavior.
+3. **`queueMicrotask` semantics:** defers `setReady(true)` one microtask out of the effect body. Tests that check `data-ready="1"` may transiently see "0" before the microtask flushes; `pdf_drop_ready.spec.ts` is the only consumer — please verify the test is tolerant (it should be, as both before-and-after the change `ready` is set in a render after mount).
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** ~133 net. Under 200.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll do this as a static review only: inspect the touched files and surrounding contracts, with special attention to the bundled lint changes and whether the mobile tooltip behavior introduced any blocker-level regression.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "EvidenceTooltip|evidence-tooltip|pdf_drop_ready|data-ready|setReady|queueMicrotask|no-state-update-in-effect|react/no-unescaped-entities" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/ui/evidence-tooltip.tsx web/tests/e2e/evidence_tooltip_mobile.spec.ts web/app/benchmark/components/benchmark_board.tsx web/app/benchmark/page.tsx web/app/generation/components/evaluator_pane.tsx web/app/generation/page.tsx web/app/intake/components/pdf_drop_banner.tsx' in C:\POLARIS
+ succeeded in 1022ms:
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:1:import { EvidenceTooltipEdgesHarness } from "../_demo_evidence_tooltip_edges";
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:3:export default function EvidenceTooltipEdgesPage() {
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:4:  return <EvidenceTooltipEdgesHarness />;
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:6:} from "@/components/ui/evidence-tooltip";
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:13:export function EvidenceTooltipEdgesHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:15:    <EvidenceTooltipProvider delay={0}>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:19:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:24:            <span data-testid="evidence-tooltip-trigger-top">[#ev:top]</span>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:25:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:29:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:34:            <span data-testid="evidence-tooltip-trigger-bottom">
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:37:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:41:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:46:            <span data-testid="evidence-tooltip-trigger-right">
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:49:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:52:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:6:} from "@/components/ui/evidence-tooltip";
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:9: * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:14:export function EvidenceTooltipHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:18:        data-testid="evidence-tooltip-harness"
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:26:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:33:            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:34:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:1:import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:3:export default function EvidenceTooltipPage() {
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:4:  return <EvidenceTooltipHarness />;
+web\app\intake\components\pdf_drop_banner.tsx:13:  const [ready, setReady] = useState(false);
+web\app\intake\components\pdf_drop_banner.tsx:35:    queueMicrotask(() => setReady(true));
+web\app\intake\components\pdf_drop_banner.tsx:46:        data-ready={ready ? "1" : "0"}
+web\components\ui\evidence-tooltip.tsx:6:interface EvidenceTooltipProps {
+web\components\ui\evidence-tooltip.tsx:39:export function EvidenceTooltip({
+web\components\ui\evidence-tooltip.tsx:48:}: EvidenceTooltipProps) {
+web\components\ui\evidence-tooltip.tsx:151:            data-testid="evidence-tooltip-popup"
+web\components\ui\evidence-tooltip.tsx:165:                data-testid="evidence-tooltip-published"
+web\components\ui\evidence-tooltip.tsx:190:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web\app\inspector\[runId]\page.tsx:341:      <EvidenceTooltip
+web\app\inspector\[runId]\page.tsx:350:      </EvidenceTooltip>,
+web\tests\e2e\evidence_tooltip.spec.ts:7:  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+web\tests\e2e\evidence_tooltip.spec.ts:9:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web\tests\e2e\evidence_tooltip.spec.ts:12:  await page.getByTestId("evidence-tooltip-trigger").hover();
+web\tests\e2e\evidence_tooltip.spec.ts:16:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web\tests\e2e\evidence_tooltip.spec.ts:19:  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+web\tests\e2e\evidence_tooltip.spec.ts:23:  const popup = page.getByTestId("evidence-tooltip-popup");
+web\tests\e2e\evidence_tooltip.spec.ts:25:  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+web\tests\e2e\evidence_tooltip_edges.spec.ts:4:  { name: "near-top", trigger: "evidence-tooltip-trigger-top" },
+web\tests\e2e\evidence_tooltip_edges.spec.ts:5:  { name: "near-bottom", trigger: "evidence-tooltip-trigger-bottom" },
+web\tests\e2e\evidence_tooltip_edges.spec.ts:6:  { name: "near-right", trigger: "evidence-tooltip-trigger-right" },
+web\tests\e2e\evidence_tooltip_edges.spec.ts:13:    const popup = page.getByTestId("evidence-tooltip-popup");
+web\tests\e2e\evidence_tooltip_edges.spec.ts:18:        '[data-testid="evidence-tooltip-popup"]',
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:9:  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:12:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:15:  await page.tap('[data-testid="evidence-tooltip-trigger"]');
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:18:  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:22:  const popup = page.getByTestId("evidence-tooltip-popup");
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:24:  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:30:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0, {
+web\tests\e2e\f2_walkthrough.spec.ts:170:        "data-ready",
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+web\tests\e2e\performance_hover.spec.ts:28:  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+web\tests\e2e\intake_edge.spec.ts:32:    "data-ready",
+
+ succeeded in 1051ms:
+ succeeded in 1069ms:
+ M .codex/I-f6-003/codex_diff.patch
+ M .codex/I-f6-003/diff_review_brief.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-f6-003/codex_diff_audit_iter2.txt
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The touched files are not applied in the working tree; the review material appears to be in `.codex/I-f6-003/codex_diff.patch`. I’m switching to reviewing that patch against the current baseline files so the verdict matches the submitted diff rather than the local tree state.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/components/ui/evidence-tooltip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/intake/components/pdf_drop_banner.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-f6-003/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/tests/e2e/evidence_tooltip.spec.ts; Get-Content web/tests/e2e/evidence_tooltip_edges.spec.ts; Get-Content web/tests/e2e/intake_edge.spec.ts; Get-Content web/tests/e2e/f2_walkthrough.spec.ts' in C:\POLARIS
+ succeeded in 1232ms:
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import * as React from "react";
+
+interface EvidenceTooltipProps {
+  evidenceId: string;
+  sourceUrl?: string;
+  spanText?: string;
+  sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
+  /**
+   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
+   * Positioner applies flip+shift collision avoidance automatically when
+   * the requested side would clip the viewport.
+   */
+  side?: "top" | "right" | "bottom" | "left";
+  onClickToInspect?: () => void;
+  children: React.ReactNode;
+}
+
+const HOVER_DEBOUNCE_MS = 300;
+const TOUCH_AUTO_CLOSE_MS = 3000;
+
+/**
+ * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+ * source span behind a provenance token. Click still triggers the right-
+ * pane Inspector view; hover shows a quick preview.
+ *
+ * I-f6-003: fully-controlled Tooltip with explicit hover/focus/touch open
+ * semantics. Touch tap opens the popup with a 3-second auto-close timer
+ * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+ * from cancelling our touch-open in the same event).
+ */
+export function EvidenceTooltip({
+  evidenceId,
+  sourceUrl,
+  spanText,
+  sourceTier,
+  publishedDate,
+  side = "top",
+  onClickToInspect,
+  children,
+}: EvidenceTooltipProps) {
+  const [open, setOpen] = React.useState(false);
+  const hoverDebounceRef = React.useRef<number | null>(null);
+  const touchAutoCloseRef = React.useRef<number | null>(null);
+  const touchSessionRef = React.useRef(false);
+
+  const clearHoverDebounce = React.useCallback(() => {
+    if (hoverDebounceRef.current !== null) {
+      window.clearTimeout(hoverDebounceRef.current);
+      hoverDebounceRef.current = null;
+    }
+  }, []);
+
+  const clearTouchAutoClose = React.useCallback(() => {
+    if (touchAutoCloseRef.current !== null) {
+      window.clearTimeout(touchAutoCloseRef.current);
+      touchAutoCloseRef.current = null;
+    }
+  }, []);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) {
+        clearHoverDebounce();
+        clearTouchAutoClose();
+        touchSessionRef.current = false;
+      }
+      setOpen(next);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  React.useEffect(
+    () => () => {
+      clearHoverDebounce();
+      clearTouchAutoClose();
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    hoverDebounceRef.current = window.setTimeout(() => {
+      hoverDebounceRef.current = null;
+      setOpen(true);
+    }, HOVER_DEBOUNCE_MS);
+  }, [clearHoverDebounce]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    setOpen(false);
+  }, [clearHoverDebounce]);
+
+  const handleFocus = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(true);
+  }, []);
+
+  const handleBlur = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(false);
+  }, []);
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType !== "touch") return;
+      touchSessionRef.current = true;
+      clearHoverDebounce();
+      clearTouchAutoClose();
+      setOpen(true);
+      touchAutoCloseRef.current = window.setTimeout(() => {
+        touchAutoCloseRef.current = null;
+        touchSessionRef.current = false;
+        setOpen(false);
+      }, TOUCH_AUTO_CLOSE_MS);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  return (
+    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+      <Tooltip.Trigger
+        closeOnClick={false}
+        render={
+          <button
+            type="button"
+            onClick={onClickToInspect}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onPointerDown={handlePointerDown}
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+          />
+        }
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6} side={side}>
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <p className="text-muted-foreground font-mono text-[11px]">
+              {evidenceId}
+              {sourceTier && ` · tier ${sourceTier}`}
+            </p>
+            {sourceUrl && (
+              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+                {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
+              </p>
+            )}
+            {spanText && (
+              <p className="text-foreground mt-2 text-xs leading-snug">
+                &ldquo;
+                {spanText.length > 240
+                  ? spanText.slice(0, 240) + "…"
+                  : spanText}
+                &rdquo;
+              </p>
+            )}
+            <p className="text-muted-foreground mt-2 text-[11px] italic">
+              Click to pin in Evidence pane
+            </p>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export const EvidenceTooltipProvider = Tooltip.Provider;
+
+ succeeded in 1237ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+function isPdf(file: File): boolean {
+  return (
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+export function PdfDropBanner() {
+  const [shown, setShown] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => e.preventDefault();
+    const handleDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      let pdfFound = false;
+      for (let i = 0; i < files.length; i++) {
+        const f = files.item(i);
+        if (f && isPdf(f)) {
+          pdfFound = true;
+          break;
+        }
+      }
+      if (pdfFound) {
+        e.preventDefault();
+        setShown(true);
+      }
+    };
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
+    queueMicrotask(() => setReady(true));
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, []);
+
+  if (!shown)
+    return (
+      <span
+        data-testid="pdf-drop-ready"
+        data-ready={ready ? "1" : "0"}
+        className="sr-only"
+      />
+    );
+
+  return (
+    <div
+      data-testid="pdf-drop-banner"
+      className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
+    >
+      <span>PDFs go through the upload flow (coming soon).</span>
+      <button
+        type="button"
+        data-testid="pdf-drop-dismiss"
+        onClick={() => setShown(false)}
+        className="text-xs font-medium underline-offset-2 hover:underline"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+ succeeded in 1298ms:
+diff --git a/web/app/benchmark/components/benchmark_board.tsx b/web/app/benchmark/components/benchmark_board.tsx
+index 43c3278..c9e736f 100644
+--- a/web/app/benchmark/components/benchmark_board.tsx
++++ b/web/app/benchmark/components/benchmark_board.tsx
+@@ -104,7 +104,7 @@ export function BenchmarkBoard() {
+       >
+         <CardContent className="text-amber-700 dark:text-amber-300">
+           <strong className="block">Benchmark results not configured</strong>
+-          POLARIS_BENCHMARK_RESULTS_DIR is not set in the live server's
++          POLARIS_BENCHMARK_RESULTS_DIR is not set in the live server&rsquo;s
+           environment. Run{" "}
+           <code className="bg-muted rounded px-1">
+             scripts/run_benchmark.py
+diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
+index 84a8638..27d951b 100644
+--- a/web/app/benchmark/page.tsx
++++ b/web/app/benchmark/page.tsx
+@@ -74,7 +74,7 @@ export default function BenchmarkPage() {
+             </code>
+             . The scoreboard.json artifact is canonical (sort_keys=True),
+             so two runs against the same inputs produce identical scores.
+-            Carney's office can re-run the benchmark and compare bytewise.
++            Carney&rsquo;s office can re-run the benchmark and compare bytewise.
+           </p>
+         </section>
+       </main>
+diff --git a/web/app/generation/components/evaluator_pane.tsx b/web/app/generation/components/evaluator_pane.tsx
+index 83f9ec2..12af052 100644
+--- a/web/app/generation/components/evaluator_pane.tsx
++++ b/web/app/generation/components/evaluator_pane.tsx
+@@ -31,7 +31,7 @@ export function EvaluatorPane({
+             Generator vs Evaluator readings
+           </SheetTitle>
+           <SheetDescription>
+-            Two-family evaluator disagrees with generator's claim. Compare both
++            Two-family evaluator disagrees with generator&rsquo;s claim. Compare both
+             readings against the same cited evidence.
+           </SheetDescription>
+         </SheetHeader>
+diff --git a/web/app/generation/page.tsx b/web/app/generation/page.tsx
+index 93b4e46..02eea05 100644
+--- a/web/app/generation/page.tsx
++++ b/web/app/generation/page.tsx
+@@ -80,7 +80,7 @@ export default function GenerationPage() {
+             <strong className="text-foreground">Slice progression.</strong>{" "}
+             Slice 004 (audit bundle export, GPG-signed) packages this
+             verified report into a portable evidence bundle. Slice 005
+-            (BEAT-BOTH benchmark) compares POLARIS's output head-to-head
++            (BEAT-BOTH benchmark) compares POLARIS&rsquo;s output head-to-head
+             against ChatGPT Deep Research and Gemini DR on 7 dimensions.
+           </p>
+         </section>
+diff --git a/web/app/intake/components/pdf_drop_banner.tsx b/web/app/intake/components/pdf_drop_banner.tsx
+index ce192fc..ea1d90a 100644
+--- a/web/app/intake/components/pdf_drop_banner.tsx
++++ b/web/app/intake/components/pdf_drop_banner.tsx
+@@ -32,7 +32,7 @@ export function PdfDropBanner() {
+     };
+     window.addEventListener("dragover", handleDragOver);
+     window.addEventListener("drop", handleDrop);
+-    setReady(true);
++    queueMicrotask(() => setReady(true));
+     return () => {
+       window.removeEventListener("dragover", handleDragOver);
+       window.removeEventListener("drop", handleDrop);
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index 1fdc1c5..ab8c8b3 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -23,10 +23,18 @@ interface EvidenceTooltipProps {
+   children: React.ReactNode;
+ }
+ 
++const HOVER_DEBOUNCE_MS = 300;
++const TOUCH_AUTO_CLOSE_MS = 3000;
++
+ /**
+  * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+  * source span behind a provenance token. Click still triggers the right-
+  * pane Inspector view; hover shows a quick preview.
++ *
++ * I-f6-003: fully-controlled Tooltip with explicit hover/focus/touch open
++ * semantics. Touch tap opens the popup with a 3-second auto-close timer
++ * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
++ * from cancelling our touch-open in the same event).
+  */
+ export function EvidenceTooltip({
+   evidenceId,
+@@ -38,13 +46,99 @@ export function EvidenceTooltip({
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
++  const [open, setOpen] = React.useState(false);
++  const hoverDebounceRef = React.useRef<number | null>(null);
++  const touchAutoCloseRef = React.useRef<number | null>(null);
++  const touchSessionRef = React.useRef(false);
++
++  const clearHoverDebounce = React.useCallback(() => {
++    if (hoverDebounceRef.current !== null) {
++      window.clearTimeout(hoverDebounceRef.current);
++      hoverDebounceRef.current = null;
++    }
++  }, []);
++
++  const clearTouchAutoClose = React.useCallback(() => {
++    if (touchAutoCloseRef.current !== null) {
++      window.clearTimeout(touchAutoCloseRef.current);
++      touchAutoCloseRef.current = null;
++    }
++  }, []);
++
++  const handleOpenChange = React.useCallback(
++    (next: boolean) => {
++      if (!next) {
++        clearHoverDebounce();
++        clearTouchAutoClose();
++        touchSessionRef.current = false;
++      }
++      setOpen(next);
++    },
++    [clearHoverDebounce, clearTouchAutoClose],
++  );
++
++  React.useEffect(
++    () => () => {
++      clearHoverDebounce();
++      clearTouchAutoClose();
++    },
++    [clearHoverDebounce, clearTouchAutoClose],
++  );
++
++  const handleMouseEnter = React.useCallback(() => {
++    if (touchSessionRef.current) return;
++    clearHoverDebounce();
++    hoverDebounceRef.current = window.setTimeout(() => {
++      hoverDebounceRef.current = null;
++      setOpen(true);
++    }, HOVER_DEBOUNCE_MS);
++  }, [clearHoverDebounce]);
++
++  const handleMouseLeave = React.useCallback(() => {
++    if (touchSessionRef.current) return;
++    clearHoverDebounce();
++    setOpen(false);
++  }, [clearHoverDebounce]);
++
++  const handleFocus = React.useCallback(() => {
++    if (touchSessionRef.current) return;
++    setOpen(true);
++  }, []);
++
++  const handleBlur = React.useCallback(() => {
++    if (touchSessionRef.current) return;
++    setOpen(false);
++  }, []);
++
++  const handlePointerDown = React.useCallback(
++    (event: React.PointerEvent<HTMLButtonElement>) => {
++      if (event.pointerType !== "touch") return;
++      touchSessionRef.current = true;
++      clearHoverDebounce();
++      clearTouchAutoClose();
++      setOpen(true);
++      touchAutoCloseRef.current = window.setTimeout(() => {
++        touchAutoCloseRef.current = null;
++        touchSessionRef.current = false;
++        setOpen(false);
++      }, TOUCH_AUTO_CLOSE_MS);
++    },
++    [clearHoverDebounce, clearTouchAutoClose],
++  );
++
+   return (
+-    <Tooltip.Root>
++    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+       <Tooltip.Trigger
++        closeOnClick={false}
+         render={
+           <button
+             type="button"
+             onClick={onClickToInspect}
++            onMouseEnter={handleMouseEnter}
++            onMouseLeave={handleMouseLeave}
++            onFocus={handleFocus}
++            onBlur={handleBlur}
++            onPointerDown={handlePointerDown}
+             className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+           />
+         }
+diff --git a/web/tests/e2e/evidence_tooltip_mobile.spec.ts b/web/tests/e2e/evidence_tooltip_mobile.spec.ts
+new file mode 100644
+index 0000000..a088880
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip_mobile.spec.ts
+@@ -0,0 +1,33 @@
++import { devices, expect, test } from "@playwright/test";
++
++test.use({ ...devices["iPhone 12"] });
++
++test("Mobile tap opens evidence tooltip and auto-closes after 3s", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/evidence_tooltip");
++  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
++
++  // Popup absent before tap.
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
++
++  // Tap (touch) the trigger.
++  await page.tap('[data-testid="evidence-tooltip-trigger"]');
++
++  // Popup visible within 500ms — touch path skips the 300ms hover debounce.
++  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
++    timeout: 500,
++  });
++
++  const popup = page.getByTestId("evidence-tooltip-popup");
++  await expect(popup).toContainText("tier T1");
++  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
++    "Published: 2024-03-15",
++  );
++  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
++
++  // Auto-close fires at 3000ms; allow 600ms slack for timer scheduling.
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0, {
++    timeout: 3600,
++  });
++});
+# canonical-diff-sha256: 8365e5feeab943432fca5202c3697fba4bc5a6946d87b9a40cf4fb20b6d17e5d
+
+ succeeded in 1348ms:
+import { expect, test } from "@playwright/test";
+
+test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test/evidence_tooltip");
+  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+  // (a) popup absent before any hover.
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
+  await page.getByTestId("evidence-tooltip-trigger").hover();
+  // Take a near-immediate sample (~50ms): should still be absent because of
+  // the 300ms Provider delay.
+  await page.waitForTimeout(50);
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (c) within 500ms the popup should be present (300ms delay + buffer).
+  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+    timeout: 500,
+  });
+  // Content checks.
+  const popup = page.getByTestId("evidence-tooltip-popup");
+  await expect(popup).toContainText("tier T1");
+  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+    "Published: 2024-03-15",
+  );
+  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
+});
+import { expect, test } from "@playwright/test";
+
+const SCENARIOS: { name: string; trigger: string }[] = [
+  { name: "near-top", trigger: "evidence-tooltip-trigger-top" },
+  { name: "near-bottom", trigger: "evidence-tooltip-trigger-bottom" },
+  { name: "near-right", trigger: "evidence-tooltip-trigger-right" },
+];
+
+for (const { name, trigger } of SCENARIOS) {
+  test(`${name} — popup stays inside viewport`, async ({ page }) => {
+    await page.goto("/sentence_hover_test/evidence_tooltip_edges");
+    await page.getByTestId(trigger).hover();
+    const popup = page.getByTestId("evidence-tooltip-popup");
+    await expect(popup).toBeVisible({ timeout: 1000 });
+
+    const result = await page.evaluate(() => {
+      const popups = document.querySelectorAll(
+        '[data-testid="evidence-tooltip-popup"]',
+      );
+      // There should be exactly one popup visible at a time.
+      const target = popups[popups.length - 1] as HTMLElement | undefined;
+      if (!target) return null;
+      const r = target.getBoundingClientRect();
+      return {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        vw: window.innerWidth,
+        vh: window.innerHeight,
+      };
+    });
+    expect(result).not.toBeNull();
+    if (!result) return;
+    expect(result.left).toBeGreaterThanOrEqual(0);
+    expect(result.top).toBeGreaterThanOrEqual(0);
+    expect(result.right).toBeLessThanOrEqual(result.vw);
+    expect(result.bottom).toBeLessThanOrEqual(result.vh);
+  });
+}
+import { expect, test } from "@playwright/test";
+
+test("French question → English-only message; intake API not called", async ({
+  page,
+}) => {
+  let intakeCalls = 0;
+  await page.route("**/api/intake", async (route) => {
+    intakeCalls++;
+    await route.fulfill({ status: 500, body: "should-not-be-called" });
+  });
+
+  await page.goto("/intake");
+  await page
+    .getByTestId("intake-question-input")
+    .fill(
+      "Quels sont les effets secondaires de la metformine chez les adultes?",
+    );
+  await page.getByTestId("intake-submit").click();
+
+  await expect(page.getByTestId("intake-error")).toBeVisible();
+  await expect(page.getByTestId("intake-error")).toContainText(
+    "POLARIS currently supports English",
+  );
+  expect(intakeCalls).toBe(0);
+});
+
+test("PDF drop on /intake → banner appears, then dismisses", async ({
+  page,
+}) => {
+  await page.goto("/intake");
+  await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+    "data-ready",
+    "1",
+  );
+
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([], "test.pdf", { type: "application/pdf" }));
+    window.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+
+  await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
+  await page.getByTestId("pdf-drop-dismiss").click();
+  await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
+});
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { expect, test, type Page } from "@playwright/test";
+
+type Row = { d: string; e: string; v: "PASS" | "FAIL"; obs: string };
+const transcript: Row[] = [];
+const TRANSCRIPT_PATH = path.resolve(
+  __dirname,
+  "../../../outputs/audits/I-f2-008/walkthrough_transcript.md",
+);
+
+const baseDecision = {
+  status: "in_scope",
+  scope_class: "clinical_efficacy",
+  ambiguity_axes: [],
+  clarifications_needed: [],
+  provenance: {},
+  decision_id: "wt",
+  decided_at_utc: new Date().toISOString(),
+  latency_ms: 1,
+};
+
+async function intakeMock(page: Page, dec: object) {
+  await page.route("**/api/intake", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: { ...baseDecision, ...dec },
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function disambigMock(page: Page, n: number, isAmb = true) {
+  await page.route("**/api/disambiguation", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: isAmb,
+        num_clusters: n,
+        clusters: Array.from({ length: n }, (_, i) => ({
+          cluster_id: i,
+          label: `label_${i}`,
+          sample_snippets: [`s${i}`],
+        })),
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function record(d: string, e: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+    transcript.push({ d, e, v: "PASS", obs: "ok" });
+  } catch (err) {
+    transcript.push({
+      d,
+      e,
+      v: "FAIL",
+      obs: err instanceof Error ? err.message.slice(0, 60) : String(err),
+    });
+    throw err;
+  }
+}
+
+test.skip(
+  ({ browserName }) => browserName !== "chromium",
+  "f2 walkthrough is chromium-only",
+);
+
+test("F2 walkthrough — 22 scenarios", async ({ page }) => {
+  const candidates = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ text: `s${i}`, embedding: [i, 0] }));
+  const submit = async (q: string) => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill(q);
+    await page.getByTestId("intake-submit").click();
+  };
+
+  for (const { q, n } of [
+    { q: "BPEI", n: 3 },
+    { q: "MS treatment options", n: 2 },
+    { q: "PR campaign metrics", n: 5 },
+  ]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(n),
+    });
+    await disambigMock(page, n);
+    await record(`amb:${q}`, `${n} cards`, async () => {
+      await submit(q);
+      await expect(
+        page.locator('[data-testid^="disambiguation-cluster-"]'),
+      ).toHaveCount(n);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const q of [
+    "Does tirzepatide reduce A1c in adults with type 2 diabetes?",
+    "What are the safety risks of metformin in older adults?",
+    "Is aspirin effective for headaches in adults?",
+  ]) {
+    await intakeMock(page, { needs_disambiguation: false });
+    let calls = 0;
+    await page.route("**/api/disambiguation", (r) => {
+      calls++;
+      r.abort();
+    });
+    await record(`unamb:${q.slice(0, 24)}`, "no modal", async () => {
+      await submit(q);
+      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+      await page.waitForTimeout(120);
+      await expect(
+        page.locator('[data-slot="disambiguation-modal"]'),
+      ).toBeHidden();
+      expect(calls).toBe(0);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const i of [0, 1, 2]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(2),
+    });
+    await disambigMock(page, 2, false);
+    await record(`guard:${i}`, "modal hidden", async () => {
+      await submit("Does X reduce Y?");
+      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+      await page.waitForTimeout(120);
+      await expect(
+        page.locator('[data-slot="disambiguation-modal"]'),
+      ).toBeHidden();
+    });
+    await page.unrouteAll();
+  }
+
+  for (const fr of [
+    "Quels sont les effets secondaires de la metformine?",
+    "Est-ce que l'aspirine est efficace pour les maux de tête?",
+    "La thérapie physique aide-t-elle pour les douleurs lombaires?",
+  ]) {
+    let intakeCalls = 0;
+    await page.route("**/api/intake", (r) => {
+      intakeCalls++;
+      r.fulfill({ status: 500, body: "x" });
+    });
+    await record(`fr:${fr.slice(0, 24)}`, "English error", async () => {
+      await submit(fr);
+      await expect(page.getByTestId("intake-error")).toContainText("English");
+      expect(intakeCalls).toBe(0);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const { name, type, banner } of [
+    { name: "test.pdf", type: "application/pdf", banner: true },
+    { name: "test.PDF", type: "", banner: true },
+    { name: "test.txt", type: "text/plain", banner: false },
+  ]) {
+    await record(`pdf:${name}`, banner ? "banner" : "no banner", async () => {
+      await page.goto("/intake");
+      await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+        "data-ready",
+        "1",
+      );
+      await page.evaluate(
+        ({ name, type }) => {
+          const dt = new DataTransfer();
+          dt.items.add(new File([], name, { type }));
+          window.dispatchEvent(
+            new DragEvent("drop", {
+              dataTransfer: dt,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        },
+        { name, type },
+      );
+      if (banner) {
+        await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
+      } else {
+        await page.waitForTimeout(120);
+        await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
+      }
+    });
+  }
+
+  await record("edge:empty", "3-char gate", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-submit").click();
+    await expect(page.getByTestId("intake-error")).toContainText(
+      "3 characters",
+    );
+  });
+  await record("edge:whitespace", "3-char gate", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill("   ");
+    await page.getByTestId("intake-submit").click();
+    await expect(page.getByTestId("intake-error")).toContainText(
+      "3 characters",
+    );
+  });
+  let intakeCalls2 = 0;
+  await page.route("**/api/intake", (r) => {
+    intakeCalls2++;
+    r.abort();
+  });
+  await record("edge:long", "input capped 2000", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill("a".repeat(2500));
+    expect(
+      (await page.getByTestId("intake-question-input").inputValue()).length,
+    ).toBe(2000);
+    expect(intakeCalls2).toBe(0);
+  });
+  await page.unrouteAll();
+
+  for (const cid of [0, 1, 2]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(3),
+    });
+    await disambigMock(page, 3);
+    await record(`pick:${cid}`, `label_${cid}`, async () => {
+      await submit("BPEI");
+      await expect(
+        page.getByTestId(`disambiguation-cluster-${cid}`),
+      ).toBeVisible();
+      await page.getByTestId(`disambiguation-cluster-${cid}`).click();
+      await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+        `label_${cid}`,
+      );
+    });
+    await page.unrouteAll();
+  }
+
+  await intakeMock(page, {
+    needs_disambiguation: true,
+    candidate_snippets: candidates(3),
+  });
+  await disambigMock(page, 3);
+  await record("cancel", "no write", async () => {
+    await submit("BPEI");
+    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("disambig-picked-label")).toHaveText("");
+  });
+
+  expect(transcript.length).toBe(22);
+  expect(transcript.every((r) => r.v === "PASS")).toBe(true);
+});
+
+test.afterAll(async ({}, testInfo) => {
+  if (testInfo.project.name !== "chromium") return;
+  const passed = transcript.filter((r) => r.v === "PASS").length;
+  const lines = [
+    "# F2 Walkthrough Transcript (auto-generated)",
+    "",
+    `Run: ${new Date().toISOString()} / ${passed}/${transcript.length} PASS`,
+    "",
+    "| # | Description | Expected | Verdict | Observed |",
+    "|---|---|---|---|---|",
+    ...transcript.map(
+      (r, i) => `| ${i + 1} | ${r.d} | ${r.e} | ${r.v} | ${r.obs} |`,
+    ),
+  ];
+  writeFileSync(TRANSCRIPT_PATH, lines.join("\n") + "\n", "utf8");
+});
+
+codex
+The patch is already reflected in the current checked-out files, so I’m reviewing the effective code plus the saved canonical patch. The main remaining thing to stress is whether the controlled tooltip state can get stuck or whether the microtask lint fix introduces a real race.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/sentence_hover_test/_demo_evidence_tooltip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/inspector/[runId]/page.tsx | Select-Object -Skip 320 -First 50' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"Tooltip\\.Root|Tooltip\\.Trigger|closeOnClick|Provider delay|EvidenceTooltipProvider\" web node_modules 2>"'$null' in C:\POLARIS
+ succeeded in 1097ms:
+"use client";
+
+import {
+  EvidenceTooltip,
+  EvidenceTooltipProvider,
+} from "@/components/ui/evidence-tooltip";
+
+/**
+ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+ * can assert (a) popup absent before hover, (b) popup absent immediately
+ * after hover (within ~50ms), (c) popup visible within 500ms.
+ */
+export function EvidenceTooltipHarness() {
+  return (
+    <EvidenceTooltipProvider delay={300}>
+      <div
+        data-testid="evidence-tooltip-harness"
+        className="mx-auto max-w-xl p-8"
+      >
+        <p className="mb-4 text-sm">
+          Hover the citation token below to see the evidence tooltip.
+        </p>
+        <p className="text-sm">
+          Aspirin reduces headache pain in adults
+          <EvidenceTooltip
+            evidenceId="src-demo-1"
+            sourceUrl="https://www.cochrane.org/CD-demo-1"
+            sourceTier="T1"
+            publishedDate="2024-03-15"
+            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+          >
+            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+          </EvidenceTooltip>
+          .
+        </p>
+      </div>
+    </EvidenceTooltipProvider>
+  );
+}
+
+ succeeded in 1101ms:
+"use client";
+
+import {
+  EvidenceTooltip,
+  EvidenceTooltipProvider,
+} from "@/components/ui/evidence-tooltip";
+
+/**
+ * I-f6-002: edge-aware positioning harness. Three triggers placed near
+ * top, bottom, and right viewport edges with deliberately-clipping side
+ * requests so Base UI's flip+shift collision avoidance kicks in.
+ */
+export function EvidenceTooltipEdgesHarness() {
+  return (
+    <EvidenceTooltipProvider delay={0}>
+      <div className="relative h-screen w-screen">
+        {/* near-top: requests side="top" but trigger is at top → must flip down */}
+        <div className="absolute left-1/2 top-2 -translate-x-1/2">
+          <EvidenceTooltip
+            evidenceId="src-top"
+            spanText="Near-top trigger demonstration."
+            side="top"
+          >
+            <span data-testid="evidence-tooltip-trigger-top">[#ev:top]</span>
+          </EvidenceTooltip>
+        </div>
+        {/* near-bottom: requests side="bottom" but trigger is at bottom → flip up */}
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+          <EvidenceTooltip
+            evidenceId="src-bottom"
+            spanText="Near-bottom trigger demonstration."
+            side="bottom"
+          >
+            <span data-testid="evidence-tooltip-trigger-bottom">
+              [#ev:bottom]
+            </span>
+          </EvidenceTooltip>
+        </div>
+        {/* near-right: requests side="right" but trigger is at right → flip left */}
+        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+          <EvidenceTooltip
+            evidenceId="src-right"
+            spanText="Near-right trigger demonstration."
+            side="right"
+          >
+            <span data-testid="evidence-tooltip-trigger-right">
+              [#ev:right]
+            </span>
+          </EvidenceTooltip>
+        </div>
+      </div>
+    </EvidenceTooltipProvider>
+  );
+}
+
+2026-05-07T23:36:03.281419Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web\components\ui\evidence-tooltip.tsx:36: * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+web\components\ui\evidence-tooltip.tsx:130:    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+web\components\ui\evidence-tooltip.tsx:131:      <Tooltip.Trigger
+web\components\ui\evidence-tooltip.tsx:132:        closeOnClick={false}
+web\components\ui\evidence-tooltip.tsx:147:      </Tooltip.Trigger>
+web\components\ui\evidence-tooltip.tsx:186:    </Tooltip.Root>
+web\components\ui\evidence-tooltip.tsx:190:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\tests\e2e\evidence_tooltip.spec.ts:14:  // the 300ms Provider delay.
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:15:    <EvidenceTooltipProvider delay={0}>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:52:    </EvidenceTooltipProvider>
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+
+ exited 1 in 1179ms:
+web\components\ui\evidence-tooltip.tsx:36: * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+web\components\ui\evidence-tooltip.tsx:130:    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+web\components\ui\evidence-tooltip.tsx:131:      <Tooltip.Trigger
+web\components\ui\evidence-tooltip.tsx:132:        closeOnClick={false}
+web\components\ui\evidence-tooltip.tsx:147:      </Tooltip.Trigger>
+web\components\ui\evidence-tooltip.tsx:186:    </Tooltip.Root>
+web\components\ui\evidence-tooltip.tsx:190:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\tests\e2e\evidence_tooltip.spec.ts:14:  // the 300ms Provider delay.
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:15:    <EvidenceTooltipProvider delay={0}>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:52:    </EvidenceTooltipProvider>
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+
+2026-05-07T23:36:03.330390Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+Get-Content: 
+Line |
+   2 |  Get-Content web/app/inspector/[runId]/page.tsx | Select-Object -Skip  …
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | An object at the specified path web/app/inspector/[runId]/page.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.
+
+ exited 1 in 1237ms:
+Get-Content: 
+Line |
+   2 |  Get-Content web/app/inspector/[runId]/page.tsx | Select-Object -Skip  …
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | An object at the specified path web/app/inspector/[runId]/page.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/inspector/[runId]/page.tsx' | Select-Object -Skip 320 -First 60" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem web -Force | Select-Object Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/tests/e2e/performance_hover.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "interface.*Trigger|closeOnClick|referencePress|type.*Trigger" web/node_modules/@base-ui -S' in C:\POLARIS
+ succeeded in 939ms:
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function renderSentenceWithTokens(
+  text: string,
+  onSelect: (id: string) => void,
+  evidenceById?: (id: string) => SourceSpan | null,
+): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const re = /\[#ev:([^:\]]+):\d+-\d+\]/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const evidenceId = match[1];
+    const span = evidenceById?.(evidenceId);
+    parts.push(
+      <EvidenceTooltip
+        key={`${match.index}-${evidenceId}`}
+        evidenceId={evidenceId}
+        sourceUrl={span?.source_url}
+        spanText={span?.span_text}
+        sourceTier={span?.source_tier}
+        onClickToInspect={() => onSelect(evidenceId)}
+      >
+        {match[0]}
+      </EvidenceTooltip>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+function FramesTab({ bundle }: { bundle: EvidenceContract }) {
+  if (bundle.frame_coverage.length === 0) {
+    return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {bundle.frame_coverage.map((f) => (
+        <li key={f.frame_id}>
+          <Card>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {f.frame_id}
+              </CardDescription>
+              <CardTitle className="text-base">{f.frame_name}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-muted h-2 w-full overflow-hidden rounded">
+                <div
+                  className="bg-foreground h-full"
+                  style={{ width: `${f.coverage_percent}%` }}
+                />
+              </div>
+              <p className="text-muted-foreground mt-2 text-xs">
+
+ succeeded in 979ms:
+
+Name
+----
+.next
+app
+components
+lib
+node_modules
+public
+screenshots
+scripts
+test-results
+tests
+.gitignore
+.prettierignore
+.prettierrc.json
+AGENTS.md
+CLAUDE.md
+components.json
+eslint.config.mjs
+next-env.d.ts
+next.config.ts
+package-lock.json
+package.json
+playwright.config.ts
+postcss.config.mjs
+README.md
+THIRD_PARTY_LICENSES.md
+tsconfig.json
+tsconfig.tsbuildinfo
+
+
+ succeeded in 978ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.4 F-2 (root_cause) — measure REAL hover-to-tooltip latency.
+ *
+ * Closes outputs/audits/continuous/4fe03f7_audit.md P1.2: the original
+ * 2C.4 spec docstring promised hover-latency measurement but no test
+ * file actually exercised it.
+ *
+ * Approach
+ * --------
+ * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+ * waits its open-delay (~600ms in base-ui v1.4 default) before showing
+ * the popup. So end-to-end user-perceived latency is:
+ *
+ *   total_ms = base_ui_open_delay_ms + react_render_ms
+ *
+ * The render contribution is what we care about for perf regressions.
+ * We bound the WHOLE thing (1000ms = 600ms typical open-delay + 400ms
+ * render budget) so a regression in either component fails the gate.
+ *
+ * Hover target: the `[#ev:ev_clin_001:1200-1450]` provenance token
+ * inside the Verified-sentences tab on golden_clinical_001.
+ */
+
+test.describe("Performance — hover-to-tooltip end-to-end latency", () => {
+  // The popup unique signature is the `<p>` containing `<evidenceId> · tier <T>`
+  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+  // base-ui doesn't put role="tooltip" on Popup so we content-select instead.
+  const POPUP_TEXT = /ev_clin_001 · tier T1/;
+
+  test("token hover → tooltip visible < 1000ms (golden_clinical_001)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+
+    const start = Date.now();
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+    const totalMs = Date.now() - start;
+
+    expect(totalMs).toBeLessThan(1000);
+  });
+
+  test("hover-out hides tooltip < 500ms", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+
+    // Move the cursor far away to trigger close.
+    const start = Date.now();
+    await page.mouse.move(0, 0);
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "hidden",
+      timeout: 1_500,
+    });
+    const closeMs = Date.now() - start;
+
+    expect(closeMs).toBeLessThan(500);
+  });
+});
+
+ succeeded in 1337ms:
+web/node_modules/@base-ui\react\accordion\index.d.ts:5:export type * from "./trigger/AccordionTrigger.js";
+web/node_modules/@base-ui\react\autocomplete\index.d.ts:3:export type * from "./trigger/AutocompleteTrigger.js";
+web/node_modules/@base-ui\react\CHANGELOG.md:235:- Close parent menus when nested link with `closeOnClick` is clicked (#4276) by @CiscoFran10
+web/node_modules/@base-ui\react\CHANGELOG.md:294:- Add `closeOnClick` prop (#4140) by @atomiks
+web/node_modules/@base-ui\react\CHANGELOG.md:1600:- Fix `closeOnClick: false` not working in nested menus (#2094) by @michaldudak
+web/node_modules/@base-ui\react\alert-dialog\index.d.ts:9:export type { DialogTriggerProps as AlertDialogTriggerProps, DialogTriggerState as AlertDialogTriggerState } from "../dialog/trigger/DialogTrigger.js";
+web/node_modules/@base-ui\react\accordion\trigger\AccordionTrigger.d.ts:11:export interface AccordionTriggerState extends AccordionItemState {}
+web/node_modules/@base-ui\react\accordion\trigger\AccordionTrigger.d.ts:12:export interface AccordionTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', AccordionTriggerState> {}
+web/node_modules/@base-ui\react\accordion\trigger\AccordionTrigger.d.ts:14:  type State = AccordionTriggerState;
+web/node_modules/@base-ui\react\accordion\trigger\AccordionTrigger.d.ts:15:  type Props = AccordionTriggerProps;
+web/node_modules/@base-ui\react\autocomplete\trigger\AutocompleteTrigger.d.ts:12:export interface AutocompleteTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\autocomplete\trigger\AutocompleteTrigger.d.ts:30:export interface AutocompleteTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', AutocompleteTriggerState> {
+web/node_modules/@base-ui\react\autocomplete\trigger\AutocompleteTrigger.d.ts:37:export interface AutocompleteTrigger {
+web/node_modules/@base-ui\react\autocomplete\trigger\AutocompleteTrigger.d.ts:41:  type State = AutocompleteTriggerState;
+web/node_modules/@base-ui\react\autocomplete\trigger\AutocompleteTrigger.d.ts:42:  type Props = AutocompleteTriggerProps;
+web/node_modules/@base-ui\react\combobox\trigger\ComboboxTrigger.d.ts:12:export interface ComboboxTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\combobox\trigger\ComboboxTrigger.d.ts:34:export interface ComboboxTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', ComboboxTriggerState> {
+web/node_modules/@base-ui\react\combobox\trigger\ComboboxTrigger.d.ts:42:  type State = ComboboxTriggerState;
+web/node_modules/@base-ui\react\combobox\trigger\ComboboxTrigger.d.ts:43:  type Props = ComboboxTriggerProps;
+web/node_modules/@base-ui\react\collapsible\trigger\CollapsibleTrigger.d.ts:11:export interface CollapsibleTriggerState extends CollapsibleRootState {}
+web/node_modules/@base-ui\react\collapsible\trigger\CollapsibleTrigger.d.ts:12:export interface CollapsibleTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', CollapsibleTriggerState> {}
+web/node_modules/@base-ui\react\collapsible\trigger\CollapsibleTrigger.d.ts:14:  type State = CollapsibleTriggerState;
+web/node_modules/@base-ui\react\collapsible\trigger\CollapsibleTrigger.d.ts:15:  type Props = CollapsibleTriggerProps;
+web/node_modules/@base-ui\react\combobox\index.d.ts:4:export type * from "./trigger/ComboboxTrigger.js";
+web/node_modules/@base-ui\react\collapsible\index.d.ts:3:export type * from "./trigger/CollapsibleTrigger.js";
+web/node_modules/@base-ui\react\utils\popups\useTriggerFocusGuards.d.ts:8:interface TriggerFocusGuardStore {
+web/node_modules/@base-ui\react\select\trigger\SelectTrigger.d.ts:11:export interface SelectTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\select\trigger\SelectTrigger.d.ts:29:export interface SelectTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', SelectTriggerState> {
+web/node_modules/@base-ui\react\select\trigger\SelectTrigger.d.ts:37:  type State = SelectTriggerState;
+web/node_modules/@base-ui\react\select\trigger\SelectTrigger.d.ts:38:  type Props = SelectTriggerProps;
+web/node_modules/@base-ui\react\popover\index.d.ts:3:export type * from "./trigger/PopoverTrigger.js";
+web/node_modules/@base-ui\react\drawer\index.d.ts:6:export type * from "./trigger/DrawerTrigger.js";
+web/node_modules/@base-ui\react\utils\popups\popupStoreUtils.d.ts:18:export declare function useTriggerDataForwarding<State extends PopupStoreState<any>>(triggerId: string | undefined, triggerElementRef: React.RefObject<Element | null>, store: ReactStore<State, PopupStoreContext<any>, typeof popupStoreSelectors>, stateUpdates: Omit<Partial<State>, 'activeTriggerId' | 'activeTriggerElement'>): {
+web/node_modules/@base-ui\react\drawer\trigger\DrawerTrigger.d.ts:11:export interface DrawerTrigger {
+web/node_modules/@base-ui\react\drawer\trigger\DrawerTrigger.d.ts:14:export interface DrawerTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', DrawerTriggerState> {
+web/node_modules/@base-ui\react\drawer\trigger\DrawerTrigger.d.ts:30:export interface DrawerTriggerState {
+web/node_modules/@base-ui\react\drawer\trigger\DrawerTrigger.d.ts:41:  type Props<Payload = unknown> = DrawerTriggerProps<Payload>;
+web/node_modules/@base-ui\react\drawer\trigger\DrawerTrigger.d.ts:42:  type State = DrawerTriggerState;
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.js:36:    closeOnClick = true,
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.js:59:    closeOnClick,
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.js:119:        store.set('closeOnClick', closeOnClick);
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:11:export interface TooltipTrigger {
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:14:export interface TooltipTriggerState {
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:20:export interface TooltipTriggerProps<Payload = unknown> extends BaseUIComponentProps<'button', TooltipTriggerState> {
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:38:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:53:  type State = TooltipTriggerState;
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:54:  type Props<Payload = unknown> = TooltipTriggerProps<Payload>;
+web/node_modules/@base-ui\react\context-menu\trigger\ContextMenuTrigger.d.ts:10:export interface ContextMenuTriggerState {
+web/node_modules/@base-ui\react\context-menu\trigger\ContextMenuTrigger.d.ts:16:export interface ContextMenuTriggerProps extends BaseUIComponentProps<'div', ContextMenuTriggerState> {}
+web/node_modules/@base-ui\react\context-menu\trigger\ContextMenuTrigger.d.ts:18:  type State = ContextMenuTriggerState;
+web/node_modules/@base-ui\react\context-menu\trigger\ContextMenuTrigger.d.ts:19:  type Props = ContextMenuTriggerProps;
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.js:23:  closeOnClick: (0, _store.createSelector)(state => state.closeOnClick),
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.js:113:    closeOnClick: true,
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.d.ts:12:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.d.ts:26:  closeOnClick: (state: State<unknown>) => boolean;
+web/node_modules/@base-ui\react\dialog\index.d.ts:3:export type * from "./trigger/DialogTrigger.js";
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:11:export interface PopoverTrigger {
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:14:export interface PopoverTriggerState {
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:24:export type PopoverTriggerProps<Payload = unknown> = NativeButtonProps & BaseUIComponentProps<'button', PopoverTriggerState> & {
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:67:  type State = PopoverTriggerState;
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:68:  type Props<Payload = unknown> = PopoverTriggerProps<Payload>;
+web/node_modules/@base-ui\react\tooltip\root\TooltipRoot.js:121:    referencePress: () => store.select('closeOnClick')
+web/node_modules/@base-ui\react\context-menu\index.d.ts:3:export type * from "./trigger/ContextMenuTrigger.js";
+web/node_modules/@base-ui\react\context-menu\index.d.ts:19:export type { MenuSubmenuTriggerProps as ContextMenuSubmenuTriggerProps, MenuSubmenuTriggerState as ContextMenuSubmenuTriggerState } from "../menu/submenu-trigger/MenuSubmenuTrigger.js";
+web/node_modules/@base-ui\react\dialog\trigger\DialogTrigger.d.ts:11:export interface DialogTrigger {
+web/node_modules/@base-ui\react\dialog\trigger\DialogTrigger.d.ts:14:export interface DialogTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', DialogTriggerState> {
+web/node_modules/@base-ui\react\dialog\trigger\DialogTrigger.d.ts:30:export interface DialogTriggerState {
+web/node_modules/@base-ui\react\dialog\trigger\DialogTrigger.d.ts:41:  type Props<Payload = unknown> = DialogTriggerProps<Payload>;
+web/node_modules/@base-ui\react\dialog\trigger\DialogTrigger.d.ts:42:  type State = DialogTriggerState;
+web/node_modules/@base-ui\react\floating-ui-react\utils\element.d.ts:1:import { type PopupTriggerMap } from "../../utils/popups/index.js";
+web/node_modules/@base-ui\react\menu\index.d.ts:18:export type * from "./trigger/MenuTrigger.js";
+web/node_modules/@base-ui\react\menu\index.d.ts:19:export type * from "./submenu-trigger/MenuSubmenuTrigger.js";
+web/node_modules/@base-ui\react\floating-ui-react\components\FloatingRootStore.d.ts:5:import { type PopupTriggerMap } from "../../utils/popups/index.js";
+web/node_modules/@base-ui\react\menu\link-item\MenuLinkItem.js:30:    closeOnClick = false,
+web/node_modules/@base-ui\react\menu\link-item\MenuLinkItem.js:55:    closeOnClick,
+web/node_modules/@base-ui\react\menu\link-item\MenuLinkItem.d.ts:29:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.js:142:    enabled: openOnHover && !disabled && parent.type !== 'context-menu' && (!isInMenubar || parentMenubarHasSubmenuOpen && !isMountedByThisTrigger),
+web/node_modules/@base-ui\react\tooltip\index.d.ts:4:export type * from "./trigger/TooltipTrigger.js";
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:11:export interface MenuTrigger {
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:14:export interface MenuTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', MenuTriggerState> {
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:49:export interface MenuTriggerState {
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:60:  type Props<Payload = unknown> = MenuTriggerProps<Payload>;
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:61:  type State = MenuTriggerState;
+web/node_modules/@base-ui\react\menu\item\MenuItem.js:30:    closeOnClick = true,
+web/node_modules/@base-ui\react\menu\item\MenuItem.js:48:    closeOnClick,
+web/node_modules/@base-ui\react\menu\item\MenuItem.d.ts:43:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\menu\checkbox-item\MenuCheckboxItem.js:37:    closeOnClick = false,
+web/node_modules/@base-ui\react\menu\checkbox-item\MenuCheckboxItem.js:64:    closeOnClick,
+web/node_modules/@base-ui\react\menu\checkbox-item\MenuCheckboxItem.d.ts:64:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\select\index.d.ts:4:export type * from "./trigger/SelectTrigger.js";
+web/node_modules/@base-ui\react\menu\item\useMenuItem.d.ts:12:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.d.ts:31:  referencePress?: (() => boolean) | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.d.ts:38:  referencePressEvent?: PressType | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:56:    referencePress = alwaysFalse,
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:57:    referencePressEvent = 'sloppy',
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:83:  const isReferencePressEnabled = (0, _useStableCallback.useStableCallback)(referencePress);
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:409:    [bubbleHandlerKeys[referencePressEvent]]: event => {
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:415:    ...(referencePressEvent !== 'intentional' && {
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useDismiss.js:423:  }), [closeOnEscapeKeyDown, store, referencePressEvent, isReferencePressEnabled]);
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.js:102:    closeOnClick: false,
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:10:export interface MenuSubmenuTriggerState {
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:24:export interface MenuSubmenuTriggerProps extends NonNativeButtonProps, BaseUIComponentProps<'div', MenuSubmenuTriggerState> {
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:60:  type Props = MenuSubmenuTriggerProps;
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:61:  type State = MenuSubmenuTriggerState;
+web/node_modules/@base-ui\react\menu\radio-item\MenuRadioItem.js:37:    closeOnClick = false,
+web/node_modules/@base-ui\react\menu\radio-item\MenuRadioItem.js:63:    closeOnClick,
+web/node_modules/@base-ui\react\menu\item\useMenuItemCommonProps.js:20:    closeOnClick,
+web/node_modules/@base-ui\react\menu\item\useMenuItemCommonProps.js:56:      if (closeOnClick) {
+web/node_modules/@base-ui\react\menu\item\useMenuItemCommonProps.js:79:        // We trigger the click and override the `closeOnClick` preference to always close the menu.
+web/node_modules/@base-ui\react\menu\item\useMenuItemCommonProps.js:85:  }), [closeOnClick, highlighted, id, menuEvents, nodeId, store, typingRef, itemRef, contextMenuContext, isContextMenu, itemMetadata]);
+web/node_modules/@base-ui\react\menu\radio-item\MenuRadioItem.d.ts:51:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\menu\item\useMenuItemCommonProps.d.ts:9:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\menu\item\useMenuItem.js:20:    closeOnClick,
+web/node_modules/@base-ui\react\menu\item\useMenuItem.js:41:    closeOnClick,
+web/node_modules/@base-ui\react\preview-card\index.d.ts:3:export type * from "./trigger/PreviewCardTrigger.js";
+web/node_modules/@base-ui\react\esm\utils\popups\useTriggerFocusGuards.d.ts:8:interface TriggerFocusGuardStore {
+web/node_modules/@base-ui\react\navigation-menu\index.d.ts:3:export type * from "./trigger/NavigationMenuTrigger.js";
+web/node_modules/@base-ui\react\esm\utils\popups\popupStoreUtils.d.ts:18:export declare function useTriggerDataForwarding<State extends PopupStoreState<any>>(triggerId: string | undefined, triggerElementRef: React.RefObject<Element | null>, store: ReactStore<State, PopupStoreContext<any>, typeof popupStoreSelectors>, stateUpdates: Omit<Partial<State>, 'activeTriggerId' | 'activeTriggerElement'>): {
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:11:export interface PreviewCardTrigger {
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:14:export interface PreviewCardTriggerState {
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:20:export interface PreviewCardTriggerProps<Payload = unknown> extends BaseUIComponentProps<'a', PreviewCardTriggerState> {
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:41:  type State = PreviewCardTriggerState;
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:42:  type Props<Payload = unknown> = PreviewCardTriggerProps<Payload>;
+web/node_modules/@base-ui\react\navigation-menu\trigger\NavigationMenuTrigger.d.ts:11:export interface NavigationMenuTriggerState {
+web/node_modules/@base-ui\react\navigation-menu\trigger\NavigationMenuTrigger.d.ts:17:export interface NavigationMenuTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', NavigationMenuTriggerState> {}
+web/node_modules/@base-ui\react\navigation-menu\trigger\NavigationMenuTrigger.d.ts:19:  type State = NavigationMenuTriggerState;
+web/node_modules/@base-ui\react\navigation-menu\trigger\NavigationMenuTrigger.d.ts:20:  type Props = NavigationMenuTriggerProps;
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.js:30:    closeOnClick = true,
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.js:53:    closeOnClick,
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.js:113:        store.set('closeOnClick', closeOnClick);
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:11:export interface TooltipTrigger {
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:14:export interface TooltipTriggerState {
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:20:export interface TooltipTriggerProps<Payload = unknown> extends BaseUIComponentProps<'button', TooltipTriggerState> {
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:38:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:53:  type State = TooltipTriggerState;
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:54:  type Props<Payload = unknown> = TooltipTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.js:16:  closeOnClick: createSelector(state => state.closeOnClick),
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.js:105:    closeOnClick: true,
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.d.ts:12:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.d.ts:26:  closeOnClick: (state: State<unknown>) => boolean;
+web/node_modules/@base-ui\react\navigation-menu\link\NavigationMenuLink.js:28:    closeOnClick = false,
+web/node_modules/@base-ui\react\navigation-menu\link\NavigationMenuLink.js:47:      if (closeOnClick) {
+web/node_modules/@base-ui\react\navigation-menu\link\NavigationMenuLink.d.ts:26:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\root\TooltipRoot.js:116:    referencePress: () => store.select('closeOnClick')
+web/node_modules/@base-ui\react\esm\context-menu\index.d.ts:3:export type * from "./trigger/ContextMenuTrigger.js";
+web/node_modules/@base-ui\react\esm\context-menu\index.d.ts:19:export type { MenuSubmenuTriggerProps as ContextMenuSubmenuTriggerProps, MenuSubmenuTriggerState as ContextMenuSubmenuTriggerState } from "../menu/submenu-trigger/MenuSubmenuTrigger.js";
+web/node_modules/@base-ui\react\esm\tooltip\index.d.ts:4:export type * from "./trigger/TooltipTrigger.js";
+web/node_modules/@base-ui\react\esm\context-menu\trigger\ContextMenuTrigger.d.ts:10:export interface ContextMenuTriggerState {
+web/node_modules/@base-ui\react\esm\context-menu\trigger\ContextMenuTrigger.d.ts:16:export interface ContextMenuTriggerProps extends BaseUIComponentProps<'div', ContextMenuTriggerState> {}
+web/node_modules/@base-ui\react\esm\context-menu\trigger\ContextMenuTrigger.d.ts:18:  type State = ContextMenuTriggerState;
+web/node_modules/@base-ui\react\esm\context-menu\trigger\ContextMenuTrigger.d.ts:19:  type Props = ContextMenuTriggerProps;
+web/node_modules/@base-ui\react\esm\alert-dialog\index.d.ts:9:export type { DialogTriggerProps as AlertDialogTriggerProps, DialogTriggerState as AlertDialogTriggerState } from "../dialog/trigger/DialogTrigger.js";
+web/node_modules/@base-ui\react\esm\collapsible\index.d.ts:3:export type * from "./trigger/CollapsibleTrigger.js";
+web/node_modules/@base-ui\react\esm\collapsible\trigger\CollapsibleTrigger.d.ts:11:export interface CollapsibleTriggerState extends CollapsibleRootState {}
+web/node_modules/@base-ui\react\esm\collapsible\trigger\CollapsibleTrigger.d.ts:12:export interface CollapsibleTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', CollapsibleTriggerState> {}
+web/node_modules/@base-ui\react\esm\collapsible\trigger\CollapsibleTrigger.d.ts:14:  type State = CollapsibleTriggerState;
+web/node_modules/@base-ui\react\esm\collapsible\trigger\CollapsibleTrigger.d.ts:15:  type Props = CollapsibleTriggerProps;
+web/node_modules/@base-ui\react\esm\accordion\trigger\AccordionTrigger.d.ts:11:export interface AccordionTriggerState extends AccordionItemState {}
+web/node_modules/@base-ui\react\esm\accordion\trigger\AccordionTrigger.d.ts:12:export interface AccordionTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', AccordionTriggerState> {}
+web/node_modules/@base-ui\react\esm\accordion\trigger\AccordionTrigger.d.ts:14:  type State = AccordionTriggerState;
+web/node_modules/@base-ui\react\esm\accordion\trigger\AccordionTrigger.d.ts:15:  type Props = AccordionTriggerProps;
+web/node_modules/@base-ui\react\esm\combobox\index.d.ts:4:export type * from "./trigger/ComboboxTrigger.js";
+web/node_modules/@base-ui\react\esm\autocomplete\index.d.ts:3:export type * from "./trigger/AutocompleteTrigger.js";
+web/node_modules/@base-ui\react\esm\accordion\index.d.ts:5:export type * from "./trigger/AccordionTrigger.js";
+web/node_modules/@base-ui\react\esm\floating-ui-react\utils\element.d.ts:1:import { type PopupTriggerMap } from "../../utils/popups/index.js";
+web/node_modules/@base-ui\react\esm\combobox\trigger\ComboboxTrigger.d.ts:12:export interface ComboboxTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\esm\combobox\trigger\ComboboxTrigger.d.ts:34:export interface ComboboxTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', ComboboxTriggerState> {
+web/node_modules/@base-ui\react\esm\combobox\trigger\ComboboxTrigger.d.ts:42:  type State = ComboboxTriggerState;
+web/node_modules/@base-ui\react\esm\combobox\trigger\ComboboxTrigger.d.ts:43:  type Props = ComboboxTriggerProps;
+web/node_modules/@base-ui\react\esm\autocomplete\trigger\AutocompleteTrigger.d.ts:12:export interface AutocompleteTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\esm\autocomplete\trigger\AutocompleteTrigger.d.ts:30:export interface AutocompleteTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', AutocompleteTriggerState> {
+web/node_modules/@base-ui\react\esm\autocomplete\trigger\AutocompleteTrigger.d.ts:37:export interface AutocompleteTrigger {
+web/node_modules/@base-ui\react\esm\autocomplete\trigger\AutocompleteTrigger.d.ts:41:  type State = AutocompleteTriggerState;
+web/node_modules/@base-ui\react\esm\autocomplete\trigger\AutocompleteTrigger.d.ts:42:  type Props = AutocompleteTriggerProps;
+web/node_modules/@base-ui\react\esm\navigation-menu\trigger\NavigationMenuTrigger.d.ts:11:export interface NavigationMenuTriggerState {
+web/node_modules/@base-ui\react\esm\navigation-menu\trigger\NavigationMenuTrigger.d.ts:17:export interface NavigationMenuTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', NavigationMenuTriggerState> {}
+web/node_modules/@base-ui\react\esm\navigation-menu\trigger\NavigationMenuTrigger.d.ts:19:  type State = NavigationMenuTriggerState;
+web/node_modules/@base-ui\react\esm\navigation-menu\trigger\NavigationMenuTrigger.d.ts:20:  type Props = NavigationMenuTriggerProps;
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:50:    referencePress = alwaysFalse,
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:51:    referencePressEvent = 'sloppy',
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:77:  const isReferencePressEnabled = useStableCallback(referencePress);
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:403:    [bubbleHandlerKeys[referencePressEvent]]: event => {
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:409:    ...(referencePressEvent !== 'intentional' && {
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.js:417:  }), [closeOnEscapeKeyDown, store, referencePressEvent, isReferencePressEnabled]);
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.d.ts:31:  referencePress?: (() => boolean) | undefined;
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useDismiss.d.ts:38:  referencePressEvent?: PressType | undefined;
+web/node_modules/@base-ui\react\esm\navigation-menu\index.d.ts:3:export type * from "./trigger/NavigationMenuTrigger.js";
+web/node_modules/@base-ui\react\esm\floating-ui-react\components\FloatingRootStore.d.ts:5:import { type PopupTriggerMap } from "../../utils/popups/index.js";
+web/node_modules/@base-ui\react\esm\menu\index.d.ts:18:export type * from "./trigger/MenuTrigger.js";
+web/node_modules/@base-ui\react\esm\menu\index.d.ts:19:export type * from "./submenu-trigger/MenuSubmenuTrigger.js";
+web/node_modules/@base-ui\react\esm\select\index.d.ts:4:export type * from "./trigger/SelectTrigger.js";
+web/node_modules/@base-ui\react\esm\navigation-menu\link\NavigationMenuLink.js:23:    closeOnClick = false,
+web/node_modules/@base-ui\react\esm\navigation-menu\link\NavigationMenuLink.js:42:      if (closeOnClick) {
+web/node_modules/@base-ui\react\esm\navigation-menu\link\NavigationMenuLink.d.ts:26:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\menu\radio-item\MenuRadioItem.js:32:    closeOnClick = false,
+web/node_modules/@base-ui\react\esm\menu\radio-item\MenuRadioItem.js:58:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\radio-item\MenuRadioItem.d.ts:51:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\select\trigger\SelectTrigger.d.ts:11:export interface SelectTriggerState extends FieldRootState {
+web/node_modules/@base-ui\react\esm\select\trigger\SelectTrigger.d.ts:29:export interface SelectTriggerProps extends NativeButtonProps, BaseUIComponentProps<'button', SelectTriggerState> {
+web/node_modules/@base-ui\react\esm\select\trigger\SelectTrigger.d.ts:37:  type State = SelectTriggerState;
+web/node_modules/@base-ui\react\esm\select\trigger\SelectTrigger.d.ts:38:  type Props = SelectTriggerProps;
+web/node_modules/@base-ui\react\esm\menu\checkbox-item\MenuCheckboxItem.js:31:    closeOnClick = false,
+web/node_modules/@base-ui\react\esm\menu\checkbox-item\MenuCheckboxItem.js:58:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\checkbox-item\MenuCheckboxItem.d.ts:64:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.js:135:    enabled: openOnHover && !disabled && parent.type !== 'context-menu' && (!isInMenubar || parentMenubarHasSubmenuOpen && !isMountedByThisTrigger),
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:11:export interface MenuTrigger {
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:14:export interface MenuTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', MenuTriggerState> {
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:49:export interface MenuTriggerState {
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:60:  type Props<Payload = unknown> = MenuTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:61:  type State = MenuTriggerState;
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.js:96:    closeOnClick: false,
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItemCommonProps.js:14:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItemCommonProps.js:50:      if (closeOnClick) {
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItemCommonProps.js:73:        // We trigger the click and override the `closeOnClick` preference to always close the menu.
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItemCommonProps.js:79:  }), [closeOnClick, highlighted, id, menuEvents, nodeId, store, typingRef, itemRef, contextMenuContext, isContextMenu, itemMetadata]);
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:10:export interface MenuSubmenuTriggerState {
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:24:export interface MenuSubmenuTriggerProps extends NonNativeButtonProps, BaseUIComponentProps<'div', MenuSubmenuTriggerState> {
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:60:  type Props = MenuSubmenuTriggerProps;
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:61:  type State = MenuSubmenuTriggerState;
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItemCommonProps.d.ts:9:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItem.js:13:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItem.js:34:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\item\useMenuItem.d.ts:12:  closeOnClick: boolean;
+web/node_modules/@base-ui\react\esm\menu\item\MenuItem.js:25:    closeOnClick = true,
+web/node_modules/@base-ui\react\esm\menu\item\MenuItem.js:43:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\item\MenuItem.d.ts:43:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\menu\link-item\MenuLinkItem.js:25:    closeOnClick = false,
+web/node_modules/@base-ui\react\esm\menu\link-item\MenuLinkItem.js:50:    closeOnClick,
+web/node_modules/@base-ui\react\esm\menu\link-item\MenuLinkItem.d.ts:29:  closeOnClick?: boolean | undefined;
+web/node_modules/@base-ui\react\esm\dialog\index.d.ts:3:export type * from "./trigger/DialogTrigger.js";
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:11:export interface PopoverTrigger {
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:14:export interface PopoverTriggerState {
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:24:export type PopoverTriggerProps<Payload = unknown> = NativeButtonProps & BaseUIComponentProps<'button', PopoverTriggerState> & {
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:67:  type State = PopoverTriggerState;
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:68:  type Props<Payload = unknown> = PopoverTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:11:export interface PreviewCardTrigger {
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:14:export interface PreviewCardTriggerState {
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:20:export interface PreviewCardTriggerProps<Payload = unknown> extends BaseUIComponentProps<'a', PreviewCardTriggerState> {
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:41:  type State = PreviewCardTriggerState;
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:42:  type Props<Payload = unknown> = PreviewCardTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\popover\index.d.ts:3:export type * from "./trigger/PopoverTrigger.js";
+web/node_modules/@base-ui\react\esm\drawer\index.d.ts:6:export type * from "./trigger/DrawerTrigger.js";
+web/node_modules/@base-ui\react\esm\preview-card\index.d.ts:3:export type * from "./trigger/PreviewCardTrigger.js";
+web/node_modules/@base-ui\react\esm\dialog\trigger\DialogTrigger.d.ts:11:export interface DialogTrigger {
+web/node_modules/@base-ui\react\esm\dialog\trigger\DialogTrigger.d.ts:14:export interface DialogTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', DialogTriggerState> {
+web/node_modules/@base-ui\react\esm\dialog\trigger\DialogTrigger.d.ts:30:export interface DialogTriggerState {
+web/node_modules/@base-ui\react\esm\dialog\trigger\DialogTrigger.d.ts:41:  type Props<Payload = unknown> = DialogTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\dialog\trigger\DialogTrigger.d.ts:42:  type State = DialogTriggerState;
+web/node_modules/@base-ui\react\esm\drawer\trigger\DrawerTrigger.d.ts:11:export interface DrawerTrigger {
+web/node_modules/@base-ui\react\esm\drawer\trigger\DrawerTrigger.d.ts:14:export interface DrawerTriggerProps<Payload = unknown> extends NativeButtonProps, BaseUIComponentProps<'button', DrawerTriggerState> {
+web/node_modules/@base-ui\react\esm\drawer\trigger\DrawerTrigger.d.ts:30:export interface DrawerTriggerState {
+web/node_modules/@base-ui\react\esm\drawer\trigger\DrawerTrigger.d.ts:41:  type Props<Payload = unknown> = DrawerTriggerProps<Payload>;
+web/node_modules/@base-ui\react\esm\drawer\trigger\DrawerTrigger.d.ts:42:  type State = DrawerTriggerState;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/root/TooltipRoot.js | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/root/TooltipRoot.d.ts | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/trigger/TooltipTrigger.js | Select-Object -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/eslint.config.mjs' in C:\POLARIS
+ succeeded in 1170ms:
+'use client';
+
+import * as React from 'react';
+import { fastComponent } from '@base-ui/utils/fastHooks';
+import { useOnFirstRender } from '@base-ui/utils/useOnFirstRender';
+import { useIsoLayoutEffect } from '@base-ui/utils/useIsoLayoutEffect';
+import { TooltipRootContext } from "./TooltipRootContext.js";
+import { useClientPoint, useDismiss, useInteractions } from "../../floating-ui-react/index.js";
+import { createChangeEventDetails } from "../../internals/createBaseUIEventDetails.js";
+import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+import { TooltipStore } from "../store/TooltipStore.js";
+import { REASONS } from "../../internals/reasons.js";
+
+/**
+ * Groups all parts of the tooltip.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+import { jsx as _jsx } from "react/jsx-runtime";
+export const TooltipRoot = fastComponent(function TooltipRoot(props) {
+  const {
+    disabled = false,
+    defaultOpen = false,
+    open: openProp,
+    disableHoverablePopup = false,
+    trackCursorAxis = 'none',
+    actionsRef,
+    onOpenChange,
+    onOpenChangeComplete,
+    handle,
+    triggerId: triggerIdProp,
+    defaultTriggerId: defaultTriggerIdProp = null,
+    children
+  } = props;
+  const store = TooltipStore.useStore(handle?.store, {
+    open: defaultOpen,
+    openProp,
+    activeTriggerId: defaultTriggerIdProp,
+    triggerIdProp
+  });
+
+  // Support initially open state when uncontrolled
+  useOnFirstRender(() => {
+    if (openProp === undefined && store.state.open === false && defaultOpen === true) {
+      store.update({
+        open: true,
+        activeTriggerId: defaultTriggerIdProp
+      });
+    }
+  });
+  store.useControlledProp('openProp', openProp);
+  store.useControlledProp('triggerIdProp', triggerIdProp);
+  store.useContextCallback('onOpenChange', onOpenChange);
+  store.useContextCallback('onOpenChangeComplete', onOpenChangeComplete);
+  const openState = store.useState('open');
+  const open = !disabled && openState;
+  const activeTriggerId = store.useState('activeTriggerId');
+  const payload = store.useState('payload');
+  store.useSyncedValues({
+    trackCursorAxis,
+    disableHoverablePopup
+  });
+  useIsoLayoutEffect(() => {
+    if (openState && disabled) {
+      store.setOpen(false, createChangeEventDetails(REASONS.disabled));
+    }
+  }, [openState, disabled, store]);
+  store.useSyncedValue('disabled', disabled);
+  useImplicitActiveTrigger(store);
+  const {
+    forceUnmount,
+    transitionStatus
+  } = useOpenStateTransitions(open, store);
+  const floatingRootContext = store.select('floatingRootContext');
+  const isInstantPhase = store.useState('isInstantPhase');
+  const instantType = store.useState('instantType');
+  const lastOpenChangeReason = store.useState('lastOpenChangeReason');
+
+  // Animations should be instant in two cases:
+  // 1) Opening during the provider's instant phase (adjacent tooltip opens instantly)
+  // 2) Closing because another tooltip opened (reason === 'none')
+  // Otherwise, allow the animation to play. In particular, do not disable animations
+  // during the 'ending' phase unless it's due to a sibling opening.
+  const previousInstantTypeRef = React.useRef(null);
+  useIsoLayoutEffect(() => {
+    if (transitionStatus === 'ending' && lastOpenChangeReason === REASONS.none || transitionStatus !== 'ending' && isInstantPhase) {
+      // Capture the current instant type so we can restore it later
+      // and set to 'delay' to disable animations while moving from one trigger to another
+      // within a delay group.
+      if (instantType !== 'delay') {
+        previousInstantTypeRef.current = instantType;
+      }
+      store.set('instantType', 'delay');
+    } else if (previousInstantTypeRef.current !== null) {
+      store.set('instantType', previousInstantTypeRef.current);
+      previousInstantTypeRef.current = null;
+    }
+  }, [transitionStatus, isInstantPhase, lastOpenChangeReason, instantType, store]);
+  useIsoLayoutEffect(() => {
+    if (open) {
+      if (activeTriggerId == null) {
+        store.set('payload', undefined);
+      }
+    }
+  }, [store, activeTriggerId, open]);
+  const handleImperativeClose = React.useCallback(() => {
+    store.setOpen(false, createChangeEventDetails(REASONS.imperativeAction));
+  }, [store]);
+  React.useImperativeHandle(actionsRef, () => ({
+    unmount: forceUnmount,
+    close: handleImperativeClose
+  }), [forceUnmount, handleImperativeClose]);
+  const dismiss = useDismiss(floatingRootContext, {
+    enabled: !disabled,
+    referencePress: () => store.select('closeOnClick')
+  });
+  const clientPoint = useClientPoint(floatingRootContext, {
+    enabled: !disabled && trackCursorAxis !== 'none',
+    axis: trackCursorAxis === 'none' ? undefined : trackCursorAxis
+  });
+  const {
+    getReferenceProps,
+    getFloatingProps,
+    getTriggerProps
+  } = useInteractions([dismiss, clientPoint]);
+  const activeTriggerProps = React.useMemo(() => getReferenceProps(), [getReferenceProps]);
+  const inactiveTriggerProps = React.useMemo(() => getTriggerProps(), [getTriggerProps]);
+  const popupProps = React.useMemo(() => getFloatingProps(), [getFloatingProps]);
+  store.useSyncedValues({
+    activeTriggerProps,
+    inactiveTriggerProps,
+    popupProps
+  });
+  return /*#__PURE__*/_jsx(TooltipRootContext.Provider, {
+    value: store,
+    children: typeof children === 'function' ? children({
+      payload
+    }) : children
+  });
+});
+if (process.env.NODE_ENV !== "production") TooltipRoot.displayName = "TooltipRoot";
+
+ succeeded in 1188ms:
+import * as React from 'react';
+import { type BaseUIChangeEventDetails } from "../../internals/createBaseUIEventDetails.js";
+import { type PayloadChildRenderFunction } from "../../utils/popups/index.js";
+import { type TooltipHandle } from "../store/TooltipHandle.js";
+import { REASONS } from "../../internals/reasons.js";
+/**
+ * Groups all parts of the tooltip.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipRoot: <Payload>(props: TooltipRoot.Props<Payload>) => import("react/jsx-runtime").JSX.Element;
+export interface TooltipRootState {}
+export interface TooltipRootProps<Payload = unknown> {
+  /**
+   * Whether the tooltip is initially open.
+   *
+   * To render a controlled tooltip, use the `open` prop instead.
+   * @default false
+   */
+  defaultOpen?: boolean | undefined;
+  /**
+   * Whether the tooltip is currently open.
+   */
+  open?: boolean | undefined;
+  /**
+   * Event handler called when the tooltip is opened or closed.
+   */
+  onOpenChange?: ((open: boolean, eventDetails: TooltipRoot.ChangeEventDetails) => void) | undefined;
+  /**
+   * Event handler called after any animations complete when the tooltip is opened or closed.
+   */
+  onOpenChangeComplete?: ((open: boolean) => void) | undefined;
+  /**
+   * Whether the tooltip contents can be hovered without closing the tooltip.
+   * @default false
+   */
+  disableHoverablePopup?: boolean | undefined;
+  /**
+   * Determines which axis the tooltip should track the cursor on.
+   * @default 'none'
+   */
+  trackCursorAxis?: 'none' | 'x' | 'y' | 'both' | undefined;
+  /**
+   * A ref to imperative actions.
+   * - `unmount`: Unmounts the tooltip popup.
+   * - `close`: Closes the tooltip imperatively when called.
+   */
+  actionsRef?: React.RefObject<TooltipRoot.Actions | null> | undefined;
+  /**
+   * Whether the tooltip is disabled.
+   * @default false
+   */
+  disabled?: boolean | undefined;
+  /**
+   * A handle to associate the tooltip with a trigger.
+   * If specified, allows external triggers to control the tooltip's open state.
+   * Can be created with the Tooltip.createHandle() method.
+   */
+  handle?: TooltipHandle<Payload> | undefined;
+  /**
+   * The content of the tooltip.
+   * This can be a regular React node or a render function that receives the `payload` of the active trigger.
+   */
+  children?: React.ReactNode | PayloadChildRenderFunction<Payload>;
+  /**
+   * ID of the trigger that the tooltip is associated with.
+   * This is useful in conjunction with the `open` prop to create a controlled tooltip.
+   * There's no need to specify this prop when the tooltip is uncontrolled (that is, when the `open` prop is not set).
+   */
+  triggerId?: string | null | undefined;
+  /**
+   * ID of the trigger that the tooltip is associated with.
+   * This is useful in conjunction with the `defaultOpen` prop to create an initially open tooltip.
+   */
+  defaultTriggerId?: string | null | undefined;
+}
+export interface TooltipRootActions {
+  unmount: () => void;
+  close: () => void;
+}
+export type TooltipRootChangeEventReason = typeof REASONS.triggerHover | typeof REASONS.triggerFocus | typeof REASONS.triggerPress | typeof REASONS.outsidePress | typeof REASONS.escapeKey | typeof REASONS.disabled | typeof REASONS.imperativeAction | typeof REASONS.none;
+export type TooltipRootChangeEventDetails = BaseUIChangeEventDetails<TooltipRoot.ChangeEventReason> & {
+  preventUnmountOnClose(): void;
+};
+export declare namespace TooltipRoot {
+  type State = TooltipRootState;
+  type Props<Payload = unknown> = TooltipRootProps<Payload>;
+  type Actions = TooltipRootActions;
+  type ChangeEventReason = TooltipRootChangeEventReason;
+  type ChangeEventDetails = TooltipRootChangeEventDetails;
+}
+
+ succeeded in 1202ms:
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+import prettier from "eslint-config-prettier";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  prettier,
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "screenshots/**",
+    "node_modules/**",
+  ]),
+]);
+
+export default eslintConfig;
+
+ succeeded in 1247ms:
+'use client';
+
+import _formatErrorMessage from "@base-ui/utils/formatErrorMessage";
+import * as React from 'react';
+import { fastComponentRef } from '@base-ui/utils/fastHooks';
+import { useTooltipRootContext } from "../root/TooltipRootContext.js";
+import { triggerOpenStateMapping } from "../../utils/popupStateMapping.js";
+import { useRenderElement } from "../../internals/useRenderElement.js";
+import { useTriggerDataForwarding } from "../../utils/popups/index.js";
+import { useBaseUiId } from "../../internals/useBaseUiId.js";
+import { useTooltipProviderContext } from "../provider/TooltipProviderContext.js";
+import { safePolygon, useDelayGroup, useFocus, useHoverReferenceInteraction } from "../../floating-ui-react/index.js";
+import { TooltipTriggerDataAttributes } from "./TooltipTriggerDataAttributes.js";
+import { OPEN_DELAY } from "../utils/constants.js";
+
+/**
+ * An element to attach the tooltip to.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export const TooltipTrigger = fastComponentRef(function TooltipTrigger(componentProps, forwardedRef) {
+  const {
+    className,
+    render,
+    handle,
+    payload,
+    disabled: disabledProp,
+    delay,
+    closeOnClick = true,
+    closeDelay,
+    id: idProp,
+    style,
+    ...elementProps
+  } = componentProps;
+  const rootContext = useTooltipRootContext(true);
+  const store = handle?.store ?? rootContext;
+  if (!store) {
+    throw new Error(process.env.NODE_ENV !== "production" ? 'Base UI: <Tooltip.Trigger> must be either used within a <Tooltip.Root> component or provided with a handle.' : _formatErrorMessage(82));
+  }
+  const thisTriggerId = useBaseUiId(idProp);
+  const isTriggerActive = store.useState('isTriggerActive', thisTriggerId);
+  const isOpenedByThisTrigger = store.useState('isOpenedByTrigger', thisTriggerId);
+  const floatingRootContext = store.useState('floatingRootContext');
+  const triggerElementRef = React.useRef(null);
+  const delayWithDefault = delay ?? OPEN_DELAY;
+  const closeDelayWithDefault = closeDelay ?? 0;
+  const {
+    registerTrigger,
+    isMountedByThisTrigger
+  } = useTriggerDataForwarding(thisTriggerId, triggerElementRef, store, {
+    payload,
+    closeOnClick,
+    closeDelay: closeDelayWithDefault
+  });
+  const providerContext = useTooltipProviderContext();
+  const {
+    delayRef,
+    isInstantPhase,
+    hasProvider
+  } = useDelayGroup(floatingRootContext, {
+    open: isOpenedByThisTrigger
+  });
+  store.useSyncedValue('isInstantPhase', isInstantPhase);
+  const rootDisabled = store.useState('disabled');
+  const disabled = disabledProp ?? rootDisabled;
+  const trackCursorAxis = store.useState('trackCursorAxis');
+  const disableHoverablePopup = store.useState('disableHoverablePopup');
+  const hoverProps = useHoverReferenceInteraction(floatingRootContext, {
+    enabled: !disabled,
+    mouseOnly: true,
+    move: false,
+    handleClose: !disableHoverablePopup && trackCursorAxis !== 'both' ? safePolygon() : null,
+    restMs() {
+      const providerDelay = providerContext?.delay;
+      const groupOpenValue = typeof delayRef.current === 'object' ? delayRef.current.open : undefined;
+      let computedRestMs = delayWithDefault;
+      if (hasProvider) {
+        if (groupOpenValue !== 0) {
+          computedRestMs = delay ?? providerDelay ?? delayWithDefault;
+        } else {
+          computedRestMs = 0;
+        }
+      }
+      return computedRestMs;
+    },
+    delay() {
+      const closeValue = typeof delayRef.current === 'object' ? delayRef.current.close : undefined;
+      let computedCloseDelay = closeDelayWithDefault;
+      if (closeDelay == null && hasProvider) {
+        computedCloseDelay = closeValue;
+      }
+      return {
+        close: computedCloseDelay
+      };
+    },
+    triggerElementRef,
+    isActiveTrigger: isTriggerActive,
+    isClosing: () => store.select('transitionStatus') === 'ending'
+  });
+  const focusProps = useFocus(floatingRootContext, {
+    enabled: !disabled
+  }).reference;
+  const state = {
+    open: isOpenedByThisTrigger
+  };
+  const rootTriggerProps = store.useState('triggerProps', isMountedByThisTrigger);
+  const element = useRenderElement('button', componentProps, {
+    state,
+    ref: [forwardedRef, registerTrigger, triggerElementRef],
+    props: [hoverProps, focusProps, rootTriggerProps, {
+      onPointerDown() {
+        store.set('closeOnClick', closeOnClick);
+      },
+      id: thisTriggerId,
+      [TooltipTriggerDataAttributes.triggerDisabled]: disabled ? '' : undefined
+    }, elementProps],
+    stateAttributesMapping: triggerOpenStateMapping
+  });
+  return element;
+});
+if (process.env.NODE_ENV !== "production") TooltipTrigger.displayName = "TooltipTrigger";
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function useImplicitActiveTrigger|useImplicitActiveTrigger" web/node_modules/@base-ui/react/esm -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/utils/popups/index.js | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "activeTriggerId|triggerElement|positioner" web/node_modules/@base-ui/react/esm/tooltip web/node_modules/@base-ui/react/esm/utils/popups -S' in C:\POLARIS
+ succeeded in 927ms:
+export * from "./popupStoreUtils.js";
+export * from "./popupTriggerMap.js";
+export * from "./store.js";
+
+ succeeded in 937ms:
+web/node_modules/@base-ui/react/esm\dialog\root\useDialogRoot.js:10:import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+web/node_modules/@base-ui/react/esm\dialog\root\useDialogRoot.js:26:  useImplicitActiveTrigger(store);
+web/node_modules/@base-ui/react/esm\menu\root\MenuRoot.js:22:import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+web/node_modules/@base-ui/react/esm\menu\root\MenuRoot.js:150:  useImplicitActiveTrigger(store);
+web/node_modules/@base-ui/react/esm\utils\popups\popupStoreUtils.js:99:export function useImplicitActiveTrigger(store) {
+web/node_modules/@base-ui/react/esm\utils\popups\popupStoreUtils.d.ts:35:export declare function useImplicitActiveTrigger<State extends PopupStoreState<any>>(store: ReactStore<State, PopupStoreContext<any>, typeof popupStoreSelectors>): void;
+web/node_modules/@base-ui/react/esm\tooltip\root\TooltipRoot.js:10:import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+web/node_modules/@base-ui/react/esm\tooltip\root\TooltipRoot.js:70:  useImplicitActiveTrigger(store);
+web/node_modules/@base-ui/react/esm\popover\root\PopoverRoot.js:10:import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+web/node_modules/@base-ui/react/esm\popover\root\PopoverRoot.js:54:  useImplicitActiveTrigger(store);
+web/node_modules/@base-ui/react/esm\preview-card\root\PreviewCardRoot.js:11:import { useImplicitActiveTrigger, useOpenStateTransitions } from "../../utils/popups/index.js";
+web/node_modules/@base-ui/react/esm\preview-card\root\PreviewCardRoot.js:49:  useImplicitActiveTrigger(store);
+
+ succeeded in 964ms:
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.js:22:export function useTriggerFocusGuards(store, triggerElementRef) {
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.js:32:    const positionerElement = store.select('positionerElement');
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.js:33:    if (positionerElement && isOutsideEvent(event, positionerElement)) {
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.js:39:      let nextTabbable = getTabbableAfterElement(store.context.triggerFocusTargetRef.current || triggerElementRef.current);
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.js:40:      while (nextTabbable !== null && contains(positionerElement, nextTabbable)) {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:24:      const currentElement = store.context.triggerElements.getById(registeredId);
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:26:        store.context.triggerElements.delete(registeredId);
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:34:      store.context.triggerElements.add(id, element);
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:43: * @param triggerElement The trigger DOM element.
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:47:export function useTriggerDataForwarding(triggerId, triggerElementRef, store, stateUpdates) {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:55:    const activeTriggerId = store.select('activeTriggerId');
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:56:    if (activeTriggerId === triggerId) {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:63:    if (activeTriggerId == null) {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:66:      // In such cases the first trigger to run this code becomes the active trigger (store.select('activeTriggerId') should not return null after that).
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:69:        activeTriggerId: triggerId,
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:78:        activeTriggerElement: triggerElementRef.current,
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:83:  }, [isMountedByThisTrigger, store, triggerElementRef, ...Object.values(stateUpdates)]);
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:102:    if (open && !store.select('activeTriggerId') && store.context.triggerElements.size === 1) {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:103:      const iteratorResult = store.context.triggerElements.entries().next();
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:107:          activeTriggerId: implicitTriggerId,
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.js:139:      activeTriggerId: null,
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.d.ts:10:  select(key: 'positionerElement'): HTMLElement | null;
+web/node_modules/@base-ui/react/esm/utils/popups\useTriggerFocusGuards.d.ts:23:export declare function useTriggerFocusGuards(store: TriggerFocusGuardStore, triggerElementRef: React.RefObject<HTMLElement | null>): {
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.d.ts:14: * @param triggerElement The trigger DOM element.
+web/node_modules/@base-ui/react/esm/utils/popups\popupStoreUtils.d.ts:18:export declare function useTriggerDataForwarding<State extends PopupStoreState<any>>(triggerId: string | undefined, triggerElementRef: React.RefObject<Element | null>, store: ReactStore<State, PopupStoreContext<any>, typeof popupStoreSelectors>, stateUpdates: Omit<Partial<State>, 'activeTriggerId' | 'activeTriggerElement'>): {
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:18:    activeTriggerId: null,
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:22:    positionerElement: null,
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:28:const activeTriggerIdSelector = createSelector(state => state.triggerIdProp ?? state.activeTriggerId);
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:36:  activeTriggerId: activeTriggerIdSelector,
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:41:  isTriggerActive: createSelector((state, triggerId) => triggerId !== undefined && activeTriggerIdSelector(state) === triggerId),
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:45:  isOpenedByTrigger: createSelector((state, triggerId) => triggerId !== undefined && activeTriggerIdSelector(state) === triggerId && state.open),
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:49:  isMountedByTrigger: createSelector((state, triggerId) => triggerId !== undefined && activeTriggerIdSelector(state) === triggerId && state.mounted),
+web/node_modules/@base-ui/react/esm/utils/popups\store.js:53:  positionerElement: createSelector(state => state.positionerElement)
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:39:  activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:53:   * The positioner DOM element.
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:55:  positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:74:  readonly triggerElements: PopupTriggerMap;
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:96:  activeTriggerId: (state: S) => string | null;
+web/node_modules/@base-ui/react/esm/utils/popups\store.d.ts:113:  positionerElement: (state: S) => HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\index.parts.d.ts:4:export { TooltipPositioner as Positioner } from "./positioner/TooltipPositioner.js";
+web/node_modules/@base-ui/react/esm/tooltip\index.d.ts:6:export type * from "./positioner/TooltipPositioner.js";
+web/node_modules/@base-ui/react/esm/tooltip\index.parts.js:4:export { TooltipPositioner as Positioner } from "./positioner/TooltipPositioner.js";
+web/node_modules/@base-ui/react/esm/tooltip\popup\TooltipPopup.js:5:import { useTooltipPositionerContext } from "../positioner/TooltipPositionerContext.js";
+web/node_modules/@base-ui/react/esm/tooltip\arrow\TooltipArrow.js:4:import { useTooltipPositionerContext } from "../positioner/TooltipPositionerContext.js";
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.js:29:      triggerElements: new PopupTriggerMap()
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.js:62:        updatedState.activeTriggerId = newTriggerId;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:37:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:41:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:54:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:58:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:71:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:75:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:88:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:92:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:105:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:109:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:122:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:126:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:131:  activeTriggerId: (state: {
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:139:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:143:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:156:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:160:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:173:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:177:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:190:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:194:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:207:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:211:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:224:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:228:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:241:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:245:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:258:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:262:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:267:  positionerElement: (state: {
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:275:    activeTriggerId: string | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipStore.d.ts:279:    positionerElement: HTMLElement | null;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipHandle.js:28:    const triggerElement = triggerId ? this.store.context.triggerElements.getById(triggerId) : undefined;
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipHandle.js:29:    if (triggerId && !triggerElement) {
+web/node_modules/@base-ui/react/esm/tooltip\store\TooltipHandle.js:32:    this.store.setOpen(true, createChangeEventDetails(REASONS.imperativeAction, undefined, triggerElement));
+web/node_modules/@base-ui/react/esm/tooltip\root\TooltipRoot.js:39:    activeTriggerId: defaultTriggerIdProp,
+web/node_modules/@base-ui/react/esm/tooltip\root\TooltipRoot.js:48:        activeTriggerId: defaultTriggerIdProp
+web/node_modules/@base-ui/react/esm/tooltip\root\TooltipRoot.js:58:  const activeTriggerId = store.useState('activeTriggerId');
+web/node_modules/@base-ui/react/esm/tooltip\root\TooltipRoot.js:102:      if (activeTriggerId == null) {
+web/node_modules/@base-ui/react/esm/tooltip\root\TooltipRoot.js:106:  }, [store, activeTriggerId, open]);
+web/node_modules/@base-ui/react/esm/tooltip\positioner\TooltipPositioner.js:74:    styles: positioning.positionerStyles,
+web/node_modules/@base-ui/react/esm/tooltip\positioner\TooltipPositioner.js:77:    refs: [forwardedRef, store.useStateSetter('positionerElement')],
+web/node_modules/@base-ui/react/esm/tooltip\viewport\TooltipViewport.js:5:import { useTooltipPositionerContext } from "../positioner/TooltipPositionerContext.js";
+web/node_modules/@base-ui/react/esm/tooltip\viewport\TooltipViewport.js:32:  const positioner = useTooltipPositionerContext();
+web/node_modules/@base-ui/react/esm/tooltip\viewport\TooltipViewport.js:39:    side: positioner.side,
+web/node_modules/@base-ui/react/esm/tooltip\trigger\TooltipTrigger.js:45:  const triggerElementRef = React.useRef(null);
+web/node_modules/@base-ui/react/esm/tooltip\trigger\TooltipTrigger.js:51:  } = useTriggerDataForwarding(thisTriggerId, triggerElementRef, store, {
+web/node_modules/@base-ui/react/esm/tooltip\trigger\TooltipTrigger.js:97:    triggerElementRef,
+web/node_modules/@base-ui/react/esm/tooltip\trigger\TooltipTrigger.js:110:    ref: [forwardedRef, registerTrigger, triggerElementRef],
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/utils/popups/popupStoreUtils.js | Select-Object -First 170' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/positioner/TooltipPositioner.js | Select-Object -First 130' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/store/TooltipStore.js | Select-Object -First 140' in C:\POLARIS
+ succeeded in 1047ms:
+'use client';
+
+import * as React from 'react';
+import { useStableCallback } from '@base-ui/utils/useStableCallback';
+import { useIsoLayoutEffect } from '@base-ui/utils/useIsoLayoutEffect';
+import { useTransitionStatus } from "../../internals/useTransitionStatus.js";
+import { useOpenChangeComplete } from "../../internals/useOpenChangeComplete.js";
+/**
+ * Returns a callback ref that registers/unregisters the trigger element in the store.
+ *
+ * @param store The Store instance where the trigger should be registered.
+ */
+export function useTriggerRegistration(id, store) {
+  // Keep track of the currently registered element to unregister it on unmount or id change.
+  const registeredElementIdRef = React.useRef(null);
+  const registeredElementRef = React.useRef(null);
+  return React.useCallback(element => {
+    if (id === undefined) {
+      return;
+    }
+    if (registeredElementIdRef.current !== null) {
+      const registeredId = registeredElementIdRef.current;
+      const registeredElement = registeredElementRef.current;
+      const currentElement = store.context.triggerElements.getById(registeredId);
+      if (registeredElement && currentElement === registeredElement) {
+        store.context.triggerElements.delete(registeredId);
+      }
+      registeredElementIdRef.current = null;
+      registeredElementRef.current = null;
+    }
+    if (element !== null) {
+      registeredElementIdRef.current = id;
+      registeredElementRef.current = element;
+      store.context.triggerElements.add(id, element);
+    }
+  }, [store, id]);
+}
+
+/**
+ * Sets up trigger data forwarding to the store.
+ *
+ * @param triggerId Id of the trigger.
+ * @param triggerElement The trigger DOM element.
+ * @param store The Store instance managing the popup state.
+ * @param stateUpdates An object with state updates to apply when the trigger is active.
+ */
+export function useTriggerDataForwarding(triggerId, triggerElementRef, store, stateUpdates) {
+  const isMountedByThisTrigger = store.useState('isMountedByTrigger', triggerId);
+  const baseRegisterTrigger = useTriggerRegistration(triggerId, store);
+  const registerTrigger = useStableCallback(element => {
+    baseRegisterTrigger(element);
+    if (!element || !store.select('open')) {
+      return;
+    }
+    const activeTriggerId = store.select('activeTriggerId');
+    if (activeTriggerId === triggerId) {
+      store.update({
+        activeTriggerElement: element,
+        ...stateUpdates
+      });
+      return;
+    }
+    if (activeTriggerId == null) {
+      // This runs when popup is open, but no active trigger is set.
+      // It can happen when using controlled mode and the trigger is mounted after opening or if `triggerId` prop is not set explicitly.
+      // In such cases the first trigger to run this code becomes the active trigger (store.select('activeTriggerId') should not return null after that).
+      // This is mostly for compatibility with contained triggers where no explicit `triggerId` was required in controlled mode.
+      store.update({
+        activeTriggerId: triggerId,
+        activeTriggerElement: element,
+        ...stateUpdates
+      });
+    }
+  });
+  useIsoLayoutEffect(() => {
+    if (isMountedByThisTrigger) {
+      store.update({
+        activeTriggerElement: triggerElementRef.current,
+        ...stateUpdates
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMountedByThisTrigger, store, triggerElementRef, ...Object.values(stateUpdates)]);
+  return {
+    registerTrigger,
+    isMountedByThisTrigger
+  };
+}
+/**
+ * Ensures that when there's only one trigger element registered, it is set as the active trigger.
+ * This allows controlled popups to work correctly without an explicit triggerId, maintaining compatibility
+ * with the contained triggers.
+ *
+ * This should be called on the Root part.
+ *
+ * @param open Whether the popup is open.
+ * @param store The Store instance managing the popup state.
+ */
+export function useImplicitActiveTrigger(store) {
+  const open = store.useState('open');
+  useIsoLayoutEffect(() => {
+    if (open && !store.select('activeTriggerId') && store.context.triggerElements.size === 1) {
+      const iteratorResult = store.context.triggerElements.entries().next();
+      if (!iteratorResult.done) {
+        const [implicitTriggerId, implicitTriggerElement] = iteratorResult.value;
+        store.update({
+          activeTriggerId: implicitTriggerId,
+          activeTriggerElement: implicitTriggerElement
+        });
+      }
+    }
+  }, [open, store]);
+}
+
+/**
+ * Mangages the mounted state of the popup.
+ * Sets up the transition status listeners and handles unmounting when needed.
+ * Updates the `mounted` and `transitionStatus` states in the store.
+ *
+ * @param open Whether the popup is open.
+ * @param store The Store instance managing the popup state.
+ * @param onUnmount Optional callback to be called when the popup is unmounted.
+ *
+ * @returns A function to forcibly unmount the popup.
+ */
+export function useOpenStateTransitions(open, store, onUnmount) {
+  const {
+    mounted,
+    setMounted,
+    transitionStatus
+  } = useTransitionStatus(open);
+  store.useSyncedValues({
+    mounted,
+    transitionStatus
+  });
+  const forceUnmount = useStableCallback(() => {
+    setMounted(false);
+    store.update({
+      activeTriggerId: null,
+      activeTriggerElement: null,
+      mounted: false
+    });
+    onUnmount?.();
+    store.context.onOpenChangeComplete?.(false);
+  });
+  const preventUnmountingOnClose = store.useState('preventUnmountingOnClose');
+  useOpenChangeComplete({
+    enabled: !preventUnmountingOnClose,
+    open,
+    ref: store.context.popupRef,
+    onComplete() {
+      if (!open) {
+        forceUnmount();
+      }
+    }
+  });
+  return {
+    forceUnmount,
+    transitionStatus
+  };
+}
+
+ succeeded in 1053ms:
+'use client';
+
+import * as React from 'react';
+import { useTooltipRootContext } from "../root/TooltipRootContext.js";
+import { TooltipPositionerContext } from "./TooltipPositionerContext.js";
+import { useAnchorPositioning } from "../../utils/useAnchorPositioning.js";
+import { useTooltipPortalContext } from "../portal/TooltipPortalContext.js";
+import { POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+import { adaptiveOrigin } from "../../utils/adaptiveOriginMiddleware.js";
+import { usePositioner } from "../../utils/usePositioner.js";
+
+/**
+ * Positions the tooltip against the trigger.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+import { jsx as _jsx } from "react/jsx-runtime";
+export const TooltipPositioner = /*#__PURE__*/React.forwardRef(function TooltipPositioner(componentProps, forwardedRef) {
+  const {
+    render,
+    className,
+    anchor,
+    positionMethod = 'absolute',
+    side = 'top',
+    align = 'center',
+    sideOffset = 0,
+    alignOffset = 0,
+    collisionBoundary = 'clipping-ancestors',
+    collisionPadding = 5,
+    arrowPadding = 5,
+    sticky = false,
+    disableAnchorTracking = false,
+    collisionAvoidance = POPUP_COLLISION_AVOIDANCE,
+    style,
+    ...elementProps
+  } = componentProps;
+  const store = useTooltipRootContext();
+  const keepMounted = useTooltipPortalContext();
+  const open = store.useState('open');
+  const mounted = store.useState('mounted');
+  const trackCursorAxis = store.useState('trackCursorAxis');
+  const disableHoverablePopup = store.useState('disableHoverablePopup');
+  const floatingRootContext = store.useState('floatingRootContext');
+  const instantType = store.useState('instantType');
+  const transitionStatus = store.useState('transitionStatus');
+  const hasViewport = store.useState('hasViewport');
+  const positioning = useAnchorPositioning({
+    anchor,
+    positionMethod,
+    floatingRootContext,
+    mounted,
+    side,
+    sideOffset,
+    align,
+    alignOffset,
+    collisionBoundary,
+    collisionPadding,
+    sticky,
+    arrowPadding,
+    disableAnchorTracking,
+    keepMounted,
+    collisionAvoidance,
+    adaptiveOrigin: hasViewport ? adaptiveOrigin : undefined
+  });
+  const state = React.useMemo(() => ({
+    open,
+    side: positioning.side,
+    align: positioning.align,
+    anchorHidden: positioning.anchorHidden,
+    instant: trackCursorAxis !== 'none' ? 'tracking-cursor' : instantType
+  }), [open, positioning.side, positioning.align, positioning.anchorHidden, trackCursorAxis, instantType]);
+  const element = usePositioner(componentProps, state, {
+    styles: positioning.positionerStyles,
+    transitionStatus,
+    props: elementProps,
+    refs: [forwardedRef, store.useStateSetter('positionerElement')],
+    hidden: !mounted,
+    inert: !open || trackCursorAxis === 'both' || disableHoverablePopup
+  });
+  return /*#__PURE__*/_jsx(TooltipPositionerContext.Provider, {
+    value: positioning,
+    children: element
+  });
+});
+if (process.env.NODE_ENV !== "production") TooltipPositioner.displayName = "TooltipPositioner";
+
+ succeeded in 1065ms:
+import * as React from 'react';
+import * as ReactDOM from 'react-dom';
+import { createSelector, ReactStore } from '@base-ui/utils/store';
+import { useRefWithInit } from '@base-ui/utils/useRefWithInit';
+import { useSyncedFloatingRootContext } from "../../floating-ui-react/index.js";
+import { REASONS } from "../../internals/reasons.js";
+import { createInitialPopupStoreState, popupStoreSelectors, PopupTriggerMap } from "../../utils/popups/index.js";
+const selectors = {
+  ...popupStoreSelectors,
+  disabled: createSelector(state => state.disabled),
+  instantType: createSelector(state => state.instantType),
+  isInstantPhase: createSelector(state => state.isInstantPhase),
+  trackCursorAxis: createSelector(state => state.trackCursorAxis),
+  disableHoverablePopup: createSelector(state => state.disableHoverablePopup),
+  lastOpenChangeReason: createSelector(state => state.openChangeReason),
+  closeOnClick: createSelector(state => state.closeOnClick),
+  closeDelay: createSelector(state => state.closeDelay),
+  hasViewport: createSelector(state => state.hasViewport)
+};
+export class TooltipStore extends ReactStore {
+  constructor(initialState) {
+    super({
+      ...createInitialState(),
+      ...initialState
+    }, {
+      popupRef: /*#__PURE__*/React.createRef(),
+      onOpenChange: undefined,
+      onOpenChangeComplete: undefined,
+      triggerElements: new PopupTriggerMap()
+    }, selectors);
+  }
+  setOpen = (nextOpen, eventDetails) => {
+    const reason = eventDetails.reason;
+    const isHover = reason === REASONS.triggerHover;
+    const isFocusOpen = nextOpen && reason === REASONS.triggerFocus;
+    const isDismissClose = !nextOpen && (reason === REASONS.triggerPress || reason === REASONS.escapeKey);
+    eventDetails.preventUnmountOnClose = () => {
+      this.set('preventUnmountingOnClose', true);
+    };
+    this.context.onOpenChange?.(nextOpen, eventDetails);
+    if (eventDetails.isCanceled) {
+      return;
+    }
+    this.state.floatingRootContext.dispatchOpenChange(nextOpen, eventDetails);
+    const changeState = () => {
+      const updatedState = {
+        open: nextOpen,
+        openChangeReason: reason
+      };
+      if (isFocusOpen) {
+        updatedState.instantType = 'focus';
+      } else if (isDismissClose) {
+        updatedState.instantType = 'dismiss';
+      } else if (reason === REASONS.triggerHover) {
+        updatedState.instantType = undefined;
+      }
+
+      // If a popup is closing, the `trigger` may be null.
+      // We want to keep the previous value so that exit animations are played and focus is returned correctly.
+      const newTriggerId = eventDetails.trigger?.id ?? null;
+      if (newTriggerId || nextOpen) {
+        updatedState.activeTriggerId = newTriggerId;
+        updatedState.activeTriggerElement = eventDetails.trigger ?? null;
+      }
+      this.update(updatedState);
+    };
+    if (isHover) {
+      // If a hover reason is provided, we need to flush the state synchronously. This ensures
+      // `node.getAnimations()` knows about the new state.
+      ReactDOM.flushSync(changeState);
+    } else {
+      changeState();
+    }
+  };
+  static useStore(externalStore, initialState) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const internalStore = useRefWithInit(() => {
+      return new TooltipStore(initialState);
+    }).current;
+    const store = externalStore ?? internalStore;
+
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const floatingRootContext = useSyncedFloatingRootContext({
+      popupStore: store,
+      onOpenChange: store.setOpen
+    });
+
+    // It's safe to set this here because when this code runs for the first time,
+    // nothing has had a chance to subscribe to the `store` yet.
+    // For subsequent renders, the `floatingRootContext` reference remains the same,
+    // so it's basically a no-op.
+    store.state.floatingRootContext = floatingRootContext;
+    return store;
+  }
+}
+function createInitialState() {
+  return {
+    ...createInitialPopupStoreState(),
+    disabled: false,
+    instantType: undefined,
+    isInstantPhase: false,
+    trackCursorAxis: 'none',
+    disableHoverablePopup: false,
+    openChangeReason: null,
+    closeOnClick: true,
+    closeDelay: 0,
+    hasViewport: false
+  };
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "useControlledProp" web/node_modules/@base-ui web/node_modules/@base-ui/utils -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class ReactStore|function ReactStore" web/node_modules/@base-ui -S' in C:\POLARIS
+ succeeded in 1064ms:
+web/node_modules/@base-ui\react\alert-dialog\root\AlertDialogRoot.js:45:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\alert-dialog\root\AlertDialogRoot.js:46:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\utils\store\ReactStore.js:102:  useControlledProp(key, controlled) {
+web/node_modules/@base-ui\utils\store\ReactStore.d.ts:45:  useControlledProp<Key extends keyof State, Value extends State[Key]>(key: keyof State, controlled: Value | undefined): void;
+web/node_modules/@base-ui/utils\esm\store\ReactStore.js:97:  useControlledProp(key, controlled) {
+web/node_modules/@base-ui/utils\esm\store\ReactStore.d.ts:45:  useControlledProp<Key extends keyof State, Value extends State[Key]>(key: keyof State, controlled: Value | undefined): void;
+web/node_modules/@base-ui\utils\esm\store\ReactStore.js:97:  useControlledProp(key, controlled) {
+web/node_modules/@base-ui\utils\esm\store\ReactStore.d.ts:45:  useControlledProp<Key extends keyof State, Value extends State[Key]>(key: keyof State, controlled: Value | undefined): void;
+web/node_modules/@base-ui\react\esm\menu\root\MenuRoot.js:98:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\menu\root\MenuRoot.js:99:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\esm\tooltip\root\TooltipRoot.js:52:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\tooltip\root\TooltipRoot.js:53:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\esm\preview-card\root\PreviewCardRoot.js:41:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\preview-card\root\PreviewCardRoot.js:42:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\menu\root\MenuRoot.js:103:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\menu\root\MenuRoot.js:104:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui/utils\store\ReactStore.js:102:  useControlledProp(key, controlled) {
+web/node_modules/@base-ui/utils\store\ReactStore.d.ts:45:  useControlledProp<Key extends keyof State, Value extends State[Key]>(key: keyof State, controlled: Value | undefined): void;
+web/node_modules/@base-ui\react\preview-card\root\PreviewCardRoot.js:47:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\preview-card\root\PreviewCardRoot.js:48:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\popover\root\PopoverRoot.js:50:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\popover\root\PopoverRoot.js:51:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\tooltip\root\TooltipRoot.js:57:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\tooltip\root\TooltipRoot.js:58:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\esm\popover\root\PopoverRoot.js:44:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\popover\root\PopoverRoot.js:45:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\esm\alert-dialog\root\AlertDialogRoot.js:39:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\alert-dialog\root\AlertDialogRoot.js:40:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\esm\dialog\root\DialogRoot.js:54:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\esm\dialog\root\DialogRoot.js:55:  store.useControlledProp('triggerIdProp', triggerIdProp);
+web/node_modules/@base-ui\react\dialog\root\DialogRoot.js:61:  store.useControlledProp('openProp', openProp);
+web/node_modules/@base-ui\react\dialog\root\DialogRoot.js:62:  store.useControlledProp('triggerIdProp', triggerIdProp);
+
+ succeeded in 1076ms:
+web/node_modules/@base-ui\utils\store\ReactStore.js:20:class ReactStore extends _Store.Store {
+web/node_modules/@base-ui\utils\store\ReactStore.d.ts:5:export declare class ReactStore<State extends object, Context = Record<string, never>, Selectors extends Record<string, SelectorFunction<State>> = Record<string, never>> extends Store<State> {
+web/node_modules/@base-ui\utils\esm\store\ReactStore.js:15:export class ReactStore extends Store {
+web/node_modules/@base-ui\utils\esm\store\ReactStore.d.ts:5:export declare class ReactStore<State extends object, Context = Record<string, never>, Selectors extends Record<string, SelectorFunction<State>> = Record<string, never>> extends Store<State> {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/utils/esm/store/Store.js | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/utils/esm/store/ReactStore.js | Select-Object -First 150' in C:\POLARIS
+ succeeded in 1065ms:
+import { useStore } from "./useStore.js";
+/**
+ * A data store implementation that allows subscribing to state changes and updating the state.
+ * It uses an observer pattern to notify subscribers when the state changes.
+ */
+export class Store {
+  /**
+   * The current state of the store.
+   * This property is updated immediately when the state changes as a result of calling {@link setState}, {@link update}, or {@link set}.
+   * To subscribe to state changes, use the {@link useState} method. The value returned by {@link useState} is updated after the component renders (similarly to React's useState).
+   * The values can be used directly (to avoid subscribing to the store) in effects or event handlers.
+   *
+   * Do not modify properties in state directly. Instead, use the provided methods to ensure proper state management and listener notification.
+   */
+
+  // Internal state to handle recursive `setState()` calls
+
+  constructor(state) {
+    this.state = state;
+    this.listeners = new Set();
+    this.updateTick = 0;
+  }
+
+  /**
+   * Registers a listener that will be called whenever the store's state changes.
+   *
+   * @param fn The listener function to be called on state changes.
+   * @returns A function to unsubscribe the listener.
+   */
+  subscribe = fn => {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  };
+
+  /**
+   * Returns the current state of the store.
+   */
+  getSnapshot = () => {
+    return this.state;
+  };
+
+  /**
+   * Updates the entire store's state and notifies all registered listeners.
+   *
+   * @param newState The new state to set for the store.
+   */
+  setState(newState) {
+    if (this.state === newState) {
+      return;
+    }
+    this.state = newState;
+    this.updateTick += 1;
+    const currentTick = this.updateTick;
+    for (const listener of this.listeners) {
+      if (currentTick !== this.updateTick) {
+        // If the tick has changed, a recursive `setState` call has been made,
+        // and it has already notified all listeners.
+        return;
+      }
+      listener(newState);
+    }
+  }
+
+  /**
+   * Merges the provided changes into the current state and notifies listeners if there are changes.
+   *
+   * @param changes An object containing the changes to apply to the current state.
+   */
+  update(changes) {
+    for (const key in changes) {
+      if (!Object.is(this.state[key], changes[key])) {
+        this.setState({
+          ...this.state,
+          ...changes
+        });
+        return;
+      }
+    }
+  }
+
+  /**
+   * Sets a specific key in the store's state to a new value and notifies listeners if the value has changed.
+   *
+   * @param key The key in the store's state to update.
+   * @param value The new value to set for the specified key.
+   */
+  set(key, value) {
+    if (!Object.is(this.state[key], value)) {
+      this.setState({
+        ...this.state,
+        [key]: value
+      });
+    }
+  }
+
+  /**
+   * Gives the state a new reference and updates all registered listeners.
+   */
+  notifyAll() {
+    const newState = {
+      ...this.state
+    };
+    this.setState(newState);
+  }
+  use(selector, a1, a2, a3) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return useStore(this, selector, a1, a2, a3);
+  }
+}
+
+ succeeded in 1101ms:
+/* False positives - ESLint thinks we're calling a hook from a class component. */
+/* eslint-disable react-hooks/rules-of-hooks */
+'use client';
+
+import * as React from 'react';
+import { Store } from "./Store.js";
+import { useStore } from "./useStore.js";
+import { useStableCallback } from "../useStableCallback.js";
+import { useIsoLayoutEffect } from "../useIsoLayoutEffect.js";
+import { NOOP } from "../empty.js";
+
+/**
+ * A Store that supports controlled state keys, non-reactive values and provides utility methods for React.
+ */
+export class ReactStore extends Store {
+  /**
+   * Creates a new ReactStore instance.
+   *
+   * @param state Initial state of the store.
+   * @param context Non-reactive context values.
+   * @param selectors Optional selectors for use with `useState`.
+   */
+  constructor(state, context = {}, selectors) {
+    super(state);
+    this.context = context;
+    this.selectors = selectors;
+  }
+
+  /**
+   * Non-reactive values such as refs, callbacks, etc.
+   */
+
+  /**
+   * Synchronizes a single external value into the store.
+   *
+   * Note that the while the value in `state` is updated immediately, the value returned
+   * by `useState` is updated before the next render (similarly to React's `useState`).
+   */
+  useSyncedValue(key, value) {
+    React.useDebugValue(key);
+    useIsoLayoutEffect(() => {
+      if (this.state[key] !== value) {
+        this.set(key, value);
+      }
+    }, [key, value]);
+  }
+
+  /**
+   * Synchronizes a single external value into the store and
+   * cleans it up (sets to `undefined`) on unmount.
+   *
+   * Note that the while the value in `state` is updated immediately, the value returned
+   * by `useState` is updated before the next render (similarly to React's `useState`).
+   */
+  useSyncedValueWithCleanup(key, value) {
+    // eslint-disable-next-line consistent-this
+    const store = this;
+    useIsoLayoutEffect(() => {
+      if (store.state[key] !== value) {
+        store.set(key, value);
+      }
+      return () => {
+        store.set(key, undefined);
+      };
+    }, [store, key, value]);
+  }
+
+  /**
+   * Synchronizes multiple external values into the store.
+   *
+   * Note that the while the values in `state` are updated immediately, the values returned
+   * by `useState` are updated before the next render (similarly to React's `useState`).
+   */
+  useSyncedValues(statePart) {
+    // eslint-disable-next-line consistent-this
+    const store = this;
+    if (process.env.NODE_ENV !== 'production') {
+      // Check that an object with the same shape is passed on every render
+      React.useDebugValue(statePart, p => Object.keys(p));
+      const keys = React.useRef(Object.keys(statePart)).current;
+      const nextKeys = Object.keys(statePart);
+      if (keys.length !== nextKeys.length || keys.some((key, index) => key !== nextKeys[index])) {
+        console.error('ReactStore.useSyncedValues expects the same prop keys on every render. Keys should be stable.');
+      }
+    }
+    const dependencies = Object.values(statePart);
+    useIsoLayoutEffect(() => {
+      store.update(statePart);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [store, ...dependencies]);
+  }
+
+  /**
+   * Registers a controllable prop pair (`controlled`, `defaultValue`) for a specific key. If `controlled`
+   * is non-undefined, the store's state at `key` is updated to match `controlled`.
+   */
+  useControlledProp(key, controlled) {
+    React.useDebugValue(key);
+    const isControlled = controlled !== undefined;
+    useIsoLayoutEffect(() => {
+      if (isControlled && !Object.is(this.state[key], controlled)) {
+        // Set the internal state to match the controlled value.
+        super.setState({
+          ...this.state,
+          [key]: controlled
+        });
+      }
+    }, [key, controlled, isControlled]);
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line
+      const cache = this.controlledValues ??= new Map();
+      if (!cache.has(key)) {
+        cache.set(key, isControlled);
+      }
+      const previouslyControlled = cache.get(key);
+      if (previouslyControlled !== undefined && previouslyControlled !== isControlled) {
+        console.error(`A component is changing the ${isControlled ? '' : 'un'}controlled state of ${key.toString()} to be ${isControlled ? 'un' : ''}controlled. Elements should not switch from uncontrolled to controlled (or vice versa).`);
+      }
+    }
+  }
+
+  /** Gets the current value from the store using a selector with the provided key.
+   *
+   * @param key Key of the selector to use.
+   */
+
+  select(key, a1, a2, a3) {
+    const selector = this.selectors[key];
+    return selector(this.state, a1, a2, a3);
+  }
+
+  /**
+   * Returns a value from the store's state using a selector function.
+   * Used to subscribe to specific parts of the state.
+   * This methods causes a rerender whenever the selected state changes.
+   *
+   * @param key Key of the selector to use.
+   */
+
+  useState(key, a1, a2, a3) {
+    React.useDebugValue(key);
+    return useStore(this, this.selectors[key], a1, a2, a3);
+  }
+
+  /**
+   * Wraps a function with `useStableCallback` to ensure it has a stable reference
+   * and assigns it to the context.
+   *
+   * @param key Key of the event callback. Must be a function in the context.
+   * @param fn Function to assign.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/popup/TooltipPopup.js | Select-Object -First 100' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/tooltip/portal/TooltipPortal.js | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/node_modules/@base-ui/react/esm/utils/usePositioner.js | Select-Object -First 130' in C:\POLARIS
+ succeeded in 1202ms:
+'use client';
+
+import * as React from 'react';
+import { useTooltipRootContext } from "../root/TooltipRootContext.js";
+import { useTooltipPositionerContext } from "../positioner/TooltipPositionerContext.js";
+import { popupStateMapping as baseMapping } from "../../utils/popupStateMapping.js";
+import { transitionStatusMapping } from "../../internals/stateAttributesMapping.js";
+import { useOpenChangeComplete } from "../../internals/useOpenChangeComplete.js";
+import { useRenderElement } from "../../internals/useRenderElement.js";
+import { getDisabledMountTransitionStyles } from "../../utils/getDisabledMountTransitionStyles.js";
+import { useHoverFloatingInteraction } from "../../floating-ui-react/index.js";
+const stateAttributesMapping = {
+  ...baseMapping,
+  ...transitionStatusMapping
+};
+
+/**
+ * A container for the tooltip contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export const TooltipPopup = /*#__PURE__*/React.forwardRef(function TooltipPopup(componentProps, forwardedRef) {
+  const {
+    className,
+    render,
+    style,
+    ...elementProps
+  } = componentProps;
+  const store = useTooltipRootContext();
+  const {
+    side,
+    align
+  } = useTooltipPositionerContext();
+  const open = store.useState('open');
+  const instantType = store.useState('instantType');
+  const transitionStatus = store.useState('transitionStatus');
+  const popupProps = store.useState('popupProps');
+  const floatingContext = store.useState('floatingRootContext');
+  useOpenChangeComplete({
+    open,
+    ref: store.context.popupRef,
+    onComplete() {
+      if (open) {
+        store.context.onOpenChangeComplete?.(true);
+      }
+    }
+  });
+  const disabled = store.useState('disabled');
+  const closeDelay = store.useState('closeDelay');
+  useHoverFloatingInteraction(floatingContext, {
+    enabled: !disabled,
+    closeDelay
+  });
+  const state = {
+    open,
+    side,
+    align,
+    instant: instantType,
+    transitionStatus
+  };
+  const element = useRenderElement('div', componentProps, {
+    state,
+    ref: [forwardedRef, store.context.popupRef, store.useStateSetter('popupElement')],
+    props: [popupProps, getDisabledMountTransitionStyles(transitionStatus), elementProps],
+    stateAttributesMapping
+  });
+  return element;
+});
+if (process.env.NODE_ENV !== "production") TooltipPopup.displayName = "TooltipPopup";
+
+ succeeded in 1201ms:
+'use client';
+
+import { popupStateMapping } from "./popupStateMapping.js";
+import { useRenderElement } from "../internals/useRenderElement.js";
+import { getDisabledMountTransitionStyles } from "./getDisabledMountTransitionStyles.js";
+/**
+ * Renders the shared outer Positioner element used by popup components.
+ * Applies the common role, hidden state, transition styles, state attributes, and optional inert styling.
+ */
+export function usePositioner(componentProps, state, {
+  styles,
+  transitionStatus,
+  props,
+  refs,
+  hidden,
+  inert = false
+}) {
+  const style = {
+    ...styles
+  };
+  if (inert) {
+    style.pointerEvents = 'none';
+  }
+  return useRenderElement('div', componentProps, {
+    state,
+    ref: refs,
+    props: [{
+      role: 'presentation',
+      hidden,
+      style
+    }, getDisabledMountTransitionStyles(transitionStatus), props],
+    stateAttributesMapping: popupStateMapping
+  });
+}
+
+ succeeded in 1266ms:
+'use client';
+
+import * as React from 'react';
+import { useTooltipRootContext } from "../root/TooltipRootContext.js";
+import { TooltipPortalContext } from "./TooltipPortalContext.js";
+import { FloatingPortalLite } from "../../utils/FloatingPortalLite.js";
+
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+import { jsx as _jsx } from "react/jsx-runtime";
+export const TooltipPortal = /*#__PURE__*/React.forwardRef(function TooltipPortal(props, forwardedRef) {
+  const {
+    keepMounted = false,
+    ...portalProps
+  } = props;
+  const store = useTooltipRootContext();
+  const mounted = store.useState('mounted');
+  const shouldRender = mounted || keepMounted;
+  if (!shouldRender) {
+    return null;
+  }
+  return /*#__PURE__*/_jsx(TooltipPortalContext.Provider, {
+    value: keepMounted,
+    children: /*#__PURE__*/_jsx(FloatingPortalLite, {
+      ref: forwardedRef,
+      ...portalProps
+    })
+  });
+});
+if (process.env.NODE_ENV !== "production") TooltipPortal.displayName = "TooltipPortal";
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+67,016
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

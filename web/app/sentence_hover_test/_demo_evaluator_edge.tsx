@@ -1,11 +1,7 @@
 "use client";
 
 import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
-import type {
-  EvidencePool,
-  RetrievalSource,
-  VerifiedReport,
-} from "@/lib/api";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
 
 const ISO = new Date().toISOString();
 const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)

@@ -23,10 +23,18 @@ interface EvidenceTooltipProps {
   children: React.ReactNode;
 }
 
+const HOVER_DEBOUNCE_MS = 300;
+const TOUCH_AUTO_CLOSE_MS = 3000;
+
 /**
  * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
  * source span behind a provenance token. Click still triggers the right-
  * pane Inspector view; hover shows a quick preview.
+ *
+ * I-f6-003: fully-controlled Tooltip with explicit hover/focus/touch open
+ * semantics. Touch tap opens the popup with a 3-second auto-close timer
+ * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+ * from cancelling our touch-open in the same event).
  */
 export function EvidenceTooltip({
   evidenceId,
@@ -38,13 +46,99 @@ export function EvidenceTooltip({
   onClickToInspect,
   children,
 }: EvidenceTooltipProps) {
+  const [open, setOpen] = React.useState(false);
+  const hoverDebounceRef = React.useRef<number | null>(null);
+  const touchAutoCloseRef = React.useRef<number | null>(null);
+  const touchSessionRef = React.useRef(false);
+
+  const clearHoverDebounce = React.useCallback(() => {
+    if (hoverDebounceRef.current !== null) {
+      window.clearTimeout(hoverDebounceRef.current);
+      hoverDebounceRef.current = null;
+    }
+  }, []);
+
+  const clearTouchAutoClose = React.useCallback(() => {
+    if (touchAutoCloseRef.current !== null) {
+      window.clearTimeout(touchAutoCloseRef.current);
+      touchAutoCloseRef.current = null;
+    }
+  }, []);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) {
+        clearHoverDebounce();
+        clearTouchAutoClose();
+        touchSessionRef.current = false;
+      }
+      setOpen(next);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  React.useEffect(
+    () => () => {
+      clearHoverDebounce();
+      clearTouchAutoClose();
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    hoverDebounceRef.current = window.setTimeout(() => {
+      hoverDebounceRef.current = null;
+      setOpen(true);
+    }, HOVER_DEBOUNCE_MS);
+  }, [clearHoverDebounce]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    setOpen(false);
+  }, [clearHoverDebounce]);
+
+  const handleFocus = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(true);
+  }, []);
+
+  const handleBlur = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(false);
+  }, []);
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType !== "touch") return;
+      touchSessionRef.current = true;
+      clearHoverDebounce();
+      clearTouchAutoClose();
+      setOpen(true);
+      touchAutoCloseRef.current = window.setTimeout(() => {
+        touchAutoCloseRef.current = null;
+        touchSessionRef.current = false;
+        setOpen(false);
+      }, TOUCH_AUTO_CLOSE_MS);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
   return (
-    <Tooltip.Root>
+    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
       <Tooltip.Trigger
+        closeOnClick={false}
         render={
           <button
             type="button"
             onClick={onClickToInspect}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onPointerDown={handlePointerDown}
             className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
           />
         }

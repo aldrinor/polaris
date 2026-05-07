@@ -240,10 +240,7 @@ const REPORT: VerifiedReport = {
         {
           section_id: "sec_x",
           sentence_text: "Multi-span with bad span demo sentence.",
-          provenance_tokens: [
-            `[#ev:src-0:0-30]`,
-            `[#ev:src-0:5000-5050]`,
-          ],
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:5000-5050]`],
           verifier_pass: true,
           drop_reason: null,
           evaluator_agrees: true,
@@ -390,8 +387,7 @@ const REPORT: VerifiedReport = {
                 source_tier: "T1",
                 evidence_type: "trial",
                 hedge_language: "high confidence",
-                claim_excerpt:
-                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
+                claim_excerpt: "Drug X efficacious in RCT (NEJM 2024, n=2103).",
               },
               {
                 source_id: "src-1",

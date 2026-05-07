@@ -30,7 +30,11 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
     context.newPage(),
   ]);
 
-  await Promise.all([open_palette(pageA), open_palette(pageB), open_palette(pageC)]);
+  await Promise.all([
+    open_palette(pageA),
+    open_palette(pageB),
+    open_palette(pageC),
+  ]);
 
   // Each tab types its distinct query.
   await pageA.getByTestId("command-palette-input").fill("tirzepatide");

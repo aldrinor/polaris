@@ -137,8 +137,7 @@ export function ContradictionPane({
                 </div>
               </div>
               <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
-                {side.sample_size !== null &&
-                side.sample_size !== undefined ? (
+                {side.sample_size !== null && side.sample_size !== undefined ? (
                   <span data-testid={`contradiction-sample-${idx}`}>
                     n = {side.sample_size}
                   </span>

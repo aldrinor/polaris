@@ -84,7 +84,7 @@ export function CorpusBrief({ pool }: { pool: EvidencePool }) {
         {pool.adequacy.failure_reason ? (
           <p
             data-testid="adequacy-failure-reason"
-            className="border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-300 rounded-md border px-3 py-2 text-sm"
+            className="rounded-md border border-rose-500/40 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300"
           >
             {pool.adequacy.failure_reason}
           </p>
@@ -92,9 +92,7 @@ export function CorpusBrief({ pool }: { pool: EvidencePool }) {
 
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
           <dt className="text-muted-foreground">Sources retrieved</dt>
-          <dd className="text-foreground font-medium">
-            {pool.sources.length}
-          </dd>
+          <dd className="text-foreground font-medium">{pool.sources.length}</dd>
           <dt className="text-muted-foreground">Queries executed</dt>
           <dd className="text-foreground font-medium">
             {pool.queries_executed.length}

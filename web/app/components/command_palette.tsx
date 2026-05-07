@@ -43,7 +43,12 @@ function score_template(t: Template, q: string): number {
   return s;
 }
 
-export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  templates,
+  signInLinkRef,
+}: CommandPaletteProps) {
   const router = useRouter();
   const [search, set_search] = useState("");
   const [debounced_search, set_debounced_search] = useState("");
@@ -66,7 +71,10 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
     .sort((a, b) => b.s - a.s)
     .map(({ t }) => t);
 
-  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
+  const clamped =
+    scored.length === 0
+      ? 0
+      : Math.max(0, Math.min(active_index, scored.length - 1));
 
   function handle_key(event: React.KeyboardEvent) {
     if (event.key === "ArrowDown") {
@@ -100,16 +108,22 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
           onKeyDown={handle_key}
           className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
         >
-          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">
+            Search templates
+          </DialogPrimitive.Title>
           <input
             data-testid="command-palette-input"
             autoFocus
             value={search}
             onChange={(e) => set_search(e.target.value)}
             placeholder="Search templates..."
-            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
           />
-          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+          <ul
+            className="max-h-80 overflow-y-auto"
+            role="listbox"
+            aria-label="Template results"
+          >
             {scored.map((t, i) => (
               <li
                 key={t.id}
@@ -118,10 +132,16 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
                 data-testid={`palette-item-${t.id}`}
                 data-active={i === clamped ? "true" : undefined}
                 aria-disabled={!t.active || undefined}
-                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm",
+                  i === clamped && "bg-accent",
+                  !t.active && "text-muted-foreground",
+                )}
               >
                 <span className="font-medium">{t.name}</span>
-                {!t.active ? <span className="ml-2 text-xs uppercase">(coming soon)</span> : null}
+                {!t.active ? (
+                  <span className="ml-2 text-xs uppercase">(coming soon)</span>
+                ) : null}
               </li>
             ))}
           </ul>

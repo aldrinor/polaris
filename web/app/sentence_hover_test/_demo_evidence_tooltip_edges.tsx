@@ -15,7 +15,7 @@ export function EvidenceTooltipEdgesHarness() {
     <EvidenceTooltipProvider delay={0}>
       <div className="relative h-screen w-screen">
         {/* near-top: requests side="top" but trigger is at top → must flip down */}
-        <div className="absolute left-1/2 top-2 -translate-x-1/2">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2">
           <EvidenceTooltip
             evidenceId="src-top"
             spanText="Near-top trigger demonstration."
@@ -37,7 +37,7 @@ export function EvidenceTooltipEdgesHarness() {
           </EvidenceTooltip>
         </div>
         {/* near-right: requests side="right" but trigger is at right → flip left */}
-        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <div className="absolute top-1/2 right-2 -translate-y-1/2">
           <EvidenceTooltip
             evidenceId="src-right"
             spanText="Near-right trigger demonstration."

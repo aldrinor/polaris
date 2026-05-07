@@ -54,9 +54,9 @@ export default function BenchmarkPage() {
             Head-to-head comparison of POLARIS vs commercial deep-research
             products on 7 dimensions: sourcing tier mix, numeric grounding,
             provenance density, refusal correctness, coverage completeness,
-            latency, and auditability. POLARIS uniquely scores 1.0 on
-            refusal correctness and auditability — these are features no
-            commercial system attempts.
+            latency, and auditability. POLARIS uniquely scores 1.0 on refusal
+            correctness and auditability — these are features no commercial
+            system attempts.
           </p>
         </section>
 
@@ -72,9 +72,9 @@ export default function BenchmarkPage() {
             <code className="bg-muted rounded px-1 py-0.5 text-xs">
               scripts/run_benchmark.py
             </code>
-            . The scoreboard.json artifact is canonical (sort_keys=True),
-            so two runs against the same inputs produce identical scores.
-            Carney's office can re-run the benchmark and compare bytewise.
+            . The scoreboard.json artifact is canonical (sort_keys=True), so two
+            runs against the same inputs produce identical scores.
+            Carney&rsquo;s office can re-run the benchmark and compare bytewise.
           </p>
         </section>
       </main>

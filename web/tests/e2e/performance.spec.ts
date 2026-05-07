@@ -43,17 +43,22 @@ test.describe("Performance — Inspector tab switch latency", () => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
     });
-    const tab = page.getByRole("button", { name: /Verified sentences/ }).first();
+    const tab = page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first();
 
     const start = Date.now();
     await tab.click();
     // F-4: wait timeout > budget so a slow render surfaces as a budget
     // failure (`expected < 250, got ${switchMs}`) rather than a misleading
     // locator-timeout.
-    await page.locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/").first().waitFor({
-      state: "visible",
-      timeout: 5_000,
-    });
+    await page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first()
+      .waitFor({
+        state: "visible",
+        timeout: 5_000,
+      });
     const switchMs = Date.now() - start;
     expect(switchMs).toBeLessThan(250);
   });
@@ -66,10 +71,13 @@ test.describe("Performance — Inspector tab switch latency", () => {
 
     const start = Date.now();
     await tab.click();
-    await page.getByText(/noted_both/).first().waitFor({
-      state: "visible",
-      timeout: 5_000,
-    });
+    await page
+      .getByText(/noted_both/)
+      .first()
+      .waitFor({
+        state: "visible",
+        timeout: 5_000,
+      });
     const switchMs = Date.now() - start;
     expect(switchMs).toBeLessThan(250);
   });
@@ -100,7 +108,9 @@ test.describe("Performance — page-load Web Vitals", () => {
     const fcpMs = await page.evaluate<number>(() => {
       return new Promise((resolve) => {
         const entries = performance.getEntriesByType("paint");
-        const existing = entries.find((e) => e.name === "first-contentful-paint");
+        const existing = entries.find(
+          (e) => e.name === "first-contentful-paint",
+        );
         if (existing) {
           resolve(existing.startTime);
           return;

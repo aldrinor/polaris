@@ -39,16 +39,35 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
       <header className="border-border bg-background border-b">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">POLARIS Canada</span>
-            <span className="text-foreground text-base font-semibold">Sovereign Deep Research</span>
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
           </div>
-          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+          <Button
+            variant="default"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
             Sign in
           </Button>
         </div>
       </header>
       {children}
-      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
     </>
   );
 }

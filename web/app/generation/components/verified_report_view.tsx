@@ -324,9 +324,8 @@ export function VerifiedReportView({
     id: string;
     sentence: ReportVerifiedSentence;
   } | null>(null);
-  const [contradiction_open, set_contradiction_open] = useState<
-    ContradictionSignal | null
-  >(null);
+  const [contradiction_open, set_contradiction_open] =
+    useState<ContradictionSignal | null>(null);
   const [evaluator_open, set_evaluator_open] =
     useState<EvaluatorDisagreement | null>(null);
   return (
