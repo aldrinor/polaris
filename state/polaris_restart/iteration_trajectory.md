@@ -149,3 +149,5 @@ I-f3-007 brief iter1=REQ_CH (sandbox+backend) iter2=REQ_CH (sandbox dup) iter3=R
 I-f3-007 diff iter1=APPROVE 0/0/3P2 (LOC exemption granted); tokens=26212
 I-f3-008 brief iter1=REQ_CH (server/client boundary) iter2=APPROVE 0/0/1P2
 I-f3-008 diff iter1=APPROVE 0/0/1P2; tokens=28641
+I-f3-009 brief iter1=APPROVE 0/0/1P2
+I-f3-009 diff iter1=APPROVE 0/0/2P2; tokens=54450
