@@ -1,8 +1,20 @@
 diff --git a/web/app/benchmark/components/benchmark_board.tsx b/web/app/benchmark/components/benchmark_board.tsx
-index 43c3278..c9e736f 100644
+index 43c3278..dc59718 100644
 --- a/web/app/benchmark/components/benchmark_board.tsx
 +++ b/web/app/benchmark/components/benchmark_board.tsx
-@@ -104,7 +104,7 @@ export function BenchmarkBoard() {
+@@ -27,10 +27,7 @@ function format_pct(v: number | null | undefined): string {
+   return `${Math.round(v * 100)}%`;
+ }
+ 
+-function tone_class(
+-  score: number | null,
+-  peers: (number | null)[],
+-): string {
++function tone_class(score: number | null, peers: (number | null)[]): string {
+   if (score === null) return "text-muted-foreground italic";
+   const populated = peers.filter((p): p is number => p !== null);
+   if (populated.length === 0) return "";
+@@ -104,7 +101,7 @@ export function BenchmarkBoard() {
        >
          <CardContent className="text-amber-700 dark:text-amber-300">
            <strong className="block">Benchmark results not configured</strong>
@@ -11,45 +23,407 @@ index 43c3278..c9e736f 100644
            environment. Run{" "}
            <code className="bg-muted rounded px-1">
              scripts/run_benchmark.py
+@@ -123,9 +120,8 @@ export function BenchmarkBoard() {
+       >
+         <CardContent className="text-amber-700 dark:text-amber-300">
+           <strong className="block">No benchmark results yet</strong>
+-          The results directory is configured (
+-          <code>{state.results_root}</code>) but no benchmark subdirs
+-          contain a scoreboard.json. Run{" "}
++          The results directory is configured (<code>{state.results_root}</code>
++          ) but no benchmark subdirs contain a scoreboard.json. Run{" "}
+           <code className="bg-muted rounded px-1">
+             scripts/run_benchmark.py
+           </code>
+@@ -189,17 +185,18 @@ export function BenchmarkBoard() {
+         <CardHeader className="flex flex-row items-center justify-between gap-3">
+           <CardTitle className="text-lg">{sb.benchmark_id}</CardTitle>
+           <span className="text-muted-foreground text-xs">
+-            {sb.aggregate.n_questions} questions · {ALL_BENCHMARK_DIMENSIONS.length} dimensions
++            {sb.aggregate.n_questions} questions ·{" "}
++            {ALL_BENCHMARK_DIMENSIONS.length} dimensions
+           </span>
+         </CardHeader>
+         <CardContent>
+           <p className="text-sm" data-testid="benchmark-tally">
+             POLARIS won{" "}
+-            <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
++            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+               {sb.polaris_wins}
+             </span>{" "}
+-            per-question per-dimension comparisons; commercial DR products
+-            won {sb.external_wins}; {sb.ties} ties.
++            per-question per-dimension comparisons; commercial DR products won{" "}
++            {sb.external_wins}; {sb.ties} ties.
+           </p>
+         </CardContent>
+       </Card>
+@@ -230,13 +227,28 @@ export function BenchmarkBoard() {
+                     className="border-border border-b"
+                   >
+                     <td className="py-2">{BENCHMARK_DIMENSION_LABELS[dim]}</td>
+-                    <td className={cn("py-2 text-right font-mono", tone_class(p, [c, g]))}>
++                    <td
++                      className={cn(
++                        "py-2 text-right font-mono",
++                        tone_class(p, [c, g]),
++                      )}
++                    >
+                       {format_pct(p)}
+                     </td>
+-                    <td className={cn("py-2 text-right font-mono", tone_class(c, [p, g]))}>
++                    <td
++                      className={cn(
++                        "py-2 text-right font-mono",
++                        tone_class(c, [p, g]),
++                      )}
++                    >
+                       {format_pct(c)}
+                     </td>
+-                    <td className={cn("py-2 text-right font-mono", tone_class(g, [p, c]))}>
++                    <td
++                      className={cn(
++                        "py-2 text-right font-mono",
++                        tone_class(g, [p, c]),
++                      )}
++                    >
+                       {format_pct(g)}
+                     </td>
+                   </tr>
 diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
-index 84a8638..27d951b 100644
+index 84a8638..2f36bef 100644
 --- a/web/app/benchmark/page.tsx
 +++ b/web/app/benchmark/page.tsx
-@@ -74,7 +74,7 @@ export default function BenchmarkPage() {
+@@ -54,9 +54,9 @@ export default function BenchmarkPage() {
+             Head-to-head comparison of POLARIS vs commercial deep-research
+             products on 7 dimensions: sourcing tier mix, numeric grounding,
+             provenance density, refusal correctness, coverage completeness,
+-            latency, and auditability. POLARIS uniquely scores 1.0 on
+-            refusal correctness and auditability — these are features no
+-            commercial system attempts.
++            latency, and auditability. POLARIS uniquely scores 1.0 on refusal
++            correctness and auditability — these are features no commercial
++            system attempts.
+           </p>
+         </section>
+ 
+@@ -72,9 +72,9 @@ export default function BenchmarkPage() {
+             <code className="bg-muted rounded px-1 py-0.5 text-xs">
+               scripts/run_benchmark.py
              </code>
-             . The scoreboard.json artifact is canonical (sort_keys=True),
-             so two runs against the same inputs produce identical scores.
+-            . The scoreboard.json artifact is canonical (sort_keys=True),
+-            so two runs against the same inputs produce identical scores.
 -            Carney's office can re-run the benchmark and compare bytewise.
++            . The scoreboard.json artifact is canonical (sort_keys=True), so two
++            runs against the same inputs produce identical scores.
 +            Carney&rsquo;s office can re-run the benchmark and compare bytewise.
            </p>
          </section>
        </main>
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+index 448278e..99a08ed 100644
+--- a/web/app/components/command_palette.tsx
++++ b/web/app/components/command_palette.tsx
+@@ -43,7 +43,12 @@ function score_template(t: Template, q: string): number {
+   return s;
+ }
+ 
+-export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
++export function CommandPalette({
++  open,
++  onOpenChange,
++  templates,
++  signInLinkRef,
++}: CommandPaletteProps) {
+   const router = useRouter();
+   const [search, set_search] = useState("");
+   const [debounced_search, set_debounced_search] = useState("");
+@@ -66,7 +71,10 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+     .sort((a, b) => b.s - a.s)
+     .map(({ t }) => t);
+ 
+-  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
++  const clamped =
++    scored.length === 0
++      ? 0
++      : Math.max(0, Math.min(active_index, scored.length - 1));
+ 
+   function handle_key(event: React.KeyboardEvent) {
+     if (event.key === "ArrowDown") {
+@@ -100,16 +108,22 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+           onKeyDown={handle_key}
+           className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+         >
+-          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
++          <DialogPrimitive.Title className="sr-only">
++            Search templates
++          </DialogPrimitive.Title>
+           <input
+             data-testid="command-palette-input"
+             autoFocus
+             value={search}
+             onChange={(e) => set_search(e.target.value)}
+             placeholder="Search templates..."
+-            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
++            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+           />
+-          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
++          <ul
++            className="max-h-80 overflow-y-auto"
++            role="listbox"
++            aria-label="Template results"
++          >
+             {scored.map((t, i) => (
+               <li
+                 key={t.id}
+@@ -118,10 +132,16 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+                 data-testid={`palette-item-${t.id}`}
+                 data-active={i === clamped ? "true" : undefined}
+                 aria-disabled={!t.active || undefined}
+-                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
++                className={cn(
++                  "rounded-md px-3 py-2 text-sm",
++                  i === clamped && "bg-accent",
++                  !t.active && "text-muted-foreground",
++                )}
+               >
+                 <span className="font-medium">{t.name}</span>
+-                {!t.active ? <span className="ml-2 text-xs uppercase">(coming soon)</span> : null}
++                {!t.active ? (
++                  <span className="ml-2 text-xs uppercase">(coming soon)</span>
++                ) : null}
+               </li>
+             ))}
+           </ul>
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index 3ad67ba..3b473d2 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -39,16 +39,35 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+       <header className="border-border bg-background border-b">
+         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+           <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">POLARIS Canada</span>
+-            <span className="text-foreground text-base font-semibold">Sovereign Deep Research</span>
++            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++              POLARIS Canada
++            </span>
++            <span className="text-foreground text-base font-semibold">
++              Sovereign Deep Research
++            </span>
+           </div>
+-          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
++          <Button
++            variant="default"
++            nativeButton={false}
++            render={
++              <Link
++                ref={sign_in_link_ref}
++                data-testid="header-sign-in-link"
++                href={signInHref}
++              />
++            }
++          >
+             Sign in
+           </Button>
+         </div>
+       </header>
+       {children}
+-      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
++      <CommandPalette
++        open={palette_open}
++        onOpenChange={set_palette_open}
++        templates={templates}
++        signInLinkRef={sign_in_link_ref}
++      />
+     </>
+   );
+ }
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index de69557..5443da9 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -236,13 +236,13 @@ export default function DashboardPage() {
+                     role="radio"
+                     aria-checked={selected}
+                     onClick={() => setTemplate(t.id)}
+-                    className={`text-left rounded-lg border bg-card p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
++                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                       selected
+                         ? "border-foreground"
+                         : "border-border hover:border-muted-foreground"
+                     }`}
+                   >
+-                    <span className="block text-card-foreground text-xs font-medium tracking-widest uppercase">
++                    <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
+                       {t.domain}
+                     </span>
+                     <span className="text-card-foreground mt-1 block text-base font-semibold">
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+index fba5870..4eca880 100644
+--- a/web/app/generation/components/contradiction_pane.tsx
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -137,8 +137,7 @@ export function ContradictionPane({
+                 </div>
+               </div>
+               <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+-                {side.sample_size !== null &&
+-                side.sample_size !== undefined ? (
++                {side.sample_size !== null && side.sample_size !== undefined ? (
+                   <span data-testid={`contradiction-sample-${idx}`}>
+                     n = {side.sample_size}
+                   </span>
 diff --git a/web/app/generation/components/evaluator_pane.tsx b/web/app/generation/components/evaluator_pane.tsx
-index 83f9ec2..12af052 100644
+index 83f9ec2..37821ed 100644
 --- a/web/app/generation/components/evaluator_pane.tsx
 +++ b/web/app/generation/components/evaluator_pane.tsx
-@@ -31,7 +31,7 @@ export function EvaluatorPane({
+@@ -31,8 +31,8 @@ export function EvaluatorPane({
              Generator vs Evaluator readings
            </SheetTitle>
            <SheetDescription>
 -            Two-family evaluator disagrees with generator's claim. Compare both
-+            Two-family evaluator disagrees with generator&rsquo;s claim. Compare both
-             readings against the same cited evidence.
+-            readings against the same cited evidence.
++            Two-family evaluator disagrees with generator&rsquo;s claim. Compare
++            both readings against the same cited evidence.
            </SheetDescription>
          </SheetHeader>
+         {disagreement ? (
+diff --git a/web/app/generation/components/frame_coverage_panel.tsx b/web/app/generation/components/frame_coverage_panel.tsx
+index f7f6b42..68d518c 100644
+--- a/web/app/generation/components/frame_coverage_panel.tsx
++++ b/web/app/generation/components/frame_coverage_panel.tsx
+@@ -14,15 +14,24 @@ import { cn } from "@/lib/utils";
+ import type { FrameCoverage, FrameGap, GapReason } from "@/lib/api";
+ 
+ const UNBLOCK_ACTION: Record<GapReason, string> = {
+-  paywalled: "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
+-  no_oa: "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
+-  source_tier_ineligible: "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
+-  language_unavailable: "Request translation of ${entity_name} via institutional library translation service.",
+-  retracted_only: "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
+-  jurisdiction_outside: "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
+-  not_indexed: "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
+-  embargoed: "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
+-  other: "Manually triage ${entity_name}; document resolution in operator notes.",
++  paywalled:
++    "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
++  no_oa:
++    "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
++  source_tier_ineligible:
++    "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
++  language_unavailable:
++    "Request translation of ${entity_name} via institutional library translation service.",
++  retracted_only:
++    "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
++  jurisdiction_outside:
++    "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
++  not_indexed:
++    "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
++  embargoed:
++    "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
++  other:
++    "Manually triage ${entity_name}; document resolution in operator notes.",
+ };
+ 
+ const GAP_REASON_LABEL: Record<GapReason, string> = {
+@@ -74,7 +83,9 @@ export function FrameCoveragePanel({
+           <span
+             className={cn(
+               "text-sm font-medium",
+-              all_covered ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300",
++              all_covered
++                ? "text-emerald-700 dark:text-emerald-300"
++                : "text-amber-700 dark:text-amber-300",
+             )}
+           >
+             {covered_entity_count}/{total_entity_count} entities covered
+@@ -125,7 +136,9 @@ export function FrameCoveragePanel({
+         ) : null}
+       </CardContent>
+       <FrameGapDetailSheet
+-        gap={selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null}
++        gap={
++          selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null
++        }
+         copied={copied}
+         onClose={() => {
+           set_selected_gap_idx(null);
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index 1a53578..df40d04 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -218,13 +218,7 @@ function SourceCard({
+       </p>
+       <div className="flex flex-col gap-1">
+         {tokens.map((tok, j) => (
+-          <SpanQuote
+-            key={j}
+-            token={tok}
+-            text={text}
+-            idx={idx}
+-            spanIdx={j}
+-          />
++          <SpanQuote key={j} token={tok} text={text} idx={idx} spanIdx={j} />
+         ))}
+       </div>
+     </div>
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 183f803..ede9fab 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -324,9 +324,8 @@ export function VerifiedReportView({
+     id: string;
+     sentence: ReportVerifiedSentence;
+   } | null>(null);
+-  const [contradiction_open, set_contradiction_open] = useState<
+-    ContradictionSignal | null
+-  >(null);
++  const [contradiction_open, set_contradiction_open] =
++    useState<ContradictionSignal | null>(null);
+   const [evaluator_open, set_evaluator_open] =
+     useState<EvaluatorDisagreement | null>(null);
+   return (
 diff --git a/web/app/generation/page.tsx b/web/app/generation/page.tsx
-index 93b4e46..02eea05 100644
+index 93b4e46..dc8997c 100644
 --- a/web/app/generation/page.tsx
 +++ b/web/app/generation/page.tsx
-@@ -80,7 +80,7 @@ export default function GenerationPage() {
+@@ -78,10 +78,10 @@ export default function GenerationPage() {
+         >
+           <p>
              <strong className="text-foreground">Slice progression.</strong>{" "}
-             Slice 004 (audit bundle export, GPG-signed) packages this
-             verified report into a portable evidence bundle. Slice 005
+-            Slice 004 (audit bundle export, GPG-signed) packages this
+-            verified report into a portable evidence bundle. Slice 005
 -            (BEAT-BOTH benchmark) compares POLARIS's output head-to-head
-+            (BEAT-BOTH benchmark) compares POLARIS&rsquo;s output head-to-head
-             against ChatGPT Deep Research and Gemini DR on 7 dimensions.
+-            against ChatGPT Deep Research and Gemini DR on 7 dimensions.
++            Slice 004 (audit bundle export, GPG-signed) packages this verified
++            report into a portable evidence bundle. Slice 005 (BEAT-BOTH
++            benchmark) compares POLARIS&rsquo;s output head-to-head against
++            ChatGPT Deep Research and Gemini DR on 7 dimensions.
            </p>
          </section>
+       </main>
+diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
+index d5686c7..3b1befb 100644
+--- a/web/app/inspector/[runId]/page.tsx
++++ b/web/app/inspector/[runId]/page.tsx
+@@ -196,7 +196,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+                   key={t.id}
+                   type="button"
+                   onClick={() => setActiveTab(t.id)}
+-                  className={`border-b-2 px-3 py-2.5 min-h-[44px] text-sm transition ${
++                  className={`min-h-[44px] border-b-2 px-3 py-2.5 text-sm transition ${
+                     activeTab === t.id
+                       ? "border-foreground text-foreground"
+                       : "text-muted-foreground hover:text-foreground border-transparent"
+@@ -651,7 +651,7 @@ function ChartsTab({
+             key={t}
+             type="button"
+             onClick={() => setChartType(t)}
+-            className={`rounded-md border px-3 py-2 min-h-[28px] text-xs transition ${
++            className={`min-h-[28px] rounded-md border px-3 py-2 text-xs transition ${
+               chartType === t
+                 ? "border-foreground bg-foreground text-background"
+                 : "border-border hover:border-foreground"
 diff --git a/web/app/intake/components/pdf_drop_banner.tsx b/web/app/intake/components/pdf_drop_banner.tsx
 index ce192fc..ea1d90a 100644
 --- a/web/app/intake/components/pdf_drop_banner.tsx
@@ -63,6 +437,404 @@ index ce192fc..ea1d90a 100644
      return () => {
        window.removeEventListener("dragover", handleDragOver);
        window.removeEventListener("drop", handleDrop);
+diff --git a/web/app/intake/components/scope_decision_view.tsx b/web/app/intake/components/scope_decision_view.tsx
+index fcb5e51..ed5e2f5 100644
+--- a/web/app/intake/components/scope_decision_view.tsx
++++ b/web/app/intake/components/scope_decision_view.tsx
+@@ -22,8 +22,7 @@ const STATUS_TONE: Record<IntakeStatus, string> = {
+     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+   out_of_scope:
+     "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+-  refused:
+-    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
++  refused: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+ };
+ 
+ function StatusBadge({ status }: { status: IntakeStatus }) {
+@@ -119,9 +118,7 @@ export function ScopeDecisionView({
+ 
+         {decision.ambiguity_axes.length ? (
+           <section className="flex flex-col gap-2">
+-            <h3 className="text-foreground text-sm font-medium">
+-              PICO axes
+-            </h3>
++            <h3 className="text-foreground text-sm font-medium">PICO axes</h3>
+             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+               {decision.ambiguity_axes.map((axis) => (
+                 <AxisRow key={axis.axis} axis={axis} />
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index ebf8658..2b26037 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -107,113 +107,113 @@ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+-        <section className="flex flex-col gap-3">
+-          <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+-            POLARIS Canada — Sovereign Deep Research
+-          </h1>
+-          <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+-            Two-family verified evidence pipelines for Government of Canada
+-            policy work. Every claim carries a provenance token tied to a
+-            primary source.
+-          </p>
+-        </section>
++        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
++          <section className="flex flex-col gap-3">
++            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
++              POLARIS Canada — Sovereign Deep Research
++            </h1>
++            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
++              Two-family verified evidence pipelines for Government of Canada
++              policy work. Every claim carries a provenance token tied to a
++              primary source.
++            </p>
++          </section>
+ 
+-        <section
+-          aria-labelledby="template_grid_heading"
+-          className="flex flex-col gap-5"
+-          data-testid="template-grid"
+-        >
+-          <div className="flex items-baseline justify-between">
+-            <h2
+-              id="template_grid_heading"
+-              className="text-foreground text-xl font-semibold tracking-tight"
+-            >
+-              Research templates
+-            </h2>
+-            <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-              3 active · 5 to-build
+-            </span>
+-          </div>
+-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+-            {templates.map((tpl) => (
+-              <Card
+-                key={tpl.id}
+-                aria-disabled={tpl.active ? undefined : true}
+-                className={
+-                  tpl.active
+-                    ? "flex flex-col"
+-                    : "bg-muted/40 text-muted-foreground flex flex-col"
+-                }
+-                data-testid={`template-card-${tpl.id}`}
++          <section
++            aria-labelledby="template_grid_heading"
++            className="flex flex-col gap-5"
++            data-testid="template-grid"
++          >
++            <div className="flex items-baseline justify-between">
++              <h2
++                id="template_grid_heading"
++                className="text-foreground text-xl font-semibold tracking-tight"
+               >
+-                <CardHeader>
+-                  <div className="flex items-start justify-between gap-2">
+-                    <CardTitle className="text-lg">{tpl.name}</CardTitle>
+-                    {!tpl.active ? (
+-                      <span
+-                        aria-hidden="true"
+-                        className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
++                Research templates
++              </h2>
++              <span className="text-muted-foreground text-xs tracking-widest uppercase">
++                3 active · 5 to-build
++              </span>
++            </div>
++            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
++              {templates.map((tpl) => (
++                <Card
++                  key={tpl.id}
++                  aria-disabled={tpl.active ? undefined : true}
++                  className={
++                    tpl.active
++                      ? "flex flex-col"
++                      : "bg-muted/40 text-muted-foreground flex flex-col"
++                  }
++                  data-testid={`template-card-${tpl.id}`}
++                >
++                  <CardHeader>
++                    <div className="flex items-start justify-between gap-2">
++                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
++                      {!tpl.active ? (
++                        <span
++                          aria-hidden="true"
++                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
++                        >
++                          Coming soon
++                        </span>
++                      ) : null}
++                    </div>
++                    <CardDescription className="text-sm">
++                      {tpl.summary}
++                    </CardDescription>
++                  </CardHeader>
++                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
++                    <div className="flex flex-col gap-2 text-sm">
++                      <p>
++                        <span className="text-foreground font-medium">
++                          In scope:
++                        </span>{" "}
++                        {tpl.sample_question}
++                      </p>
++                      <p>
++                        <span className="text-foreground font-medium">
++                          Out of scope:
++                        </span>{" "}
++                        {tpl.out_of_scope}
++                      </p>
++                    </div>
++                    {tpl.active ? (
++                      <Button
++                        variant="outline"
++                        nativeButton={false}
++                        render={
++                          <Link
++                            data-testid={`template-card-${tpl.id}-link`}
++                            href={`/intake?template=${tpl.id}`}
++                          />
++                        }
++                      >
++                        Open {tpl.name}
++                      </Button>
++                    ) : (
++                      <Button
++                        variant="outline"
++                        disabled
++                        tabIndex={-1}
++                        aria-disabled="true"
+                       >
+                         Coming soon
+-                      </span>
+-                    ) : null}
+-                  </div>
+-                  <CardDescription className="text-sm">
+-                    {tpl.summary}
+-                  </CardDescription>
+-                </CardHeader>
+-                <CardContent className="flex flex-1 flex-col justify-between gap-4">
+-                  <div className="flex flex-col gap-2 text-sm">
+-                    <p>
+-                      <span className="text-foreground font-medium">
+-                        In scope:
+-                      </span>{" "}
+-                      {tpl.sample_question}
+-                    </p>
+-                    <p>
+-                      <span className="text-foreground font-medium">
+-                        Out of scope:
+-                      </span>{" "}
+-                      {tpl.out_of_scope}
+-                    </p>
+-                  </div>
+-                  {tpl.active ? (
+-                    <Button
+-                      variant="outline"
+-                      nativeButton={false}
+-                      render={
+-                        <Link
+-                          data-testid={`template-card-${tpl.id}-link`}
+-                          href={`/intake?template=${tpl.id}`}
+-                        />
+-                      }
+-                    >
+-                      Open {tpl.name}
+-                    </Button>
+-                  ) : (
+-                    <Button
+-                      variant="outline"
+-                      disabled
+-                      tabIndex={-1}
+-                      aria-disabled="true"
+-                    >
+-                      Coming soon
+-                    </Button>
+-                  )}
+-                </CardContent>
+-              </Card>
+-            ))}
+-          </div>
+-        </section>
+-      </main>
++                      </Button>
++                    )}
++                  </CardContent>
++                </Card>
++              ))}
++            </div>
++          </section>
++        </main>
+ 
+-      <footer className="border-border bg-background border-t">
+-        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — slices 1-5 shipped</span>
+-          <span>Sovereign Canadian deep research</span>
+-        </div>
+-      </footer>
++        <footer className="border-border bg-background border-t">
++          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
++            <span>POLARIS v6.2 — slices 1-5 shipped</span>
++            <span>Sovereign Canadian deep research</span>
++          </div>
++        </footer>
+       </HomeKeyboardShell>
+     </div>
+   );
+diff --git a/web/app/retrieval/components/corpus_brief.tsx b/web/app/retrieval/components/corpus_brief.tsx
+index c38cf75..19a335e 100644
+--- a/web/app/retrieval/components/corpus_brief.tsx
++++ b/web/app/retrieval/components/corpus_brief.tsx
+@@ -84,7 +84,7 @@ export function CorpusBrief({ pool }: { pool: EvidencePool }) {
+         {pool.adequacy.failure_reason ? (
+           <p
+             data-testid="adequacy-failure-reason"
+-            className="border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-300 rounded-md border px-3 py-2 text-sm"
++            className="rounded-md border border-rose-500/40 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300"
+           >
+             {pool.adequacy.failure_reason}
+           </p>
+@@ -92,9 +92,7 @@ export function CorpusBrief({ pool }: { pool: EvidencePool }) {
+ 
+         <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+           <dt className="text-muted-foreground">Sources retrieved</dt>
+-          <dd className="text-foreground font-medium">
+-            {pool.sources.length}
+-          </dd>
++          <dd className="text-foreground font-medium">{pool.sources.length}</dd>
+           <dt className="text-muted-foreground">Queries executed</dt>
+           <dd className="text-foreground font-medium">
+             {pool.queries_executed.length}
+diff --git a/web/app/retrieval/components/retrieval_runner.tsx b/web/app/retrieval/components/retrieval_runner.tsx
+index 57d1621..a492040 100644
+--- a/web/app/retrieval/components/retrieval_runner.tsx
++++ b/web/app/retrieval/components/retrieval_runner.tsx
+@@ -105,9 +105,7 @@ export function RetrievalRunner() {
+     <div className="flex flex-col gap-6">
+       <Card>
+         <CardHeader>
+-          <CardTitle className="text-xl">
+-            Retrieve clinical evidence
+-          </CardTitle>
++          <CardTitle className="text-xl">Retrieve clinical evidence</CardTitle>
+         </CardHeader>
+         <CardContent>
+           <form
+@@ -134,12 +132,12 @@ export function RetrievalRunner() {
+                 state.kind === "scope_loading" ||
+                 state.kind === "retrieval_loading"
+               }
+-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm outline-none transition-colors focus-visible:ring-3 disabled:opacity-50"
++              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+             />
+             <p className="text-muted-foreground text-xs">
+-              Slice 002 only retrieves for in-scope clinical questions.
+-              The intake gate runs first; ambiguous, out-of-scope, or
+-              refused questions short-circuit before any retrieval is attempted.
++              Slice 002 only retrieves for in-scope clinical questions. The
++              intake gate runs first; ambiguous, out-of-scope, or refused
++              questions short-circuit before any retrieval is attempted.
+             </p>
+             <Button
+               type="submit"
+diff --git a/web/app/retrieval/page.tsx b/web/app/retrieval/page.tsx
+index 33fbb48..f101d2d 100644
+--- a/web/app/retrieval/page.tsx
++++ b/web/app/retrieval/page.tsx
+@@ -51,11 +51,11 @@ export default function RetrievalPage() {
+             Clinical evidence retrieval
+           </h1>
+           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-            Submit a clinical question. POLARIS runs the slice 001 scope
+-            gate first; if the question is in-scope clinical, the slice
+-            002 retriever fans out queries across regulatory (T1),
+-            peer-reviewed (T2), and registry (T3) sources, deduplicates,
+-            and assembles a corpus brief with adequacy verdict.
++            Submit a clinical question. POLARIS runs the slice 001 scope gate
++            first; if the question is in-scope clinical, the slice 002 retriever
++            fans out queries across regulatory (T1), peer-reviewed (T2), and
++            registry (T3) sources, deduplicates, and assembles a corpus brief
++            with adequacy verdict.
+           </p>
+         </section>
+ 
+@@ -68,8 +68,8 @@ export default function RetrievalPage() {
+           <p>
+             <strong className="text-foreground">Slice progression.</strong>{" "}
+             Slice 003 (generation with strict-verify) runs against the
+-            EvidencePool returned here. An inadequate corpus aborts the
+-            pipeline before any generator token is billed.
++            EvidencePool returned here. An inadequate corpus aborts the pipeline
++            before any generator token is billed.
+           </p>
+         </section>
+       </main>
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 658451c..2e05242 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -240,10 +240,7 @@ const REPORT: VerifiedReport = {
+         {
+           section_id: "sec_x",
+           sentence_text: "Multi-span with bad span demo sentence.",
+-          provenance_tokens: [
+-            `[#ev:src-0:0-30]`,
+-            `[#ev:src-0:5000-5050]`,
+-          ],
++          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:5000-5050]`],
+           verifier_pass: true,
+           drop_reason: null,
+           evaluator_agrees: true,
+@@ -390,8 +387,7 @@ const REPORT: VerifiedReport = {
+                 source_tier: "T1",
+                 evidence_type: "trial",
+                 hedge_language: "high confidence",
+-                claim_excerpt:
+-                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
++                claim_excerpt: "Drug X efficacious in RCT (NEJM 2024, n=2103).",
+               },
+               {
+                 source_id: "src-1",
+diff --git a/web/app/sentence_hover_test/_demo_evaluator_edge.tsx b/web/app/sentence_hover_test/_demo_evaluator_edge.tsx
+index a505411..8edaacc 100644
+--- a/web/app/sentence_hover_test/_demo_evaluator_edge.tsx
++++ b/web/app/sentence_hover_test/_demo_evaluator_edge.tsx
+@@ -1,11 +1,7 @@
+ "use client";
+ 
+ import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+-import type {
+-  EvidencePool,
+-  RetrievalSource,
+-  VerifiedReport,
+-} from "@/lib/api";
++import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+ 
+ const ISO = new Date().toISOString();
+ const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+diff --git a/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+index 799a797..4dd6607 100644
+--- a/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
++++ b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+@@ -15,7 +15,7 @@ export function EvidenceTooltipEdgesHarness() {
+     <EvidenceTooltipProvider delay={0}>
+       <div className="relative h-screen w-screen">
+         {/* near-top: requests side="top" but trigger is at top → must flip down */}
+-        <div className="absolute left-1/2 top-2 -translate-x-1/2">
++        <div className="absolute top-2 left-1/2 -translate-x-1/2">
+           <EvidenceTooltip
+             evidenceId="src-top"
+             spanText="Near-top trigger demonstration."
+@@ -37,7 +37,7 @@ export function EvidenceTooltipEdgesHarness() {
+           </EvidenceTooltip>
+         </div>
+         {/* near-right: requests side="right" but trigger is at right → flip left */}
+-        <div className="absolute right-2 top-1/2 -translate-y-1/2">
++        <div className="absolute top-1/2 right-2 -translate-y-1/2">
+           <EvidenceTooltip
+             evidenceId="src-right"
+             spanText="Near-right trigger demonstration."
 diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
 index 1fdc1c5..ab8c8b3 100644
 --- a/web/components/ui/evidence-tooltip.tsx
@@ -187,6 +959,99 @@ index 1fdc1c5..ab8c8b3 100644
              className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
            />
          }
+diff --git a/web/tests/e2e/accessibility.spec.ts b/web/tests/e2e/accessibility.spec.ts
+index 0cfdbb4..38d7bd6 100644
+--- a/web/tests/e2e/accessibility.spec.ts
++++ b/web/tests/e2e/accessibility.spec.ts
+@@ -30,7 +30,13 @@ async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+       .map(
+         (v) =>
+           `\n  - [${v.impact}] ${v.id}: ${v.description}\n    nodes: ${v.nodes
+-            .map((n) => n.target.join(" ") + (n.failureSummary ? ` — ${n.failureSummary.replace(/\n/g, " ")}` : ""))
++            .map(
++              (n) =>
++                n.target.join(" ") +
++                (n.failureSummary
++                  ? ` — ${n.failureSummary.replace(/\n/g, " ")}`
++                  : ""),
++            )
+             .join("\n           ")}`,
+       )
+       .join("");
+@@ -46,7 +52,9 @@ test.describe("WCAG-AA — research dashboard", () => {
+     await expectNoA11yViolations(page);
+   });
+ 
+-  test("/dashboard after scope rejection is WCAG-AA clean", async ({ page }) => {
++  test("/dashboard after scope rejection is WCAG-AA clean", async ({
++    page,
++  }) => {
+     await page.goto("/dashboard", { waitUntil: "networkidle" });
+     await page.fill("#question", "Should I take ozempic for my diabetes?");
+     await page.getByRole("button", { name: /Check scope/ }).click();
+@@ -78,7 +86,10 @@ test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
+     await page.goto("/inspector/golden_climate_005", {
+       waitUntil: "networkidle",
+     });
+-    await page.getByRole("button", { name: /^Charts/ }).first().click();
++    await page
++      .getByRole("button", { name: /^Charts/ })
++      .first()
++      .click();
+     await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
+     await expectNoA11yViolations(page);
+   });
+@@ -89,13 +100,16 @@ test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () =>
+     await page.goto("/inspector/golden_housing_002", {
+       waitUntil: "networkidle",
+     });
+-    await page.getByRole("button", { name: /Contradictions/ }).first().click();
++    await page
++      .getByRole("button", { name: /Contradictions/ })
++      .first()
++      .click();
+     await expectNoA11yViolations(page);
+   });
+ });
+ 
+ test.describe("WCAG-AA — dashboard upload list with files", () => {
+-  test("Upload list \"remove\" button is WCAG-AA clean (real upload)", async ({
++  test('Upload list "remove" button is WCAG-AA clean (real upload)', async ({
+     page,
+   }) => {
+     // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
+@@ -116,12 +130,10 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
+     // Wait for the upload-list item to appear with our filename + the
+     // \"remove\" button. The list rendering depends on POST /api/upload
+     // returning successfully.
+-    await expect(
+-      page.getByText("polaris_a11y_probe.txt"),
+-    ).toBeVisible({ timeout: 8_000 });
+-    await expect(
+-      page.getByRole("button", { name: /^remove$/ }),
+-    ).toBeVisible();
++    await expect(page.getByText("polaris_a11y_probe.txt")).toBeVisible({
++      timeout: 8_000,
++    });
++    await expect(page.getByRole("button", { name: /^remove$/ })).toBeVisible();
+ 
+     await expectNoA11yViolations(page);
+   });
+diff --git a/web/tests/e2e/audit_bundle.spec.ts b/web/tests/e2e/audit_bundle.spec.ts
+index a865573..752d2e7 100644
+--- a/web/tests/e2e/audit_bundle.spec.ts
++++ b/web/tests/e2e/audit_bundle.spec.ts
+@@ -40,7 +40,9 @@ test.describe("Slice 004 — audit-bundle download from /generation", () => {
+     }
+   });
+ 
+-  test("download click yields .tar.gz or structured error", async ({ page }) => {
++  test("download click yields .tar.gz or structured error", async ({
++    page,
++  }) => {
+     await page
+       .getByTestId("generation-question-input")
+       .fill("Is aspirin effective for headache in adults?");
 diff --git a/web/tests/e2e/evidence_tooltip_mobile.spec.ts b/web/tests/e2e/evidence_tooltip_mobile.spec.ts
 new file mode 100644
 index 0000000..a088880
@@ -226,4 +1091,195 @@ index 0000000..a088880
 +    timeout: 3600,
 +  });
 +});
-# canonical-diff-sha256: 8365e5feeab943432fca5202c3697fba4bc5a6946d87b9a40cf4fb20b6d17e5d
+diff --git a/web/tests/e2e/f1_a11y.spec.ts b/web/tests/e2e/f1_a11y.spec.ts
+index 7f61f9a..d2f993d 100644
+--- a/web/tests/e2e/f1_a11y.spec.ts
++++ b/web/tests/e2e/f1_a11y.spec.ts
+@@ -25,7 +25,9 @@ test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+     await page.keyboard.press("Control+k");
+     await expect(page.getByTestId("command-palette")).toBeVisible();
+ 
+-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    const results = await new AxeBuilder({ page })
++      .withTags(WCAG_TAGS)
++      .analyze();
+     expect(results.violations.filter(critical_or_serious)).toEqual([]);
+   });
+ 
+@@ -38,7 +40,9 @@ test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+     });
+     await expect(page.getByTestId("intake-page")).toBeVisible();
+ 
+-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    const results = await new AxeBuilder({ page })
++      .withTags(WCAG_TAGS)
++      .analyze();
+     expect(results.violations.filter(critical_or_serious)).toEqual([]);
+   });
+ });
+diff --git a/web/tests/e2e/f1_multi_tab.spec.ts b/web/tests/e2e/f1_multi_tab.spec.ts
+index deeb1df..b0541bd 100644
+--- a/web/tests/e2e/f1_multi_tab.spec.ts
++++ b/web/tests/e2e/f1_multi_tab.spec.ts
+@@ -30,7 +30,11 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+     context.newPage(),
+   ]);
+ 
+-  await Promise.all([open_palette(pageA), open_palette(pageB), open_palette(pageC)]);
++  await Promise.all([
++    open_palette(pageA),
++    open_palette(pageB),
++    open_palette(pageC),
++  ]);
+ 
+   // Each tab types its distinct query.
+   await pageA.getByTestId("command-palette-input").fill("tirzepatide");
+diff --git a/web/tests/e2e/intake.spec.ts b/web/tests/e2e/intake.spec.ts
+index 123d1ae..d4fafa9 100644
+--- a/web/tests/e2e/intake.spec.ts
++++ b/web/tests/e2e/intake.spec.ts
+@@ -18,7 +18,9 @@ test.describe("Slice 001 — /intake", () => {
+ 
+   test("renders title, form, and sample suggestions", async ({ page }) => {
+     await expect(page.getByTestId("intake-page")).toBeVisible();
+-    await expect(page.getByText(/Clinical scope discovery/i).first()).toBeVisible();
++    await expect(
++      page.getByText(/Clinical scope discovery/i).first(),
++    ).toBeVisible();
+     await expect(page.getByTestId("intake-question-input")).toBeVisible();
+     await expect(page.getByTestId("intake-submit")).toBeVisible();
+   });
+diff --git a/web/tests/e2e/performance.spec.ts b/web/tests/e2e/performance.spec.ts
+index d578a41..442bac6 100644
+--- a/web/tests/e2e/performance.spec.ts
++++ b/web/tests/e2e/performance.spec.ts
+@@ -43,17 +43,22 @@ test.describe("Performance — Inspector tab switch latency", () => {
+     await page.goto("/inspector/golden_clinical_001", {
+       waitUntil: "networkidle",
+     });
+-    const tab = page.getByRole("button", { name: /Verified sentences/ }).first();
++    const tab = page
++      .getByRole("button", { name: /Verified sentences/ })
++      .first();
+ 
+     const start = Date.now();
+     await tab.click();
+     // F-4: wait timeout > budget so a slow render surfaces as a budget
+     // failure (`expected < 250, got ${switchMs}`) rather than a misleading
+     // locator-timeout.
+-    await page.locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/").first().waitFor({
+-      state: "visible",
+-      timeout: 5_000,
+-    });
++    await page
++      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
++      .first()
++      .waitFor({
++        state: "visible",
++        timeout: 5_000,
++      });
+     const switchMs = Date.now() - start;
+     expect(switchMs).toBeLessThan(250);
+   });
+@@ -66,10 +71,13 @@ test.describe("Performance — Inspector tab switch latency", () => {
+ 
+     const start = Date.now();
+     await tab.click();
+-    await page.getByText(/noted_both/).first().waitFor({
+-      state: "visible",
+-      timeout: 5_000,
+-    });
++    await page
++      .getByText(/noted_both/)
++      .first()
++      .waitFor({
++        state: "visible",
++        timeout: 5_000,
++      });
+     const switchMs = Date.now() - start;
+     expect(switchMs).toBeLessThan(250);
+   });
+@@ -100,7 +108,9 @@ test.describe("Performance — page-load Web Vitals", () => {
+     const fcpMs = await page.evaluate<number>(() => {
+       return new Promise((resolve) => {
+         const entries = performance.getEntriesByType("paint");
+-        const existing = entries.find((e) => e.name === "first-contentful-paint");
++        const existing = entries.find(
++          (e) => e.name === "first-contentful-paint",
++        );
+         if (existing) {
+           resolve(existing.startTime);
+           return;
+diff --git a/web/tests/e2e/retrieval.spec.ts b/web/tests/e2e/retrieval.spec.ts
+index 956f076..d742ee2 100644
+--- a/web/tests/e2e/retrieval.spec.ts
++++ b/web/tests/e2e/retrieval.spec.ts
+@@ -75,12 +75,8 @@ test.describe("Slice 002 — /retrieval", () => {
+         .waitFor({ state: "visible", timeout: 30_000 }),
+     ]);
+ 
+-    const error_visible = await page
+-      .getByTestId("retrieval-error")
+-      .isVisible();
+-    const corpus_visible = await page
+-      .getByTestId("corpus-brief")
+-      .isVisible();
++    const error_visible = await page.getByTestId("retrieval-error").isVisible();
++    const corpus_visible = await page.getByTestId("corpus-brief").isVisible();
+ 
+     expect(error_visible || corpus_visible).toBe(true);
+ 
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index ed9ee60..5a1a8f6 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -51,9 +51,7 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
+     "high confidence",
+   );
+   await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+-  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+-    "81mg",
+-  );
++  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
+   // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+ });
+@@ -81,12 +79,12 @@ test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
+   await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+     timeout: 500,
+   });
+-  await expect(
+-    page.getByTestId("contradiction-evidence-type-0"),
+-  ).toContainText("Trial");
+-  await expect(
+-    page.getByTestId("contradiction-evidence-type-1"),
+-  ).toContainText("Guideline");
++  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
++    "Trial",
++  );
++  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
++    "Guideline",
++  );
+ });
+ 
+ test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
+@@ -95,12 +93,12 @@ test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
+   await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+     timeout: 500,
+   });
+-  await expect(
+-    page.getByTestId("contradiction-jurisdiction-0"),
+-  ).toContainText("United States");
+-  await expect(
+-    page.getByTestId("contradiction-jurisdiction-1"),
+-  ).toContainText("Canada");
++  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
++    "United States",
++  );
++  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
++    "Canada",
++  );
+ });
+ 
+ test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+# canonical-diff-sha256: b296ab264e29d2b2369737d75e2b5aef0795dd69f09bc7674443e70f6eabfcdc
