@@ -57,3 +57,29 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
   // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
 });
+
+test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Source self-contradicts");
+  await expect(badge).toContainText("2 spans");
+  await badge.click();
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "Self-contradiction",
+  );
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "2 spans",
+  );
+  // Both sides reference src-0.
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+    "dangerous",
+  );
+});

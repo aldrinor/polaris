@@ -192,24 +192,60 @@ class ContradictionSide(BaseModel):
     claim_excerpt: str = Field(min_length=1, max_length=500)
 
 
+ContradictionKind = Literal["multi_source", "self_contradiction"]
+"""I-f8-003 contradiction-kind discriminator.
+
+`multi_source`: ≥2 distinct sources disagree (I-f8-001/002 case).
+`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+
+
 class ContradictionSignal(BaseModel):
     """Inline contradiction annotation per sentence (I-f8-001).
 
     Indicates ≥2 cited sources disagree on the claim in the sentence.
     `sides` (added I-f8-002) carries the per-source detail consumed by
-    the ContradictionPane; empty preserves I-f8-001 back-compat."""
+    the ContradictionPane; empty preserves I-f8-001 back-compat.
+    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
 
-    disagreeing_source_count: int = Field(ge=2, le=20)
+    disagreeing_source_count: int = Field(ge=1, le=20)
     summary: str = Field(min_length=1, max_length=500)
     sides: list[ContradictionSide] = Field(default_factory=list)
+    kind: ContradictionKind = Field(default="multi_source")
 
     @model_validator(mode="after")
-    def _sides_count_consistency(self) -> "ContradictionSignal":
-        if self.sides and len(self.sides) != self.disagreeing_source_count:
-            raise ValueError(
-                "len(sides) must equal disagreeing_source_count when sides "
-                "is non-empty"
-            )
+    def _kind_count_consistency(self) -> "ContradictionSignal":
+        if self.kind == "multi_source":
+            if self.disagreeing_source_count < 2:
+                raise ValueError(
+                    "kind='multi_source' requires "
+                    "disagreeing_source_count >= 2"
+                )
+            if (
+                self.sides
+                and len(self.sides) != self.disagreeing_source_count
+            ):
+                raise ValueError(
+                    "len(sides) must equal disagreeing_source_count for "
+                    "multi_source when sides is non-empty"
+                )
+        else:  # self_contradiction
+            if self.disagreeing_source_count != 1:
+                raise ValueError(
+                    "kind='self_contradiction' requires "
+                    "disagreeing_source_count == 1"
+                )
+            if len(self.sides) < 2:
+                raise ValueError(
+                    "kind='self_contradiction' requires sides with ≥2 "
+                    "entries representing distinct contradicting spans "
+                    "from the same source"
+                )
+            distinct_source_ids = {s.source_id for s in self.sides}
+            if len(distinct_source_ids) != 1:
+                raise ValueError(
+                    "kind='self_contradiction' requires all sides to "
+                    "reference the same source_id"
+                )
         return self
 
 

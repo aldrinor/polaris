@@ -186,7 +186,16 @@ function SentenceRow({
           }}
           className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
         >
-          ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
         </button>
       ) : null}
       {t1_conflict ? (

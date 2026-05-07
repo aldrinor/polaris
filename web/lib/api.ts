@@ -616,10 +616,13 @@ export interface ContradictionSide {
   claim_excerpt: string;
 }
 
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
 export interface ContradictionSignal {
   disagreeing_source_count: number;
   summary: string;
   sides?: ContradictionSide[];
+  kind?: ContradictionKind;
 }
 
 export type AssertionSurface =
