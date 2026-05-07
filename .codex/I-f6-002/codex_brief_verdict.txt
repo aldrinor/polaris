@@ -1,0 +1,1685 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e04a1-3189-76d1-9776-cf0e00f22172
+--------
+user
+# Codex Brief Review — I-f6-002 (ITER 2 of 5)
+
+## Iter 2 changes per Codex iter 1
+
+- **P1 fix:** EvidenceTooltip currently hard-codes `<Tooltip.Positioner side="top">`. Add an optional `side?: "top" | "right" | "bottom" | "left"` prop (default `"top"`, preserving existing behavior) so the harness can request bottom/right scenarios. Existing inspector + I-f6-001 harness pass no `side` and continue defaulting to top.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f6-002 — when the EvidenceTooltip is near a viewport edge, the popup must reposition to remain visible. Base UI's `Tooltip.Positioner` already uses Floating UI under the hood (per @base-ui/react/tooltip docs at `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.d.ts`); the existing component sets `side="top"` which can clip when the trigger is near the top of the viewport. Verify edge-aware behavior + add Playwright coverage for 3 viewport-edge scenarios.
+- **Constraints:** Frontend-only. Reuse the I-f6-001 harness pattern; expose 3 trigger positions (top, bottom, right edges) so Playwright can hover each and assert the popup stays in viewport.
+- **Done-when:** acceptance criteria 1-6 below.
+
+## Plan
+
+### Frontend
+1. `web/components/ui/evidence-tooltip.tsx`:
+   - Add optional `side?: "top" | "right" | "bottom" | "left"` prop (default `"top"`).
+   - Pass through to `<Tooltip.Positioner side={side}>` so the harness can deliberately request bottom/right scenarios.
+   - Existing callers pass no `side` and continue defaulting to top — no behavior change.
+   - Base UI Tooltip.Positioner default flip+shift on collision is what we rely on (verified against local types).
+2. `web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx` (new): harness with 3 triggers placed at:
+   - `near-top`: trigger near the top edge of the viewport — popup with `side="top"` request should flip to bottom.
+   - `near-bottom`: near bottom — popup with `side="bottom"` should flip to top.
+   - `near-right`: near right edge — popup with `side="right"` should flip to left.
+3. `web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx` (new): Next route mounting the harness.
+4. `web/tests/e2e/evidence_tooltip_edges.spec.ts` (new): for each of the 3 edge scenarios:
+   - Hover the trigger.
+   - Wait for popup visible.
+   - Capture popup bounding box via `page.evaluate(() => element.getBoundingClientRect())`.
+   - Assert `box.left >= 0`, `box.top >= 0`, `box.right <= viewport.width`, `box.bottom <= viewport.height` — i.e., popup fully inside viewport.
+
+## Risks for Codex Red-Team
+1. **Base UI default collision behavior:** Floating UI flip+shift is Base UI's default for Positioner; verify by reading `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.d.ts` to confirm.
+2. **Viewport assumptions:** Playwright config viewport is 1440x900 (per `playwright.config.ts`). Edge positions chosen relative to that.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~110 LOC. Under 200.
+
+## Acceptance criteria
+
+1. New harness with 3 edge-positioned triggers (top/bottom/right).
+2. Each trigger uses a deliberately-clipping `side` request to force a flip.
+3. Playwright spec hovers each, asserts popup fully inside viewport.
+4. Component changes: add optional `side?` prop with `"top"` default; pass through to Positioner. Rely on Base UI default flip+shift collision behavior.
+5. Existing inspector + I-f6-001 harness routes UNTOUCHED.
+6. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the plan against the existing component, the prior harness pattern, Playwright setup, and Base UI tooltip positioner types so the verdict is about execution soundness rather than the current diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "evidence-tooltip.tsx" -g "*_demo_evidence_tooltip*" -g "*.spec.ts" -g "playwright.config.ts" -g "TooltipPositioner.d.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"EvidenceTooltip|Tooltip\\.Positioner|sentence_hover_test|viewport|testDir|use\\(|hover\\(\" web -g \"*.tsx\" -g \"*.ts\"" in C:\POLARIS
+2026-05-07T22:49:06.606656Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\playwright.config.ts
+web\components\ui\evidence-tooltip.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+
+ exited 1 in 888ms:
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\playwright.config.ts
+web\components\ui\evidence-tooltip.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+
+ succeeded in 914ms:
+web\playwright.config.ts:17:  testDir: "./tests/e2e",
+web\playwright.config.ts:33:    viewport: { width: 1440, height: 900 },
+web\components\ui\evidence-tooltip.tsx:6:interface EvidenceTooltipProps {
+web\components\ui\evidence-tooltip.tsx:25:export function EvidenceTooltip({
+web\components\ui\evidence-tooltip.tsx:33:}: EvidenceTooltipProps) {
+web\components\ui\evidence-tooltip.tsx:48:        <Tooltip.Positioner sideOffset={6} side="top">
+web\components\ui\evidence-tooltip.tsx:83:        </Tooltip.Positioner>
+web\components\ui\evidence-tooltip.tsx:89:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web\tests\e2e\evidence_tooltip.spec.ts:6:  await page.goto("/sentence_hover_test/evidence_tooltip");
+web\tests\e2e\evidence_tooltip.spec.ts:12:  await page.getByTestId("evidence-tooltip-trigger").hover();
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_hover.spec.ts:12:  await s7.hover();
+web\tests\e2e\sentence_hover.spec.ts:15:  await s3.hover();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web\tests\e2e\landing_template_grid.spec.ts:12: *  - 8 cards render at 4 viewports (1920/1024/768/375)
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web\app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web\app\inspector\[runId]\page.tsx:31:  const { runId } = use(params);
+web\app\inspector\[runId]\page.tsx:341:      <EvidenceTooltip
+web\app\inspector\[runId]\page.tsx:350:      </EvidenceTooltip>,
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+web\tests\e2e\performance_hover.spec.ts:28:  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+web\tests\e2e\performance_hover.spec.ts:49:    await trigger.hover();
+web\tests\e2e\performance_hover.spec.ts:72:    await trigger.hover();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:6:  await page.goto("/sentence_hover_test/evaluator_edge?mode=none");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:15:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:24:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:20:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:30:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:107:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:15:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:1:import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:3:export default function EvidenceTooltipPage() {
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:4:  return <EvidenceTooltipHarness />;
+web\tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:9: * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:14:export function EvidenceTooltipHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:26:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:34:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\runs\[runId]\page.tsx:28:  const { runId } = use(params);
+
+codex
+The existing route and spec for I-f6-001 are present, and the current component still hard-codes `side="top"`. I’m checking the exact positioner API next, because the plan’s reliance on default collision handling is the main execution assumption.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\ui\\evidence-tooltip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\sentence_hover_test\\_demo_evidence_tooltip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\tests\\e2e\\evidence_tooltip.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\node_modules\\@base-ui\\react\\tooltip\\positioner\\TooltipPositioner.d.ts" in C:\POLARIS
+ succeeded in 1111ms:
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import * as React from "react";
+
+interface EvidenceTooltipProps {
+  evidenceId: string;
+  sourceUrl?: string;
+  spanText?: string;
+  sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
+  onClickToInspect?: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+ * source span behind a provenance token. Click still triggers the right-
+ * pane Inspector view; hover shows a quick preview.
+ */
+export function EvidenceTooltip({
+  evidenceId,
+  sourceUrl,
+  spanText,
+  sourceTier,
+  publishedDate,
+  onClickToInspect,
+  children,
+}: EvidenceTooltipProps) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger
+        render={
+          <button
+            type="button"
+            onClick={onClickToInspect}
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+          />
+        }
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6} side="top">
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <p className="text-muted-foreground font-mono text-[11px]">
+              {evidenceId}
+              {sourceTier && ` · tier ${sourceTier}`}
+            </p>
+            {sourceUrl && (
+              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+                {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
+              </p>
+            )}
+            {spanText && (
+              <p className="text-foreground mt-2 text-xs leading-snug">
+                &ldquo;
+                {spanText.length > 240
+                  ? spanText.slice(0, 240) + "…"
+                  : spanText}
+                &rdquo;
+              </p>
+            )}
+            <p className="text-muted-foreground mt-2 text-[11px] italic">
+              Click to pin in Evidence pane
+            </p>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export const EvidenceTooltipProvider = Tooltip.Provider;
+
+
+ succeeded in 1132ms:
+"use client";
+
+import {
+  EvidenceTooltip,
+  EvidenceTooltipProvider,
+} from "@/components/ui/evidence-tooltip";
+
+/**
+ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+ * can assert (a) popup absent before hover, (b) popup absent immediately
+ * after hover (within ~50ms), (c) popup visible within 500ms.
+ */
+export function EvidenceTooltipHarness() {
+  return (
+    <EvidenceTooltipProvider delay={300}>
+      <div
+        data-testid="evidence-tooltip-harness"
+        className="mx-auto max-w-xl p-8"
+      >
+        <p className="mb-4 text-sm">
+          Hover the citation token below to see the evidence tooltip.
+        </p>
+        <p className="text-sm">
+          Aspirin reduces headache pain in adults
+          <EvidenceTooltip
+            evidenceId="src-demo-1"
+            sourceUrl="https://www.cochrane.org/CD-demo-1"
+            sourceTier="T1"
+            publishedDate="2024-03-15"
+            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+          >
+            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+          </EvidenceTooltip>
+          .
+        </p>
+      </div>
+    </EvidenceTooltipProvider>
+  );
+}
+
+
+ succeeded in 1159ms:
+import { expect, test } from "@playwright/test";
+
+test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test/evidence_tooltip");
+  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+  // (a) popup absent before any hover.
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
+  await page.getByTestId("evidence-tooltip-trigger").hover();
+  // Take a near-immediate sample (~50ms): should still be absent because of
+  // the 300ms Provider delay.
+  await page.waitForTimeout(50);
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (c) within 500ms the popup should be present (300ms delay + buffer).
+  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+    timeout: 500,
+  });
+  // Content checks.
+  const popup = page.getByTestId("evidence-tooltip-popup");
+  await expect(popup).toContainText("tier T1");
+  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+    "Published: 2024-03-15",
+  );
+  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
+});
+
+
+ succeeded in 1187ms:
+import * as React from 'react';
+import { type Side, type Align, type UseAnchorPositioningSharedParameters } from "../../utils/useAnchorPositioning.js";
+import type { BaseUIComponentProps } from "../../internals/types.js";
+/**
+ * Positions the tooltip against the trigger.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipPositioner: React.ForwardRefExoticComponent<Omit<TooltipPositionerProps, "ref"> & React.RefAttributes<HTMLDivElement>>;
+export interface TooltipPositionerState {
+  /**
+   * Whether the tooltip is currently open.
+   */
+  open: boolean;
+  /**
+   * The side of the anchor the component is placed on.
+   */
+  side: Side;
+  /**
+   * The alignment of the component relative to the anchor.
+   */
+  align: Align;
+  /**
+   * Whether the anchor element is hidden.
+   */
+  anchorHidden: boolean;
+  /**
+   * Whether CSS transitions should be disabled.
+   */
+  instant: string | undefined;
+}
+export interface TooltipPositionerProps extends BaseUIComponentProps<'div', TooltipPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side'> {
+  /**
+   * Which side of the anchor element to align the popup against.
+   * May automatically change to avoid collisions.
+   * @default 'top'
+   */
+  side?: Side | undefined;
+}
+export declare namespace TooltipPositioner {
+  type State = TooltipPositionerState;
+  type Props = TooltipPositionerProps;
+}
+
+ succeeded in 1239ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem web\\node_modules\\@base-ui\\react\\utils -Filter \"*Anchor*\" | Select-Object -ExpandProperty FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\node_modules\\@base-ui\\react\\utils\\useAnchorPositioning.d.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"collision|flip|shift|sideOffset|avoid|viewport|Collision\" web\\node_modules\\@base-ui\\react\\utils web\\node_modules\\@base-ui\\react\\tooltip -g \"*.d.ts\" -g \"*.js\"" in C:\POLARIS
+ succeeded in 869ms:
+import * as React from 'react';
+import { type Rect } from '@floating-ui/utils';
+import { useFloating, type FloatingRootContext, type VirtualElement, type Padding, type FloatingContext, type Side as PhysicalSide, type Middleware, type FloatingTreeStore } from "../floating-ui-react/index.js";
+export type Side = 'top' | 'bottom' | 'left' | 'right' | 'inline-end' | 'inline-start';
+export type Align = 'start' | 'center' | 'end';
+export type Boundary = 'clipping-ancestors' | Element | Element[] | Rect;
+export type OffsetFunction = (data: {
+  side: Side;
+  align: Align;
+  anchor: {
+    width: number;
+    height: number;
+  };
+  positioner: {
+    width: number;
+    height: number;
+  };
+}) => number;
+interface SideFlipMode {
+  /**
+   * How to avoid collisions on the side axis.
+   * - `'flip'`: If there is not enough space, place the popup on the opposite side.
+   * - `'none'`: Keep the preferred side even if it overflows.
+   */
+  side?: 'flip' | 'none' | undefined;
+  /**
+   * How to avoid collisions on the align axis.
+   * - `'flip'`: If there is not enough space, swap `'start'` and `'end'` alignment.
+   * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+   * - `'none'`: Keep the preferred alignment even if it overflows.
+   */
+  align?: 'flip' | 'shift' | 'none' | undefined;
+  /**
+   * If both sides on the preferred axis do not fit, determines whether to fallback
+   * to a side on the perpendicular axis and which logical side to prefer.
+   * - `'start'`: Prefer the logical start side on the perpendicular axis.
+   * - `'end'`: Prefer the logical end side on the perpendicular axis.
+   * - `'none'`: Do not fallback to the perpendicular axis.
+   */
+  fallbackAxisSide?: 'start' | 'end' | 'none' | undefined;
+}
+interface SideShiftMode {
+  /**
+   * How to avoid collisions on the side axis.
+   * - `'shift'`: Keep the preferred side and shift the popup to fit within the boundary.
+   * - `'none'`: Keep the preferred side even if it overflows.
+   */
+  side?: 'shift' | 'none' | undefined;
+  /**
+   * How to avoid collisions on the align axis.
+   * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+   * - `'none'`: Keep the preferred alignment even if it overflows.
+   */
+  align?: 'shift' | 'none' | undefined;
+  /**
+   * If both sides on the preferred axis do not fit, determines whether to fallback
+   * to a side on the perpendicular axis and which logical side to prefer.
+   * - `'start'`: Prefer the logical start side on the perpendicular axis.
+   * - `'end'`: Prefer the logical end side on the perpendicular axis.
+   * - `'none'`: Do not fallback to the perpendicular axis.
+   */
+  fallbackAxisSide?: 'start' | 'end' | 'none' | undefined;
+}
+export type CollisionAvoidance = SideFlipMode | SideShiftMode;
+/**
+ * Provides standardized anchor positioning behavior for floating elements. Wraps Floating UI's
+ * `useFloating` hook.
+ */
+export declare function useAnchorPositioning(params: UseAnchorPositioningParameters): UseAnchorPositioningReturnValue;
+export interface UseAnchorPositioningSharedParameters {
+  /**
+   * An element to position the popup against.
+   * By default, the popup will be positioned against the trigger.
+   */
+  anchor?: Element | null | VirtualElement | React.RefObject<Element | null> | (() => Element | VirtualElement | null) | undefined;
+  /**
+   * Determines which CSS `position` property to use.
+   * @default 'absolute'
+   */
+  positionMethod?: 'absolute' | 'fixed' | undefined;
+  /**
+   * Which side of the anchor element to align the popup against.
+   * May automatically change to avoid collisions.
+   * @default 'bottom'
+   */
+  side?: Side | undefined;
+  /**
+   * Distance between the anchor and the popup in pixels.
+   * Also accepts a function that returns the distance to read the dimensions of the anchor
+   * and positioner elements, along with its side and alignment.
+   *
+   * The function takes a `data` object parameter with the following properties:
+   * - `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+   * - `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+   * - `data.side`: which side of the anchor element the positioner is aligned against.
+   * - `data.align`: how the positioner is aligned relative to the specified side.
+   *
+   * @example
+   * ```jsx
+   * <Positioner
+   *   sideOffset={({ side, align, anchor, positioner }) => {
+   *     return side === 'top' || side === 'bottom'
+   *       ? anchor.height
+   *       : anchor.width;
+   *   }}
+   * />
+   * ```
+   *
+   * @default 0
+   */
+  sideOffset?: number | OffsetFunction | undefined;
+  /**
+   * How to align the popup relative to the specified side.
+   * @default 'center'
+   */
+  align?: Align | undefined;
+  /**
+   * Additional offset along the alignment axis in pixels.
+   * Also accepts a function that returns the offset to read the dimensions of the anchor
+   * and positioner elements, along with its side and alignment.
+   *
+   * The function takes a `data` object parameter with the following properties:
+   * - `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+   * - `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+   * - `data.side`: which side of the anchor element the positioner is aligned against.
+   * - `data.align`: how the positioner is aligned relative to the specified side.
+   *
+   * @example
+   * ```jsx
+   * <Positioner
+   *   alignOffset={({ side, align, anchor, positioner }) => {
+   *     return side === 'top' || side === 'bottom'
+   *       ? anchor.width
+   *       : anchor.height;
+   *   }}
+   * />
+   * ```
+   *
+   * @default 0
+   */
+  alignOffset?: number | OffsetFunction | undefined;
+  /**
+   * An element or a rectangle that delimits the area that the popup is confined to.
+   * @default 'clipping-ancestors'
+   */
+  collisionBoundary?: Boundary | undefined;
+  /**
+   * Additional space to maintain from the edge of the collision boundary.
+   * @default 5
+   */
+  collisionPadding?: Padding | undefined;
+  /**
+   * Whether to maintain the popup in the viewport after
+   * the anchor element was scrolled out of view.
+   * @default false
+   */
+  sticky?: boolean | undefined;
+  /**
+   * Minimum distance to maintain between the arrow and the edges of the popup.
+   *
+   * Use it to prevent the arrow element from hanging out of the rounded corners of a popup.
+   * @default 5
+   */
+  arrowPadding?: number | undefined;
+  /**
+   * Whether to disable the popup from tracking any layout shift of its positioning anchor.
+   * @default false
+   */
+  disableAnchorTracking?: boolean | undefined;
+  /**
+   * Determines how to handle collisions when positioning the popup.
+   *
+   * `side` controls overflow on the preferred placement axis (`top`/`bottom` or `left`/`right`):
+   * - `'flip'`: keep the requested side when it fits; otherwise try the opposite side
+   *   (`top` and `bottom`, or `left` and `right`).
+   * - `'shift'`: never change side; keep the requested side and move the popup within
+   *   the clipping boundary so it stays visible.
+   * - `'none'`: do not correct side-axis overflow.
+   *
+   * `align` controls overflow on the alignment axis (`start`/`center`/`end`):
+   * - `'flip'`: keep side, but swap `start` and `end` when the requested alignment overflows.
+   * - `'shift'`: keep side and requested alignment, then nudge the popup along the
+   *   alignment axis to fit.
+   * - `'none'`: do not correct alignment-axis overflow.
+   *
+   * `fallbackAxisSide` controls fallback behavior on the perpendicular axis when the
+   * preferred axis cannot fit:
+   * - `'start'`: allow perpendicular fallback and try the logical start side first
+   *   (`top` before `bottom`, or `left` before `right` in LTR).
+   * - `'end'`: allow perpendicular fallback and try the logical end side first
+   *   (`bottom` before `top`, or `right` before `left` in LTR).
+   * - `'none'`: do not fallback to the perpendicular axis.
+   *
+   * When `side` is `'shift'`, explicitly setting `align` only supports `'shift'` or `'none'`.
+   * If `align` is omitted, it defaults to `'flip'`.
+   *
+   * @example
+   * ```jsx
+   * <Positioner
+   *   collisionAvoidance={{
+   *     side: 'shift',
+   *     align: 'shift',
+   *     fallbackAxisSide: 'none',
+   *   }}
+   * />
+   * ```
+   *
+   */
+  collisionAvoidance?: CollisionAvoidance | undefined;
+}
+export interface UseAnchorPositioningParameters extends UseAnchorPositioningSharedParameters {
+  keepMounted?: boolean | undefined;
+  trackCursorAxis?: 'none' | 'x' | 'y' | 'both' | undefined;
+  floatingRootContext?: FloatingRootContext | undefined;
+  mounted: boolean;
+  disableAnchorTracking: boolean;
+  nodeId?: string | undefined;
+  adaptiveOrigin?: Middleware | undefined;
+  collisionAvoidance: CollisionAvoidance;
+  shiftCrossAxis?: boolean | undefined;
+  lazyFlip?: boolean | undefined;
+  externalTree?: FloatingTreeStore | undefined;
+}
+export interface UseAnchorPositioningReturnValue {
+  positionerStyles: React.CSSProperties;
+  arrowStyles: React.CSSProperties;
+  arrowRef: React.RefObject<Element | null>;
+  arrowUncentered: boolean;
+  side: Side;
+  align: Align;
+  physicalSide: PhysicalSide;
+  anchorHidden: boolean;
+  refs: ReturnType<typeof useFloating>['refs'];
+  context: FloatingContext;
+  isPositioned: boolean;
+  update: () => void;
+}
+export interface UseAnchorPositioningState {}
+export {};
+
+ succeeded in 879ms:
+C:\POLARIS\web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.d.ts
+C:\POLARIS\web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.js
+C:\POLARIS\web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts
+C:\POLARIS\web\node_modules\@base-ui\react\utils\useAnchorPositioning.js
+
+ succeeded in 865ms:
+web\node_modules\@base-ui\react\tooltip\index.parts.d.ts:8:export { TooltipViewport as Viewport } from "./viewport/TooltipViewport.js";
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.js:9:   * Applied to the direct child of the viewport when no transitions are present or the new content when it's entering.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.js:13:   * Applied to the direct child of the viewport that contains the exiting content when transitions are present.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.js:24:   * Indicates that the viewport is currently transitioning between old and new content.
+web\node_modules\@base-ui\react\tooltip\index.d.ts:8:export type * from "./viewport/TooltipViewport.js";
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.d.ts:3:   * Applied to the direct child of the viewport when no transitions are present or the new content when it's entering.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.d.ts:7:   * Applied to the direct child of the viewport that contains the exiting content when transitions are present.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewportDataAttributes.d.ts:18:   * Indicates that the viewport is currently transitioning between old and new content.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.js:22: * A viewport for displaying content transitions.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.js:42:    state: viewportState
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.js:50:    activationDirection: viewportState.activationDirection,
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.js:51:    transitioning: viewportState.transitioning,
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.d.ts:4: * A viewport for displaying content transitions.
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.d.ts:18:   * Whether the viewport is currently transitioning between contents.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositionerCssVars.js:9:   * The available width between the trigger and the edge of the viewport.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositionerCssVars.js:14:   * The available height between the trigger and the edge of the viewport.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:36:   * May automatically change to avoid collisions.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositionerCssVars.d.ts:3:   * The available width between the trigger and the edge of the viewport.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositionerCssVars.d.ts:8:   * The available height between the trigger and the edge of the viewport.
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:32:    sideOffset = 0,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:34:    collisionBoundary = 'clipping-ancestors',
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:35:    collisionPadding = 5,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:39:    collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:59:    sideOffset,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:62:    collisionBoundary,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:63:    collisionPadding,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:68:    collisionAvoidance,
+web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.d.ts:4: * viewport-sized.
+web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.js:13:// Touch-opened popups normally avoid scroll locking so users can still swipe outside to dismiss.
+web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.js:22: * viewport-sized.
+web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.js:31:    const viewportWidth = (0, _owner.ownerDocument)(positionerElement).documentElement.clientWidth;
+web\node_modules\@base-ui\react\utils\useAnchoredPopupScrollLock.js:33:    setTouchOpenShouldLockScroll(viewportWidth > 0 && popupWidth > 0 && popupWidth >= viewportWidth - VIEWPORT_WIDTH_TOLERANCE_PX);
+web\node_modules\@base-ui\react\tooltip\index.parts.js:73:var _TooltipViewport = require("./viewport/TooltipViewport");
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:21:   * How to avoid collisions on the side axis.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:22:   * - `'flip'`: If there is not enough space, place the popup on the opposite side.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:25:  side?: 'flip' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:27:   * How to avoid collisions on the align axis.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:28:   * - `'flip'`: If there is not enough space, swap `'start'` and `'end'` alignment.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:29:   * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:32:  align?: 'flip' | 'shift' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:44:   * How to avoid collisions on the side axis.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:45:   * - `'shift'`: Keep the preferred side and shift the popup to fit within the boundary.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:48:  side?: 'shift' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:50:   * How to avoid collisions on the align axis.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:51:   * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:54:  align?: 'shift' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:64:export type CollisionAvoidance = SideFlipMode | SideShiftMode;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:83:   * May automatically change to avoid collisions.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:101:   *   sideOffset={({ side, align, anchor, positioner }) => {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:111:  sideOffset?: number | OffsetFunction | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:146:  collisionBoundary?: Boundary | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:148:   * Additional space to maintain from the edge of the collision boundary.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:151:  collisionPadding?: Padding | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:153:   * Whether to maintain the popup in the viewport after
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:166:   * Whether to disable the popup from tracking any layout shift of its positioning anchor.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:171:   * Determines how to handle collisions when positioning the popup.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:174:   * - `'flip'`: keep the requested side when it fits; otherwise try the opposite side
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:176:   * - `'shift'`: never change side; keep the requested side and move the popup within
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:181:   * - `'flip'`: keep side, but swap `start` and `end` when the requested alignment overflows.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:182:   * - `'shift'`: keep side and requested alignment, then nudge the popup along the
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:194:   * When `side` is `'shift'`, explicitly setting `align` only supports `'shift'` or `'none'`.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:195:   * If `align` is omitted, it defaults to `'flip'`.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:200:   *   collisionAvoidance={{
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:201:   *     side: 'shift',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:202:   *     align: 'shift',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:209:  collisionAvoidance?: CollisionAvoidance | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:219:  collisionAvoidance: CollisionAvoidance;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:220:  shiftCrossAxis?: boolean | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:60:    sideOffset = 0,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:63:    collisionBoundary,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:64:    collisionPadding: collisionPaddingParam = 5,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:72:    collisionAvoidance,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:73:    shiftCrossAxis = false,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:83:  const collisionAvoidanceSide = collisionAvoidance.side || 'flip';
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:84:  const collisionAvoidanceAlign = collisionAvoidance.align || 'flip';
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:85:  const collisionAvoidanceFallbackAxisSide = collisionAvoidance.fallbackAxisSide || 'end';
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:102:  let collisionPadding = collisionPaddingParam;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:106:  // in the viewport, but this can cause it to flip to the top undesirably.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:112:  if (typeof collisionPadding === 'number') {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:113:    collisionPadding = {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:114:      top: collisionPadding + biasTop,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:115:      right: collisionPadding + biasRight,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:116:      bottom: collisionPadding + biasBottom,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:117:      left: collisionPadding + biasLeft
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:119:  } else if (collisionPadding) {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:120:    collisionPadding = {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:121:      top: (collisionPadding.top || 0) + biasTop,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:122:      right: (collisionPadding.right || 0) + biasRight,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:123:      bottom: (collisionPadding.bottom || 0) + biasBottom,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:124:      left: (collisionPadding.left || 0) + biasLeft
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:127:  const commonCollisionProps = {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:128:    boundary: collisionBoundary === 'clipping-ancestors' ? 'clippingAncestors' : collisionBoundary,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:129:    padding: collisionPadding
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:138:  const sideOffsetRef = (0, _useValueAsRef.useValueAsRef)(sideOffset);
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:140:  const sideOffsetDep = typeof sideOffset !== 'function' ? sideOffset : 0;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:144:    const sideAxis = typeof sideOffsetRef.current === 'function' ? sideOffsetRef.current(data) : sideOffsetRef.current;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:151:  }, [sideOffsetDep, alignOffsetDep, isRtl, sideParam])];
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:152:  const shiftDisabled = collisionAvoidanceAlign === 'none' && collisionAvoidanceSide !== 'shift';
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:153:  const crossAxisShiftEnabled = !shiftDisabled && (sticky || shiftCrossAxis || collisionAvoidanceSide === 'shift');
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:154:  const flipMiddleware = collisionAvoidanceSide === 'none' ? null : (0, _floatingUiReact.flip)({
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:155:    ...commonCollisionProps,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:156:    // Ensure the popup flips if it's been limited by its --available-height and it resizes.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:157:    // Since the size() padding is smaller than the flip() padding, flip() will take precedence.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:159:      top: collisionPadding.top + bias,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:160:      right: collisionPadding.right + bias,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:161:      bottom: collisionPadding.bottom + bias,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:162:      left: collisionPadding.left + bias
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:164:    mainAxis: !shiftCrossAxis && collisionAvoidanceSide === 'flip',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:165:    crossAxis: collisionAvoidanceAlign === 'flip' ? 'alignment' : false,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:166:    fallbackAxisSideDirection: collisionAvoidanceFallbackAxisSide
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:168:  const shiftMiddleware = shiftDisabled ? null : (0, _floatingUiReact.shift)(data => {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:171:      ...commonCollisionProps,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:172:      // Use the Layout Viewport to avoid shifting around when pinch-zooming
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:174:      rootBoundary: shiftCrossAxis ? {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:180:      mainAxis: collisionAvoidanceAlign !== 'none',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:182:      limiter: sticky || shiftCrossAxis ? undefined : (0, _floatingUiReact.limitShift)(limitData => {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:192:        const offsetAmount = sideAxis === 'y' ? collisionPadding.left + collisionPadding.right : collisionPadding.top + collisionPadding.bottom;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:198:  }, [commonCollisionProps, sticky, shiftCrossAxis, collisionPadding, collisionAvoidanceAlign]);
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:200:  // https://floating-ui.com/docs/flip#combining-with-shift
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:201:  if (collisionAvoidanceSide === 'shift' || collisionAvoidanceAlign === 'shift' || align === 'center') {
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:202:    middleware.push(shiftMiddleware, flipMiddleware);
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:204:    middleware.push(flipMiddleware, shiftMiddleware);
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:207:    ...commonCollisionProps,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:261:      const shiftY = Math.abs(middlewareData.shift?.y || 0);
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:263:      const sideOffsetValue = typeof sideOffset === 'function' ? sideOffset(getOffsetData(state, sideParam, isRtl)) : sideOffset;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:264:      const isOverlappingAnchor = shiftY > sideOffsetValue;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:266:        top: `${transformX}px calc(100% + ${sideOffsetValue}px)`,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:267:        bottom: `${transformX}px ${-sideOffsetValue}px`,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:268:        left: `calc(100% + ${sideOffsetValue}px) ${transformY}px`,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:269:        right: `${-sideOffsetValue}px ${transformY}px`
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:319:  // This ensures the popup is inside the viewport initially before it gets positioned.
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:377:   * Locks the flip (makes it "sticky") so it doesn't prefer a given placement
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:378:   * and flips back lazily, not eagerly. Ideal for filtered lists that change
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:379:   * the size of the popup dynamically to avoid unwanted flipping when typing.
+web\node_modules\@base-ui\react\utils\usePopupViewport.d.ts:20:   * Whether the viewport is currently transitioning between contents.
+web\node_modules\@base-ui\react\utils\usePopupViewport.d.ts:45:   * The viewport children wrapped in current/previous containers as needed.
+web\node_modules\@base-ui\react\utils\usePopupViewport.d.ts:54: * Builds morphing viewport containers for popups that animate between trigger-based content.
+web\node_modules\@base-ui\react\utils\usePopupViewport.js:22: * Builds morphing viewport containers for popups that animate between trigger-based content.
+web\node_modules\@base-ui\react\utils\usePopupViewport.js:41:  // Remount current content on trigger changes (and once more when payload lags) to avoid DOM reuse flashes.
+web\node_modules\@base-ui\react\utils\usePopupViewport.js:247:      // Payload arrived a render later, so remount once more to avoid reusing the old <img>.
+web\node_modules\@base-ui\react\utils\useSwipeDismiss.js:743:            // displacement; this avoids jumps when entering from outside the element while
+web\node_modules\@base-ui\react\utils\useSwipeDismiss.d.ts:48:   * This helps avoid conflicts between scrolling content and swipe-to-dismiss.
+web\node_modules\@base-ui\react\utils\useSwipeDismiss.d.ts:60:   * Disable for event-only usage to avoid re-renders.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\node_modules\\@base-ui\\react\\tooltip\\positioner\\TooltipPositioner.js" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"POPUP_COLLISION_AVOIDANCE|const POPUP_COLLISION\" web\\node_modules\\@base-ui\\react -g \"*.js\" -g \"*.d.ts\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem web\\app\\sentence_hover_test -Recurse -Depth 2 | Select-Object FullName" in C:\POLARIS
+ succeeded in 1049ms:
+"use strict";
+'use client';
+
+var _interopRequireWildcard = require("@babel/runtime/helpers/interopRequireWildcard").default;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.TooltipPositioner = void 0;
+var React = _interopRequireWildcard(require("react"));
+var _TooltipRootContext = require("../root/TooltipRootContext");
+var _TooltipPositionerContext = require("./TooltipPositionerContext");
+var _useAnchorPositioning = require("../../utils/useAnchorPositioning");
+var _TooltipPortalContext = require("../portal/TooltipPortalContext");
+var _constants = require("../../internals/constants");
+var _adaptiveOriginMiddleware = require("../../utils/adaptiveOriginMiddleware");
+var _usePositioner = require("../../utils/usePositioner");
+var _jsxRuntime = require("react/jsx-runtime");
+/**
+ * Positions the tooltip against the trigger.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+const TooltipPositioner = exports.TooltipPositioner = /*#__PURE__*/React.forwardRef(function TooltipPositioner(componentProps, forwardedRef) {
+  const {
+    render,
+    className,
+    anchor,
+    positionMethod = 'absolute',
+    side = 'top',
+    align = 'center',
+    sideOffset = 0,
+    alignOffset = 0,
+    collisionBoundary = 'clipping-ancestors',
+    collisionPadding = 5,
+    arrowPadding = 5,
+    sticky = false,
+    disableAnchorTracking = false,
+    collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+    style,
+    ...elementProps
+  } = componentProps;
+  const store = (0, _TooltipRootContext.useTooltipRootContext)();
+  const keepMounted = (0, _TooltipPortalContext.useTooltipPortalContext)();
+  const open = store.useState('open');
+  const mounted = store.useState('mounted');
+  const trackCursorAxis = store.useState('trackCursorAxis');
+  const disableHoverablePopup = store.useState('disableHoverablePopup');
+  const floatingRootContext = store.useState('floatingRootContext');
+  const instantType = store.useState('instantType');
+  const transitionStatus = store.useState('transitionStatus');
+  const hasViewport = store.useState('hasViewport');
+  const positioning = (0, _useAnchorPositioning.useAnchorPositioning)({
+    anchor,
+    positionMethod,
+    floatingRootContext,
+    mounted,
+    side,
+    sideOffset,
+    align,
+    alignOffset,
+    collisionBoundary,
+    collisionPadding,
+    sticky,
+    arrowPadding,
+    disableAnchorTracking,
+    keepMounted,
+    collisionAvoidance,
+    adaptiveOrigin: hasViewport ? _adaptiveOriginMiddleware.adaptiveOrigin : undefined
+  });
+  const state = React.useMemo(() => ({
+    open,
+    side: positioning.side,
+    align: positioning.align,
+    anchorHidden: positioning.anchorHidden,
+    instant: trackCursorAxis !== 'none' ? 'tracking-cursor' : instantType
+  }), [open, positioning.side, positioning.align, positioning.anchorHidden, trackCursorAxis, instantType]);
+  const element = (0, _usePositioner.usePositioner)(componentProps, state, {
+    styles: positioning.positionerStyles,
+    transitionStatus,
+    props: elementProps,
+    refs: [forwardedRef, store.useStateSetter('positionerElement')],
+    hidden: !mounted,
+    inert: !open || trackCursorAxis === 'both' || disableHoverablePopup
+  });
+  return /*#__PURE__*/(0, _jsxRuntime.jsx)(_TooltipPositionerContext.TooltipPositionerContext.Provider, {
+    value: positioning,
+    children: element
+  });
+});
+if (process.env.NODE_ENV !== "production") TooltipPositioner.displayName = "TooltipPositioner";
+
+ succeeded in 1178ms:
+
+FullName
+--------
+C:\POLARIS\web\app\sentence_hover_test\coverage
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip
+C:\POLARIS\web\app\sentence_hover_test\stress
+C:\POLARIS\web\app\sentence_hover_test\_demo_coverage.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_stress.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo.tsx
+C:\POLARIS\web\app\sentence_hover_test\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\coverage\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\stress\page.tsx
+
+
+ succeeded in 1218ms:
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.js:48:    collisionAvoidance = positionerProps.collisionAvoidance ?? _constants.POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:39:    collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\internals\constants.js:6:exports.ownerVisuallyHidden = exports.TYPEAHEAD_RESET_MS = exports.POPUP_COLLISION_AVOIDANCE = exports.PATIENT_CLICK_THRESHOLD = exports.LEGACY_SWIPE_IGNORE_SELECTOR = exports.LEGACY_SWIPE_IGNORE_ATTRIBUTE = exports.DROPDOWN_COLLISION_AVOIDANCE = exports.DISABLED_TRANSITIONS_STYLE = exports.CLICK_TRIGGER_IDENTIFIER = exports.BASE_UI_SWIPE_IGNORE_SELECTOR = exports.BASE_UI_SWIPE_IGNORE_ATTRIBUTE = void 0;
+web\node_modules\@base-ui\react\internals\constants.js:32:const POPUP_COLLISION_AVOIDANCE = exports.POPUP_COLLISION_AVOIDANCE = {
+web\node_modules\@base-ui\react\internals\constants.d.ts:25:export declare const POPUP_COLLISION_AVOIDANCE: {
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.js:95:    collisionAvoidance = componentProps.collisionAvoidance ?? _constants.POPUP_COLLISION_AVOIDANCE;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.js:40:    collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.js:46:    collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\esm\internals\constants.js:26:export const POPUP_COLLISION_AVOIDANCE = {
+web\node_modules\@base-ui\react\esm\internals\constants.d.ts:25:export declare const POPUP_COLLISION_AVOIDANCE: {
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.js:8:import { POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.js:34:    collisionAvoidance = POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.js:7:import { POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.js:43:    collisionAvoidance = positionerProps.collisionAvoidance ?? POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.js:54:    collisionAvoidance = nested ? _constants.POPUP_COLLISION_AVOIDANCE : _constants.DROPDOWN_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.js:14:import { DROPDOWN_COLLISION_AVOIDANCE, POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.js:90:    collisionAvoidance = componentProps.collisionAvoidance ?? POPUP_COLLISION_AVOIDANCE;
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.js:15:import { DROPDOWN_COLLISION_AVOIDANCE, POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.js:48:    collisionAvoidance = nested ? POPUP_COLLISION_AVOIDANCE : DROPDOWN_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.js:13:import { POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.js:41:    collisionAvoidance = POPUP_COLLISION_AVOIDANCE,
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.js:9:import { POPUP_COLLISION_AVOIDANCE } from "../../internals/constants.js";
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.js:35:    collisionAvoidance = POPUP_COLLISION_AVOIDANCE,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\node_modules\\@base-ui\\react\\internals\\constants.d.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\node_modules\\@base-ui\\react\\internals\\constants.js" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\sentence_hover_test\\_demo_coverage.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\sentence_hover_test\\evaluator_edge\\page.tsx" in C:\POLARIS
+ succeeded in 835ms:
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.ownerVisuallyHidden = exports.TYPEAHEAD_RESET_MS = exports.POPUP_COLLISION_AVOIDANCE = exports.PATIENT_CLICK_THRESHOLD = exports.LEGACY_SWIPE_IGNORE_SELECTOR = exports.LEGACY_SWIPE_IGNORE_ATTRIBUTE = exports.DROPDOWN_COLLISION_AVOIDANCE = exports.DISABLED_TRANSITIONS_STYLE = exports.CLICK_TRIGGER_IDENTIFIER = exports.BASE_UI_SWIPE_IGNORE_SELECTOR = exports.BASE_UI_SWIPE_IGNORE_ATTRIBUTE = void 0;
+const TYPEAHEAD_RESET_MS = exports.TYPEAHEAD_RESET_MS = 500;
+const PATIENT_CLICK_THRESHOLD = exports.PATIENT_CLICK_THRESHOLD = 500;
+const DISABLED_TRANSITIONS_STYLE = exports.DISABLED_TRANSITIONS_STYLE = {
+  style: {
+    transition: 'none'
+  }
+};
+const CLICK_TRIGGER_IDENTIFIER = exports.CLICK_TRIGGER_IDENTIFIER = 'data-base-ui-click-trigger';
+const BASE_UI_SWIPE_IGNORE_ATTRIBUTE = exports.BASE_UI_SWIPE_IGNORE_ATTRIBUTE = 'data-base-ui-swipe-ignore';
+const LEGACY_SWIPE_IGNORE_ATTRIBUTE = exports.LEGACY_SWIPE_IGNORE_ATTRIBUTE = 'data-swipe-ignore';
+const BASE_UI_SWIPE_IGNORE_SELECTOR = exports.BASE_UI_SWIPE_IGNORE_SELECTOR = `[${BASE_UI_SWIPE_IGNORE_ATTRIBUTE}]`;
+const LEGACY_SWIPE_IGNORE_SELECTOR = exports.LEGACY_SWIPE_IGNORE_SELECTOR = `[${LEGACY_SWIPE_IGNORE_ATTRIBUTE}]`;
+
+/**
+ * Used for dropdowns that usually strictly prefer top/bottom placements and
+ * use `var(--available-height)` to limit their height.
+ */
+const DROPDOWN_COLLISION_AVOIDANCE = exports.DROPDOWN_COLLISION_AVOIDANCE = {
+  fallbackAxisSide: 'none'
+};
+
+/**
+ * Used by regular popups that usually aren't scrollable and are allowed to
+ * freely flip to any axis of placement.
+ */
+const POPUP_COLLISION_AVOIDANCE = exports.POPUP_COLLISION_AVOIDANCE = {
+  fallbackAxisSide: 'end'
+};
+
+/**
+ * Special visually hidden styles for the aria-owns owner element to ensure owned element
+ * accessibility in iOS/Safari/VoiceControl.
+ * The owner element is an empty span, so most of the common visually hidden styles are not needed.
+ * @see https://github.com/floating-ui/floating-ui/issues/3403
+ */
+const ownerVisuallyHidden = exports.ownerVisuallyHidden = {
+  clipPath: 'inset(50%)',
+  position: 'fixed',
+  top: 0,
+  left: 0
+};
+
+ succeeded in 865ms:
+import type * as React from 'react';
+export declare const TYPEAHEAD_RESET_MS = 500;
+export declare const PATIENT_CLICK_THRESHOLD = 500;
+export declare const DISABLED_TRANSITIONS_STYLE: {
+  style: {
+    transition: string;
+  };
+};
+export declare const CLICK_TRIGGER_IDENTIFIER = "data-base-ui-click-trigger";
+export declare const BASE_UI_SWIPE_IGNORE_ATTRIBUTE = "data-base-ui-swipe-ignore";
+export declare const LEGACY_SWIPE_IGNORE_ATTRIBUTE = "data-swipe-ignore";
+export declare const BASE_UI_SWIPE_IGNORE_SELECTOR = "[data-base-ui-swipe-ignore]";
+export declare const LEGACY_SWIPE_IGNORE_SELECTOR = "[data-swipe-ignore]";
+/**
+ * Used for dropdowns that usually strictly prefer top/bottom placements and
+ * use `var(--available-height)` to limit their height.
+ */
+export declare const DROPDOWN_COLLISION_AVOIDANCE: {
+  readonly fallbackAxisSide: "none";
+};
+/**
+ * Used by regular popups that usually aren't scrollable and are allowed to
+ * freely flip to any axis of placement.
+ */
+export declare const POPUP_COLLISION_AVOIDANCE: {
+  readonly fallbackAxisSide: "end";
+};
+/**
+ * Special visually hidden styles for the aria-owns owner element to ensure owned element
+ * accessibility in iOS/Safari/VoiceControl.
+ * The owner element is an empty span, so most of the common visually hidden styles are not needed.
+ * @see https://github.com/floating-ui/floating-ui/issues/3403
+ */
+export declare const ownerVisuallyHidden: React.CSSProperties;
+
+ succeeded in 863ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type {
+  EvidencePool,
+  FrameGap,
+  GapReason,
+  RetrievalSource,
+  VerifiedReport,
+} from "@/lib/api";
+
+const ISO = new Date().toISOString();
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+// Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
+// per Codex iter-1 P2 — explicit typed array).
+const GAP_REASONS: GapReason[] = [
+  "paywalled",
+  "no_oa",
+  "source_tier_ineligible",
+  "language_unavailable",
+  "retracted_only",
+  "jurisdiction_outside",
+  "not_indexed",
+  "embargoed",
+  "other",
+];
+
+const SRC: RetrievalSource = {
+  source_id: "src-cov-0",
+  url: "https://www.cochrane.org/CD-cov-0",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Coverage harness source",
+  publication_date: FRESH_DATE,
+  authors: ["Smith J"],
+  snippet: "Coverage demo source snippet text used by the harness.",
+  full_text_available: true,
+  full_text: "Coverage demo source snippet text used by the harness.",
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+export function CoverageHarness({
+  covered,
+  gap_count,
+}: {
+  covered: number;
+  gap_count: number;
+}) {
+  const total = covered + gap_count;
+  const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
+    entity_name: `Entity ${i + 1}`,
+    reason: GAP_REASONS[i % GAP_REASONS.length],
+    reason_detail: `synthetic detail ${i + 1}`,
+  }));
+  const pool: EvidencePool = {
+    pool_id: "p-cov",
+    decision_id: "d-cov",
+    sources: [SRC],
+    adequacy: {
+      is_adequate: true,
+      sources_per_tier: { T1: 1, T2: 0, T3: 0 },
+      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+      failure_reason: null,
+    },
+    queries_executed: ["coverage"],
+    retrieval_started_at_utc: ISO,
+    retrieval_finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+  const report: VerifiedReport = {
+    report_id: "r-cov",
+    pool_id: "p-cov",
+    decision_id: "d-cov",
+    sections: [
+      {
+        section_id: "sec_cov",
+        section_title: `Coverage harness (${covered}/${total})`,
+        verified_sentences: [
+          {
+            section_id: "sec_cov",
+            sentence_text: "Coverage harness sentinel sentence.",
+            provenance_tokens: ["[#ev:src-cov-0:0-20]"],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          },
+        ],
+        section_verify_pass_rate: 1.0,
+        section_status: "verified",
+      },
+    ],
+    overall_verify_pass_rate: 1.0,
+    pipeline_verdict: "success",
+    generator_model: "test/cov",
+    evaluator_model: "strict_verify_v1",
+    family_segregation_passed: true,
+    frame_coverage: {
+      covered_entity_count: covered,
+      total_entity_count: total,
+      gaps,
+    },
+    verifier_pass_threshold: 0.4,
+    started_at_utc: ISO,
+    finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+  return (
+    <div
+      data-testid={`coverage-harness-${covered}-${gap_count}`}
+      className="mx-auto max-w-4xl p-6"
+    >
+      <VerifiedReportView report={report} pool={pool} />
+    </div>
+  );
+}
+
+
+ succeeded in 927ms:
+import { EvaluatorEdgeHarness } from "../_demo_evaluator_edge";
+
+export default async function EvaluatorEdgePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
+  const params = await searchParams;
+  const mode: "all" | "none" =
+    params.mode === "all" || params.mode === "none" ? params.mode : "none";
+  return <EvaluatorEdgeHarness mode={mode} />;
+}
+
+
+codex
+Criterion 1: satisfied.  
+Criterion 2: satisfied.  
+Criterion 3: satisfied.  
+Criterion 4: satisfied.  
+Criterion 5: satisfied.  
+Criterion 6: satisfied.
+
+Files actually read:
+`web/components/ui/evidence-tooltip.tsx`, `web/app/sentence_hover_test/_demo_evidence_tooltip.tsx`, `web/tests/e2e/evidence_tooltip.spec.ts`, `web/playwright.config.ts`, `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.d.ts`, `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.js`, `web/node_modules/@base-ui/react/utils/useAnchorPositioning.d.ts`, `web/node_modules/@base-ui/react/internals/constants.js`, `web/node_modules/@base-ui/react/internals/constants.d.ts`, `web/app/sentence_hover_test/_demo_coverage.tsx`, `web/app/sentence_hover_test/evaluator_edge/page.tsx`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The plan is sound. Base UI’s local types/runtime support the assumption: tooltip `side` may auto-change on collision, and the default popup collision avoidance uses side flip with alignment collision handling, so adding a `side` pass-through plus viewport-bound Playwright assertions covers the intended behavior.
+tokens used
+51,472
+Criterion 1: satisfied.  
+Criterion 2: satisfied.  
+Criterion 3: satisfied.  
+Criterion 4: satisfied.  
+Criterion 5: satisfied.  
+Criterion 6: satisfied.
+
+Files actually read:
+`web/components/ui/evidence-tooltip.tsx`, `web/app/sentence_hover_test/_demo_evidence_tooltip.tsx`, `web/tests/e2e/evidence_tooltip.spec.ts`, `web/playwright.config.ts`, `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.d.ts`, `web/node_modules/@base-ui/react/tooltip/positioner/TooltipPositioner.js`, `web/node_modules/@base-ui/react/utils/useAnchorPositioning.d.ts`, `web/node_modules/@base-ui/react/internals/constants.js`, `web/node_modules/@base-ui/react/internals/constants.d.ts`, `web/app/sentence_hover_test/_demo_coverage.tsx`, `web/app/sentence_hover_test/evaluator_edge/page.tsx`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The plan is sound. Base UI’s local types/runtime support the assumption: tooltip `side` may auto-change on collision, and the default popup collision avoidance uses side flip with alignment collision handling, so adding a `side` pass-through plus viewport-bound Playwright assertions covers the intended behavior.

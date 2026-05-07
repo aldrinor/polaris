@@ -1,0 +1,151 @@
+diff --git a/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+new file mode 100644
+index 0000000..799a797
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+@@ -0,0 +1,54 @@
++"use client";
++
++import {
++  EvidenceTooltip,
++  EvidenceTooltipProvider,
++} from "@/components/ui/evidence-tooltip";
++
++/**
++ * I-f6-002: edge-aware positioning harness. Three triggers placed near
++ * top, bottom, and right viewport edges with deliberately-clipping side
++ * requests so Base UI's flip+shift collision avoidance kicks in.
++ */
++export function EvidenceTooltipEdgesHarness() {
++  return (
++    <EvidenceTooltipProvider delay={0}>
++      <div className="relative h-screen w-screen">
++        {/* near-top: requests side="top" but trigger is at top → must flip down */}
++        <div className="absolute left-1/2 top-2 -translate-x-1/2">
++          <EvidenceTooltip
++            evidenceId="src-top"
++            spanText="Near-top trigger demonstration."
++            side="top"
++          >
++            <span data-testid="evidence-tooltip-trigger-top">[#ev:top]</span>
++          </EvidenceTooltip>
++        </div>
++        {/* near-bottom: requests side="bottom" but trigger is at bottom → flip up */}
++        <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
++          <EvidenceTooltip
++            evidenceId="src-bottom"
++            spanText="Near-bottom trigger demonstration."
++            side="bottom"
++          >
++            <span data-testid="evidence-tooltip-trigger-bottom">
++              [#ev:bottom]
++            </span>
++          </EvidenceTooltip>
++        </div>
++        {/* near-right: requests side="right" but trigger is at right → flip left */}
++        <div className="absolute right-2 top-1/2 -translate-y-1/2">
++          <EvidenceTooltip
++            evidenceId="src-right"
++            spanText="Near-right trigger demonstration."
++            side="right"
++          >
++            <span data-testid="evidence-tooltip-trigger-right">
++              [#ev:right]
++            </span>
++          </EvidenceTooltip>
++        </div>
++      </div>
++    </EvidenceTooltipProvider>
++  );
++}
+diff --git a/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx b/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+new file mode 100644
+index 0000000..ac3059d
+--- /dev/null
++++ b/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+@@ -0,0 +1,5 @@
++import { EvidenceTooltipEdgesHarness } from "../_demo_evidence_tooltip_edges";
++
++export default function EvidenceTooltipEdgesPage() {
++  return <EvidenceTooltipEdgesHarness />;
++}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index 5ca2707..1fdc1c5 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -13,6 +13,12 @@ interface EvidenceTooltipProps {
+    * as `Published: <date>`. When undefined/null, the line is omitted.
+    */
+   publishedDate?: string | null;
++  /**
++   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
++   * Positioner applies flip+shift collision avoidance automatically when
++   * the requested side would clip the viewport.
++   */
++  side?: "top" | "right" | "bottom" | "left";
+   onClickToInspect?: () => void;
+   children: React.ReactNode;
+ }
+@@ -28,6 +34,7 @@ export function EvidenceTooltip({
+   spanText,
+   sourceTier,
+   publishedDate,
++  side = "top",
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
+@@ -45,7 +52,7 @@ export function EvidenceTooltip({
+         {children}
+       </Tooltip.Trigger>
+       <Tooltip.Portal>
+-        <Tooltip.Positioner sideOffset={6} side="top">
++        <Tooltip.Positioner sideOffset={6} side={side}>
+           <Tooltip.Popup
+             data-testid="evidence-tooltip-popup"
+             className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+diff --git a/web/tests/e2e/evidence_tooltip_edges.spec.ts b/web/tests/e2e/evidence_tooltip_edges.spec.ts
+new file mode 100644
+index 0000000..03ba925
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip_edges.spec.ts
+@@ -0,0 +1,40 @@
++import { expect, test } from "@playwright/test";
++
++const SCENARIOS: { name: string; trigger: string }[] = [
++  { name: "near-top", trigger: "evidence-tooltip-trigger-top" },
++  { name: "near-bottom", trigger: "evidence-tooltip-trigger-bottom" },
++  { name: "near-right", trigger: "evidence-tooltip-trigger-right" },
++];
++
++for (const { name, trigger } of SCENARIOS) {
++  test(`${name} — popup stays inside viewport`, async ({ page }) => {
++    await page.goto("/sentence_hover_test/evidence_tooltip_edges");
++    await page.getByTestId(trigger).hover();
++    const popup = page.getByTestId("evidence-tooltip-popup");
++    await expect(popup).toBeVisible({ timeout: 1000 });
++
++    const result = await page.evaluate(() => {
++      const popups = document.querySelectorAll(
++        '[data-testid="evidence-tooltip-popup"]',
++      );
++      // There should be exactly one popup visible at a time.
++      const target = popups[popups.length - 1] as HTMLElement | undefined;
++      if (!target) return null;
++      const r = target.getBoundingClientRect();
++      return {
++        left: r.left,
++        top: r.top,
++        right: r.right,
++        bottom: r.bottom,
++        vw: window.innerWidth,
++        vh: window.innerHeight,
++      };
++    });
++    expect(result).not.toBeNull();
++    if (!result) return;
++    expect(result.left).toBeGreaterThanOrEqual(0);
++    expect(result.top).toBeGreaterThanOrEqual(0);
++    expect(result.right).toBeLessThanOrEqual(result.vw);
++    expect(result.bottom).toBeLessThanOrEqual(result.vh);
++  });
++}

@@ -1,0 +1,2879 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e04a4-0ac4-7cd0-9168-eaafc0823b92
+--------
+user
+# Codex Diff Review — I-f6-002 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only.
+
+**Issue:** I-f6-002 — Edge-aware tooltip positioning
+**Brief:** APPROVED iter 2
+**Canonical-diff-sha256:** `79c6ca6e48e843093b80641239f07b38a670e879a0e77b69506d70f75261b844`
+**LOC:** 106 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/components/ui/evidence-tooltip.tsx                          +9 (side prop with "top" default)
+web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx    NEW +52 (3-trigger edge harness)
+web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx     NEW +5 (Next route)
+web/tests/e2e/evidence_tooltip_edges.spec.ts                    NEW +41 (3 edge-bounded viewport tests)
+```
+
+## What changed
+
+### Component
+- `EvidenceTooltipProps.side?: "top"|"right"|"bottom"|"left"` (default `"top"`).
+- Pass `side={side}` to `<Tooltip.Positioner>`.
+- Existing inspector + I-f6-001 harness pass no `side` and continue defaulting to top — no behavior change.
+
+### Harness
+- 3 absolute-positioned triggers near top, bottom, right edges of full-viewport container. Each requests a side that would CLIP if Base UI didn't auto-flip (top trigger requests side="top", bottom trigger requests side="bottom", right requests side="right").
+- Provider `delay={0}` so tests run fast (focus is on positioning, not debounce).
+
+### Playwright
+- For each scenario: hover trigger, wait for popup visible (1000ms), capture popup `getBoundingClientRect()` via `page.evaluate`, assert `left/top >= 0 AND right/bottom <= viewport`.
+- Test queries last popup in DOM (in case multiple tooltips are concurrent during transitions).
+
+## Verification
+- `npx tsc --noEmit` (web/): exit 0.
+- No backend changes; existing I-f6-001 + inspector untouched.
+
+## Risks for Codex Red-Team
+
+1. **Base UI flip+shift default:** verified via local types in iter-1 brief review. Tooltip.Positioner uses Floating UI middleware with flip+shift on by default.
+2. **Optional prop default:** existing call sites unaffected.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 106 net. Under 200.
+5. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll inspect the touched files and surrounding tooltip API usage only, keeping this to a static review and focusing on execution blockers rather than style.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath web\\components\\ui,web\\app\\sentence_hover_test,web\\tests\\e2e | Select-Object FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/ui/evidence-tooltip.tsx web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx web/tests/e2e/evidence_tooltip_edges.spec.ts' in C:\POLARIS
+ succeeded in 860ms:
+ succeeded in 873ms:
+
+FullName
+--------
+C:\POLARIS\web\components\ui\button.tsx
+C:\POLARIS\web\components\ui\card.tsx
+C:\POLARIS\web\components\ui\evidence-tooltip.tsx
+C:\POLARIS\web\components\ui\input.tsx
+C:\POLARIS\web\components\ui\sheet.tsx
+C:\POLARIS\web\components\ui\sonner.tsx
+C:\POLARIS\web\components\ui\vega-chart.tsx
+C:\POLARIS\web\app\sentence_hover_test\coverage
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip_edges
+C:\POLARIS\web\app\sentence_hover_test\stress
+C:\POLARIS\web\app\sentence_hover_test\_demo_coverage.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_stress.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo.tsx
+C:\POLARIS\web\app\sentence_hover_test\page.tsx
+C:\POLARIS\web\tests\e2e\visual.spec.ts-snapshots
+C:\POLARIS\web\tests\e2e\accessibility.spec.ts
+C:\POLARIS\web\tests\e2e\audit_bundle.spec.ts
+C:\POLARIS\web\tests\e2e\audit_live_adversarial.spec.ts
+C:\POLARIS\web\tests\e2e\audit_live_multitab.spec.ts
+C:\POLARIS\web\tests\e2e\audit_live.spec.ts
+C:\POLARIS\web\tests\e2e\benchmark.spec.ts
+C:\POLARIS\web\tests\e2e\bundle_preview.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette_adversarial.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette_suggest.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette.spec.ts
+C:\POLARIS\web\tests\e2e\contract_editor.spec.ts
+C:\POLARIS\web\tests\e2e\demo_walkthrough.spec.ts
+C:\POLARIS\web\tests\e2e\disambiguation_modal.spec.ts
+C:\POLARIS\web\tests\e2e\evidence_tooltip_edges.spec.ts
+C:\POLARIS\web\tests\e2e\evidence_tooltip.spec.ts
+C:\POLARIS\web\tests\e2e\f1_a11y.spec.ts
+C:\POLARIS\web\tests\e2e\f1_multi_tab.spec.ts
+C:\POLARIS\web\tests\e2e\f2_walkthrough.spec.ts
+C:\POLARIS\web\tests\e2e\frame_coverage_adversarial.spec.ts
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+C:\POLARIS\web\tests\e2e\generation.spec.ts
+C:\POLARIS\web\tests\e2e\inspector.spec.ts
+C:\POLARIS\web\tests\e2e\intake_disambiguation_negative.spec.ts
+C:\POLARIS\web\tests\e2e\intake_disambiguation.spec.ts
+C:\POLARIS\web\tests\e2e\intake_edge.spec.ts
+C:\POLARIS\web\tests\e2e\intake.spec.ts
+C:\POLARIS\web\tests\e2e\landing_template_grid.spec.ts
+C:\POLARIS\web\tests\e2e\performance_hover.spec.ts
+C:\POLARIS\web\tests\e2e\performance.spec.ts
+C:\POLARIS\web\tests\e2e\retrieval.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_hover.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_adversarial.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_agreement.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_contradiction.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_latency.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_multispan.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_source.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_surfaces.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector_synthesis.spec.ts
+C:\POLARIS\web\tests\e2e\sentence_inspector.spec.ts
+C:\POLARIS\web\tests\e2e\sse_client.spec.ts
+C:\POLARIS\web\tests\e2e\upload_doc_preview.spec.ts
+C:\POLARIS\web\tests\e2e\upload_dropzone.spec.ts
+C:\POLARIS\web\tests\e2e\upload_evidence_toggle.spec.ts
+C:\POLARIS\web\tests\e2e\upload_parse_status.spec.ts
+C:\POLARIS\web\tests\e2e\visual.spec.ts
+
+
+ succeeded in 977ms:
+A  web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+A  web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+M  web/components/ui/evidence-tooltip.tsx
+A  web/tests/e2e/evidence_tooltip_edges.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f6-002/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The relevant files are staged, so the initial unstaged diff was empty. I’m reading the staged diff and the concrete file contents now so line references are accurate.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\tests\\e2e\\evidence_tooltip_edges.spec.ts | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\components\\ui\\evidence-tooltip.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/components/ui/evidence-tooltip.tsx web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx web/tests/e2e/evidence_tooltip_edges.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\app\\sentence_hover_test\\_demo_evidence_tooltip_edges.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1066ms:
+   1: "use client";
+   2: 
+   3: import { Tooltip } from "@base-ui/react/tooltip";
+   4: import * as React from "react";
+   5: 
+   6: interface EvidenceTooltipProps {
+   7:   evidenceId: string;
+   8:   sourceUrl?: string;
+   9:   spanText?: string;
+  10:   sourceTier?: "T1" | "T2" | "T3";
+  11:   /**
+  12:    * I-f6-001: optional publication-date string surfaced in the popup
+  13:    * as `Published: <date>`. When undefined/null, the line is omitted.
+  14:    */
+  15:   publishedDate?: string | null;
+  16:   /**
+  17:    * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
+  18:    * Positioner applies flip+shift collision avoidance automatically when
+  19:    * the requested side would clip the viewport.
+  20:    */
+  21:   side?: "top" | "right" | "bottom" | "left";
+  22:   onClickToInspect?: () => void;
+  23:   children: React.ReactNode;
+  24: }
+  25: 
+  26: /**
+  27:  * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+  28:  * source span behind a provenance token. Click still triggers the right-
+  29:  * pane Inspector view; hover shows a quick preview.
+  30:  */
+  31: export function EvidenceTooltip({
+  32:   evidenceId,
+  33:   sourceUrl,
+  34:   spanText,
+  35:   sourceTier,
+  36:   publishedDate,
+  37:   side = "top",
+  38:   onClickToInspect,
+  39:   children,
+  40: }: EvidenceTooltipProps) {
+  41:   return (
+  42:     <Tooltip.Root>
+  43:       <Tooltip.Trigger
+  44:         render={
+  45:           <button
+  46:             type="button"
+  47:             onClick={onClickToInspect}
+  48:             className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+  49:           />
+  50:         }
+  51:       >
+  52:         {children}
+  53:       </Tooltip.Trigger>
+  54:       <Tooltip.Portal>
+  55:         <Tooltip.Positioner sideOffset={6} side={side}>
+  56:           <Tooltip.Popup
+  57:             data-testid="evidence-tooltip-popup"
+  58:             className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+  59:           >
+  60:             <p className="text-muted-foreground font-mono text-[11px]">
+  61:               {evidenceId}
+  62:               {sourceTier && ` · tier ${sourceTier}`}
+  63:             </p>
+  64:             {sourceUrl && (
+  65:               <p className="text-muted-foreground mt-1 truncate text-[11px]">
+  66:                 {sourceUrl}
+  67:               </p>
+  68:             )}
+  69:             {publishedDate && (
+  70:               <p
+  71:                 data-testid="evidence-tooltip-published"
+  72:                 className="text-muted-foreground mt-1 text-[11px]"
+  73:               >
+  74:                 Published: {publishedDate}
+  75:               </p>
+  76:             )}
+  77:             {spanText && (
+  78:               <p className="text-foreground mt-2 text-xs leading-snug">
+  79:                 &ldquo;
+  80:                 {spanText.length > 240
+  81:                   ? spanText.slice(0, 240) + "…"
+  82:                   : spanText}
+  83:                 &rdquo;
+  84:               </p>
+  85:             )}
+  86:             <p className="text-muted-foreground mt-2 text-[11px] italic">
+  87:               Click to pin in Evidence pane
+  88:             </p>
+  89:           </Tooltip.Popup>
+  90:         </Tooltip.Positioner>
+  91:       </Tooltip.Portal>
+  92:     </Tooltip.Root>
+  93:   );
+  94: }
+  95: 
+  96: export const EvidenceTooltipProvider = Tooltip.Provider;
+
+ succeeded in 1114ms:
+   1: import { expect, test } from "@playwright/test";
+   2: 
+   3: const SCENARIOS: { name: string; trigger: string }[] = [
+   4:   { name: "near-top", trigger: "evidence-tooltip-trigger-top" },
+   5:   { name: "near-bottom", trigger: "evidence-tooltip-trigger-bottom" },
+   6:   { name: "near-right", trigger: "evidence-tooltip-trigger-right" },
+   7: ];
+   8: 
+   9: for (const { name, trigger } of SCENARIOS) {
+  10:   test(`${name} — popup stays inside viewport`, async ({ page }) => {
+  11:     await page.goto("/sentence_hover_test/evidence_tooltip_edges");
+  12:     await page.getByTestId(trigger).hover();
+  13:     const popup = page.getByTestId("evidence-tooltip-popup");
+  14:     await expect(popup).toBeVisible({ timeout: 1000 });
+  15: 
+  16:     const result = await page.evaluate(() => {
+  17:       const popups = document.querySelectorAll(
+  18:         '[data-testid="evidence-tooltip-popup"]',
+  19:       );
+  20:       // There should be exactly one popup visible at a time.
+  21:       const target = popups[popups.length - 1] as HTMLElement | undefined;
+  22:       if (!target) return null;
+  23:       const r = target.getBoundingClientRect();
+  24:       return {
+  25:         left: r.left,
+  26:         top: r.top,
+  27:         right: r.right,
+  28:         bottom: r.bottom,
+  29:         vw: window.innerWidth,
+  30:         vh: window.innerHeight,
+  31:       };
+  32:     });
+  33:     expect(result).not.toBeNull();
+  34:     if (!result) return;
+  35:     expect(result.left).toBeGreaterThanOrEqual(0);
+  36:     expect(result.top).toBeGreaterThanOrEqual(0);
+  37:     expect(result.right).toBeLessThanOrEqual(result.vw);
+  38:     expect(result.bottom).toBeLessThanOrEqual(result.vh);
+  39:   });
+  40: }
+
+ succeeded in 1145ms:
+diff --git a/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+new file mode 100644
+index 0000000..799a797
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+@@ -0,0 +1,54 @@
++"use client";
++
++import {
++  EvidenceTooltip,
++  EvidenceTooltipProvider,
++} from "@/components/ui/evidence-tooltip";
++
++/**
++ * I-f6-002: edge-aware positioning harness. Three triggers placed near
++ * top, bottom, and right viewport edges with deliberately-clipping side
++ * requests so Base UI's flip+shift collision avoidance kicks in.
++ */
++export function EvidenceTooltipEdgesHarness() {
++  return (
++    <EvidenceTooltipProvider delay={0}>
++      <div className="relative h-screen w-screen">
++        {/* near-top: requests side="top" but trigger is at top → must flip down */}
++        <div className="absolute left-1/2 top-2 -translate-x-1/2">
++          <EvidenceTooltip
++            evidenceId="src-top"
++            spanText="Near-top trigger demonstration."
++            side="top"
++          >
++            <span data-testid="evidence-tooltip-trigger-top">[#ev:top]</span>
++          </EvidenceTooltip>
++        </div>
++        {/* near-bottom: requests side="bottom" but trigger is at bottom → flip up */}
++        <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
++          <EvidenceTooltip
++            evidenceId="src-bottom"
++            spanText="Near-bottom trigger demonstration."
++            side="bottom"
++          >
++            <span data-testid="evidence-tooltip-trigger-bottom">
++              [#ev:bottom]
++            </span>
++          </EvidenceTooltip>
++        </div>
++        {/* near-right: requests side="right" but trigger is at right → flip left */}
++        <div className="absolute right-2 top-1/2 -translate-y-1/2">
++          <EvidenceTooltip
++            evidenceId="src-right"
++            spanText="Near-right trigger demonstration."
++            side="right"
++          >
++            <span data-testid="evidence-tooltip-trigger-right">
++              [#ev:right]
++            </span>
++          </EvidenceTooltip>
++        </div>
++      </div>
++    </EvidenceTooltipProvider>
++  );
++}
+diff --git a/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx b/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+new file mode 100644
+index 0000000..ac3059d
+--- /dev/null
++++ b/web/app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+@@ -0,0 +1,5 @@
++import { EvidenceTooltipEdgesHarness } from "../_demo_evidence_tooltip_edges";
++
++export default function EvidenceTooltipEdgesPage() {
++  return <EvidenceTooltipEdgesHarness />;
++}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index 5ca2707..1fdc1c5 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -13,6 +13,12 @@ interface EvidenceTooltipProps {
+    * as `Published: <date>`. When undefined/null, the line is omitted.
+    */
+   publishedDate?: string | null;
++  /**
++   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
++   * Positioner applies flip+shift collision avoidance automatically when
++   * the requested side would clip the viewport.
++   */
++  side?: "top" | "right" | "bottom" | "left";
+   onClickToInspect?: () => void;
+   children: React.ReactNode;
+ }
+@@ -28,6 +34,7 @@ export function EvidenceTooltip({
+   spanText,
+   sourceTier,
+   publishedDate,
++  side = "top",
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
+@@ -45,7 +52,7 @@ export function EvidenceTooltip({
+         {children}
+       </Tooltip.Trigger>
+       <Tooltip.Portal>
+-        <Tooltip.Positioner sideOffset={6} side="top">
++        <Tooltip.Positioner sideOffset={6} side={side}>
+           <Tooltip.Popup
+             data-testid="evidence-tooltip-popup"
+             className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+diff --git a/web/tests/e2e/evidence_tooltip_edges.spec.ts b/web/tests/e2e/evidence_tooltip_edges.spec.ts
+new file mode 100644
+index 0000000..03ba925
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip_edges.spec.ts
+@@ -0,0 +1,40 @@
++import { expect, test } from "@playwright/test";
++
++const SCENARIOS: { name: string; trigger: string }[] = [
++  { name: "near-top", trigger: "evidence-tooltip-trigger-top" },
++  { name: "near-bottom", trigger: "evidence-tooltip-trigger-bottom" },
++  { name: "near-right", trigger: "evidence-tooltip-trigger-right" },
++];
++
++for (const { name, trigger } of SCENARIOS) {
++  test(`${name} — popup stays inside viewport`, async ({ page }) => {
++    await page.goto("/sentence_hover_test/evidence_tooltip_edges");
++    await page.getByTestId(trigger).hover();
++    const popup = page.getByTestId("evidence-tooltip-popup");
++    await expect(popup).toBeVisible({ timeout: 1000 });
++
++    const result = await page.evaluate(() => {
++      const popups = document.querySelectorAll(
++        '[data-testid="evidence-tooltip-popup"]',
++      );
++      // There should be exactly one popup visible at a time.
++      const target = popups[popups.length - 1] as HTMLElement | undefined;
++      if (!target) return null;
++      const r = target.getBoundingClientRect();
++      return {
++        left: r.left,
++        top: r.top,
++        right: r.right,
++        bottom: r.bottom,
++        vw: window.innerWidth,
++        vh: window.innerHeight,
++      };
++    });
++    expect(result).not.toBeNull();
++    if (!result) return;
++    expect(result.left).toBeGreaterThanOrEqual(0);
++    expect(result.top).toBeGreaterThanOrEqual(0);
++    expect(result.right).toBeLessThanOrEqual(result.vw);
++    expect(result.bottom).toBeLessThanOrEqual(result.vh);
++  });
++}
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1143ms:
+   1: "use client";
+   2: 
+   3: import {
+   4:   EvidenceTooltip,
+   5:   EvidenceTooltipProvider,
+   6: } from "@/components/ui/evidence-tooltip";
+   7: 
+   8: /**
+   9:  * I-f6-002: edge-aware positioning harness. Three triggers placed near
+  10:  * top, bottom, and right viewport edges with deliberately-clipping side
+  11:  * requests so Base UI's flip+shift collision avoidance kicks in.
+  12:  */
+  13: export function EvidenceTooltipEdgesHarness() {
+  14:   return (
+  15:     <EvidenceTooltipProvider delay={0}>
+  16:       <div className="relative h-screen w-screen">
+  17:         {/* near-top: requests side="top" but trigger is at top → must flip down */}
+  18:         <div className="absolute left-1/2 top-2 -translate-x-1/2">
+  19:           <EvidenceTooltip
+  20:             evidenceId="src-top"
+  21:             spanText="Near-top trigger demonstration."
+  22:             side="top"
+  23:           >
+  24:             <span data-testid="evidence-tooltip-trigger-top">[#ev:top]</span>
+  25:           </EvidenceTooltip>
+  26:         </div>
+  27:         {/* near-bottom: requests side="bottom" but trigger is at bottom → flip up */}
+  28:         <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+  29:           <EvidenceTooltip
+  30:             evidenceId="src-bottom"
+  31:             spanText="Near-bottom trigger demonstration."
+  32:             side="bottom"
+  33:           >
+  34:             <span data-testid="evidence-tooltip-trigger-bottom">
+  35:               [#ev:bottom]
+  36:             </span>
+  37:           </EvidenceTooltip>
+  38:         </div>
+  39:         {/* near-right: requests side="right" but trigger is at right → flip left */}
+  40:         <div className="absolute right-2 top-1/2 -translate-y-1/2">
+  41:           <EvidenceTooltip
+  42:             evidenceId="src-right"
+  43:             spanText="Near-right trigger demonstration."
+  44:             side="right"
+  45:           >
+  46:             <span data-testid="evidence-tooltip-trigger-right">
+  47:               [#ev:right]
+  48:             </span>
+  49:           </EvidenceTooltip>
+  50:         </div>
+  51:       </div>
+  52:     </EvidenceTooltipProvider>
+  53:   );
+  54: }
+
+codex
+The staged diff matches the brief: one optional prop, one harness route, one Playwright spec. I’m checking nearby tooltip/test conventions and the installed Base UI type surface for any mismatch that would make this fail in CI.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"Tooltip\\.Positioner|EvidenceTooltip|Tooltip.Provider|sideOffset|collision|side=\\{\" web -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"base-ui|@base-ui\" web\\package-lock.json web\\pnpm-lock.yaml web\\yarn.lock package-lock.json pnpm-lock.yaml yarn.lock -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath web | Select-Object Name,Mode' in C:\POLARIS
+ succeeded in 969ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+2026-05-07T22:52:34.835132Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+web\package-lock.json:11:        "@base-ui/react": "^1.4.1",
+web\package-lock.json:481:    "node_modules/@base-ui/react": {
+web\package-lock.json:483:      "resolved": "https://registry.npmjs.org/@base-ui/react/-/react-1.4.1.tgz",
+web\package-lock.json:488:        "@base-ui/utils": "0.2.8",
+web\package-lock.json:519:    "node_modules/@base-ui/utils": {
+web\package-lock.json:521:      "resolved": "https://registry.npmjs.org/@base-ui/utils/-/utils-0.2.8.tgz",
+rg: web\pnpm-lock.yaml: The system cannot find the file specified. (os error 2)
+rg: web\yarn.lock: The system cannot find the file specified. (os error 2)
+rg: package-lock.json: The system cannot find the file specified. (os error 2)
+rg: pnpm-lock.yaml: The system cannot find the file specified. (os error 2)
+rg: yarn.lock: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 984ms:
+web\package-lock.json:11:        "@base-ui/react": "^1.4.1",
+web\package-lock.json:481:    "node_modules/@base-ui/react": {
+web\package-lock.json:483:      "resolved": "https://registry.npmjs.org/@base-ui/react/-/react-1.4.1.tgz",
+web\package-lock.json:488:        "@base-ui/utils": "0.2.8",
+web\package-lock.json:519:    "node_modules/@base-ui/utils": {
+web\package-lock.json:521:      "resolved": "https://registry.npmjs.org/@base-ui/utils/-/utils-0.2.8.tgz",
+rg: web\pnpm-lock.yaml: The system cannot find the file specified. (os error 2)
+rg: web\yarn.lock: The system cannot find the file specified. (os error 2)
+rg: package-lock.json: The system cannot find the file specified. (os error 2)
+rg: pnpm-lock.yaml: The system cannot find the file specified. (os error 2)
+rg: yarn.lock: The system cannot find the file specified. (os error 2)
+
+ succeeded in 1024ms:
+
+Name                    Mode
+----                    ----
+.next                   d----
+app                     d----
+components              d----
+lib                     d----
+node_modules            d----
+public                  d----
+screenshots             d----
+scripts                 d----
+test-results            d----
+tests                   d----
+.gitignore              -a---
+.prettierignore         -a---
+.prettierrc.json        -a---
+AGENTS.md               -a---
+CLAUDE.md               -a---
+components.json         -a---
+eslint.config.mjs       -a---
+next-env.d.ts           -a---
+next.config.ts          -a---
+package-lock.json       -a---
+package.json            -a---
+playwright.config.ts    -a---
+postcss.config.mjs      -a---
+README.md               -a---
+THIRD_PARTY_LICENSES.md -a---
+tsconfig.json           -a---
+tsconfig.tsbuildinfo    -a---
+
+
+ succeeded in 1055ms:
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:1:import { EvidenceTooltipEdgesHarness } from "../_demo_evidence_tooltip_edges";
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:3:export default function EvidenceTooltipEdgesPage() {
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:4:  return <EvidenceTooltipEdgesHarness />;
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:11: * requests so Base UI's flip+shift collision avoidance kicks in.
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:13:export function EvidenceTooltipEdgesHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:15:    <EvidenceTooltipProvider delay={0}>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:19:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:25:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:29:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:37:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:41:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:49:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:52:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:9: * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:14:export function EvidenceTooltipHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:26:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:34:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:1:import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:3:export default function EvidenceTooltipPage() {
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:4:  return <EvidenceTooltipHarness />;
+web\app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web\app\inspector\[runId]\page.tsx:341:      <EvidenceTooltip
+web\app\inspector\[runId]\page.tsx:350:      </EvidenceTooltip>,
+web\components\ui\sheet.tsx:54:        data-side={side}
+web\components\ui\evidence-tooltip.tsx:6:interface EvidenceTooltipProps {
+web\components\ui\evidence-tooltip.tsx:18:   * Positioner applies flip+shift collision avoidance automatically when
+web\components\ui\evidence-tooltip.tsx:31:export function EvidenceTooltip({
+web\components\ui\evidence-tooltip.tsx:40:}: EvidenceTooltipProps) {
+web\components\ui\evidence-tooltip.tsx:55:        <Tooltip.Positioner sideOffset={6} side={side}>
+web\components\ui\evidence-tooltip.tsx:90:        </Tooltip.Positioner>
+web\components\ui\evidence-tooltip.tsx:96:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+web\tests\e2e\performance_hover.spec.ts:28:  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"interface.*Positioner|type.*Positioner|side\\??:\" web\\node_modules\\@base-ui\\react -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\app\\sentence_hover_test\\_demo_evidence_tooltip.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\tests\\e2e\\evidence_tooltip.spec.ts | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\playwright.config.ts | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 958ms:
+   1: import { expect, test } from "@playwright/test";
+   2: 
+   3: test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
+   4:   page,
+   5: }) => {
+   6:   await page.goto("/sentence_hover_test/evidence_tooltip");
+   7:   await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+   8:   // (a) popup absent before any hover.
+   9:   await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+  10: 
+  11:   // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
+  12:   await page.getByTestId("evidence-tooltip-trigger").hover();
+  13:   // Take a near-immediate sample (~50ms): should still be absent because of
+  14:   // the 300ms Provider delay.
+  15:   await page.waitForTimeout(50);
+  16:   await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+  17: 
+  18:   // (c) within 500ms the popup should be present (300ms delay + buffer).
+  19:   await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+  20:     timeout: 500,
+  21:   });
+  22:   // Content checks.
+  23:   const popup = page.getByTestId("evidence-tooltip-popup");
+  24:   await expect(popup).toContainText("tier T1");
+  25:   await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+  26:     "Published: 2024-03-15",
+  27:   );
+  28:   await expect(popup).toContainText("randomized trial enrolled 1247 adults");
+  29: });
+
+ succeeded in 1087ms:
+web\node_modules\@base-ui\react\autocomplete\index.d.ts:11:export type { ComboboxPositionerProps as AutocompletePositionerProps, ComboboxPositionerState as AutocompletePositionerState } from "../combobox/positioner/ComboboxPositioner.js";
+web\node_modules\@base-ui\react\CHANGELOG.md:359:- Fix explicit `collisionAvoidance` with `side: 'flip'` not working (#3877) by @obeattie
+web\node_modules\@base-ui\react\CHANGELOG.md:1853:- Remove `trackCursorAxis` type from `Positioner` (#1895) by @atomiks
+web\node_modules\@base-ui\react\context-menu\index.d.ts:6:export type { MenuPositionerProps as ContextMenuPositionerProps, MenuPositionerState as ContextMenuPositionerState } from "../menu/positioner/MenuPositioner.js";
+web\node_modules\@base-ui\react\combobox\index.d.ts:8:export type * from "./positioner/ComboboxPositioner.js";
+web\node_modules\@base-ui\react\combobox\arrow\ComboboxArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\utils\usePositioner.d.ts:3:interface UsePositionerOptions {
+web\node_modules\@base-ui\react\esm\utils\usePopupViewport.d.ts:33:  side: Side;
+web\node_modules\@base-ui\react\menu\arrow\MenuArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\utils\usePopupAutoResize.d.ts:33:  side: Side;
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.js:31:    side: getLogicalSide(sideParam, getSide(placement), isRtl),
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.js:53:    side: sideParam = 'bottom',
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.js:391:    side: logicalRenderedSide,
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:8:  side: Side;
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:25:  side?: 'flip' | 'none' | undefined;
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:48:  side?: 'shift' | 'none' | undefined;
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:86:  side?: Side | undefined;
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:201:   *     side: 'shift',
+web\node_modules\@base-ui\react\esm\utils\useAnchorPositioning.d.ts:229:  side: Side;
+web\node_modules\@base-ui\react\floating-ui-react\hooks\useHoverShared.d.ts:27:export declare function isClickLikeOpenEvent(openEventType: string | undefined, interactedInside: boolean): boolean;
+web\node_modules\@base-ui\react\floating-ui-react\hooks\useHoverInteractionSharedState.d.ts:7:  interactedInside: boolean;
+web\node_modules\@base-ui\react\menu\positioner\MenuPositionerContext.d.ts:3:export type MenuPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles' | 'context'>;
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.js:106:    side: computedSide,
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.js:223:    side: positioner.side,
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.d.ts:11:export interface MenuPositionerState {
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.d.ts:37:export interface MenuPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', MenuPositionerState> {}
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.d.ts:39:  type State = MenuPositionerState;
+web\node_modules\@base-ui\react\menu\positioner\MenuPositioner.d.ts:40:  type Props = MenuPositionerProps;
+web\node_modules\@base-ui\react\menu\popup\MenuPopup.d.ts:38:  side: Side;
+web\node_modules\@base-ui\react\combobox\utils\stateAttributesMapping.d.ts:3:  popupSide: (side: Side | null) => {
+web\node_modules\@base-ui\react\menu\index.d.ts:13:export type * from "./positioner/MenuPositioner.js";
+web\node_modules\@base-ui\react\esm\tooltip\viewport\TooltipViewport.js:39:    side: positioner.side,
+web\node_modules\@base-ui\react\navigation-menu\index.d.ts:5:export type * from "./positioner/NavigationMenuPositioner.js";
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositionerContext.d.ts:3:export type TooltipPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.js:68:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:11:export interface TooltipPositionerState {
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:33:export interface TooltipPositionerProps extends BaseUIComponentProps<'div', TooltipPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side'> {
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:39:  side?: Side | undefined;
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:42:  type State = TooltipPositionerState;
+web\node_modules\@base-ui\react\esm\tooltip\positioner\TooltipPositioner.d.ts:43:  type Props = TooltipPositionerProps;
+web\node_modules\@base-ui\react\navigation-menu\arrow\NavigationMenuArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositionerContext.d.ts:4:export interface PopoverPositionerContext {
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositionerContext.d.ts:5:  side: Side;
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositionerContext.d.ts:3:export type NavigationMenuPositionerContext = ReturnType<typeof useAnchorPositioning>;
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositionerContext.d.ts:3:export type ComboboxPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles' | 'anchorHidden' | 'isPositioned'>;
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.js:88:    side: positioning.side,
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.js:113:    side: positioning.side,
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.d.ts:11:export interface ComboboxPositionerState {
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.d.ts:33:export interface ComboboxPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', ComboboxPositionerState> {}
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.d.ts:35:  type State = ComboboxPositionerState;
+web\node_modules\@base-ui\react\combobox\positioner\ComboboxPositioner.d.ts:36:  type Props = ComboboxPositionerProps;
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.d.ts:11:export interface NavigationMenuPositionerState {
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.d.ts:33:export interface NavigationMenuPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', NavigationMenuPositionerState> {}
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.d.ts:35:  type State = NavigationMenuPositionerState;
+web\node_modules\@base-ui\react\navigation-menu\positioner\NavigationMenuPositioner.d.ts:36:  type Props = NavigationMenuPositionerProps;
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.js:106:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.d.ts:11:export interface PopoverPositionerState {
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.d.ts:33:export interface PopoverPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', PopoverPositionerState> {}
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.d.ts:35:  type State = PopoverPositionerState;
+web\node_modules\@base-ui\react\esm\popover\positioner\PopoverPositioner.d.ts:36:  type Props = PopoverPositionerProps;
+web\node_modules\@base-ui\react\esm\tooltip\popup\TooltipPopup.d.ts:20:  side: Side;
+web\node_modules\@base-ui\react\esm\tooltip\index.d.ts:6:export type * from "./positioner/TooltipPositioner.js";
+web\node_modules\@base-ui\react\combobox\popup\ComboboxPopup.js:68:    side: positioning.side,
+web\node_modules\@base-ui\react\combobox\popup\ComboboxPopup.d.ts:21:  side: Side;
+web\node_modules\@base-ui\react\esm\tooltip\arrow\TooltipArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\navigation-menu\popup\NavigationMenuPopup.js:47:    side: positioning.side,
+web\node_modules\@base-ui\react\navigation-menu\popup\NavigationMenuPopup.d.ts:24:  side: Side;
+web\node_modules\@base-ui\react\esm\popover\popup\PopoverPopup.js:88:    side: positioner.side,
+web\node_modules\@base-ui\react\esm\popover\popup\PopoverPopup.d.ts:21:  side: Side;
+web\node_modules\@base-ui\react\esm\popover\index.d.ts:5:export type * from "./positioner/PopoverPositioner.js";
+web\node_modules\@base-ui\react\popover\index.d.ts:5:export type * from "./positioner/PopoverPositioner.js";
+web\node_modules\@base-ui\react\preview-card\viewport\PreviewCardViewport.js:45:    side: positioner.side,
+web\node_modules\@base-ui\react\popover\arrow\PopoverArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\preview-card\index.d.ts:5:export type * from "./positioner/PreviewCardPositioner.js";
+web\node_modules\@base-ui\react\preview-card\popup\PreviewCardPopup.d.ts:20:  side: Side;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositionerContext.d.ts:3:export type PreviewCardPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.js:74:    side: positioning.side,
+web\node_modules\@base-ui\react\preview-card\arrow\PreviewCardArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.d.ts:11:export interface PreviewCardPositionerState {
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.d.ts:33:export interface PreviewCardPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', PreviewCardPositionerState> {}
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.d.ts:35:  type State = PreviewCardPositionerState;
+web\node_modules\@base-ui\react\preview-card\positioner\PreviewCardPositioner.d.ts:36:  type Props = PreviewCardPositionerProps;
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositionerContext.d.ts:4:export interface PopoverPositionerContext {
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositionerContext.d.ts:5:  side: Side;
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.js:111:    side: positioning.side,
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.d.ts:11:export interface PopoverPositionerState {
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.d.ts:33:export interface PopoverPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', PopoverPositionerState> {}
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.d.ts:35:  type State = PopoverPositionerState;
+web\node_modules\@base-ui\react\popover\positioner\PopoverPositioner.d.ts:36:  type Props = PopoverPositionerProps;
+web\node_modules\@base-ui\react\esm\autocomplete\index.d.ts:11:export type { ComboboxPositionerProps as AutocompletePositionerProps, ComboboxPositionerState as AutocompletePositionerState } from "../combobox/positioner/ComboboxPositioner.js";
+web\node_modules\@base-ui\react\esm\context-menu\index.d.ts:6:export type { MenuPositionerProps as ContextMenuPositionerProps, MenuPositionerState as ContextMenuPositionerState } from "../menu/positioner/MenuPositioner.js";
+web\node_modules\@base-ui\react\popover\popup\PopoverPopup.js:94:    side: positioner.side,
+web\node_modules\@base-ui\react\popover\popup\PopoverPopup.d.ts:21:  side: Side;
+web\node_modules\@base-ui\react\esm\combobox\utils\stateAttributesMapping.d.ts:3:  popupSide: (side: Side | null) => {
+web\node_modules\@base-ui\react\esm\combobox\index.d.ts:8:export type * from "./positioner/ComboboxPositioner.js";
+web\node_modules\@base-ui\react\esm\floating-ui-react\hooks\useHoverShared.d.ts:27:export declare function isClickLikeOpenEvent(openEventType: string | undefined, interactedInside: boolean): boolean;
+web\node_modules\@base-ui\react\esm\floating-ui-react\hooks\useHoverInteractionSharedState.d.ts:7:  interactedInside: boolean;
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositionerContext.d.ts:3:export type ComboboxPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles' | 'anchorHidden' | 'isPositioned'>;
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.js:83:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.d.ts:11:export interface ComboboxPositionerState {
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.d.ts:33:export interface ComboboxPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', ComboboxPositionerState> {}
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.d.ts:35:  type State = ComboboxPositionerState;
+web\node_modules\@base-ui\react\esm\combobox\positioner\ComboboxPositioner.d.ts:36:  type Props = ComboboxPositionerProps;
+web\node_modules\@base-ui\react\esm\navigation-menu\index.d.ts:5:export type * from "./positioner/NavigationMenuPositioner.js";
+web\node_modules\@base-ui\react\esm\popover\arrow\PopoverArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\combobox\arrow\ComboboxArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\combobox\popup\ComboboxPopup.js:62:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\combobox\popup\ComboboxPopup.d.ts:21:  side: Side;
+web\node_modules\@base-ui\react\esm\toast\useToastManager.d.ts:2:import type { ToastPositionerProps } from "./positioner/ToastPositioner.js";
+web\node_modules\@base-ui\react\esm\toast\useToastManager.d.ts:79:export interface ToastManagerPositionerProps extends Omit<ToastPositionerProps, 'anchor' | 'toast'> {
+web\node_modules\@base-ui\react\esm\navigation-menu\arrow\NavigationMenuArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\toast\useToastManager.d.ts:2:import type { ToastPositionerProps } from "./positioner/ToastPositioner.js";
+web\node_modules\@base-ui\react\toast\useToastManager.d.ts:79:export interface ToastManagerPositionerProps extends Omit<ToastPositionerProps, 'anchor' | 'toast'> {
+web\node_modules\@base-ui\react\esm\menu\arrow\MenuArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\select\scroll-arrow\SelectScrollArrow.d.ts:21:  side: Side | 'none';
+web\node_modules\@base-ui\react\esm\toast\arrow\ToastArrow.d.ts:15:  side: Side;
+web\node_modules\@base-ui\react\select\positioner\SelectPositionerContext.d.ts:3:export interface SelectPositionerContext extends Omit<UseAnchorPositioningReturnValue, 'side'> {
+web\node_modules\@base-ui\react\select\positioner\SelectPositionerContext.d.ts:4:  side: 'none' | Side;
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.js:119:    side: renderedSide,
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.js:186:    side: renderedSide,
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.d.ts:11:export interface SelectPositionerState {
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.d.ts:19:  side: Side | 'none';
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.d.ts:29:export interface SelectPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', SelectPositionerState> {
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.d.ts:37:  type State = SelectPositionerState;
+web\node_modules\@base-ui\react\select\positioner\SelectPositioner.d.ts:38:  type Props = SelectPositionerProps;
+web\node_modules\@base-ui\react\esm\toast\index.d.ts:11:export type * from "./positioner/ToastPositioner.js";
+web\node_modules\@base-ui\react\tooltip\viewport\TooltipViewport.js:45:    side: positioner.side,
+web\node_modules\@base-ui\react\select\popup\SelectPopup.d.ts:30:  side: Side | 'none';
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositionerContext.d.ts:3:export type ToastPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.js:77:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:12:export interface ToastPositionerState {
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:16:  side: Side;
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:26:export interface ToastPositionerProps extends BaseUIComponentProps<'div', ToastPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side' | 'anchor'> {
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:36:  side?: Side | undefined;
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:43:  type State = ToastPositionerState;
+web\node_modules\@base-ui\react\esm\toast\positioner\ToastPositioner.d.ts:44:  type Props = ToastPositionerProps;
+web\node_modules\@base-ui\react\toast\positioner\ToastPositionerContext.d.ts:3:export type ToastPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.js:82:    side: positioning.side,
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:12:export interface ToastPositionerState {
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:16:  side: Side;
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:26:export interface ToastPositionerProps extends BaseUIComponentProps<'div', ToastPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side' | 'anchor'> {
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:36:  side?: Side | undefined;
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:43:  type State = ToastPositionerState;
+web\node_modules\@base-ui\react\toast\positioner\ToastPositioner.d.ts:44:  type Props = ToastPositionerProps;
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositionerContext.d.ts:3:export type MenuPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles' | 'context'>;
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.js:101:    side: computedSide,
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.js:218:    side: positioner.side,
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.d.ts:11:export interface MenuPositionerState {
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.d.ts:37:export interface MenuPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', MenuPositionerState> {}
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.d.ts:39:  type State = MenuPositionerState;
+web\node_modules\@base-ui\react\esm\menu\positioner\MenuPositioner.d.ts:40:  type Props = MenuPositionerProps;
+web\node_modules\@base-ui\react\toast\index.d.ts:11:export type * from "./positioner/ToastPositioner.js";
+web\node_modules\@base-ui\react\esm\menu\popup\MenuPopup.d.ts:38:  side: Side;
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositionerContext.d.ts:3:export type TooltipPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\select\index.d.ts:9:export type * from "./positioner/SelectPositioner.js";
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:73:    side: positioning.side,
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:11:export interface TooltipPositionerState {
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:33:export interface TooltipPositionerProps extends BaseUIComponentProps<'div', TooltipPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side'> {
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:39:  side?: Side | undefined;
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:42:  type State = TooltipPositionerState;
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.d.ts:43:  type Props = TooltipPositionerProps;
+web\node_modules\@base-ui\react\esm\menu\index.d.ts:13:export type * from "./positioner/MenuPositioner.js";
+web\node_modules\@base-ui\react\tooltip\popup\TooltipPopup.d.ts:20:  side: Side;
+web\node_modules\@base-ui\react\toast\arrow\ToastArrow.d.ts:15:  side: Side;
+web\node_modules\@base-ui\react\select\arrow\SelectArrow.d.ts:19:  side: Side | 'none';
+web\node_modules\@base-ui\react\tooltip\index.d.ts:6:export type * from "./positioner/TooltipPositioner.js";
+web\node_modules\@base-ui\react\tooltip\arrow\TooltipArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositionerContext.d.ts:3:export type NavigationMenuPositionerContext = ReturnType<typeof useAnchorPositioning>;
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.js:107:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.d.ts:11:export interface NavigationMenuPositionerState {
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.d.ts:33:export interface NavigationMenuPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', NavigationMenuPositionerState> {}
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.d.ts:35:  type State = NavigationMenuPositionerState;
+web\node_modules\@base-ui\react\esm\navigation-menu\positioner\NavigationMenuPositioner.d.ts:36:  type Props = NavigationMenuPositionerProps;
+web\node_modules\@base-ui\react\esm\navigation-menu\popup\NavigationMenuPopup.js:41:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\navigation-menu\popup\NavigationMenuPopup.d.ts:24:  side: Side;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:37:    side: getLogicalSide(sideParam, (0, _utils.getSide)(placement), isRtl),
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:59:    side: sideParam = 'bottom',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.js:397:    side: logicalRenderedSide,
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:8:  side: Side;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:25:  side?: 'flip' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:48:  side?: 'shift' | 'none' | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:86:  side?: Side | undefined;
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:201:   *     side: 'shift',
+web\node_modules\@base-ui\react\utils\useAnchorPositioning.d.ts:229:  side: Side;
+web\node_modules\@base-ui\react\utils\usePositioner.d.ts:3:interface UsePositionerOptions {
+web\node_modules\@base-ui\react\utils\usePopupViewport.d.ts:33:  side: Side;
+web\node_modules\@base-ui\react\utils\usePopupAutoResize.d.ts:33:  side: Side;
+web\node_modules\@base-ui\react\esm\preview-card\viewport\PreviewCardViewport.js:39:    side: positioner.side,
+web\node_modules\@base-ui\react\esm\preview-card\index.d.ts:5:export type * from "./positioner/PreviewCardPositioner.js";
+web\node_modules\@base-ui\react\esm\preview-card\arrow\PreviewCardArrow.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\select\index.d.ts:9:export type * from "./positioner/SelectPositioner.js";
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.js:69:    side: positioning.side,
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.d.ts:11:export interface PreviewCardPositionerState {
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.d.ts:19:  side: Side;
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.d.ts:33:export interface PreviewCardPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', PreviewCardPositionerState> {}
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.d.ts:35:  type State = PreviewCardPositionerState;
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositioner.d.ts:36:  type Props = PreviewCardPositionerProps;
+web\node_modules\@base-ui\react\esm\preview-card\positioner\PreviewCardPositionerContext.d.ts:3:export type PreviewCardPositionerContext = Pick<UseAnchorPositioningReturnValue, 'side' | 'align' | 'arrowRef' | 'arrowUncentered' | 'arrowStyles'>;
+web\node_modules\@base-ui\react\esm\select\scroll-arrow\SelectScrollArrow.d.ts:21:  side: Side | 'none';
+web\node_modules\@base-ui\react\esm\preview-card\popup\PreviewCardPopup.d.ts:20:  side: Side;
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.js:113:    side: renderedSide,
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.js:180:    side: renderedSide,
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.d.ts:11:export interface SelectPositionerState {
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.d.ts:19:  side: Side | 'none';
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.d.ts:29:export interface SelectPositionerProps extends UseAnchorPositioningSharedParameters, BaseUIComponentProps<'div', SelectPositionerState> {
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.d.ts:37:  type State = SelectPositionerState;
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositioner.d.ts:38:  type Props = SelectPositionerProps;
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositionerContext.d.ts:3:export interface SelectPositionerContext extends Omit<UseAnchorPositioningReturnValue, 'side'> {
+web\node_modules\@base-ui\react\esm\select\positioner\SelectPositionerContext.d.ts:4:  side: 'none' | Side;
+web\node_modules\@base-ui\react\esm\select\arrow\SelectArrow.d.ts:19:  side: Side | 'none';
+web\node_modules\@base-ui\react\esm\select\popup\SelectPopup.d.ts:30:  side: Side | 'none';
+
+ succeeded in 1058ms:
+   1: "use client";
+   2: 
+   3: import {
+   4:   EvidenceTooltip,
+   5:   EvidenceTooltipProvider,
+   6: } from "@/components/ui/evidence-tooltip";
+   7: 
+   8: /**
+   9:  * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+  10:  * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+  11:  * can assert (a) popup absent before hover, (b) popup absent immediately
+  12:  * after hover (within ~50ms), (c) popup visible within 500ms.
+  13:  */
+  14: export function EvidenceTooltipHarness() {
+  15:   return (
+  16:     <EvidenceTooltipProvider delay={300}>
+  17:       <div
+  18:         data-testid="evidence-tooltip-harness"
+  19:         className="mx-auto max-w-xl p-8"
+  20:       >
+  21:         <p className="mb-4 text-sm">
+  22:           Hover the citation token below to see the evidence tooltip.
+  23:         </p>
+  24:         <p className="text-sm">
+  25:           Aspirin reduces headache pain in adults
+  26:           <EvidenceTooltip
+  27:             evidenceId="src-demo-1"
+  28:             sourceUrl="https://www.cochrane.org/CD-demo-1"
+  29:             sourceTier="T1"
+  30:             publishedDate="2024-03-15"
+  31:             spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+  32:           >
+  33:             <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+  34:           </EvidenceTooltip>
+  35:           .
+  36:         </p>
+  37:       </div>
+  38:     </EvidenceTooltipProvider>
+  39:   );
+  40: }
+
+ succeeded in 1064ms:
+   1: import { defineConfig, devices } from "@playwright/test";
+   2: 
+   3: /**
+   4:  * Playwright e2e config for POLARIS frontend.
+   5:  *
+   6:  * Tests assume both servers are already running (frontend on
+   7:  * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+   8:  * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+   9:  * cluster is live (Task 0.3).
+  10:  *
+  11:  * Run locally:
+  12:  *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+  13:  *   2. Terminal B: cd web && npx next start -p 3738
+  14:  *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+  15:  */
+  16: export default defineConfig({
+  17:   testDir: "./tests/e2e",
+  18:   // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  19:   // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  20:   // to *-chromium-linux.png and is missing → Playwright would auto-write
+  21:   // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  22:   // Linux baselines are generated.
+  23:   testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  24:   timeout: 30_000,
+  25:   fullyParallel: false, // single browser instance to keep memory bounded on dev
+  26:   retries: 0,
+  27:   workers: 1,
+  28:   reporter: [["list"]],
+  29:   use: {
+  30:     baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+  31:     trace: "retain-on-failure",
+  32:     screenshot: "only-on-failure",
+  33:     viewport: { width: 1440, height: 900 },
+  34:     deviceScaleFactor: 1,
+  35:     colorScheme: "light",
+  36:   },
+  37:   projects: [
+  38:     {
+  39:       name: "chromium",
+  40:       use: { ...devices["Desktop Chrome"] },
+  41:     },
+  42:     {
+  43:       name: "firefox",
+  44:       use: { ...devices["Desktop Firefox"] },
+  45:     },
+  46:     {
+  47:       name: "webkit",
+  48:       use: { ...devices["Desktop Safari"] },
+  49:     },
+  50:   ],
+  51: });
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\node_modules\\@base-ui\\react\\tooltip\\positioner\\TooltipPositioner.d.ts | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\node_modules\\@base-ui\\react\\utils\\useAnchorPositioning.d.ts | Select-Object -First 260 | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\node_modules\\@base-ui\\react\\tooltip\\positioner\\TooltipPositioner.js | Select-Object -First 140 | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\node_modules\\@base-ui\\react\\utils\\useAnchorPositioning.js | Select-Object -First 460 | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 985ms:
+   1: import * as React from 'react';
+   2: import { type Side, type Align, type UseAnchorPositioningSharedParameters } from "../../utils/useAnchorPositioning.js";
+   3: import type { BaseUIComponentProps } from "../../internals/types.js";
+   4: /**
+   5:  * Positions the tooltip against the trigger.
+   6:  * Renders a `<div>` element.
+   7:  *
+   8:  * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+   9:  */
+  10: export declare const TooltipPositioner: React.ForwardRefExoticComponent<Omit<TooltipPositionerProps, "ref"> & React.RefAttributes<HTMLDivElement>>;
+  11: export interface TooltipPositionerState {
+  12:   /**
+  13:    * Whether the tooltip is currently open.
+  14:    */
+  15:   open: boolean;
+  16:   /**
+  17:    * The side of the anchor the component is placed on.
+  18:    */
+  19:   side: Side;
+  20:   /**
+  21:    * The alignment of the component relative to the anchor.
+  22:    */
+  23:   align: Align;
+  24:   /**
+  25:    * Whether the anchor element is hidden.
+  26:    */
+  27:   anchorHidden: boolean;
+  28:   /**
+  29:    * Whether CSS transitions should be disabled.
+  30:    */
+  31:   instant: string | undefined;
+  32: }
+  33: export interface TooltipPositionerProps extends BaseUIComponentProps<'div', TooltipPositionerState>, Omit<UseAnchorPositioningSharedParameters, 'side'> {
+  34:   /**
+  35:    * Which side of the anchor element to align the popup against.
+  36:    * May automatically change to avoid collisions.
+  37:    * @default 'top'
+  38:    */
+  39:   side?: Side | undefined;
+  40: }
+  41: export declare namespace TooltipPositioner {
+  42:   type State = TooltipPositionerState;
+  43:   type Props = TooltipPositionerProps;
+  44: }
+
+ succeeded in 1045ms:
+   1: import * as React from 'react';
+   2: import { type Rect } from '@floating-ui/utils';
+   3: import { useFloating, type FloatingRootContext, type VirtualElement, type Padding, type FloatingContext, type Side as PhysicalSide, type Middleware, type FloatingTreeStore } from "../floating-ui-react/index.js";
+   4: export type Side = 'top' | 'bottom' | 'left' | 'right' | 'inline-end' | 'inline-start';
+   5: export type Align = 'start' | 'center' | 'end';
+   6: export type Boundary = 'clipping-ancestors' | Element | Element[] | Rect;
+   7: export type OffsetFunction = (data: {
+   8:   side: Side;
+   9:   align: Align;
+  10:   anchor: {
+  11:     width: number;
+  12:     height: number;
+  13:   };
+  14:   positioner: {
+  15:     width: number;
+  16:     height: number;
+  17:   };
+  18: }) => number;
+  19: interface SideFlipMode {
+  20:   /**
+  21:    * How to avoid collisions on the side axis.
+  22:    * - `'flip'`: If there is not enough space, place the popup on the opposite side.
+  23:    * - `'none'`: Keep the preferred side even if it overflows.
+  24:    */
+  25:   side?: 'flip' | 'none' | undefined;
+  26:   /**
+  27:    * How to avoid collisions on the align axis.
+  28:    * - `'flip'`: If there is not enough space, swap `'start'` and `'end'` alignment.
+  29:    * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+  30:    * - `'none'`: Keep the preferred alignment even if it overflows.
+  31:    */
+  32:   align?: 'flip' | 'shift' | 'none' | undefined;
+  33:   /**
+  34:    * If both sides on the preferred axis do not fit, determines whether to fallback
+  35:    * to a side on the perpendicular axis and which logical side to prefer.
+  36:    * - `'start'`: Prefer the logical start side on the perpendicular axis.
+  37:    * - `'end'`: Prefer the logical end side on the perpendicular axis.
+  38:    * - `'none'`: Do not fallback to the perpendicular axis.
+  39:    */
+  40:   fallbackAxisSide?: 'start' | 'end' | 'none' | undefined;
+  41: }
+  42: interface SideShiftMode {
+  43:   /**
+  44:    * How to avoid collisions on the side axis.
+  45:    * - `'shift'`: Keep the preferred side and shift the popup to fit within the boundary.
+  46:    * - `'none'`: Keep the preferred side even if it overflows.
+  47:    */
+  48:   side?: 'shift' | 'none' | undefined;
+  49:   /**
+  50:    * How to avoid collisions on the align axis.
+  51:    * - `'shift'`: Keep the alignment and shift the popup to fit within the boundary.
+  52:    * - `'none'`: Keep the preferred alignment even if it overflows.
+  53:    */
+  54:   align?: 'shift' | 'none' | undefined;
+  55:   /**
+  56:    * If both sides on the preferred axis do not fit, determines whether to fallback
+  57:    * to a side on the perpendicular axis and which logical side to prefer.
+  58:    * - `'start'`: Prefer the logical start side on the perpendicular axis.
+  59:    * - `'end'`: Prefer the logical end side on the perpendicular axis.
+  60:    * - `'none'`: Do not fallback to the perpendicular axis.
+  61:    */
+  62:   fallbackAxisSide?: 'start' | 'end' | 'none' | undefined;
+  63: }
+  64: export type CollisionAvoidance = SideFlipMode | SideShiftMode;
+  65: /**
+  66:  * Provides standardized anchor positioning behavior for floating elements. Wraps Floating UI's
+  67:  * `useFloating` hook.
+  68:  */
+  69: export declare function useAnchorPositioning(params: UseAnchorPositioningParameters): UseAnchorPositioningReturnValue;
+  70: export interface UseAnchorPositioningSharedParameters {
+  71:   /**
+  72:    * An element to position the popup against.
+  73:    * By default, the popup will be positioned against the trigger.
+  74:    */
+  75:   anchor?: Element | null | VirtualElement | React.RefObject<Element | null> | (() => Element | VirtualElement | null) | undefined;
+  76:   /**
+  77:    * Determines which CSS `position` property to use.
+  78:    * @default 'absolute'
+  79:    */
+  80:   positionMethod?: 'absolute' | 'fixed' | undefined;
+  81:   /**
+  82:    * Which side of the anchor element to align the popup against.
+  83:    * May automatically change to avoid collisions.
+  84:    * @default 'bottom'
+  85:    */
+  86:   side?: Side | undefined;
+  87:   /**
+  88:    * Distance between the anchor and the popup in pixels.
+  89:    * Also accepts a function that returns the distance to read the dimensions of the anchor
+  90:    * and positioner elements, along with its side and alignment.
+  91:    *
+  92:    * The function takes a `data` object parameter with the following properties:
+  93:    * - `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+  94:    * - `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+  95:    * - `data.side`: which side of the anchor element the positioner is aligned against.
+  96:    * - `data.align`: how the positioner is aligned relative to the specified side.
+  97:    *
+  98:    * @example
+  99:    * ```jsx
+ 100:    * <Positioner
+ 101:    *   sideOffset={({ side, align, anchor, positioner }) => {
+ 102:    *     return side === 'top' || side === 'bottom'
+ 103:    *       ? anchor.height
+ 104:    *       : anchor.width;
+ 105:    *   }}
+ 106:    * />
+ 107:    * ```
+ 108:    *
+ 109:    * @default 0
+ 110:    */
+ 111:   sideOffset?: number | OffsetFunction | undefined;
+ 112:   /**
+ 113:    * How to align the popup relative to the specified side.
+ 114:    * @default 'center'
+ 115:    */
+ 116:   align?: Align | undefined;
+ 117:   /**
+ 118:    * Additional offset along the alignment axis in pixels.
+ 119:    * Also accepts a function that returns the offset to read the dimensions of the anchor
+ 120:    * and positioner elements, along with its side and alignment.
+ 121:    *
+ 122:    * The function takes a `data` object parameter with the following properties:
+ 123:    * - `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+ 124:    * - `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+ 125:    * - `data.side`: which side of the anchor element the positioner is aligned against.
+ 126:    * - `data.align`: how the positioner is aligned relative to the specified side.
+ 127:    *
+ 128:    * @example
+ 129:    * ```jsx
+ 130:    * <Positioner
+ 131:    *   alignOffset={({ side, align, anchor, positioner }) => {
+ 132:    *     return side === 'top' || side === 'bottom'
+ 133:    *       ? anchor.width
+ 134:    *       : anchor.height;
+ 135:    *   }}
+ 136:    * />
+ 137:    * ```
+ 138:    *
+ 139:    * @default 0
+ 140:    */
+ 141:   alignOffset?: number | OffsetFunction | undefined;
+ 142:   /**
+ 143:    * An element or a rectangle that delimits the area that the popup is confined to.
+ 144:    * @default 'clipping-ancestors'
+ 145:    */
+ 146:   collisionBoundary?: Boundary | undefined;
+ 147:   /**
+ 148:    * Additional space to maintain from the edge of the collision boundary.
+ 149:    * @default 5
+ 150:    */
+ 151:   collisionPadding?: Padding | undefined;
+ 152:   /**
+ 153:    * Whether to maintain the popup in the viewport after
+ 154:    * the anchor element was scrolled out of view.
+ 155:    * @default false
+ 156:    */
+ 157:   sticky?: boolean | undefined;
+ 158:   /**
+ 159:    * Minimum distance to maintain between the arrow and the edges of the popup.
+ 160:    *
+ 161:    * Use it to prevent the arrow element from hanging out of the rounded corners of a popup.
+ 162:    * @default 5
+ 163:    */
+ 164:   arrowPadding?: number | undefined;
+ 165:   /**
+ 166:    * Whether to disable the popup from tracking any layout shift of its positioning anchor.
+ 167:    * @default false
+ 168:    */
+ 169:   disableAnchorTracking?: boolean | undefined;
+ 170:   /**
+ 171:    * Determines how to handle collisions when positioning the popup.
+ 172:    *
+ 173:    * `side` controls overflow on the preferred placement axis (`top`/`bottom` or `left`/`right`):
+ 174:    * - `'flip'`: keep the requested side when it fits; otherwise try the opposite side
+ 175:    *   (`top` and `bottom`, or `left` and `right`).
+ 176:    * - `'shift'`: never change side; keep the requested side and move the popup within
+ 177:    *   the clipping boundary so it stays visible.
+ 178:    * - `'none'`: do not correct side-axis overflow.
+ 179:    *
+ 180:    * `align` controls overflow on the alignment axis (`start`/`center`/`end`):
+ 181:    * - `'flip'`: keep side, but swap `start` and `end` when the requested alignment overflows.
+ 182:    * - `'shift'`: keep side and requested alignment, then nudge the popup along the
+ 183:    *   alignment axis to fit.
+ 184:    * - `'none'`: do not correct alignment-axis overflow.
+ 185:    *
+ 186:    * `fallbackAxisSide` controls fallback behavior on the perpendicular axis when the
+ 187:    * preferred axis cannot fit:
+ 188:    * - `'start'`: allow perpendicular fallback and try the logical start side first
+ 189:    *   (`top` before `bottom`, or `left` before `right` in LTR).
+ 190:    * - `'end'`: allow perpendicular fallback and try the logical end side first
+ 191:    *   (`bottom` before `top`, or `right` before `left` in LTR).
+ 192:    * - `'none'`: do not fallback to the perpendicular axis.
+ 193:    *
+ 194:    * When `side` is `'shift'`, explicitly setting `align` only supports `'shift'` or `'none'`.
+ 195:    * If `align` is omitted, it defaults to `'flip'`.
+ 196:    *
+ 197:    * @example
+ 198:    * ```jsx
+ 199:    * <Positioner
+ 200:    *   collisionAvoidance={{
+ 201:    *     side: 'shift',
+ 202:    *     align: 'shift',
+ 203:    *     fallbackAxisSide: 'none',
+ 204:    *   }}
+ 205:    * />
+ 206:    * ```
+ 207:    *
+ 208:    */
+ 209:   collisionAvoidance?: CollisionAvoidance | undefined;
+ 210: }
+ 211: export interface UseAnchorPositioningParameters extends UseAnchorPositioningSharedParameters {
+ 212:   keepMounted?: boolean | undefined;
+ 213:   trackCursorAxis?: 'none' | 'x' | 'y' | 'both' | undefined;
+ 214:   floatingRootContext?: FloatingRootContext | undefined;
+ 215:   mounted: boolean;
+ 216:   disableAnchorTracking: boolean;
+ 217:   nodeId?: string | undefined;
+ 218:   adaptiveOrigin?: Middleware | undefined;
+ 219:   collisionAvoidance: CollisionAvoidance;
+ 220:   shiftCrossAxis?: boolean | undefined;
+ 221:   lazyFlip?: boolean | undefined;
+ 222:   externalTree?: FloatingTreeStore | undefined;
+ 223: }
+ 224: export interface UseAnchorPositioningReturnValue {
+ 225:   positionerStyles: React.CSSProperties;
+ 226:   arrowStyles: React.CSSProperties;
+ 227:   arrowRef: React.RefObject<Element | null>;
+ 228:   arrowUncentered: boolean;
+ 229:   side: Side;
+ 230:   align: Align;
+ 231:   physicalSide: PhysicalSide;
+ 232:   anchorHidden: boolean;
+ 233:   refs: ReturnType<typeof useFloating>['refs'];
+ 234:   context: FloatingContext;
+ 235:   isPositioned: boolean;
+ 236:   update: () => void;
+ 237: }
+ 238: export interface UseAnchorPositioningState {}
+ 239: export {};
+
+ succeeded in 1033ms:
+   1: "use strict";
+   2: 'use client';
+   3: 
+   4: var _interopRequireWildcard = require("@babel/runtime/helpers/interopRequireWildcard").default;
+   5: Object.defineProperty(exports, "__esModule", {
+   6:   value: true
+   7: });
+   8: exports.TooltipPositioner = void 0;
+   9: var React = _interopRequireWildcard(require("react"));
+  10: var _TooltipRootContext = require("../root/TooltipRootContext");
+  11: var _TooltipPositionerContext = require("./TooltipPositionerContext");
+  12: var _useAnchorPositioning = require("../../utils/useAnchorPositioning");
+  13: var _TooltipPortalContext = require("../portal/TooltipPortalContext");
+  14: var _constants = require("../../internals/constants");
+  15: var _adaptiveOriginMiddleware = require("../../utils/adaptiveOriginMiddleware");
+  16: var _usePositioner = require("../../utils/usePositioner");
+  17: var _jsxRuntime = require("react/jsx-runtime");
+  18: /**
+  19:  * Positions the tooltip against the trigger.
+  20:  * Renders a `<div>` element.
+  21:  *
+  22:  * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+  23:  */
+  24: const TooltipPositioner = exports.TooltipPositioner = /*#__PURE__*/React.forwardRef(function TooltipPositioner(componentProps, forwardedRef) {
+  25:   const {
+  26:     render,
+  27:     className,
+  28:     anchor,
+  29:     positionMethod = 'absolute',
+  30:     side = 'top',
+  31:     align = 'center',
+  32:     sideOffset = 0,
+  33:     alignOffset = 0,
+  34:     collisionBoundary = 'clipping-ancestors',
+  35:     collisionPadding = 5,
+  36:     arrowPadding = 5,
+  37:     sticky = false,
+  38:     disableAnchorTracking = false,
+  39:     collisionAvoidance = _constants.POPUP_COLLISION_AVOIDANCE,
+  40:     style,
+  41:     ...elementProps
+  42:   } = componentProps;
+  43:   const store = (0, _TooltipRootContext.useTooltipRootContext)();
+  44:   const keepMounted = (0, _TooltipPortalContext.useTooltipPortalContext)();
+  45:   const open = store.useState('open');
+  46:   const mounted = store.useState('mounted');
+  47:   const trackCursorAxis = store.useState('trackCursorAxis');
+  48:   const disableHoverablePopup = store.useState('disableHoverablePopup');
+  49:   const floatingRootContext = store.useState('floatingRootContext');
+  50:   const instantType = store.useState('instantType');
+  51:   const transitionStatus = store.useState('transitionStatus');
+  52:   const hasViewport = store.useState('hasViewport');
+  53:   const positioning = (0, _useAnchorPositioning.useAnchorPositioning)({
+  54:     anchor,
+  55:     positionMethod,
+  56:     floatingRootContext,
+  57:     mounted,
+  58:     side,
+  59:     sideOffset,
+  60:     align,
+  61:     alignOffset,
+  62:     collisionBoundary,
+  63:     collisionPadding,
+  64:     sticky,
+  65:     arrowPadding,
+  66:     disableAnchorTracking,
+  67:     keepMounted,
+  68:     collisionAvoidance,
+  69:     adaptiveOrigin: hasViewport ? _adaptiveOriginMiddleware.adaptiveOrigin : undefined
+  70:   });
+  71:   const state = React.useMemo(() => ({
+  72:     open,
+  73:     side: positioning.side,
+  74:     align: positioning.align,
+  75:     anchorHidden: positioning.anchorHidden,
+  76:     instant: trackCursorAxis !== 'none' ? 'tracking-cursor' : instantType
+  77:   }), [open, positioning.side, positioning.align, positioning.anchorHidden, trackCursorAxis, instantType]);
+  78:   const element = (0, _usePositioner.usePositioner)(componentProps, state, {
+  79:     styles: positioning.positionerStyles,
+  80:     transitionStatus,
+  81:     props: elementProps,
+  82:     refs: [forwardedRef, store.useStateSetter('positionerElement')],
+  83:     hidden: !mounted,
+  84:     inert: !open || trackCursorAxis === 'both' || disableHoverablePopup
+  85:   });
+  86:   return /*#__PURE__*/(0, _jsxRuntime.jsx)(_TooltipPositionerContext.TooltipPositionerContext.Provider, {
+  87:     value: positioning,
+  88:     children: element
+  89:   });
+  90: });
+  91: if (process.env.NODE_ENV !== "production") TooltipPositioner.displayName = "TooltipPositioner";
+
+ succeeded in 1085ms:
+   1: "use strict";
+   2: 'use client';
+   3: 
+   4: var _interopRequireWildcard = require("@babel/runtime/helpers/interopRequireWildcard").default;
+   5: Object.defineProperty(exports, "__esModule", {
+   6:   value: true
+   7: });
+   8: exports.useAnchorPositioning = useAnchorPositioning;
+   9: var React = _interopRequireWildcard(require("react"));
+  10: var _utils = require("@floating-ui/utils");
+  11: var _owner = require("@base-ui/utils/owner");
+  12: var _useIsoLayoutEffect = require("@base-ui/utils/useIsoLayoutEffect");
+  13: var _useValueAsRef = require("@base-ui/utils/useValueAsRef");
+  14: var _useStableCallback = require("@base-ui/utils/useStableCallback");
+  15: var _floatingUiReact = require("../floating-ui-react");
+  16: var _DirectionContext = require("../internals/direction-context/DirectionContext");
+  17: var _arrow = require("../floating-ui-react/middleware/arrow");
+  18: var _hideMiddleware = require("./hideMiddleware");
+  19: var _adaptiveOriginMiddleware = require("./adaptiveOriginMiddleware");
+  20: function getLogicalSide(sideParam, renderedSide, isRtl) {
+  21:   const isLogicalSideParam = sideParam === 'inline-start' || sideParam === 'inline-end';
+  22:   const logicalRight = isRtl ? 'inline-start' : 'inline-end';
+  23:   const logicalLeft = isRtl ? 'inline-end' : 'inline-start';
+  24:   return {
+  25:     top: 'top',
+  26:     right: isLogicalSideParam ? logicalRight : 'right',
+  27:     bottom: 'bottom',
+  28:     left: isLogicalSideParam ? logicalLeft : 'left'
+  29:   }[renderedSide];
+  30: }
+  31: function getOffsetData(state, sideParam, isRtl) {
+  32:   const {
+  33:     rects,
+  34:     placement
+  35:   } = state;
+  36:   const data = {
+  37:     side: getLogicalSide(sideParam, (0, _utils.getSide)(placement), isRtl),
+  38:     align: (0, _utils.getAlignment)(placement) || 'center',
+  39:     anchor: {
+  40:       width: rects.reference.width,
+  41:       height: rects.reference.height
+  42:     },
+  43:     positioner: {
+  44:       width: rects.floating.width,
+  45:       height: rects.floating.height
+  46:     }
+  47:   };
+  48:   return data;
+  49: }
+  50: /**
+  51:  * Provides standardized anchor positioning behavior for floating elements. Wraps Floating UI's
+  52:  * `useFloating` hook.
+  53:  */
+  54: function useAnchorPositioning(params) {
+  55:   const {
+  56:     // Public parameters
+  57:     anchor,
+  58:     positionMethod = 'absolute',
+  59:     side: sideParam = 'bottom',
+  60:     sideOffset = 0,
+  61:     align = 'center',
+  62:     alignOffset = 0,
+  63:     collisionBoundary,
+  64:     collisionPadding: collisionPaddingParam = 5,
+  65:     sticky = false,
+  66:     arrowPadding = 5,
+  67:     disableAnchorTracking = false,
+  68:     // Private parameters
+  69:     keepMounted = false,
+  70:     floatingRootContext,
+  71:     mounted,
+  72:     collisionAvoidance,
+  73:     shiftCrossAxis = false,
+  74:     nodeId,
+  75:     adaptiveOrigin,
+  76:     lazyFlip = false,
+  77:     externalTree
+  78:   } = params;
+  79:   const [mountSide, setMountSide] = React.useState(null);
+  80:   if (!mounted && mountSide !== null) {
+  81:     setMountSide(null);
+  82:   }
+  83:   const collisionAvoidanceSide = collisionAvoidance.side || 'flip';
+  84:   const collisionAvoidanceAlign = collisionAvoidance.align || 'flip';
+  85:   const collisionAvoidanceFallbackAxisSide = collisionAvoidance.fallbackAxisSide || 'end';
+  86:   const anchorFn = typeof anchor === 'function' ? anchor : undefined;
+  87:   const anchorFnCallback = (0, _useStableCallback.useStableCallback)(anchorFn);
+  88:   const anchorDep = anchorFn ? anchorFnCallback : anchor;
+  89:   const anchorValueRef = (0, _useValueAsRef.useValueAsRef)(anchor);
+  90:   const mountedRef = (0, _useValueAsRef.useValueAsRef)(mounted);
+  91:   const direction = (0, _DirectionContext.useDirection)();
+  92:   const isRtl = direction === 'rtl';
+  93:   const side = mountSide || {
+  94:     top: 'top',
+  95:     right: 'right',
+  96:     bottom: 'bottom',
+  97:     left: 'left',
+  98:     'inline-end': isRtl ? 'left' : 'right',
+  99:     'inline-start': isRtl ? 'right' : 'left'
+ 100:   }[sideParam];
+ 101:   const placement = align === 'center' ? side : `${side}-${align}`;
+ 102:   let collisionPadding = collisionPaddingParam;
+ 103: 
+ 104:   // Create a bias to the preferred side.
+ 105:   // On iOS, when the mobile software keyboard opens, the input is exactly centered
+ 106:   // in the viewport, but this can cause it to flip to the top undesirably.
+ 107:   const bias = 1;
+ 108:   const biasTop = sideParam === 'bottom' ? bias : 0;
+ 109:   const biasBottom = sideParam === 'top' ? bias : 0;
+ 110:   const biasLeft = sideParam === 'right' ? bias : 0;
+ 111:   const biasRight = sideParam === 'left' ? bias : 0;
+ 112:   if (typeof collisionPadding === 'number') {
+ 113:     collisionPadding = {
+ 114:       top: collisionPadding + biasTop,
+ 115:       right: collisionPadding + biasRight,
+ 116:       bottom: collisionPadding + biasBottom,
+ 117:       left: collisionPadding + biasLeft
+ 118:     };
+ 119:   } else if (collisionPadding) {
+ 120:     collisionPadding = {
+ 121:       top: (collisionPadding.top || 0) + biasTop,
+ 122:       right: (collisionPadding.right || 0) + biasRight,
+ 123:       bottom: (collisionPadding.bottom || 0) + biasBottom,
+ 124:       left: (collisionPadding.left || 0) + biasLeft
+ 125:     };
+ 126:   }
+ 127:   const commonCollisionProps = {
+ 128:     boundary: collisionBoundary === 'clipping-ancestors' ? 'clippingAncestors' : collisionBoundary,
+ 129:     padding: collisionPadding
+ 130:   };
+ 131: 
+ 132:   // Using a ref assumes that the arrow element is always present in the DOM for the lifetime of the
+ 133:   // popup. If this assumption ends up being false, we can switch to state to manage the arrow's
+ 134:   // presence.
+ 135:   const arrowRef = React.useRef(null);
+ 136: 
+ 137:   // Keep these reactive if they're not functions
+ 138:   const sideOffsetRef = (0, _useValueAsRef.useValueAsRef)(sideOffset);
+ 139:   const alignOffsetRef = (0, _useValueAsRef.useValueAsRef)(alignOffset);
+ 140:   const sideOffsetDep = typeof sideOffset !== 'function' ? sideOffset : 0;
+ 141:   const alignOffsetDep = typeof alignOffset !== 'function' ? alignOffset : 0;
+ 142:   const middleware = [(0, _floatingUiReact.offset)(state => {
+ 143:     const data = getOffsetData(state, sideParam, isRtl);
+ 144:     const sideAxis = typeof sideOffsetRef.current === 'function' ? sideOffsetRef.current(data) : sideOffsetRef.current;
+ 145:     const alignAxis = typeof alignOffsetRef.current === 'function' ? alignOffsetRef.current(data) : alignOffsetRef.current;
+ 146:     return {
+ 147:       mainAxis: sideAxis,
+ 148:       crossAxis: alignAxis,
+ 149:       alignmentAxis: alignAxis
+ 150:     };
+ 151:   }, [sideOffsetDep, alignOffsetDep, isRtl, sideParam])];
+ 152:   const shiftDisabled = collisionAvoidanceAlign === 'none' && collisionAvoidanceSide !== 'shift';
+ 153:   const crossAxisShiftEnabled = !shiftDisabled && (sticky || shiftCrossAxis || collisionAvoidanceSide === 'shift');
+ 154:   const flipMiddleware = collisionAvoidanceSide === 'none' ? null : (0, _floatingUiReact.flip)({
+ 155:     ...commonCollisionProps,
+ 156:     // Ensure the popup flips if it's been limited by its --available-height and it resizes.
+ 157:     // Since the size() padding is smaller than the flip() padding, flip() will take precedence.
+ 158:     padding: {
+ 159:       top: collisionPadding.top + bias,
+ 160:       right: collisionPadding.right + bias,
+ 161:       bottom: collisionPadding.bottom + bias,
+ 162:       left: collisionPadding.left + bias
+ 163:     },
+ 164:     mainAxis: !shiftCrossAxis && collisionAvoidanceSide === 'flip',
+ 165:     crossAxis: collisionAvoidanceAlign === 'flip' ? 'alignment' : false,
+ 166:     fallbackAxisSideDirection: collisionAvoidanceFallbackAxisSide
+ 167:   });
+ 168:   const shiftMiddleware = shiftDisabled ? null : (0, _floatingUiReact.shift)(data => {
+ 169:     const html = (0, _owner.ownerDocument)(data.elements.floating).documentElement;
+ 170:     return {
+ 171:       ...commonCollisionProps,
+ 172:       // Use the Layout Viewport to avoid shifting around when pinch-zooming
+ 173:       // for context menus.
+ 174:       rootBoundary: shiftCrossAxis ? {
+ 175:         x: 0,
+ 176:         y: 0,
+ 177:         width: html.clientWidth,
+ 178:         height: html.clientHeight
+ 179:       } : undefined,
+ 180:       mainAxis: collisionAvoidanceAlign !== 'none',
+ 181:       crossAxis: crossAxisShiftEnabled,
+ 182:       limiter: sticky || shiftCrossAxis ? undefined : (0, _floatingUiReact.limitShift)(limitData => {
+ 183:         if (!arrowRef.current) {
+ 184:           return {};
+ 185:         }
+ 186:         const {
+ 187:           width,
+ 188:           height
+ 189:         } = arrowRef.current.getBoundingClientRect();
+ 190:         const sideAxis = (0, _utils.getSideAxis)((0, _utils.getSide)(limitData.placement));
+ 191:         const arrowSize = sideAxis === 'y' ? width : height;
+ 192:         const offsetAmount = sideAxis === 'y' ? collisionPadding.left + collisionPadding.right : collisionPadding.top + collisionPadding.bottom;
+ 193:         return {
+ 194:           offset: arrowSize / 2 + offsetAmount / 2
+ 195:         };
+ 196:       })
+ 197:     };
+ 198:   }, [commonCollisionProps, sticky, shiftCrossAxis, collisionPadding, collisionAvoidanceAlign]);
+ 199: 
+ 200:   // https://floating-ui.com/docs/flip#combining-with-shift
+ 201:   if (collisionAvoidanceSide === 'shift' || collisionAvoidanceAlign === 'shift' || align === 'center') {
+ 202:     middleware.push(shiftMiddleware, flipMiddleware);
+ 203:   } else {
+ 204:     middleware.push(flipMiddleware, shiftMiddleware);
+ 205:   }
+ 206:   middleware.push((0, _floatingUiReact.size)({
+ 207:     ...commonCollisionProps,
+ 208:     apply({
+ 209:       elements: {
+ 210:         floating
+ 211:       },
+ 212:       availableWidth,
+ 213:       availableHeight,
+ 214:       rects
+ 215:     }) {
+ 216:       if (!mountedRef.current) {
+ 217:         return;
+ 218:       }
+ 219:       const floatingStyle = floating.style;
+ 220:       floatingStyle.setProperty('--available-width', `${availableWidth}px`);
+ 221:       floatingStyle.setProperty('--available-height', `${availableHeight}px`);
+ 222: 
+ 223:       // Snap anchor dimensions to device pixels to ensure the popup's visual width matches the anchor's one.
+ 224:       const dpr = (0, _owner.ownerWindow)(floating).devicePixelRatio || 1;
+ 225:       const {
+ 226:         x,
+ 227:         y,
+ 228:         width,
+ 229:         height
+ 230:       } = rects.reference;
+ 231:       const anchorWidth = (Math.round((x + width) * dpr) - Math.round(x * dpr)) / dpr;
+ 232:       const anchorHeight = (Math.round((y + height) * dpr) - Math.round(y * dpr)) / dpr;
+ 233:       floatingStyle.setProperty('--anchor-width', `${anchorWidth}px`);
+ 234:       floatingStyle.setProperty('--anchor-height', `${anchorHeight}px`);
+ 235:     }
+ 236:   }), (0, _arrow.arrow)(() => ({
+ 237:     // `transform-origin` calculations rely on an element existing. If the arrow hasn't been set,
+ 238:     // we'll create a fake element.
+ 239:     element: arrowRef.current || (0, _owner.ownerDocument)(arrowRef.current).createElement('div'),
+ 240:     padding: arrowPadding,
+ 241:     offsetParent: 'floating'
+ 242:   }), [arrowPadding]), {
+ 243:     name: 'transformOrigin',
+ 244:     fn(state) {
+ 245:       const {
+ 246:         elements,
+ 247:         middlewareData,
+ 248:         placement: renderedPlacement,
+ 249:         rects,
+ 250:         y
+ 251:       } = state;
+ 252:       const currentRenderedSide = (0, _utils.getSide)(renderedPlacement);
+ 253:       const currentRenderedAxis = (0, _utils.getSideAxis)(currentRenderedSide);
+ 254:       const arrowEl = arrowRef.current;
+ 255:       const arrowX = middlewareData.arrow?.x || 0;
+ 256:       const arrowY = middlewareData.arrow?.y || 0;
+ 257:       const arrowWidth = arrowEl?.clientWidth || 0;
+ 258:       const arrowHeight = arrowEl?.clientHeight || 0;
+ 259:       const transformX = arrowX + arrowWidth / 2;
+ 260:       const transformY = arrowY + arrowHeight / 2;
+ 261:       const shiftY = Math.abs(middlewareData.shift?.y || 0);
+ 262:       const halfAnchorHeight = rects.reference.height / 2;
+ 263:       const sideOffsetValue = typeof sideOffset === 'function' ? sideOffset(getOffsetData(state, sideParam, isRtl)) : sideOffset;
+ 264:       const isOverlappingAnchor = shiftY > sideOffsetValue;
+ 265:       const adjacentTransformOrigin = {
+ 266:         top: `${transformX}px calc(100% + ${sideOffsetValue}px)`,
+ 267:         bottom: `${transformX}px ${-sideOffsetValue}px`,
+ 268:         left: `calc(100% + ${sideOffsetValue}px) ${transformY}px`,
+ 269:         right: `${-sideOffsetValue}px ${transformY}px`
+ 270:       }[currentRenderedSide];
+ 271:       const overlapTransformOrigin = `${transformX}px ${rects.reference.y + halfAnchorHeight - y}px`;
+ 272:       elements.floating.style.setProperty('--transform-origin', crossAxisShiftEnabled && currentRenderedAxis === 'y' && isOverlappingAnchor ? overlapTransformOrigin : adjacentTransformOrigin);
+ 273:       return {};
+ 274:     }
+ 275:   }, _hideMiddleware.hide, adaptiveOrigin);
+ 276:   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+ 277:     // Ensure positioning doesn't run initially for `keepMounted` elements that
+ 278:     // aren't initially open.
+ 279:     if (!mounted && floatingRootContext) {
+ 280:       floatingRootContext.update({
+ 281:         referenceElement: null,
+ 282:         floatingElement: null,
+ 283:         domReferenceElement: null,
+ 284:         positionReference: null
+ 285:       });
+ 286:     }
+ 287:   }, [mounted, floatingRootContext]);
+ 288:   const autoUpdateOptions = React.useMemo(() => ({
+ 289:     elementResize: !disableAnchorTracking && typeof ResizeObserver !== 'undefined',
+ 290:     layoutShift: !disableAnchorTracking && typeof IntersectionObserver !== 'undefined'
+ 291:   }), [disableAnchorTracking]);
+ 292:   const {
+ 293:     refs,
+ 294:     elements,
+ 295:     x,
+ 296:     y,
+ 297:     middlewareData,
+ 298:     update,
+ 299:     placement: renderedPlacement,
+ 300:     context,
+ 301:     isPositioned,
+ 302:     floatingStyles: originalFloatingStyles
+ 303:   } = (0, _floatingUiReact.useFloating)({
+ 304:     rootContext: floatingRootContext,
+ 305:     open: keepMounted ? mounted : undefined,
+ 306:     placement,
+ 307:     middleware,
+ 308:     strategy: positionMethod,
+ 309:     whileElementsMounted: keepMounted ? undefined : (...args) => (0, _floatingUiReact.autoUpdate)(...args, autoUpdateOptions),
+ 310:     nodeId,
+ 311:     externalTree
+ 312:   });
+ 313:   const {
+ 314:     sideX,
+ 315:     sideY
+ 316:   } = middlewareData.adaptiveOrigin || _adaptiveOriginMiddleware.DEFAULT_SIDES;
+ 317: 
+ 318:   // Default to `fixed` when not positioned to prevent `autoFocus` scroll jumps.
+ 319:   // This ensures the popup is inside the viewport initially before it gets positioned.
+ 320:   const resolvedPosition = isPositioned ? positionMethod : 'fixed';
+ 321:   const floatingStyles = React.useMemo(() => {
+ 322:     const base = adaptiveOrigin ? {
+ 323:       position: resolvedPosition,
+ 324:       [sideX]: x,
+ 325:       [sideY]: y
+ 326:     } : {
+ 327:       position: resolvedPosition,
+ 328:       ...originalFloatingStyles
+ 329:     };
+ 330:     if (!isPositioned) {
+ 331:       base.opacity = 0;
+ 332:     }
+ 333:     return base;
+ 334:   }, [adaptiveOrigin, resolvedPosition, sideX, x, sideY, y, originalFloatingStyles, isPositioned]);
+ 335:   const registeredPositionReferenceRef = React.useRef(null);
+ 336:   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+ 337:     if (!mounted) {
+ 338:       return;
+ 339:     }
+ 340:     const anchorValue = anchorValueRef.current;
+ 341:     const resolvedAnchor = typeof anchorValue === 'function' ? anchorValue() : anchorValue;
+ 342:     const unwrappedElement = (isRef(resolvedAnchor) ? resolvedAnchor.current : resolvedAnchor) || null;
+ 343:     const finalAnchor = unwrappedElement || null;
+ 344:     if (finalAnchor !== registeredPositionReferenceRef.current) {
+ 345:       refs.setPositionReference(finalAnchor);
+ 346:       registeredPositionReferenceRef.current = finalAnchor;
+ 347:     }
+ 348:   }, [mounted, refs, anchorDep, anchorValueRef]);
+ 349:   React.useEffect(() => {
+ 350:     if (!mounted) {
+ 351:       return;
+ 352:     }
+ 353:     const anchorValue = anchorValueRef.current;
+ 354: 
+ 355:     // Refs from parent components are set after useLayoutEffect runs and are available in useEffect.
+ 356:     // Therefore, if the anchor is a ref, we need to update the position reference in useEffect.
+ 357:     if (typeof anchorValue === 'function') {
+ 358:       return;
+ 359:     }
+ 360:     if (isRef(anchorValue) && anchorValue.current !== registeredPositionReferenceRef.current) {
+ 361:       refs.setPositionReference(anchorValue.current);
+ 362:       registeredPositionReferenceRef.current = anchorValue.current;
+ 363:     }
+ 364:   }, [mounted, refs, anchorDep, anchorValueRef]);
+ 365:   React.useEffect(() => {
+ 366:     if (keepMounted && mounted && elements.domReference && elements.floating) {
+ 367:       return (0, _floatingUiReact.autoUpdate)(elements.domReference, elements.floating, update, autoUpdateOptions);
+ 368:     }
+ 369:     return undefined;
+ 370:   }, [keepMounted, mounted, elements, update, autoUpdateOptions]);
+ 371:   const renderedSide = (0, _utils.getSide)(renderedPlacement);
+ 372:   const logicalRenderedSide = getLogicalSide(sideParam, renderedSide, isRtl);
+ 373:   const renderedAlign = (0, _utils.getAlignment)(renderedPlacement) || 'center';
+ 374:   const anchorHidden = Boolean(middlewareData.hide?.referenceHidden);
+ 375: 
+ 376:   /**
+ 377:    * Locks the flip (makes it "sticky") so it doesn't prefer a given placement
+ 378:    * and flips back lazily, not eagerly. Ideal for filtered lists that change
+ 379:    * the size of the popup dynamically to avoid unwanted flipping when typing.
+ 380:    */
+ 381:   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+ 382:     if (lazyFlip && mounted && isPositioned) {
+ 383:       setMountSide(renderedSide);
+ 384:     }
+ 385:   }, [lazyFlip, mounted, isPositioned, renderedSide]);
+ 386:   const arrowStyles = React.useMemo(() => ({
+ 387:     position: 'absolute',
+ 388:     top: middlewareData.arrow?.y,
+ 389:     left: middlewareData.arrow?.x
+ 390:   }), [middlewareData.arrow]);
+ 391:   const arrowUncentered = middlewareData.arrow?.centerOffset !== 0;
+ 392:   return React.useMemo(() => ({
+ 393:     positionerStyles: floatingStyles,
+ 394:     arrowStyles,
+ 395:     arrowRef,
+ 396:     arrowUncentered,
+ 397:     side: logicalRenderedSide,
+ 398:     align: renderedAlign,
+ 399:     physicalSide: renderedSide,
+ 400:     anchorHidden,
+ 401:     refs,
+ 402:     context,
+ 403:     isPositioned,
+ 404:     update
+ 405:   }), [floatingStyles, arrowStyles, arrowRef, arrowUncentered, logicalRenderedSide, renderedAlign, renderedSide, anchorHidden, refs, context, isPositioned, update]);
+ 406: }
+ 407: function isRef(param) {
+ 408:   return param != null && 'current' in param;
+ 409: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"body|@import|margin|overflow\" web\\app web\\styles web\\components -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\app\\globals.css | Select-Object -First 220 | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\app\\layout.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath web\\app | Select-Object Name,Mode" in C:\POLARIS
+2026-05-07T22:53:14.254569Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+web\components\ui\vega-chart.tsx:65:      className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+web\components\ui\card.tsx:15:        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\app\components\command_palette.tsx:112:          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+web\app\layout.tsx:34:      <body className="flex min-h-full flex-col">
+web\app\layout.tsx:37:      </body>
+web\app\generation\components\generation_runner.tsx:252:      document.body.appendChild(a);
+web\app\generation\components\generation_runner.tsx:254:      document.body.removeChild(a);
+web\app\runs\[runId]\page.tsx:214:                  <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
+web\app\benchmark\components\benchmark_board.tsx:221:            <tbody>
+web\app\benchmark\components\benchmark_board.tsx:245:            </tbody>
+web\app\generation\components\BundlePreview.tsx:104:        <tbody>
+web\app\generation\components\BundlePreview.tsx:119:        </tbody>
+web\app\generation\components\frame_coverage_panel.tsx:93:          className="bg-muted h-2 w-full overflow-hidden rounded-full"
+web\app\generation\components\frame_coverage_panel.tsx:184:            <p data-testid="frame-gap-detail-body" className="text-foreground">
+web\app\audit_live\_panels.tsx:171:          <ul className="max-h-32 overflow-auto text-xs">
+web\app\globals.css:1:@import "tailwindcss";
+web\app\globals.css:2:@import "tw-animate-css";
+web\app\globals.css:3:@import "shadcn/tailwind.css";
+web\app\globals.css:131:  body {
+web\app\inspector\[runId]\page.tsx:374:              <div className="bg-muted h-2 w-full overflow-hidden rounded">
+web\app\inspector\[runId]\page.tsx:710:              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+web\app\inspector\[runId]\page.tsx:791:        <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+web\app\upload\components\document_preview.tsx:24:  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+web\app\upload\components\document_preview.tsx:96:      <ul className="border-border flex w-64 flex-col gap-1 overflow-y-auto rounded border p-2">
+rg: web\styles: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 951ms:
+web\components\ui\vega-chart.tsx:65:      className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+web\components\ui\card.tsx:15:        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\app\components\command_palette.tsx:112:          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+web\app\layout.tsx:34:      <body className="flex min-h-full flex-col">
+web\app\layout.tsx:37:      </body>
+web\app\generation\components\generation_runner.tsx:252:      document.body.appendChild(a);
+web\app\generation\components\generation_runner.tsx:254:      document.body.removeChild(a);
+web\app\runs\[runId]\page.tsx:214:                  <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
+web\app\benchmark\components\benchmark_board.tsx:221:            <tbody>
+web\app\benchmark\components\benchmark_board.tsx:245:            </tbody>
+web\app\generation\components\BundlePreview.tsx:104:        <tbody>
+web\app\generation\components\BundlePreview.tsx:119:        </tbody>
+web\app\generation\components\frame_coverage_panel.tsx:93:          className="bg-muted h-2 w-full overflow-hidden rounded-full"
+web\app\generation\components\frame_coverage_panel.tsx:184:            <p data-testid="frame-gap-detail-body" className="text-foreground">
+web\app\audit_live\_panels.tsx:171:          <ul className="max-h-32 overflow-auto text-xs">
+web\app\globals.css:1:@import "tailwindcss";
+web\app\globals.css:2:@import "tw-animate-css";
+web\app\globals.css:3:@import "shadcn/tailwind.css";
+web\app\globals.css:131:  body {
+web\app\inspector\[runId]\page.tsx:374:              <div className="bg-muted h-2 w-full overflow-hidden rounded">
+web\app\inspector\[runId]\page.tsx:710:              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+web\app\inspector\[runId]\page.tsx:791:        <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+web\app\upload\components\document_preview.tsx:24:  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+web\app\upload\components\document_preview.tsx:96:      <ul className="border-border flex w-64 flex-col gap-1 overflow-y-auto rounded border p-2">
+rg: web\styles: The system cannot find the file specified. (os error 2)
+
+ succeeded in 998ms:
+   1: import type { Metadata } from "next";
+   2: import { Geist, Geist_Mono } from "next/font/google";
+   3: 
+   4: import { Toaster } from "@/components/ui/sonner";
+   5: 
+   6: import "./globals.css";
+   7: 
+   8: const geist_sans = Geist({
+   9:   variable: "--font-geist-sans",
+  10:   subsets: ["latin"],
+  11: });
+  12: 
+  13: const geist_mono = Geist_Mono({
+  14:   variable: "--font-geist-mono",
+  15:   subsets: ["latin"],
+  16: });
+  17: 
+  18: export const metadata: Metadata = {
+  19:   title: "POLARIS Canada — Sovereign Deep Research",
+  20:   description:
+  21:     "Two-family verified evidence pipelines for Government of Canada policy work.",
+  22: };
+  23: 
+  24: export default function RootLayout({
+  25:   children,
+  26: }: Readonly<{
+  27:   children: React.ReactNode;
+  28: }>) {
+  29:   return (
+  30:     <html
+  31:       lang="en"
+  32:       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+  33:     >
+  34:       <body className="flex min-h-full flex-col">
+  35:         {children}
+  36:         <Toaster />
+  37:       </body>
+  38:     </html>
+  39:   );
+  40: }
+
+ succeeded in 1065ms:
+
+Name                Mode
+----                ----
+(test_harness)      d----
+audit_live          d----
+benchmark           d----
+components          d----
+contracts           d----
+dashboard           d----
+generation          d----
+inspector           d----
+intake              d----
+retrieval           d----
+runs                d----
+sentence_hover_test d----
+sign-in             d----
+sse                 d----
+upload              d----
+favicon.ico         -a---
+globals.css         -a---
+layout.tsx          -a---
+page.tsx            -a---
+
+
+ succeeded in 1071ms:
+   1: @import "tailwindcss";
+   2: @import "tw-animate-css";
+   3: @import "shadcn/tailwind.css";
+   4: 
+   5: @custom-variant dark (&:is(.dark *));
+   6: 
+   7: @theme inline {
+   8:   --color-background: var(--background);
+   9:   --color-foreground: var(--foreground);
+  10:   --font-sans: var(--font-sans);
+  11:   --font-mono: var(--font-geist-mono);
+  12:   --font-heading: var(--font-sans);
+  13:   --color-sidebar-ring: var(--sidebar-ring);
+  14:   --color-sidebar-border: var(--sidebar-border);
+  15:   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  16:   --color-sidebar-accent: var(--sidebar-accent);
+  17:   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  18:   --color-sidebar-primary: var(--sidebar-primary);
+  19:   --color-sidebar-foreground: var(--sidebar-foreground);
+  20:   --color-sidebar: var(--sidebar);
+  21:   --color-chart-5: var(--chart-5);
+  22:   --color-chart-4: var(--chart-4);
+  23:   --color-chart-3: var(--chart-3);
+  24:   --color-chart-2: var(--chart-2);
+  25:   --color-chart-1: var(--chart-1);
+  26:   --color-ring: var(--ring);
+  27:   --color-input: var(--input);
+  28:   --color-border: var(--border);
+  29:   --color-destructive: var(--destructive);
+  30:   --color-destructive-foreground: var(--destructive-foreground);
+  31:   --color-accent-foreground: var(--accent-foreground);
+  32:   --color-accent: var(--accent);
+  33:   --color-muted-foreground: var(--muted-foreground);
+  34:   --color-muted: var(--muted);
+  35:   --color-secondary-foreground: var(--secondary-foreground);
+  36:   --color-secondary: var(--secondary);
+  37:   --color-primary-foreground: var(--primary-foreground);
+  38:   --color-primary: var(--primary);
+  39:   --color-popover-foreground: var(--popover-foreground);
+  40:   --color-popover: var(--popover);
+  41:   --color-card-foreground: var(--card-foreground);
+  42:   --color-card: var(--card);
+  43:   --radius-sm: calc(var(--radius) * 0.6);
+  44:   --radius-md: calc(var(--radius) * 0.8);
+  45:   --radius-lg: var(--radius);
+  46:   --radius-xl: calc(var(--radius) * 1.4);
+  47:   --radius-2xl: calc(var(--radius) * 1.8);
+  48:   --radius-3xl: calc(var(--radius) * 2.2);
+  49:   --radius-4xl: calc(var(--radius) * 2.6);
+  50: }
+  51: 
+  52: :root {
+  53:   --background: oklch(1 0 0);
+  54:   --foreground: oklch(0.145 0 0);
+  55:   --card: oklch(1 0 0);
+  56:   --card-foreground: oklch(0.145 0 0);
+  57:   --popover: oklch(1 0 0);
+  58:   --popover-foreground: oklch(0.145 0 0);
+  59:   --primary: oklch(0.205 0 0);
+  60:   --primary-foreground: oklch(0.985 0 0);
+  61:   --secondary: oklch(0.97 0 0);
+  62:   --secondary-foreground: oklch(0.205 0 0);
+  63:   --muted: oklch(0.97 0 0);
+  64:   --muted-foreground: oklch(0.556 0 0);
+  65:   --accent: oklch(0.97 0 0);
+  66:   --accent-foreground: oklch(0.205 0 0);
+  67:   --destructive: oklch(0.577 0.245 27.325);
+  68:   --destructive-foreground: oklch(0.985 0 0);
+  69:   --border: oklch(0.922 0 0);
+  70:   --input: oklch(0.922 0 0);
+  71:   --ring: oklch(0.708 0 0);
+  72:   --chart-1: oklch(0.87 0 0);
+  73:   --chart-2: oklch(0.556 0 0);
+  74:   --chart-3: oklch(0.439 0 0);
+  75:   --chart-4: oklch(0.371 0 0);
+  76:   --chart-5: oklch(0.269 0 0);
+  77:   --radius: 0.625rem;
+  78:   --sidebar: oklch(0.985 0 0);
+  79:   --sidebar-foreground: oklch(0.145 0 0);
+  80:   --sidebar-primary: oklch(0.205 0 0);
+  81:   --sidebar-primary-foreground: oklch(0.985 0 0);
+  82:   --sidebar-accent: oklch(0.97 0 0);
+  83:   --sidebar-accent-foreground: oklch(0.205 0 0);
+  84:   --sidebar-border: oklch(0.922 0 0);
+  85:   --sidebar-ring: oklch(0.708 0 0);
+  86: }
+  87: 
+  88: .dark {
+  89:   --background: oklch(0.145 0 0);
+  90:   --foreground: oklch(0.985 0 0);
+  91:   --card: oklch(0.205 0 0);
+  92:   --card-foreground: oklch(0.985 0 0);
+  93:   --popover: oklch(0.205 0 0);
+  94:   --popover-foreground: oklch(0.985 0 0);
+  95:   --primary: oklch(0.922 0 0);
+  96:   --primary-foreground: oklch(0.205 0 0);
+  97:   --secondary: oklch(0.269 0 0);
+  98:   --secondary-foreground: oklch(0.985 0 0);
+  99:   --muted: oklch(0.269 0 0);
+ 100:   --muted-foreground: oklch(0.708 0 0);
+ 101:   --accent: oklch(0.269 0 0);
+ 102:   --accent-foreground: oklch(0.985 0 0);
+ 103:   --destructive: oklch(0.704 0.191 22.216);
+ 104:   /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+ 105:      White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+ 106:      fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+ 107:      the conventional inverse pattern. */
+ 108:   --destructive-foreground: oklch(0.145 0 0);
+ 109:   --border: oklch(1 0 0 / 10%);
+ 110:   --input: oklch(1 0 0 / 15%);
+ 111:   --ring: oklch(0.556 0 0);
+ 112:   --chart-1: oklch(0.87 0 0);
+ 113:   --chart-2: oklch(0.556 0 0);
+ 114:   --chart-3: oklch(0.439 0 0);
+ 115:   --chart-4: oklch(0.371 0 0);
+ 116:   --chart-5: oklch(0.269 0 0);
+ 117:   --sidebar: oklch(0.205 0 0);
+ 118:   --sidebar-foreground: oklch(0.985 0 0);
+ 119:   --sidebar-primary: oklch(0.488 0.243 264.376);
+ 120:   --sidebar-primary-foreground: oklch(0.985 0 0);
+ 121:   --sidebar-accent: oklch(0.269 0 0);
+ 122:   --sidebar-accent-foreground: oklch(0.985 0 0);
+ 123:   --sidebar-border: oklch(1 0 0 / 10%);
+ 124:   --sidebar-ring: oklch(0.556 0 0);
+ 125: }
+ 126: 
+ 127: @layer base {
+ 128:   * {
+ 129:     @apply border-border outline-ring/50;
+ 130:   }
+ 131:   body {
+ 132:     @apply bg-background text-foreground;
+ 133:   }
+ 134:   html {
+ 135:     @apply font-sans;
+ 136:   }
+ 137: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"expect\\(.*\\)\\.toBeGreaterThanOrEqual\\(0\\)|bounding\" web\\tests -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"toBeLessThanOrEqual\\(|getBoundingClientRect|innerWidth|viewport\" web\\tests\\e2e -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath web'"\\node_modules\\@base-ui\\react\\tooltip\\portal\\TooltipPortal.js | Select-Object -First 140 | ForEach-Object { '{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"Tooltip\\.Portal|keepMounted|Portal\" web\\node_modules\\@base-ui\\react\\tooltip -n" in C:\POLARIS
+ succeeded in 910ms:
+web\tests\e2e\accessibility.spec.ts:173:        const r = el.getBoundingClientRect();
+web\tests\e2e\accessibility.spec.ts:216:        const r = el.getBoundingClientRect();
+web\tests\e2e\evidence_tooltip_edges.spec.ts:10:  test(`${name} — popup stays inside viewport`, async ({ page }) => {
+web\tests\e2e\evidence_tooltip_edges.spec.ts:23:      const r = target.getBoundingClientRect();
+web\tests\e2e\evidence_tooltip_edges.spec.ts:29:        vw: window.innerWidth,
+web\tests\e2e\evidence_tooltip_edges.spec.ts:37:    expect(result.right).toBeLessThanOrEqual(result.vw);
+web\tests\e2e\evidence_tooltip_edges.spec.ts:38:    expect(result.bottom).toBeLessThanOrEqual(result.vh);
+web\tests\e2e\landing_template_grid.spec.ts:12: *  - 8 cards render at 4 viewports (1920/1024/768/375)
+web\tests\e2e\upload_parse_status.spec.ts:78:  expect(getCalls).toBeLessThanOrEqual(3);
+
+ succeeded in 1002ms:
+web\tests\e2e\evidence_tooltip_edges.spec.ts:35:    expect(result.left).toBeGreaterThanOrEqual(0);
+web\tests\e2e\evidence_tooltip_edges.spec.ts:36:    expect(result.top).toBeGreaterThanOrEqual(0);
+web\tests\e2e\performance.spec.ts:125:    expect(fcpMs).toBeGreaterThanOrEqual(0);
+
+ succeeded in 998ms:
+   1: "use strict";
+   2: 'use client';
+   3: 
+   4: var _interopRequireWildcard = require("@babel/runtime/helpers/interopRequireWildcard").default;
+   5: Object.defineProperty(exports, "__esModule", {
+   6:   value: true
+   7: });
+   8: exports.TooltipPortal = void 0;
+   9: var React = _interopRequireWildcard(require("react"));
+  10: var _TooltipRootContext = require("../root/TooltipRootContext");
+  11: var _TooltipPortalContext = require("./TooltipPortalContext");
+  12: var _FloatingPortalLite = require("../../utils/FloatingPortalLite");
+  13: var _jsxRuntime = require("react/jsx-runtime");
+  14: /**
+  15:  * A portal element that moves the popup to a different part of the DOM.
+  16:  * By default, the portal element is appended to `<body>`.
+  17:  * Renders a `<div>` element.
+  18:  *
+  19:  * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+  20:  */
+  21: const TooltipPortal = exports.TooltipPortal = /*#__PURE__*/React.forwardRef(function TooltipPortal(props, forwardedRef) {
+  22:   const {
+  23:     keepMounted = false,
+  24:     ...portalProps
+  25:   } = props;
+  26:   const store = (0, _TooltipRootContext.useTooltipRootContext)();
+  27:   const mounted = store.useState('mounted');
+  28:   const shouldRender = mounted || keepMounted;
+  29:   if (!shouldRender) {
+  30:     return null;
+  31:   }
+  32:   return /*#__PURE__*/(0, _jsxRuntime.jsx)(_TooltipPortalContext.TooltipPortalContext.Provider, {
+  33:     value: keepMounted,
+  34:     children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_FloatingPortalLite.FloatingPortalLite, {
+  35:       ref: forwardedRef,
+  36:       ...portalProps
+  37:     })
+  38:   });
+  39: });
+  40: if (process.env.NODE_ENV !== "production") TooltipPortal.displayName = "TooltipPortal";
+
+ succeeded in 1028ms:
+web\node_modules\@base-ui\react\tooltip\index.parts.js:24:Object.defineProperty(exports, "Portal", {
+web\node_modules\@base-ui\react\tooltip\index.parts.js:27:    return _TooltipPortal.TooltipPortal;
+web\node_modules\@base-ui\react\tooltip\index.parts.js:68:var _TooltipPortal = require("./portal/TooltipPortal");
+web\node_modules\@base-ui\react\tooltip\index.d.ts:5:export type * from "./portal/TooltipPortal.js";
+web\node_modules\@base-ui\react\tooltip\index.parts.d.ts:3:export { TooltipPortal as Portal } from "./portal/TooltipPortal.js";
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:8:exports.TooltipPortal = void 0;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:11:var _TooltipPortalContext = require("./TooltipPortalContext");
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:12:var _FloatingPortalLite = require("../../utils/FloatingPortalLite");
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:21:const TooltipPortal = exports.TooltipPortal = /*#__PURE__*/React.forwardRef(function TooltipPortal(props, forwardedRef) {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:23:    keepMounted = false,
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:28:  const shouldRender = mounted || keepMounted;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:32:  return /*#__PURE__*/(0, _jsxRuntime.jsx)(_TooltipPortalContext.TooltipPortalContext.Provider, {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:33:    value: keepMounted,
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:34:    children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_FloatingPortalLite.FloatingPortalLite, {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.js:40:if (process.env.NODE_ENV !== "production") TooltipPortal.displayName = "TooltipPortal";
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:2:import { FloatingPortalLite } from "../../utils/FloatingPortalLite.js";
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:10:export declare const TooltipPortal: React.ForwardRefExoticComponent<Omit<TooltipPortalProps, "ref"> & React.RefAttributes<HTMLDivElement>>;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:11:export interface TooltipPortalState {}
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:12:export interface TooltipPortalProps extends FloatingPortalLite.Props<TooltipPortalState> {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:17:  keepMounted?: boolean | undefined;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:19:export declare namespace TooltipPortal {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:20:  type State = TooltipPortalState;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortal.d.ts:21:  type Props = TooltipPortalProps;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.d.ts:2:export declare const TooltipPortalContext: React.Context<boolean | undefined>;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.d.ts:3:export declare function useTooltipPortalContext(): boolean;
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:13:var _TooltipPortalContext = require("../portal/TooltipPortalContext");
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:44:  const keepMounted = (0, _TooltipPortalContext.useTooltipPortalContext)();
+web\node_modules\@base-ui\react\tooltip\positioner\TooltipPositioner.js:67:    keepMounted,
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:9:exports.TooltipPortalContext = void 0;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:10:exports.useTooltipPortalContext = useTooltipPortalContext;
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:13:const TooltipPortalContext = exports.TooltipPortalContext = /*#__PURE__*/React.createContext(undefined);
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:14:if (process.env.NODE_ENV !== "production") TooltipPortalContext.displayName = "TooltipPortalContext";
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:15:function useTooltipPortalContext() {
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:16:  const value = React.useContext(TooltipPortalContext);
+web\node_modules\@base-ui\react\tooltip\portal\TooltipPortalContext.js:18:    throw new Error(process.env.NODE_ENV !== "production" ? 'Base UI: <Tooltip.Portal> is missing.' : (0, _formatErrorMessage2.default)(70));
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+56,530
