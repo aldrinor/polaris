@@ -13,6 +13,12 @@ interface EvidenceTooltipProps {
    * as `Published: <date>`. When undefined/null, the line is omitted.
    */
   publishedDate?: string | null;
+  /**
+   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
+   * Positioner applies flip+shift collision avoidance automatically when
+   * the requested side would clip the viewport.
+   */
+  side?: "top" | "right" | "bottom" | "left";
   onClickToInspect?: () => void;
   children: React.ReactNode;
 }
@@ -28,6 +34,7 @@ export function EvidenceTooltip({
   spanText,
   sourceTier,
   publishedDate,
+  side = "top",
   onClickToInspect,
   children,
 }: EvidenceTooltipProps) {
@@ -45,7 +52,7 @@ export function EvidenceTooltip({
         {children}
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Positioner sideOffset={6} side="top">
+        <Tooltip.Positioner sideOffset={6} side={side}>
           <Tooltip.Popup
             data-testid="evidence-tooltip-popup"
             className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
