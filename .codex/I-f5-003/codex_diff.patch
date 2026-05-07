@@ -1,0 +1,383 @@
+diff --git a/web/app/generation/components/generation_runner.tsx b/web/app/generation/components/generation_runner.tsx
+index 84a66e3..4089ba0 100644
+--- a/web/app/generation/components/generation_runner.tsx
++++ b/web/app/generation/components/generation_runner.tsx
+@@ -216,6 +216,7 @@ export function GenerationRunner() {
+           <VerifiedReportView
+             report={state.report}
+             show_dropped={show_dropped}
++            pool={state.pool}
+           />
+         </>
+       ) : null}
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index 05bab0c..85b12e0 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -7,7 +7,14 @@ import {
+   SheetHeader,
+   SheetTitle,
+ } from "@/components/ui/sheet";
+-import { type DropReason, type ReportVerifiedSentence } from "@/lib/api";
++import {
++  type DropReason,
++  type EvidencePool,
++  type ReportVerifiedSentence,
++  type RetrievalSource,
++  type RetrievalSourceTier,
++} from "@/lib/api";
++import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+ 
+ const DROP_REASON_LABEL: Record<DropReason, string> = {
+   invalid_token: "Invalid token (source not in pool)",
+@@ -17,17 +24,111 @@ const DROP_REASON_LABEL: Record<DropReason, string> = {
+   no_provenance_token: "No provenance token",
+ };
+ 
++const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
++  T1: "Regulatory & Cochrane systematic reviews — highest evidentiary weight",
++  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
++  T3: "Registries, clinical guidelines, government health agencies",
++};
++
++const TIER_TONE: Record<RetrievalSourceTier, string> = {
++  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
++  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
++  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
++};
++
++function SourceCard({
++  token,
++  source,
++  idx,
++}: {
++  token: ParsedToken;
++  source: RetrievalSource | undefined;
++  idx: number;
++}) {
++  if (!source) {
++    return (
++      <div
++        data-testid={`inspector-source-missing-${idx}`}
++        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
++      >
++        Source <code>{token.source_id}</code> not in pool — token {token.raw}.
++      </div>
++    );
++  }
++  const text = source.full_text ?? source.snippet ?? "";
++  const out_of_range = token.end > text.length;
++  const span = out_of_range ? "" : text.slice(token.start, token.end);
++  return (
++    <div
++      data-testid={`inspector-source-${idx}`}
++      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
++    >
++      <div className="flex items-center justify-between gap-2">
++        <a
++          data-testid={`inspector-source-url-${idx}`}
++          href={source.url}
++          target="_blank"
++          rel="noopener noreferrer"
++          className="text-blue-700 underline dark:text-blue-300"
++        >
++          {source.domain}
++        </a>
++        <span
++          data-testid={`inspector-tier-${source.tier}`}
++          title={TIER_RATIONALE[source.tier]}
++          className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
++        >
++          {source.tier}
++        </span>
++      </div>
++      <p
++        data-testid={`inspector-trace-${idx}`}
++        className="text-muted-foreground"
++      >
++        <strong className="text-foreground">{source.title}</strong>
++        {source.publication_date && <> · {source.publication_date}</>}
++        {source.authors[0] && (
++          <>
++            {" "}
++            · {source.authors.slice(0, 2).join(", ")}
++            {source.authors.length > 2 ? " et al." : ""}
++          </>
++        )}
++      </p>
++      {out_of_range ? (
++        <p
++          data-testid={`inspector-span-out-of-range-${idx}`}
++          className="text-rose-700 dark:text-rose-300"
++        >
++          (span out of range: {token.start}-{token.end} of {text.length})
++        </p>
++      ) : (
++        <blockquote
++          data-testid={`inspector-span-${idx}`}
++          className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
++        >
++          {span || "(empty span)"}
++        </blockquote>
++      )}
++    </div>
++  );
++}
++
+ export function SentenceInspector({
+   open,
+   onOpenChange,
+   sentence,
+   sentence_id,
++  pool,
+ }: {
+   open: boolean;
+   onOpenChange: (next: boolean) => void;
+   sentence: ReportVerifiedSentence | null;
+   sentence_id: string | null;
++  pool: EvidencePool | null;
+ }) {
++  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
++  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+   return (
+     <Sheet open={open} onOpenChange={onOpenChange}>
+       <SheetContent
+@@ -52,19 +153,24 @@ export function SentenceInspector({
+               >
+                 {sentence.sentence_text}
+               </p>
+-              {sentence.provenance_tokens.length > 0 ? (
+-                <ul
+-                  data-testid="sentence-inspector-tokens"
+-                  className="text-muted-foreground font-mono text-xs"
+-                >
+-                  {sentence.provenance_tokens.map((t, i) => (
+-                    <li key={i}>{t}</li>
+-                  ))}
+-                </ul>
+-              ) : (
++              {tokens.length === 0 ? (
+                 <p className="text-muted-foreground text-xs italic">
+                   No provenance tokens.
+                 </p>
++              ) : (
++                <div
++                  data-testid="inspector-sources"
++                  className="flex flex-col gap-2"
++                >
++                  {tokens.map((tok, i) => (
++                    <SourceCard
++                      key={i}
++                      token={tok}
++                      source={pool_index.get(tok.source_id)}
++                      idx={i}
++                    />
++                  ))}
++                </div>
+               )}
+               {sentence.drop_reason && (
+                 <p
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 4caab27..38aa180 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
+ import {
+   keptSentences,
+   type DropReason,
++  type EvidencePool,
+   type ReportVerifiedSentence,
+   type VerifiedReport,
+   type VerifiedReportSection,
+@@ -173,9 +174,11 @@ function SectionCard({
+ export function VerifiedReportView({
+   report,
+   show_dropped = false,
++  pool = null,
+ }: {
+   report: VerifiedReport;
+   show_dropped?: boolean;
++  pool?: EvidencePool | null;
+ }) {
+   const { hovered_id, root_ref } = useSentenceHover();
+   const [inspector, setInspector] = useState<{
+@@ -240,6 +243,7 @@ export function VerifiedReportView({
+         }}
+         sentence={inspector?.sentence ?? null}
+         sentence_id={inspector?.id ?? null}
++        pool={pool}
+       />
+     </div>
+   );
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index e4ca3a6..28bf6bf 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -1,10 +1,47 @@
+ "use client";
+ 
+ import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+-import type { VerifiedReport } from "@/lib/api";
++import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+ 
+ const ISO = new Date().toISOString();
+ 
++const SOURCE_FULL_TEXT_5 =
++  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
++
++function _src(i: number): RetrievalSource {
++  return {
++    source_id: `src-${i}`,
++    url: `https://www.cochrane.org/CD-${i}`,
++    domain: "cochrane.org",
++    tier: "T1",
++    title: `Cochrane review ${i}`,
++    publication_date: "2024-03-15",
++    authors: ["Smith J", "Doe R", "Patel K"],
++    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
++    full_text_available: true,
++    full_text: SOURCE_FULL_TEXT_5,
++    fetched_at_utc: ISO,
++    provenance: {},
++  };
++}
++
++const POOL: EvidencePool = {
++  pool_id: "p-hover",
++  decision_id: "d-hover",
++  sources: Array.from({ length: 10 }, (_, i) => _src(i)),
++  adequacy: {
++    is_adequate: true,
++    sources_per_tier: { T1: 10, T2: 0, T3: 0 },
++    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
++    failure_reason: null,
++  },
++  queries_executed: ["aspirin migraine"],
++  retrieval_started_at_utc: ISO,
++  retrieval_finished_at_utc: ISO,
++  latency_ms: 0,
++  cost_usd: 0,
++};
++
+ const REPORT: VerifiedReport = {
+   report_id: "r-hover-test",
+   pool_id: "p-hover",
+@@ -13,13 +50,21 @@ const REPORT: VerifiedReport = {
+     {
+       section_id: "sec_x",
+       section_title: "Test section",
+-      verified_sentences: Array.from({ length: 10 }, (_, i) => ({
+-        section_id: "sec_x",
+-        sentence_text: `Test sentence ${i} about aspirin.`,
+-        provenance_tokens: [`[#ev:src-${i}:0-3]`],
+-        verifier_pass: true,
+-        drop_reason: null,
+-      })),
++      verified_sentences: Array.from({ length: 10 }, (_, i) => {
++        // Sentence 5 has a valid token referencing src-5 with span 0-50.
++        // Sentence 9 has a token referencing src-ghost (not in pool) for missing-source path.
++        const token =
++          i === 9
++            ? `[#ev:src-ghost:0-3]`
++            : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
++        return {
++          section_id: "sec_x",
++          sentence_text: `Test sentence ${i} about aspirin.`,
++          provenance_tokens: [token],
++          verifier_pass: true,
++          drop_reason: null,
++        };
++      }),
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+     },
+@@ -37,7 +82,7 @@ const REPORT: VerifiedReport = {
+ export function SentenceHoverHarness() {
+   return (
+     <div className="mx-auto max-w-4xl p-6">
+-      <VerifiedReportView report={REPORT} />
++      <VerifiedReportView report={REPORT} pool={POOL} />
+     </div>
+   );
+ }
+diff --git a/web/lib/provenance_tokens.ts b/web/lib/provenance_tokens.ts
+new file mode 100644
+index 0000000..e0d041c
+--- /dev/null
++++ b/web/lib/provenance_tokens.ts
+@@ -0,0 +1,27 @@
++// I-f5-003 — frontend mirror of polaris_graph.generator2.provenance.
++
++const TOKEN_RE = /^\[#ev:([a-zA-Z0-9_\-]+):(\d+)-(\d+)\]$/;
++
++export interface ParsedToken {
++  raw: string;
++  source_id: string;
++  start: number;
++  end: number;
++}
++
++export function parseProvenanceToken(token: string): ParsedToken | null {
++  const match = TOKEN_RE.exec(token.trim());
++  if (!match) return null;
++  return {
++    raw: token,
++    source_id: match[1],
++    start: parseInt(match[2], 10),
++    end: parseInt(match[3], 10),
++  };
++}
++
++export function parseAllTokens(tokens: string[]): ParsedToken[] {
++  return tokens
++    .map(parseProvenanceToken)
++    .filter((t): t is ParsedToken => t !== null);
++}
+diff --git a/web/tests/e2e/sentence_inspector_source.spec.ts b/web/tests/e2e/sentence_inspector_source.spec.ts
+new file mode 100644
+index 0000000..e401006
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_source.spec.ts
+@@ -0,0 +1,42 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector renders source URL + tier + span + retrieval trace", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:5"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
++    "href",
++    /cochrane.org/,
++  );
++  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-0")).toContainText(
++    "randomized trial",
++  );
++  await expect(page.getByTestId("inspector-trace-0")).toContainText(
++    "Cochrane review",
++  );
++  await expect(page.getByTestId("inspector-trace-0")).toContainText(
++    "2024-03-15",
++  );
++  await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
++});
++
++test("Inspector shows missing-source badge when token references unknown source", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:9"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
++    "src-ghost",
++  );
++});

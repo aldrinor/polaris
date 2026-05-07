@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   keptSentences,
   type DropReason,
+  type EvidencePool,
   type ReportVerifiedSentence,
   type VerifiedReport,
   type VerifiedReportSection,
@@ -173,9 +174,11 @@ function SectionCard({
 export function VerifiedReportView({
   report,
   show_dropped = false,
+  pool = null,
 }: {
   report: VerifiedReport;
   show_dropped?: boolean;
+  pool?: EvidencePool | null;
 }) {
   const { hovered_id, root_ref } = useSentenceHover();
   const [inspector, setInspector] = useState<{
@@ -240,6 +243,7 @@ export function VerifiedReportView({
         }}
         sentence={inspector?.sentence ?? null}
         sentence_id={inspector?.id ?? null}
+        pool={pool}
       />
     </div>
   );

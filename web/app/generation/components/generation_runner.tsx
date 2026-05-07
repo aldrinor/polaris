@@ -216,6 +216,7 @@ export function GenerationRunner() {
           <VerifiedReportView
             report={state.report}
             show_dropped={show_dropped}
+            pool={state.pool}
           />
         </>
       ) : null}
