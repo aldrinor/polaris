@@ -8,12 +8,15 @@ import { cn } from "@/lib/utils";
 import {
   keptSentences,
   type AssertionSurface,
+  type ContradictionSignal,
   type DropReason,
   type EvidencePool,
   type ReportVerifiedSentence,
   type VerifiedReport,
   type VerifiedReportSection,
 } from "@/lib/api";
+
+import { ContradictionPane } from "./contradiction_pane";
 
 const ASSERTION_SURFACES: AssertionSurface[] = [
   "prose",
@@ -80,6 +83,7 @@ function SentenceRow({
   sentence_id,
   hovered_id,
   onSelect,
+  onSelectContradiction,
   pool,
 }: {
   sentence: ReportVerifiedSentence;
@@ -87,6 +91,7 @@ function SentenceRow({
   sentence_id: string;
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
   pool: EvidencePool | null;
 }) {
   const dropped = !sentence.verifier_pass;
@@ -158,13 +163,31 @@ function SentenceRow({
         </span>
       ) : null}
       {!dropped && sentence.contradiction ? (
-        <span
+        <button
+          type="button"
           data-testid={`inspector-contradiction-${sentence_id}`}
           title={sentence.contradiction.summary}
-          className="inline-flex items-center gap-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
         >
           ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
-        </span>
+        </button>
       ) : null}
       {t1_conflict ? (
         <span
@@ -184,12 +207,14 @@ function SectionCard({
   show_dropped,
   hovered_id,
   onSelect,
+  onSelectContradiction,
   pool,
 }: {
   section: VerifiedReportSection;
   show_dropped: boolean;
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
   pool: EvidencePool | null;
 }) {
   const kept = keptSentences(section);
@@ -229,6 +254,7 @@ function SectionCard({
                 sentence_id={`${section.section_id}:${idx}`}
                 hovered_id={hovered_id}
                 onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
                 pool={pool}
               />
             ))}
@@ -259,6 +285,9 @@ export function VerifiedReportView({
     id: string;
     sentence: ReportVerifiedSentence;
   } | null>(null);
+  const [contradiction_open, set_contradiction_open] = useState<
+    ContradictionSignal | null
+  >(null);
   return (
     <div
       ref={root_ref}
@@ -340,9 +369,17 @@ export function VerifiedReportView({
           show_dropped={show_dropped}
           hovered_id={hovered_id}
           onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
           pool={pool}
         />
       ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
       <SentenceInspector
         open={inspector !== null}
         onOpenChange={(open) => {

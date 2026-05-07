@@ -607,9 +607,19 @@ export interface ReportVerifiedSentence {
   contradiction?: ContradictionSignal | null;
 }
 
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+}
+
 export interface ContradictionSignal {
   disagreeing_source_count: number;
   summary: string;
+  sides?: ContradictionSide[];
 }
 
 export type AssertionSurface =

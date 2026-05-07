@@ -177,15 +177,40 @@ class VerifiedSentence(BaseModel):
 # FrameCoverage (I-f7-001)
 # ---------------------------------------------------------------------------
 
+class ContradictionSide(BaseModel):
+    """One side of a contradiction (I-f8-002).
+
+    Each side is a distinct cited source's position on the claim. Tier
+    + sample size + hedge language + PT08 flag inform reviewer judgment
+    of which side has the stronger evidentiary backing."""
+
+    source_id: str = Field(min_length=1, max_length=200)
+    source_tier: Literal["T1", "T2", "T3"]
+    sample_size: int | None = Field(default=None, ge=0)
+    hedge_language: str = Field(min_length=1, max_length=200)
+    pt08_flag: str | None = Field(default=None, max_length=50)
+    claim_excerpt: str = Field(min_length=1, max_length=500)
+
+
 class ContradictionSignal(BaseModel):
     """Inline contradiction annotation per sentence (I-f8-001).
 
     Indicates ≥2 cited sources disagree on the claim in the sentence.
-    Future Issue (F8-002+) populates this from real conflict detection;
-    today the field is the surface, not the producer."""
+    `sides` (added I-f8-002) carries the per-source detail consumed by
+    the ContradictionPane; empty preserves I-f8-001 back-compat."""
 
     disagreeing_source_count: int = Field(ge=2, le=20)
     summary: str = Field(min_length=1, max_length=500)
+    sides: list[ContradictionSide] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sides_count_consistency(self) -> "ContradictionSignal":
+        if self.sides and len(self.sides) != self.disagreeing_source_count:
+            raise ValueError(
+                "len(sides) must equal disagreeing_source_count when sides "
+                "is non-empty"
+            )
+        return self
 
 
 GapReason = Literal[

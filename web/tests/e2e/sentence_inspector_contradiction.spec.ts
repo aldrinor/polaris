@@ -23,3 +23,37 @@ test("Sentence row without contradiction shows NO contradiction badge", async ({
     0,
   );
 });
+
+test("Click contradiction badge → ContradictionPane shows N sides", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "3 sources disagree",
+  );
+  // 3 sides rendered.
+  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+  // Side 0 detail check (T1 + sample + hedge + PT08 + claim).
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+    "1247",
+  );
+  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+    "high confidence",
+  );
+  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+    "81mg",
+  );
+  // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+});
