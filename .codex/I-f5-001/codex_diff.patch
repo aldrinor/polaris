@@ -1,0 +1,289 @@
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index ceef101..2a79705 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { useSentenceHover } from "@/lib/sentence_highlight";
+ import { cn } from "@/lib/utils";
+ import {
+   keptSentences,
+@@ -15,8 +16,7 @@ const STATUS_TONE: Record<string, string> = {
+     "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+   regenerated:
+     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+-  dropped:
+-    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
++  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+ };
+ 
+ const DROP_REASON_LABEL: Record<DropReason, string> = {
+@@ -52,9 +52,13 @@ function VerdictBadge({
+ function SentenceRow({
+   sentence,
+   show_dropped,
++  sentence_id,
++  hovered_id,
+ }: {
+   sentence: ReportVerifiedSentence;
+   show_dropped: boolean;
++  sentence_id: string;
++  hovered_id: string | null;
+ }) {
+   const dropped = !sentence.verifier_pass;
+   if (dropped && !show_dropped) return null;
+@@ -62,11 +66,13 @@ function SentenceRow({
+   return (
+     <li
+       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
++      data-sentence-id={sentence_id}
+       className={cn(
+-        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm",
++        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
+         dropped
+-          ? "border-rose-500/30 bg-rose-500/5 text-muted-foreground line-through"
++          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+           : "border-border bg-background",
++        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+       )}
+     >
+       <span className={cn(dropped ? "" : "text-foreground")}>
+@@ -78,7 +84,7 @@ function SentenceRow({
+         </span>
+       ) : null}
+       {dropped && sentence.drop_reason ? (
+-        <span className="text-rose-700 dark:text-rose-300 text-[10px] uppercase tracking-widest">
++        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+         </span>
+       ) : null}
+@@ -89,13 +95,14 @@ function SentenceRow({
+ function SectionCard({
+   section,
+   show_dropped,
++  hovered_id,
+ }: {
+   section: VerifiedReportSection;
+   show_dropped: boolean;
++  hovered_id: string | null;
+ }) {
+   const kept = keptSentences(section);
+-  const dropped_count =
+-    section.verified_sentences.length - kept.length;
++  const dropped_count = section.verified_sentences.length - kept.length;
+   return (
+     <Card
+       data-testid={`section-${section.section_id}`}
+@@ -112,7 +119,8 @@ function SectionCard({
+             STATUS_TONE[section.section_status],
+           )}
+         >
+-          {section.section_status} · {Math.round(section.section_verify_pass_rate * 100)}%
++          {section.section_status} ·{" "}
++          {Math.round(section.section_verify_pass_rate * 100)}%
+         </span>
+       </CardHeader>
+       <CardContent className="flex flex-col gap-2">
+@@ -127,13 +135,16 @@ function SectionCard({
+                 key={idx}
+                 sentence={s}
+                 show_dropped={show_dropped}
++                sentence_id={`${section.section_id}:${idx}`}
++                hovered_id={hovered_id}
+               />
+             ))}
+           </ul>
+         )}
+         {!show_dropped && dropped_count > 0 ? (
+           <p className="text-muted-foreground text-xs italic">
+-            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by strict-verify (toggle below to inspect).
++            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
++            strict-verify (toggle below to inspect).
+           </p>
+         ) : null}
+       </CardContent>
+@@ -148,8 +159,13 @@ export function VerifiedReportView({
+   report: VerifiedReport;
+   show_dropped?: boolean;
+ }) {
++  const { hovered_id, root_ref } = useSentenceHover();
+   return (
+-    <div data-testid="verified-report-view" className="flex flex-col gap-4">
++    <div
++      ref={root_ref}
++      data-testid="verified-report-view"
++      className="flex flex-col gap-4"
++    >
+       <Card>
+         <CardHeader className="flex flex-row items-center justify-between gap-3">
+           <CardTitle className="text-lg">Verified report</CardTitle>
+@@ -167,9 +183,16 @@ export function VerifiedReportView({
+             </dd>
+             <dt className="text-muted-foreground">Sections</dt>
+             <dd className="text-foreground font-medium">
+-              {report.sections.filter((s) => s.section_status !== "dropped").length} kept ·
+-              {" "}
+-              {report.sections.filter((s) => s.section_status === "dropped").length} dropped
++              {
++                report.sections.filter((s) => s.section_status !== "dropped")
++                  .length
++              }{" "}
++              kept ·{" "}
++              {
++                report.sections.filter((s) => s.section_status === "dropped")
++                  .length
++              }{" "}
++              dropped
+             </dd>
+             <dt className="text-muted-foreground">Latency</dt>
+             <dd className="text-foreground font-medium">
+@@ -184,6 +207,7 @@ export function VerifiedReportView({
+           key={section.section_id}
+           section={section}
+           show_dropped={show_dropped}
++          hovered_id={hovered_id}
+         />
+       ))}
+     </div>
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+new file mode 100644
+index 0000000..e4ca3a6
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -0,0 +1,43 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type { VerifiedReport } from "@/lib/api";
++
++const ISO = new Date().toISOString();
++
++const REPORT: VerifiedReport = {
++  report_id: "r-hover-test",
++  pool_id: "p-hover",
++  decision_id: "d-hover",
++  sections: [
++    {
++      section_id: "sec_x",
++      section_title: "Test section",
++      verified_sentences: Array.from({ length: 10 }, (_, i) => ({
++        section_id: "sec_x",
++        sentence_text: `Test sentence ${i} about aspirin.`,
++        provenance_tokens: [`[#ev:src-${i}:0-3]`],
++        verifier_pass: true,
++        drop_reason: null,
++      })),
++      section_verify_pass_rate: 1.0,
++      section_status: "verified",
++    },
++  ],
++  overall_verify_pass_rate: 1.0,
++  pipeline_verdict: "success",
++  generator_model: "test/model",
++  verifier_pass_threshold: 0.4,
++  started_at_utc: ISO,
++  finished_at_utc: ISO,
++  latency_ms: 0,
++  cost_usd: 0,
++};
++
++export function SentenceHoverHarness() {
++  return (
++    <div className="mx-auto max-w-4xl p-6">
++      <VerifiedReportView report={REPORT} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/page.tsx b/web/app/sentence_hover_test/page.tsx
+new file mode 100644
+index 0000000..a565a97
+--- /dev/null
++++ b/web/app/sentence_hover_test/page.tsx
+@@ -0,0 +1,5 @@
++import { SentenceHoverHarness } from "./_demo";
++
++export default function SentenceHoverTestPage() {
++  return <SentenceHoverHarness />;
++}
+diff --git a/web/lib/sentence_highlight.ts b/web/lib/sentence_highlight.ts
+new file mode 100644
+index 0000000..ce0d3d6
+--- /dev/null
++++ b/web/lib/sentence_highlight.ts
+@@ -0,0 +1,50 @@
++// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
++
++import { useEffect, useRef, useState } from "react";
++
++interface UseSentenceHoverOpts {
++  selector?: string;
++  debounceMs?: number;
++}
++
++export function useSentenceHover(opts: UseSentenceHoverOpts = {}) {
++  const selector = opts.selector ?? "[data-sentence-id]";
++  const debounce_ms = opts.debounceMs ?? 50;
++  const [hovered_id, set_hovered_id] = useState<string | null>(null);
++  const root_ref = useRef<HTMLDivElement | null>(null);
++  const timer_ref = useRef<ReturnType<typeof setTimeout> | null>(null);
++
++  useEffect(() => {
++    const root = root_ref.current;
++    if (!root) return;
++
++    const schedule = (id: string | null) => {
++      if (timer_ref.current) clearTimeout(timer_ref.current);
++      timer_ref.current = setTimeout(() => set_hovered_id(id), debounce_ms);
++    };
++
++    const on_over = (ev: Event) => {
++      const target = ev.target as HTMLElement | null;
++      const el = target?.closest(selector) as HTMLElement | null;
++      if (!el) return;
++      const id = el.getAttribute("data-sentence-id");
++      if (id) schedule(id);
++    };
++    const on_out = (ev: Event) => {
++      const related = (ev as MouseEvent).relatedTarget as HTMLElement | null;
++      if (related && root.contains(related) && related.closest(selector))
++        return;
++      schedule(null);
++    };
++
++    root.addEventListener("mouseover", on_over);
++    root.addEventListener("mouseout", on_out);
++    return () => {
++      root.removeEventListener("mouseover", on_over);
++      root.removeEventListener("mouseout", on_out);
++      if (timer_ref.current) clearTimeout(timer_ref.current);
++    };
++  }, [selector, debounce_ms]);
++
++  return { hovered_id, root_ref };
++}
+diff --git a/web/tests/e2e/sentence_hover.spec.ts b/web/tests/e2e/sentence_hover.spec.ts
+new file mode 100644
+index 0000000..8fd8be1
+--- /dev/null
++++ b/web/tests/e2e/sentence_hover.spec.ts
+@@ -0,0 +1,18 @@
++import { expect, test } from "@playwright/test";
++
++test("hovering a sentence applies bg-yellow-100; switching clears prior", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await expect(page.getByTestId("verified-report-view")).toBeVisible();
++
++  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
++  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
++
++  await s7.hover();
++  await expect(s7).toHaveClass(/bg-yellow-100/, { timeout: 500 });
++
++  await s3.hover();
++  await expect(s3).toHaveClass(/bg-yellow-100/, { timeout: 500 });
++  await expect(s7).not.toHaveClass(/bg-yellow-100/);
++});

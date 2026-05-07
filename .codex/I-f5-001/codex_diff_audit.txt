@@ -1,0 +1,1392 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e01b9-731a-7413-964d-698e79c3767d
+--------
+user
+# Codex Diff Review — I-f5-001 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg".
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE.
+- Verdict APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+**Issue:** I-f5-001 — Hover-highlight every claim sentence
+**Brief:** APPROVED iter 2
+**Canonical-diff-sha256:** `5b626980146e7458e6cfd9f888ab1cb98e0f74c0f0ae769e5fc9b2a74f1586ac`
+**LOC:** 153 net (47 under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/lib/sentence_highlight.ts                          NEW +50
+web/app/generation/components/verified_report_view.tsx EDIT +37/-13
+web/app/sentence_hover_test/page.tsx                   NEW +5
+web/app/sentence_hover_test/_demo.tsx                  NEW +43
+web/tests/e2e/sentence_hover.spec.ts                   NEW +18
+```
+
+## What changed
+
+**`sentence_highlight.ts`:** `useSentenceHover` hook with debounced mouseover/mouseout listeners on a ref-attached root + `[data-sentence-id]` selector. Returns `{ hovered_id, root_ref }`.
+
+**`verified_report_view.tsx`:** WIRED into production component (per Codex iter-1 P1). Each `<li>` gets `data-sentence-id="${section_id}:${idx}"` + conditional `bg-yellow-100` className when hovered. Root `<div>` carries the ref.
+
+**`/sentence_hover_test`:** Test harness route mounting VerifiedReportView with synthetic 10-sentence report. Avoids needing a real generation run for the test.
+
+**`sentence_hover.spec.ts`:** Single Playwright test (per Codex iter-1 P2 deterministic indices) hovers s7 then s3, asserts highlight transitions correctly.
+
+## Risks for Codex Red-Team
+
+1. **Production wiring done.** `verified_report_view.tsx` (consumed by `generation_runner.tsx`) now applies hover-highlight to every sentence.
+2. **Debounce cleanup** in effect cleanup via clearTimeout.
+3. **`set-state-in-effect` lint** avoided — setState only in event handlers (mouseover/mouseout via debounced setTimeout).
+4. **Test harness** at `/sentence_hover_test` (Codex iter-1 production-wiring fix uses real component, not demo-only).
+5. **§9.4 N/A frontend.**
+6. **CHARTER §1 LOC cap.** 153 net.
+7. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+# CANONICAL DIFF
+
+`diff
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index ceef101..2a79705 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { useSentenceHover } from "@/lib/sentence_highlight";
+ import { cn } from "@/lib/utils";
+ import {
+   keptSentences,
+@@ -15,8 +16,7 @@ const STATUS_TONE: Record<string, string> = {
+     "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+   regenerated:
+     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+-  dropped:
+-    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
++  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+ };
+ 
+ const DROP_REASON_LABEL: Record<DropReason, string> = {
+@@ -52,9 +52,13 @@ function VerdictBadge({
+ function SentenceRow({
+   sentence,
+   show_dropped,
++  sentence_id,
++  hovered_id,
+ }: {
+   sentence: ReportVerifiedSentence;
+   show_dropped: boolean;
++  sentence_id: string;
++  hovered_id: string | null;
+ }) {
+   const dropped = !sentence.verifier_pass;
+   if (dropped && !show_dropped) return null;
+@@ -62,11 +66,13 @@ function SentenceRow({
+   return (
+     <li
+       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
++      data-sentence-id={sentence_id}
+       className={cn(
+-        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm",
++        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
+         dropped
+-          ? "border-rose-500/30 bg-rose-500/5 text-muted-foreground line-through"
++          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+           : "border-border bg-background",
++        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+       )}
+     >
+       <span className={cn(dropped ? "" : "text-foreground")}>
+@@ -78,7 +84,7 @@ function SentenceRow({
+         </span>
+       ) : null}
+       {dropped && sentence.drop_reason ? (
+-        <span className="text-rose-700 dark:text-rose-300 text-[10px] uppercase tracking-widest">
++        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+         </span>
+       ) : null}
+@@ -89,13 +95,14 @@ function SentenceRow({
+ function SectionCard({
+   section,
+   show_dropped,
++  hovered_id,
+ }: {
+   section: VerifiedReportSection;
+   show_dropped: boolean;
++  hovered_id: string | null;
+ }) {
+   const kept = keptSentences(section);
+-  const dropped_count =
+-    section.verified_sentences.length - kept.length;
++  const dropped_count = section.verified_sentences.length - kept.length;
+   return (
+     <Card
+       data-testid={`section-${section.section_id}`}
+@@ -112,7 +119,8 @@ function SectionCard({
+             STATUS_TONE[section.section_status],
+           )}
+         >
+-          {section.section_status} · {Math.round(section.section_verify_pass_rate * 100)}%
++          {section.section_status} ·{" "}
++          {Math.round(section.section_verify_pass_rate * 100)}%
+         </span>
+       </CardHeader>
+       <CardContent className="flex flex-col gap-2">
+@@ -127,13 +135,16 @@ function SectionCard({
+                 key={idx}
+                 sentence={s}
+                 show_dropped={show_dropped}
++                sentence_id={`${section.section_id}:${idx}`}
++                hovered_id={hovered_id}
+               />
+             ))}
+           </ul>
+         )}
+         {!show_dropped && dropped_count > 0 ? (
+           <p className="text-muted-foreground text-xs italic">
+-            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by strict-verify (toggle below to inspect).
++            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
++            strict-verify (toggle below to inspect).
+           </p>
+         ) : null}
+       </CardContent>
+@@ -148,8 +159,13 @@ export function VerifiedReportView({
+   report: VerifiedReport;
+   show_dropped?: boolean;
+ }) {
++  const { hovered_id, root_ref } = useSentenceHover();
+   return (
+-    <div data-testid="verified-report-view" className="flex flex-col gap-4">
++    <div
++      ref={root_ref}
++      data-testid="verified-report-view"
++      className="flex flex-col gap-4"
++    >
+       <Card>
+         <CardHeader className="flex flex-row items-center justify-between gap-3">
+           <CardTitle className="text-lg">Verified report</CardTitle>
+@@ -167,9 +183,16 @@ export function VerifiedReportView({
+             </dd>
+             <dt className="text-muted-foreground">Sections</dt>
+             <dd className="text-foreground font-medium">
+-              {report.sections.filter((s) => s.section_status !== "dropped").length} kept ·
+-              {" "}
+-              {report.sections.filter((s) => s.section_status === "dropped").length} dropped
++              {
++                report.sections.filter((s) => s.section_status !== "dropped")
++                  .length
++              }{" "}
++              kept ·{" "}
++              {
++                report.sections.filter((s) => s.section_status === "dropped")
++                  .length
++              }{" "}
++              dropped
+             </dd>
+             <dt className="text-muted-foreground">Latency</dt>
+             <dd className="text-foreground font-medium">
+@@ -184,6 +207,7 @@ export function VerifiedReportView({
+           key={section.section_id}
+           section={section}
+           show_dropped={show_dropped}
++          hovered_id={hovered_id}
+         />
+       ))}
+     </div>
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+new file mode 100644
+index 0000000..e4ca3a6
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -0,0 +1,43 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type { VerifiedReport } from "@/lib/api";
++
++const ISO = new Date().toISOString();
++
++const REPORT: VerifiedReport = {
++  report_id: "r-hover-test",
++  pool_id: "p-hover",
++  decision_id: "d-hover",
++  sections: [
++    {
++      section_id: "sec_x",
++      section_title: "Test section",
++      verified_sentences: Array.from({ length: 10 }, (_, i) => ({
++        section_id: "sec_x",
++        sentence_text: `Test sentence ${i} about aspirin.`,
++        provenance_tokens: [`[#ev:src-${i}:0-3]`],
++        verifier_pass: true,
++        drop_reason: null,
++      })),
++      section_verify_pass_rate: 1.0,
++      section_status: "verified",
++    },
++  ],
++  overall_verify_pass_rate: 1.0,
++  pipeline_verdict: "success",
++  generator_model: "test/model",
++  verifier_pass_threshold: 0.4,
++  started_at_utc: ISO,
++  finished_at_utc: ISO,
++  latency_ms: 0,
++  cost_usd: 0,
++};
++
++export function SentenceHoverHarness() {
++  return (
++    <div className="mx-auto max-w-4xl p-6">
++      <VerifiedReportView report={REPORT} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/page.tsx b/web/app/sentence_hover_test/page.tsx
+new file mode 100644
+index 0000000..a565a97
+--- /dev/null
++++ b/web/app/sentence_hover_test/page.tsx
+@@ -0,0 +1,5 @@
++import { SentenceHoverHarness } from "./_demo";
++
++export default function SentenceHoverTestPage() {
++  return <SentenceHoverHarness />;
++}
+diff --git a/web/lib/sentence_highlight.ts b/web/lib/sentence_highlight.ts
+new file mode 100644
+index 0000000..ce0d3d6
+--- /dev/null
++++ b/web/lib/sentence_highlight.ts
+@@ -0,0 +1,50 @@
++// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
++
++import { useEffect, useRef, useState } from "react";
++
++interface UseSentenceHoverOpts {
++  selector?: string;
++  debounceMs?: number;
++}
++
++export function useSentenceHover(opts: UseSentenceHoverOpts = {}) {
++  const selector = opts.selector ?? "[data-sentence-id]";
++  const debounce_ms = opts.debounceMs ?? 50;
++  const [hovered_id, set_hovered_id] = useState<string | null>(null);
++  const root_ref = useRef<HTMLDivElement | null>(null);
++  const timer_ref = useRef<ReturnType<typeof setTimeout> | null>(null);
++
++  useEffect(() => {
++    const root = root_ref.current;
++    if (!root) return;
++
++    const schedule = (id: string | null) => {
++      if (timer_ref.current) clearTimeout(timer_ref.current);
++      timer_ref.current = setTimeout(() => set_hovered_id(id), debounce_ms);
++    };
++
++    const on_over = (ev: Event) => {
++      const target = ev.target as HTMLElement | null;
++      const el = target?.closest(selector) as HTMLElement | null;
++      if (!el) return;
++      const id = el.getAttribute("data-sentence-id");
++      if (id) schedule(id);
++    };
++    const on_out = (ev: Event) => {
++      const related = (ev as MouseEvent).relatedTarget as HTMLElement | null;
++      if (related && root.contains(related) && related.closest(selector))
++        return;
++      schedule(null);
++    };
++
++    root.addEventListener("mouseover", on_over);
++    root.addEventListener("mouseout", on_out);
++    return () => {
++      root.removeEventListener("mouseover", on_over);
++      root.removeEventListener("mouseout", on_out);
++      if (timer_ref.current) clearTimeout(timer_ref.current);
++    };
++  }, [selector, debounce_ms]);
++
++  return { hovered_id, root_ref };
++}
+diff --git a/web/tests/e2e/sentence_hover.spec.ts b/web/tests/e2e/sentence_hover.spec.ts
+new file mode 100644
+index 0000000..8fd8be1
+--- /dev/null
++++ b/web/tests/e2e/sentence_hover.spec.ts
+@@ -0,0 +1,18 @@
++import { expect, test } from "@playwright/test";
++
++test("hovering a sentence applies bg-yellow-100; switching clears prior", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await expect(page.getByTestId("verified-report-view")).toBeVisible();
++
++  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
++  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
++
++  await s7.hover();
++  await expect(s7).toHaveClass(/bg-yellow-100/, { timeout: 500 });
++
++  await s3.hover();
++  await expect(s3).toHaveClass(/bg-yellow-100/, { timeout: 500 });
++  await expect(s7).not.toHaveClass(/bg-yellow-100/);
++});
+
+``n
+
+codex
+I’ll treat this as a code-review pass against the supplied canonical diff and verify the surrounding component/test shape where it affects correctness.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "testDir|webServer|baseURL|playwright" web -g "*.ts" -g "*.tsx" -g "*.js" -g "*.json"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "VerifiedReportView|type VerifiedReport|interface VerifiedReport|export type VerifiedReport|data-sentence-id|sentence_hover" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Force | Select-Object Name,Mode' in C:\POLARIS
+ succeeded in 1342ms:
+
+Name                    Mode
+----                    ----
+.next                   d----
+app                     d----
+components              d----
+lib                     d----
+node_modules            d----
+public                  d----
+screenshots             d----
+scripts                 d----
+test-results            d----
+tests                   d----
+.gitignore              -a---
+.prettierignore         -a---
+.prettierrc.json        -a---
+AGENTS.md               -a---
+CLAUDE.md               -a---
+components.json         -a---
+eslint.config.mjs       -a---
+next-env.d.ts           -a---
+next.config.ts          -a---
+package-lock.json       -a---
+package.json            -a---
+playwright.config.ts    -a---
+postcss.config.mjs      -a---
+README.md               -a---
+THIRD_PARTY_LICENSES.md -a---
+tsconfig.json           -a---
+tsconfig.tsbuildinfo    -a---
+
+
+ succeeded in 1606ms:
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:40:      <VerifiedReportView report={REPORT} />
+web\lib\sentence_highlight.ts:1:// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
+web\lib\sentence_highlight.ts:11:  const selector = opts.selector ?? "[data-sentence-id]";
+web\lib\sentence_highlight.ts:30:      const id = el.getAttribute("data-sentence-id");
+web\lib\api.ts:605:export interface VerifiedReportSection {
+web\lib\api.ts:613:export interface VerifiedReport {
+web\app\generation\components\verified_report_view.tsx:10:  type VerifiedReport,
+web\app\generation\components\verified_report_view.tsx:11:  type VerifiedReportSection,
+web\app\generation\components\verified_report_view.tsx:69:      data-sentence-id={sentence_id}
+web\app\generation\components\verified_report_view.tsx:155:export function VerifiedReportView({
+web\app\generation\components\BundlePreview.tsx:10:  type VerifiedReport,
+web\app\generation\components\generation_runner.tsx:18:  type VerifiedReport,
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\generation_runner.tsx:216:          <VerifiedReportView
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_hover.spec.ts:9:  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
+web\tests\e2e\sentence_hover.spec.ts:10:  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
+
+ succeeded in 1855ms:
+web\package.json:14:    "test:e2e": "playwright test",
+web\package.json:15:    "test:e2e:ui": "playwright test --ui"
+web\package.json:33:    "@axe-core/playwright": "^4.11.3",
+web\package.json:34:    "@playwright/test": "^1.59.1",
+web\package-lock.json:26:        "@axe-core/playwright": "^4.11.3",
+web\package-lock.json:27:        "@playwright/test": "^1.59.1",
+web\package-lock.json:54:    "node_modules/@axe-core/playwright": {
+web\package-lock.json:56:      "resolved": "https://registry.npmjs.org/@axe-core/playwright/-/playwright-4.11.3.tgz",
+web\package-lock.json:64:        "playwright-core": ">= 1.0.0"
+web\package-lock.json:1973:    "node_modules/@playwright/test": {
+web\package-lock.json:1975:      "resolved": "https://registry.npmjs.org/@playwright/test/-/test-1.59.1.tgz",
+web\package-lock.json:1980:        "playwright": "1.59.1"
+web\package-lock.json:1983:        "playwright": "cli.js"
+web\package-lock.json:7534:        "@playwright/test": "^1.51.1",
+web\package-lock.json:7544:        "@playwright/test": {
+web\package-lock.json:8095:    "node_modules/playwright": {
+web\package-lock.json:8097:      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.59.1.tgz",
+web\package-lock.json:8102:        "playwright-core": "1.59.1"
+web\package-lock.json:8105:        "playwright": "cli.js"
+web\package-lock.json:8114:    "node_modules/playwright-core": {
+web\package-lock.json:8116:      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.59.1.tgz",
+web\package-lock.json:8121:        "playwright-core": "cli.js"
+web\playwright.config.ts:1:import { defineConfig, devices } from "@playwright/test";
+web\playwright.config.ts:14: *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+web\playwright.config.ts:17:  testDir: "./tests/e2e",
+web\playwright.config.ts:30:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+web\tests\e2e\accessibility.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\accessibility.spec.ts:2:import { expect, test } from "@playwright/test";
+web\tests\e2e\accessibility.spec.ts:25:async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+web\tests\e2e\audit_live.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_bundle.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_live_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_live_adversarial.spec.ts:4:  page: import("@playwright/test").Page,
+web\tests\e2e\audit_live_multitab.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\bundle_preview.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\benchmark.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\contract_editor.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\disambiguation_modal.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette_suggest.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\demo_walkthrough.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_multi_tab.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_multi_tab.spec.ts:18:async function open_palette(page: import("@playwright/test").Page) {
+web\tests\e2e\f2_walkthrough.spec.ts:3:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\generation.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_a11y.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\f1_a11y.spec.ts:2:import { expect, test } from "@playwright/test";
+web\tests\e2e\inspector.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_disambiguation.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\landing_template_grid.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\landing_template_grid.spec.ts:2:import { expect, test } from "@playwright/test";
+web\tests\e2e\retrieval.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_edge.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\performance_hover.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_disambiguation_negative.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\performance.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\upload_dropzone.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_dropzone.spec.ts:3:async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+web\tests\e2e\upload_dropzone.spec.ts:27:  page: import("@playwright/test").Page,
+web\tests\e2e\sse_client.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\visual.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\visual.spec.ts:13: *     npx playwright test --project=chromium tests/e2e/visual.spec.ts \
+web\tests\e2e\sentence_hover.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_parse_status.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\upload_evidence_toggle.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_doc_preview.spec.ts:1:import { expect, test } from "@playwright/test";
+
+codex
+I’ve confirmed the diff is present in the workspace and am checking type/config context now, especially whether the new hook and harness create build or test-path problems beyond the displayed diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 585 -First 55" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\eslint.config.mjs" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\sentence_highlight.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 1643ms:
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type DropReason,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      className={cn(
+        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <span className={cn(dropped ? "" : "text-foreground")}>
+        {sentence.sentence_text}
+      </span>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+        />
+      ))}
+    </div>
+  );
+}
+
+ succeeded in 1799ms:
+// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
+
+import { useEffect, useRef, useState } from "react";
+
+interface UseSentenceHoverOpts {
+  selector?: string;
+  debounceMs?: number;
+}
+
+export function useSentenceHover(opts: UseSentenceHoverOpts = {}) {
+  const selector = opts.selector ?? "[data-sentence-id]";
+  const debounce_ms = opts.debounceMs ?? 50;
+  const [hovered_id, set_hovered_id] = useState<string | null>(null);
+  const root_ref = useRef<HTMLDivElement | null>(null);
+  const timer_ref = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const root = root_ref.current;
+    if (!root) return;
+
+    const schedule = (id: string | null) => {
+      if (timer_ref.current) clearTimeout(timer_ref.current);
+      timer_ref.current = setTimeout(() => set_hovered_id(id), debounce_ms);
+    };
+
+    const on_over = (ev: Event) => {
+      const target = ev.target as HTMLElement | null;
+      const el = target?.closest(selector) as HTMLElement | null;
+      if (!el) return;
+      const id = el.getAttribute("data-sentence-id");
+      if (id) schedule(id);
+    };
+    const on_out = (ev: Event) => {
+      const related = (ev as MouseEvent).relatedTarget as HTMLElement | null;
+      if (related && root.contains(related) && related.closest(selector))
+        return;
+      schedule(null);
+    };
+
+    root.addEventListener("mouseover", on_over);
+    root.addEventListener("mouseout", on_out);
+    return () => {
+      root.removeEventListener("mouseover", on_over);
+      root.removeEventListener("mouseout", on_out);
+      if (timer_ref.current) clearTimeout(timer_ref.current);
+    };
+  }, [selector, debounce_ms]);
+
+  return { hovered_id, root_ref };
+}
+
+ succeeded in 2012ms:
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+import prettier from "eslint-config-prettier";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  prettier,
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "screenshots/**",
+    "node_modules/**",
+  ]),
+]);
+
+export default eslintConfig;
+
+ succeeded in 2382ms:
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+}
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+
+ succeeded in 2641ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 2949ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\utils.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web\\app -Filter globals.css -Recurse | ForEach-Object { "'$_.FullName }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"tailwind|@theme|bg-yellow-100|bg-background|bg-rose-500|text-muted-foreground|dark:bg\" web\\app web\\components web\\lib -g \"*.css\" -g \"*.tsx\" -g \"*.ts\"" in C:\POLARIS
+ succeeded in 1227ms:
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+ succeeded in 1521ms:
+web\components\ui\button.tsx:13:          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\components\ui\card.tsx:53:      className={cn("text-muted-foreground text-sm", className)}
+web\components\ui\evidence-tooltip.tsx:43:          <Tooltip.Popup className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md">
+web\components\ui\evidence-tooltip.tsx:44:            <p className="text-muted-foreground font-mono text-[11px]">
+web\components\ui\evidence-tooltip.tsx:49:              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+web\components\ui\evidence-tooltip.tsx:62:            <p className="text-muted-foreground mt-2 text-[11px] italic">
+web\app\globals.css:1:@import "tailwindcss";
+web\app\globals.css:3:@import "shadcn/tailwind.css";
+web\app\globals.css:7:@theme inline {
+web\app\globals.css:132:    @apply bg-background text-foreground;
+web\components\ui\sheet.tsx:122:      className={cn("text-muted-foreground text-sm", className)}
+web\app\contracts\page.tsx:13:      <p className="text-muted-foreground mb-6 text-sm">
+web\app\dashboard\page.tsx:191:      <header className="border-border bg-background border-b">
+web\app\dashboard\page.tsx:194:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\dashboard\page.tsx:209:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\dashboard\page.tsx:294:              <p className="text-muted-foreground">
+web\app\dashboard\page.tsx:312:                <p className="text-muted-foreground text-xs">Uploading…</p>
+web\app\dashboard\page.tsx:316:              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+web\app\dashboard\page.tsx:320:                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+web\app\dashboard\page.tsx:410:                      className="border-border bg-background rounded-md border p-2"
+web\app\dashboard\page.tsx:415:                      <span className="text-muted-foreground">
+web\app\dashboard\page.tsx:471:      <footer className="border-border bg-background border-t">
+web\app\dashboard\page.tsx:472:        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\generation\page.tsx:16:      <header className="border-border bg-background border-b">
+web\app\generation\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\generation\page.tsx:60:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\generation\page.tsx:77:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\generation\page.tsx:89:      <footer className="border-border bg-background border-t">
+web\app\generation\page.tsx:90:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\page.tsx:115:          <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+web\app\page.tsx:134:            <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\page.tsx:146:                    : "bg-muted/40 text-muted-foreground flex flex-col"
+web\app\page.tsx:156:                        className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web\app\page.tsx:211:      <footer className="border-border bg-background border-t">
+web\app\page.tsx:212:        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\intake\page.tsx:17:      <header className="border-border bg-background border-b">
+web\app\intake\page.tsx:20:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\intake\page.tsx:45:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\intake\page.tsx:59:      <footer className="border-border bg-background border-t">
+web\app\intake\page.tsx:60:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\audit_live\_panels.tsx:128:          className="rounded border border-amber-500/40 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+web\app\audit_live\_panels.tsx:137:          className="rounded border border-rose-500/40 bg-rose-50 p-3 text-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
+web\app\audit_live\_panels.tsx:166:              className="text-muted-foreground text-xs"
+web\app\audit_live\_panels.tsx:178:                <span className="text-muted-foreground tabular-nums">
+web\app\retrieval\page.tsx:16:      <header className="border-border bg-background border-b">
+web\app\retrieval\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\retrieval\page.tsx:53:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\retrieval\page.tsx:66:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\retrieval\page.tsx:77:      <footer className="border-border bg-background border-t">
+web\app\retrieval\page.tsx:78:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\generation\components\verified_report_view.tsx:19:  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\generation\components\verified_report_view.tsx:43:          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\generation\components\verified_report_view.tsx:73:          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+web\app\generation\components\verified_report_view.tsx:74:          : "border-border bg-background",
+web\app\generation\components\verified_report_view.tsx:75:        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+web\app\generation\components\verified_report_view.tsx:82:        <span className="text-muted-foreground font-mono text-[10px]">
+web\app\generation\components\verified_report_view.tsx:128:          <p className="text-muted-foreground text-sm">
+web\app\generation\components\verified_report_view.tsx:145:          <p className="text-muted-foreground text-xs italic">
+web\app\generation\components\verified_report_view.tsx:176:            <dt className="text-muted-foreground">Generator</dt>
+web\app\generation\components\verified_report_view.tsx:180:            <dt className="text-muted-foreground">Pass rate</dt>
+web\app\generation\components\verified_report_view.tsx:184:            <dt className="text-muted-foreground">Sections</dt>
+web\app\generation\components\verified_report_view.tsx:197:            <dt className="text-muted-foreground">Latency</dt>
+web\app\generation\components\generation_runner.tsx:148:            <p className="text-muted-foreground text-xs">
+web\app\generation\components\generation_runner.tsx:181:          className="border-rose-500/40 bg-rose-500/5"
+web\app\generation\components\generation_runner.tsx:211:              className="text-muted-foreground hover:text-foreground border-border rounded-full border px-3 py-1 text-xs transition-colors"
+web\app\generation\components\generation_runner.tsx:284:      className="text-foreground border-border bg-background hover:bg-muted rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+web\app\inspector\[runId]\page.tsx:96:      <header className="border-border bg-background border-b">
+web\app\inspector\[runId]\page.tsx:99:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\inspector\[runId]\page.tsx:185:              <p className="text-muted-foreground text-sm">
+web\app\inspector\[runId]\page.tsx:202:                      : "text-muted-foreground hover:text-foreground border-transparent"
+web\app\inspector\[runId]\page.tsx:277:      <p className="text-muted-foreground text-sm">
+web\app\inspector\[runId]\page.tsx:299:                    className="ml-2 inline-flex min-h-[24px] items-center rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
+web\app\inspector\[runId]\page.tsx:360:    return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
+web\app\inspector\[runId]\page.tsx:380:              <p className="text-muted-foreground mt-2 text-xs">
+web\app\inspector\[runId]\page.tsx:401:      <p className="text-muted-foreground text-sm">
+web\app\inspector\[runId]\page.tsx:535:              <p className="text-muted-foreground text-xs uppercase">
+web\app\inspector\[runId]\page.tsx:543:              <p className="text-muted-foreground text-xs uppercase">Dropped</p>
+web\app\inspector\[runId]\page.tsx:549:              <p className="text-muted-foreground text-xs uppercase">
+web\app\inspector\[runId]\page.tsx:557:              <p className="text-muted-foreground text-xs uppercase">Sources</p>
+web\app\inspector\[runId]\page.tsx:560:                <span className="text-muted-foreground ml-2 text-xs font-normal">
+web\app\inspector\[runId]\page.tsx:692:              <summary className="text-muted-foreground cursor-pointer text-xs">
+web\app\inspector\[runId]\page.tsx:710:              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+web\app\inspector\[runId]\page.tsx:737:            <p className="text-muted-foreground font-mono text-xs">
+web\app\inspector\[runId]\page.tsx:788:        <p className="text-muted-foreground text-xs">
+web\app\retrieval\components\retrieval_runner.tsx:139:            <p className="text-muted-foreground text-xs">
+web\app\retrieval\components\retrieval_runner.tsx:166:          className="border-rose-500/40 bg-rose-500/5"
+web\app\retrieval\components\retrieval_runner.tsx:188:          className="border-rose-500/40 bg-rose-500/5"
+web\app\retrieval\components\corpus_brief.tsx:65:              : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\retrieval\components\corpus_brief.tsx:87:            className="border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-300 rounded-md border px-3 py-2 text-sm"
+web\app\retrieval\components\corpus_brief.tsx:94:          <dt className="text-muted-foreground">Sources retrieved</dt>
+web\app\retrieval\components\corpus_brief.tsx:98:          <dt className="text-muted-foreground">Queries executed</dt>
+web\app\retrieval\components\corpus_brief.tsx:102:          <dt className="text-muted-foreground">Latency</dt>
+web\app\retrieval\components\corpus_brief.tsx:104:          <dt className="text-muted-foreground">Cost</dt>
+web\app\retrieval\components\corpus_brief.tsx:130:                  <span className="text-muted-foreground font-mono text-xs">
+web\app\retrieval\components\corpus_brief.tsx:143:                  <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\page.tsx:64:      <header className="border-border bg-background border-b">
+web\app\runs\[runId]\page.tsx:67:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\runs\[runId]\page.tsx:105:          <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\runs\[runId]\page.tsx:112:            <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\page.tsx:136:          <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\page.tsx:199:              <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\page.tsx:224:      <footer className="border-border bg-background border-t">
+web\app\runs\[runId]\page.tsx:225:        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\benchmark\page.tsx:16:      <header className="border-border bg-background border-b">
+web\app\benchmark\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\benchmark\page.tsx:53:          <p className="text-muted-foreground max-w-3xl text-sm sm:text-base">
+web\app\benchmark\page.tsx:67:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\benchmark\page.tsx:82:      <footer className="border-border bg-background border-t">
+web\app\benchmark\page.tsx:83:        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\generation\components\BundlePreview.tsx:68:        className="text-muted-foreground border-border rounded-md border p-3 text-xs"
+web\app\components\home_keyboard_shell.tsx:39:      <header className="border-border bg-background border-b">
+web\app\components\home_keyboard_shell.tsx:42:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">POLARIS Canada</span>
+web\app\benchmark\components\benchmark_board.tsx:34:  if (score === null) return "text-muted-foreground italic";
+web\app\benchmark\components\benchmark_board.tsx:41:  if (score < max_peer) return "text-muted-foreground";
+web\app\benchmark\components\benchmark_board.tsx:142:        className="border-rose-500/40 bg-rose-500/5"
+web\app\benchmark\components\benchmark_board.tsx:164:              className="border-border bg-background hover:bg-muted text-foreground rounded-lg border px-4 py-2 text-left text-sm transition-colors"
+web\app\benchmark\components\benchmark_board.tsx:191:          <span className="text-muted-foreground text-xs">
+web\app\components\command_palette.tsx:121:                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
+web\lib\utils.ts:2:import { twMerge } from "tailwind-merge";
+web\app\intake\components\disambiguation_modal.tsx:57:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\disambiguation_modal.tsx:75:                    <span className="text-muted-foreground text-xs">
+web\app\intake\components\ambiguity_modal.tsx:55:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\ambiguity_modal.tsx:68:                <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\intake\components\ambiguity_modal.tsx:75:                      className="border-border bg-background rounded-md border px-2 py-1 text-xs"
+web\app\intake\components\ambiguity_modal.tsx:86:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\sign-in\page.tsx:19:          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\sign-in\page.tsx:82:        <p className="text-muted-foreground text-center text-xs">
+web\app\intake\components\intake_form.tsx:130:            <p className="text-muted-foreground text-xs">
+web\app\intake\components\intake_form.tsx:145:              <span className="text-muted-foreground text-xs">or try:</span>
+web\app\intake\components\intake_form.tsx:151:                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+web\app\intake\components\intake_form.tsx:164:          className="border-rose-500/40 bg-rose-500/5"
+web\app\intake\components\scope_decision_view.tsx:26:    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\intake\components\scope_decision_view.tsx:66:      <ul className="text-muted-foreground flex flex-wrap gap-1.5 text-xs">
+web\app\intake\components\scope_decision_view.tsx:93:          <dt className="text-muted-foreground">Scope class</dt>
+web\app\intake\components\scope_decision_view.tsx:101:          <dt className="text-muted-foreground">Latency</dt>
+web\app\intake\components\scope_decision_view.tsx:109:          <dt className="text-muted-foreground">Decision id</dt>
+web\app\intake\components\scope_decision_view.tsx:114:          <dt className="text-muted-foreground">Decided at</dt>
+web\app\intake\components\scope_decision_view.tsx:138:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\upload\page.tsx:19:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\upload\components\document_preview.tsx:93:        className="border-border bg-background flex-1 rounded border"
+web\app\upload\components\upload_drop_zone.tsx:165:        <p className="text-muted-foreground text-xs">
+web\app\upload\components\upload_drop_zone.tsx:198:              <span className="text-muted-foreground text-xs">
+web\app\upload\components\selected_docs_indicator.tsx:8:      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+
+ succeeded in 1784ms:
+C:\POLARIS\web\app\globals.css
+
+codex
+The surrounding types line up with the harness data. I don’t see a production-routing issue yet, so I’m doing a quick static verification pass for any build/lint failures that would turn this into a blocking review item.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+ succeeded in 4366ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+2026-05-07T09:17:40.362994Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.3 seconds
+Output:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+   12:8   warning  'BenchmarkDimension' is defined but never used                   @typescript-eslint/no-unused-vars
+  107:70  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\benchmark\page.tsx
+  77:19  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\generation\page.tsx
+  83:51  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\inspector\[runId]\page.tsx
+  507:6  warning  React Hook useEffect has a missing dependency: 'chartTypes'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\POLARIS\web\app\intake\components\pdf_drop_banner.tsx
+  35:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\POLARIS\web\app\intake\components\pdf_drop_banner.tsx:35:5
+  33 |     window.addEventListener("dragover", handleDragOver);
+  34 |     window.addEventListener("drop", handleDrop);
+> 35 |     setReady(true);
+     |     ^^^^^^^^ Avoid calling setState() directly within an effect
+  36 |     return () => {
+  37 |       window.removeEventListener("dragover", handleDragOver);
+  38 |       window.removeEventListener("drop", handleDrop);  react-hooks/set-state-in-effect
+
+✖ 6 problems (4 errors, 2 warnings)
+
+
+ exited 1 in 7320ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+   12:8   warning  'BenchmarkDimension' is defined but never used                   @typescript-eslint/no-unused-vars
+  107:70  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\benchmark\page.tsx
+  77:19  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\generation\page.tsx
+  83:51  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\POLARIS\web\app\inspector\[runId]\page.tsx
+  507:6  warning  React Hook useEffect has a missing dependency: 'chartTypes'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\POLARIS\web\app\intake\components\pdf_drop_banner.tsx
+  35:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\POLARIS\web\app\intake\components\pdf_drop_banner.tsx:35:5
+  33 |     window.addEventListener("dragover", handleDragOver);
+  34 |     window.addEventListener("drop", handleDrop);
+> 35 |     setReady(true);
+     |     ^^^^^^^^ Avoid calling setState() directly within an effect
+  36 |     return () => {
+  37 |       window.removeEventListener("dragover", handleDragOver);
+  38 |       window.removeEventListener("drop", handleDrop);  react-hooks/set-state-in-effect
+
+✖ 6 problems (4 errors, 2 warnings)
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web\\app -Directory | Select-Object -ExpandProperty Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\generation_runner.tsx | Select-Object -Skip 190 -First 45" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"_test|Harness|test harness|demo\" web\\app web\\tests -g \"*.tsx\" -g \"*.ts\"" in C:\POLARIS
+ succeeded in 1160ms:
+(test_harness)
+audit_live
+benchmark
+components
+contracts
+dashboard
+generation
+inspector
+intake
+retrieval
+runs
+sentence_hover_test
+sign-in
+sse
+upload
+
+ succeeded in 1342ms:
+
+      {state.kind === "ok" ? (
+        <>
+          {state.report.pipeline_verdict === "success" ? (
+            <BundlePreview
+              decision={state.decision}
+              pool={state.pool}
+              report={state.report}
+            />
+          ) : null}
+          <div className="flex items-center justify-end gap-2">
+            <DownloadAuditBundleButton
+              decision={state.decision}
+              pool={state.pool}
+              report={state.report}
+            />
+            <button
+              type="button"
+              onClick={() => setShowDropped(!show_dropped)}
+              data-testid="toggle-dropped"
+              className="text-muted-foreground hover:text-foreground border-border rounded-full border px-3 py-1 text-xs transition-colors"
+            >
+              {show_dropped ? "Hide" : "Show"} dropped sentences
+            </button>
+          </div>
+          <VerifiedReportView
+            report={state.report}
+            show_dropped={show_dropped}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+type DownloadState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok" }
+  | { kind: "error"; code: string; message: string };
+
+function DownloadAuditBundleButton({
+  decision,
+  pool,
+  report,
+
+ succeeded in 1633ms:
+web\tests\e2e\accessibility.spec.ts:137:    // demonstrated this was a real WCAG-AA color-contrast hazard until F-7.
+web\tests\e2e\demo_walkthrough.spec.ts:4: * Slice 005 — full demo walkthrough (updated for I-f1-001 template grid).
+web\tests\e2e\demo_walkthrough.spec.ts:7: * during the Sep 6 tracer demo:
+web\tests\e2e\demo_walkthrough.spec.ts:10: * I-f1-001 replaced the demo-slice cards on `/` with the F1 template grid
+web\tests\e2e\demo_walkthrough.spec.ts:13: * demo-slice-intake card.
+web\tests\e2e\demo_walkthrough.spec.ts:18: * verification, use the runbook in docs/demo_runbook.md.
+web\tests\e2e\demo_walkthrough.spec.ts:21:test.describe("Slice 005 — full demo walkthrough", () => {
+web\app\page.tsx:98:      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx:1:import { DisambiguationModalHarnessClient } from "./_client";
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx:14:  return <DisambiguationModalHarnessClient count={count} />;
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:15:export function DisambiguationModalHarnessClient({ count }: { count: number }) {
+web\app\sentence_hover_test\page.tsx:1:import { SentenceHoverHarness } from "./_demo";
+web\app\sentence_hover_test\page.tsx:4:  return <SentenceHoverHarness />;
+web\app\sentence_hover_test\_demo.tsx:37:export function SentenceHoverHarness() {
+web\app\sse\_harness.tsx:19:export function SSEHarness() {
+web\app\sse\page.tsx:3:import { SSEHarness } from "./_harness";
+web\app\sse\page.tsx:5:export default function SSETestHarnessPage() {
+web\app\sse\page.tsx:8:      <SSEHarness />
+web\tests\e2e\landing_template_grid.spec.ts:7: * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+
+codex
+Static checks show the new files typecheck cleanly. The repo-wide lint command still fails, but only in pre-existing unrelated files; nothing from this diff is reported.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Process -Name node -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,Path,StartTime | Format-Table -AutoSize' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'try { (Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:3738/sentence_hover_test -TimeoutSec 3).StatusCode } catch { $_.Exception.Message }' in C:\POLARIS
+ succeeded in 1502ms:
+
+   Id ProcessName Path                             StartTime
+   -- ----------- ----                             ---------
+44668 node                                         2026-05-07 2:16:42 AM
+58532 node        C:\Program Files\nodejs\node.exe 2026-05-07 2:16:31 AM
+
+
+ succeeded in 3309ms:
+No connection could be made because the target machine actively refused it. (127.0.0.1:3738)
+
+codex
+I’m going one step deeper with a Next build because App Router client/server boundaries are the one place this kind of hook extraction can fail despite TypeScript passing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+2026-05-07T09:18:57.363772Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 10 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.5s
+  Running TypeScript ...
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 10006ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.5s
+  Running TypeScript ...
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+31,353
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
