@@ -18,6 +18,7 @@ import {
   type VerifiedReport,
 } from "@/lib/api";
 
+import { BundlePreview } from "./BundlePreview";
 import { VerifiedReportView } from "./verified_report_view";
 
 type RunnerStage = "scope" | "retrieval" | "generation";
@@ -63,8 +64,7 @@ export function GenerationRunner() {
       const intake = await runIntake(trimmed);
       decision = intake.decision;
     } catch (err) {
-      const code =
-        err instanceof IntakeBadRequestError ? err.code : "unknown";
+      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
       const msg = err instanceof Error ? err.message : "Intake failed.";
       setState({ kind: "failed", stage: "scope", code, message: msg });
       return;
@@ -119,9 +119,7 @@ export function GenerationRunner() {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">
-            One-click clinical research
-          </CardTitle>
+          <CardTitle className="text-xl">One-click clinical research</CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -145,11 +143,11 @@ export function GenerationRunner() {
               maxLength={2000}
               autoComplete="off"
               disabled={state.kind === "loading"}
-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm outline-none transition-colors focus-visible:ring-3 disabled:opacity-50"
+              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
             />
             <p className="text-muted-foreground text-xs">
-              POLARIS chains intake → retrieval → generation in one click.
-              Each stage's failure short-circuits the next; UI surfaces the
+              POLARIS chains intake → retrieval → generation in one click. Each
+              stage&apos;s failure short-circuits the next; UI surfaces the
               specific stage that failed (LAW II — never silently degrade).
             </p>
             <Button
@@ -193,6 +191,13 @@ export function GenerationRunner() {
 
       {state.kind === "ok" ? (
         <>
+          {state.report.pipeline_verdict === "success" ? (
+            <BundlePreview
+              decision={state.decision}
+              pool={state.pool}
+              report={state.report}
+            />
+          ) : null}
           <div className="flex items-center justify-end gap-2">
             <DownloadAuditBundleButton
               decision={state.decision}
@@ -262,7 +267,7 @@ function DownloadAuditBundleButton({
     return (
       <span
         data-testid="audit-bundle-error"
-        className="text-rose-700 dark:text-rose-300 text-xs"
+        className="text-xs text-rose-700 dark:text-rose-300"
         title={dl_state.message}
       >
         Bundle failed: {dl_state.code}
