@@ -360,6 +360,41 @@ const REPORT: VerifiedReport = {
             ],
           },
         },
+        // sec_x:29 — guideline-vs-trial conflict (I-f8-005).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Guideline-vs-trial: trial says efficacious, guideline disagrees.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "categorical",
+            disagreeing_source_count: 2,
+            summary:
+              "RCT shows efficacy; clinical practice guideline does not endorse",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "trial",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "guideline",
+                hedge_language: "moderate confidence",
+                claim_excerpt:
+                  "Cochrane guideline: insufficient evidence to endorse Drug X.",
+              },
+            ],
+          },
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

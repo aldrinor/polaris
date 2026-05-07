@@ -218,6 +218,30 @@ def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
         )
 
 
+def test_contradiction_side_evidence_type_default_unspecified():
+    s = _side()
+    assert s.evidence_type == "unspecified"
+
+
+def test_contradiction_side_evidence_type_all_seven_values():
+    for et in (
+        "trial",
+        "guideline",
+        "meta_analysis",
+        "observational",
+        "regulatory_label",
+        "expert_opinion",
+        "unspecified",
+    ):
+        s = _side(evidence_type=et)
+        assert s.evidence_type == et
+
+
+def test_contradiction_side_evidence_type_rejects_bogus():
+    with pytest.raises(ValidationError):
+        _side(evidence_type="bogus_value")
+
+
 def test_contradiction_signal_category_default_other():
     sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
     assert sig.category == "other"

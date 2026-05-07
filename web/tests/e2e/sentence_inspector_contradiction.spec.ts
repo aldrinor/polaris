@@ -75,6 +75,20 @@ test("Regulatory category badge in pane (I-f8-004)", async ({ page }) => {
   );
 });
 
+test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("contradiction-evidence-type-0"),
+  ).toContainText("Trial");
+  await expect(
+    page.getByTestId("contradiction-evidence-type-1"),
+  ).toContainText("Guideline");
+});
+
 test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
   await page.goto("/sentence_hover_test");
   const badge = page.getByTestId("inspector-contradiction-sec_x:27");

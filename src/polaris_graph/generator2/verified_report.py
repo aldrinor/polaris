@@ -177,12 +177,28 @@ class VerifiedSentence(BaseModel):
 # FrameCoverage (I-f7-001)
 # ---------------------------------------------------------------------------
 
+ContradictionEvidenceType = Literal[
+    "trial",
+    "guideline",
+    "meta_analysis",
+    "observational",
+    "regulatory_label",
+    "expert_opinion",
+    "unspecified",
+]
+"""I-f8-005 evidence-type tag on a contradiction side.
+
+Distinguishes guideline-vs-trial, regulatory-vs-trial, etc. — common
+sources of "the trial says X but the guideline says Y" contradictions."""
+
+
 class ContradictionSide(BaseModel):
     """One side of a contradiction (I-f8-002).
 
     Each side is a distinct cited source's position on the claim. Tier
     + sample size + hedge language + PT08 flag inform reviewer judgment
-    of which side has the stronger evidentiary backing."""
+    of which side has the stronger evidentiary backing. evidence_type
+    (I-f8-005) tags the kind of source (trial, guideline, ...)."""
 
     source_id: str = Field(min_length=1, max_length=200)
     source_tier: Literal["T1", "T2", "T3"]
@@ -190,6 +206,7 @@ class ContradictionSide(BaseModel):
     hedge_language: str = Field(min_length=1, max_length=200)
     pt08_flag: str | None = Field(default=None, max_length=50)
     claim_excerpt: str = Field(min_length=1, max_length=500)
+    evidence_type: ContradictionEvidenceType = Field(default="unspecified")
 
 
 ContradictionCategory = Literal[

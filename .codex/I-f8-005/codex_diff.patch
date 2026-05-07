@@ -1,0 +1,238 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index e514eba..ecfae50 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -177,12 +177,28 @@ class VerifiedSentence(BaseModel):
+ # FrameCoverage (I-f7-001)
+ # ---------------------------------------------------------------------------
+ 
++ContradictionEvidenceType = Literal[
++    "trial",
++    "guideline",
++    "meta_analysis",
++    "observational",
++    "regulatory_label",
++    "expert_opinion",
++    "unspecified",
++]
++"""I-f8-005 evidence-type tag on a contradiction side.
++
++Distinguishes guideline-vs-trial, regulatory-vs-trial, etc. — common
++sources of "the trial says X but the guideline says Y" contradictions."""
++
++
+ class ContradictionSide(BaseModel):
+     """One side of a contradiction (I-f8-002).
+ 
+     Each side is a distinct cited source's position on the claim. Tier
+     + sample size + hedge language + PT08 flag inform reviewer judgment
+-    of which side has the stronger evidentiary backing."""
++    of which side has the stronger evidentiary backing. evidence_type
++    (I-f8-005) tags the kind of source (trial, guideline, ...)."""
+ 
+     source_id: str = Field(min_length=1, max_length=200)
+     source_tier: Literal["T1", "T2", "T3"]
+@@ -190,6 +206,7 @@ class ContradictionSide(BaseModel):
+     hedge_language: str = Field(min_length=1, max_length=200)
+     pt08_flag: str | None = Field(default=None, max_length=50)
+     claim_excerpt: str = Field(min_length=1, max_length=500)
++    evidence_type: ContradictionEvidenceType = Field(default="unspecified")
+ 
+ 
+ ContradictionCategory = Literal[
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index 89854cb..05d2b1f 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -218,6 +218,30 @@ def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+         )
+ 
+ 
++def test_contradiction_side_evidence_type_default_unspecified():
++    s = _side()
++    assert s.evidence_type == "unspecified"
++
++
++def test_contradiction_side_evidence_type_all_seven_values():
++    for et in (
++        "trial",
++        "guideline",
++        "meta_analysis",
++        "observational",
++        "regulatory_label",
++        "expert_opinion",
++        "unspecified",
++    ):
++        s = _side(evidence_type=et)
++        assert s.evidence_type == et
++
++
++def test_contradiction_side_evidence_type_rejects_bogus():
++    with pytest.raises(ValidationError):
++        _side(evidence_type="bogus_value")
++
++
+ def test_contradiction_signal_category_default_other():
+     sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+     assert sig.category == "other"
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+index f63e18b..65d18ca 100644
+--- a/web/app/generation/components/contradiction_pane.tsx
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -7,7 +7,21 @@ import {
+   SheetHeader,
+   SheetTitle,
+ } from "@/components/ui/sheet";
+-import type { ContradictionCategory, ContradictionSignal } from "@/lib/api";
++import type {
++  ContradictionCategory,
++  ContradictionEvidenceType,
++  ContradictionSignal,
++} from "@/lib/api";
++
++const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
++  trial: "Trial",
++  guideline: "Guideline",
++  meta_analysis: "Meta-analysis",
++  observational: "Observational",
++  regulatory_label: "Regulatory label",
++  expert_opinion: "Expert opinion",
++  unspecified: "Unspecified",
++};
+ 
+ const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
+   T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+@@ -76,12 +90,28 @@ export function ContradictionPane({
+                 <code data-testid={`contradiction-source-${idx}`}>
+                   {side.source_id}
+                 </code>
+-                <span
+-                  data-testid={`contradiction-tier-${idx}`}
+-                  className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+-                >
+-                  {side.source_tier}
+-                </span>
++                <div className="flex items-center gap-1">
++                  {(() => {
++                    // Codex iter-1 P2: coalesce undefined to "unspecified"
++                    // and skip badge for that default.
++                    const et = side.evidence_type ?? "unspecified";
++                    if (et === "unspecified") return null;
++                    return (
++                      <span
++                        data-testid={`contradiction-evidence-type-${idx}`}
++                        className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] tracking-widest text-violet-700 uppercase dark:text-violet-300"
++                      >
++                        {EVIDENCE_TYPE_LABEL[et]}
++                      </span>
++                    );
++                  })()}
++                  <span
++                    data-testid={`contradiction-tier-${idx}`}
++                    className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
++                  >
++                    {side.source_tier}
++                  </span>
++                </div>
+               </div>
+               <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+                 {side.sample_size !== null &&
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 3a0bf28..96af1db 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -360,6 +360,41 @@ const REPORT: VerifiedReport = {
+             ],
+           },
+         },
++        // sec_x:29 — guideline-vs-trial conflict (I-f8-005).
++        {
++          section_id: "sec_x",
++          sentence_text:
++            "Guideline-vs-trial: trial says efficacious, guideline disagrees.",
++          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          contradiction: {
++            kind: "multi_source",
++            category: "categorical",
++            disagreeing_source_count: 2,
++            summary:
++              "RCT shows efficacy; clinical practice guideline does not endorse",
++            sides: [
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                evidence_type: "trial",
++                hedge_language: "high confidence",
++                claim_excerpt:
++                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
++              },
++              {
++                source_id: "src-1",
++                source_tier: "T1",
++                evidence_type: "guideline",
++                hedge_language: "moderate confidence",
++                claim_excerpt:
++                  "Cochrane guideline: insufficient evidence to endorse Drug X.",
++              },
++            ],
++          },
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 2a45954..32790b5 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -607,6 +607,15 @@ export interface ReportVerifiedSentence {
+   contradiction?: ContradictionSignal | null;
+ }
+ 
++export type ContradictionEvidenceType =
++  | "trial"
++  | "guideline"
++  | "meta_analysis"
++  | "observational"
++  | "regulatory_label"
++  | "expert_opinion"
++  | "unspecified";
++
+ export interface ContradictionSide {
+   source_id: string;
+   source_tier: "T1" | "T2" | "T3";
+@@ -614,6 +623,7 @@ export interface ContradictionSide {
+   hedge_language: string;
+   pt08_flag?: string | null;
+   claim_excerpt: string;
++  evidence_type?: ContradictionEvidenceType;
+ }
+ 
+ export type ContradictionKind = "multi_source" | "self_contradiction";
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index 046c44c..ddab7fb 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -75,6 +75,20 @@ test("Regulatory category badge in pane (I-f8-004)", async ({ page }) => {
+   );
+ });
+ 
++test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("inspector-contradiction-sec_x:29").click();
++  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(
++    page.getByTestId("contradiction-evidence-type-0"),
++  ).toContainText("Trial");
++  await expect(
++    page.getByTestId("contradiction-evidence-type-1"),
++  ).toContainText("Guideline");
++});
++
+ test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+   await page.goto("/sentence_hover_test");
+   const badge = page.getByTestId("inspector-contradiction-sec_x:27");

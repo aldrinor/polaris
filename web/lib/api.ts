@@ -607,6 +607,15 @@ export interface ReportVerifiedSentence {
   contradiction?: ContradictionSignal | null;
 }
 
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
 export interface ContradictionSide {
   source_id: string;
   source_tier: "T1" | "T2" | "T3";
@@ -614,6 +623,7 @@ export interface ContradictionSide {
   hedge_language: string;
   pt08_flag?: string | null;
   claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
 }
 
 export type ContradictionKind = "multi_source" | "self_contradiction";
