@@ -21,9 +21,19 @@ from polaris_graph.audit_bundle.bundle_builder import (
     SignFn,
     build_audit_bundle,
 )
+from polaris_graph.audit_bundle.bundle_schema import ContentType
+from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
 from polaris_graph.generator2.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
 from polaris_graph.scope.scope_decision import ScopeDecision
+
+PREVIEW_CONTENT_TYPES: tuple[ContentType, ...] = (
+    "scope_decision",
+    "evidence_pool",
+    "verified_report",
+    "source_snapshot",
+    "metadata",
+)
 
 router = APIRouter(tags=["audit-bundle"])
 
@@ -141,6 +151,65 @@ def post_audit_bundle(
         filename=bundle_path.name,
         media_type="application/gzip",
     )
+
+
+@router.post("/audit-bundle/preview")
+def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
+    """Build the manifest only and return it for preview (no GPG, no tar)."""
+    if req.report.pool_id != req.pool.pool_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": "fk_chain_mismatch",
+                "message": (
+                    f"FK chain mismatch: report.pool_id={req.report.pool_id!r}"
+                    f" != pool.pool_id={req.pool.pool_id!r}"
+                ),
+                "report_id": req.report.report_id,
+            },
+        )
+    if req.report.decision_id != req.decision.decision_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": "fk_chain_mismatch",
+                "message": (
+                    f"FK chain mismatch: report.decision_id="
+                    f"{req.report.decision_id!r} != decision.decision_id="
+                    f"{req.decision.decision_id!r}"
+                ),
+                "report_id": req.report.report_id,
+            },
+        )
+    try:
+        manifest, _files_bytes = build_manifest_and_files(
+            req.decision, req.pool, req.report
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": "verdict_not_success",
+                "message": str(exc),
+                "report_id": req.report.report_id,
+            },
+        )
+    breakdown = {ct: {"count": 0, "bytes": 0} for ct in PREVIEW_CONTENT_TYPES}
+    for entry in manifest.files:
+        slot = breakdown[entry.content_type]
+        slot["count"] += 1
+        slot["bytes"] += entry.size_bytes
+    return {
+        "preview_bundle_id": manifest.bundle_id,
+        "generator_model": manifest.generator_model,
+        "polaris_version": manifest.polaris_version,
+        "file_count": len(manifest.files),
+        "total_bytes": manifest.total_bytes(),
+        "content_type_breakdown": breakdown,
+    }
 
 
 @router.get("/audit-bundle/health")
