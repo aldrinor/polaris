@@ -1,0 +1,3066 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e048e-bddd-7731-8974-53fc7ce653d0
+--------
+user
+# Codex Brief Review — I-f9-003 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f9-003 — boundary tests for the two-family disagreement signal (closes F9: 3/3). Verify UI handles two edges:
+  - **0% disagreement (all agree):** every kept sentence has `evaluator_agrees=true`. Zero `evaluator-flag-*` badges should render.
+  - **100% disagreement (all flagged):** every kept sentence has `evaluator_agrees=false` + `evaluator_disagreement` payload. Every kept sentence row shows the badge AND every badge opens a working pane.
+- **Constraints:** Test-only Issue. Reuses I-f5-008 stress harness pattern with new `?disagree=all|none` query param. No backend / production code changes.
+- **Done-when:** acceptance criteria 1-5 below.
+
+## Plan
+
+### Frontend test harness
+1. `web/app/sentence_hover_test/_demo_evaluator_edge.tsx` (new): `EvaluatorEdgeHarness({ mode }: { mode: "all" | "none" })`. Builds a synthetic VerifiedReport with N=12 kept sentences:
+   - mode="none" → all `evaluator_agrees=true`, no `evaluator_disagreement`.
+   - mode="all" → all `evaluator_agrees=false` with full payload.
+2. `web/app/sentence_hover_test/evaluator_edge/page.tsx` (new): Next route reading `?mode=all|none` from search params. Defaults to "none". Validates against the literal set.
+
+### Playwright spec
+3. `web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts` (new): 3 tests:
+   - mode=none → assert ZERO `evaluator-flag-sec_x:*` badges across 12 rows (`getByTestId(/^evaluator-flag-/)` count == 0).
+   - mode=all → assert TWELVE flagged rows (count == 12).
+   - mode=all → click first flagged row's badge → assert EvaluatorPane opens with both readings.
+
+## Risks for Codex Red-Team
+1. **Mode union literal:** TypeScript-narrow `mode: "all" | "none"` rejects bogus search-param values; default to "none".
+2. **Demo back-compat:** new harness lives at separate route; existing `/sentence_hover_test` demo unchanged.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~120 LOC. Under 200.
+
+## Acceptance criteria
+
+1. Harness component + Next route both exist; `?mode=` parsed against literal set.
+2. mode=none renders 12 rows, zero evaluator-flag badges.
+3. mode=all renders 12 rows, twelve evaluator-flag badges.
+4. Click first badge in mode=all → pane opens with generator + evaluator readings.
+5. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll inspect the existing sentence hover demo and e2e patterns so the plan review is grounded in how this repo actually names routes, rows, badges, and panes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "evaluator-flag|EvaluatorPane|sentence_hover_test|evaluator_agrees|evaluator_disagreement|getByTestId|disagree=|mode=" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g '*sentence*' -g '*hover*' -g '*evaluator*' web" in C:\POLARIS
+ succeeded in 9020ms:
+web\tests\e2e\audit_live_multitab.spec.ts:29:  await expect(pageA.getByTestId("run-cancel-btn")).toBeVisible({
+web\tests\e2e\audit_live_multitab.spec.ts:32:  await expect(pageB.getByTestId("run-cancel-btn")).toBeVisible({
+web\tests\e2e\audit_live_multitab.spec.ts:36:  await pageA.getByTestId("run-cancel-btn").click();
+web\tests\e2e\audit_live_multitab.spec.ts:38:  await expect(pageA.getByTestId("run-cancelled")).toBeVisible({
+web\tests\e2e\audit_live_multitab.spec.ts:41:  await expect(pageB.getByTestId("run-cancelled")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:30:  await expect(page.getByTestId("partial-evidence-warning")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:44:  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:61:  await expect(page.getByTestId("panel-verify_decision-count")).toContainText(
+web\tests\e2e\audit_live_adversarial.spec.ts:65:  await expect(page.getByTestId("partial-evidence-warning")).toBeHidden();
+web\tests\e2e\audit_live_adversarial.spec.ts:66:  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
+web\tests\e2e\audit_live_adversarial.spec.ts:82:  await expect(page.getByTestId("panel-source_dropped-count")).toContainText(
+web\tests\e2e\audit_live_adversarial.spec.ts:86:  await expect(page.getByTestId("partial-evidence-warning")).toBeHidden();
+web\tests\e2e\audit_live.spec.ts:22:    await expect(page.getByTestId(`panel-${name}-count`)).toContainText(
+web\tests\e2e\audit_bundle.spec.ts:21:      .getByTestId("generation-question-input")
+web\tests\e2e\audit_bundle.spec.ts:23:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:31:      page.getByTestId("generation-error").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:39:      await expect(page.getByTestId("download-audit-bundle")).toBeVisible();
+web\tests\e2e\audit_bundle.spec.ts:45:      .getByTestId("generation-question-input")
+web\tests\e2e\audit_bundle.spec.ts:47:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\audit_bundle.spec.ts:49:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:53:      page.getByTestId("generation-error").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:59:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\tests\e2e\audit_bundle.spec.ts:69:    await page.getByTestId("download-audit-bundle").click();
+web\tests\e2e\audit_bundle.spec.ts:75:          .getByTestId("audit-bundle-error")
+web\tests\e2e\audit_bundle.spec.ts:87:      await expect(page.getByTestId("audit-bundle-error")).toBeVisible();
+web\tests\e2e\audit_bundle.spec.ts:88:      await expect(page.getByTestId("audit-bundle-error")).toContainText(
+web\tests\e2e\contract_editor.spec.ts:5:  await page.getByTestId("ce-question").fill("Does aspirin reduce headache?");
+web\tests\e2e\contract_editor.spec.ts:6:  await page.getByTestId("ce-by").fill("operator-1");
+web\tests\e2e\contract_editor.spec.ts:7:  await page.getByTestId("ce-ent-name-0").fill("aspirin");
+web\tests\e2e\contract_editor.spec.ts:8:  await page.getByTestId("ce-claim-stmt-0").fill("aspirin reduces headache");
+web\tests\e2e\contract_editor.spec.ts:9:  await page.getByTestId("ce-claim-ents-0").fill("aspirin");
+web\tests\e2e\contract_editor.spec.ts:11:  await page.getByTestId("contract-submit").click();
+web\tests\e2e\contract_editor.spec.ts:12:  await expect(page.getByTestId("contract-saved")).toBeVisible({
+web\tests\e2e\command_palette_suggest.spec.ts:22:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:25:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:31:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+web\tests\e2e\command_palette_suggest.spec.ts:37:    await expect(page.getByTestId("palette-item-clinical")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:42:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:45:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:47:    await page.getByTestId("command-palette-input").fill("BPEI");
+web\tests\e2e\command_palette_suggest.spec.ts:58:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:64:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+web\tests\e2e\command_palette_adversarial.spec.ts:55:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:57:      await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:60:      await page.getByTestId("command-palette-input").fill(input);
+web\tests\e2e\command_palette_adversarial.spec.ts:70:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:72:      await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:75:      await page.getByTestId("command-palette-input").fill(input);
+web\tests\e2e\command_palette_adversarial.spec.ts:78:        page.getByTestId(`palette-item-${expected_id}`),
+web\tests\e2e\command_palette.spec.ts:20:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:23:    const palette = page.getByTestId("command-palette");
+web\tests\e2e\command_palette.spec.ts:26:    await page.getByTestId("command-palette-input").fill("clinical");
+web\tests\e2e\command_palette.spec.ts:35:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:39:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:47:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:55:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:58:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:61:    await expect(page.getByTestId("command-palette")).toBeHidden();
+web\tests\e2e\command_palette.spec.ts:62:    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+web\tests\e2e\bundle_preview.spec.ts:103:  await page.getByTestId("generation-question-input").fill("aspirin headache?");
+web\tests\e2e\bundle_preview.spec.ts:104:  await page.getByTestId("generation-submit").click();
+web\tests\e2e\bundle_preview.spec.ts:105:  await expect(page.getByTestId("bundle-preview")).toBeVisible({
+web\tests\e2e\bundle_preview.spec.ts:108:  await expect(page.getByTestId("bundle-preview-id")).toContainText(
+web\tests\e2e\bundle_preview.spec.ts:111:  await expect(page.getByTestId("bundle-preview-file-count")).toContainText(
+web\tests\e2e\bundle_preview.spec.ts:121:    await expect(page.getByTestId(`bundle-preview-row-${ct}`)).toBeVisible();
+web\tests\e2e\bundle_preview.spec.ts:143:  await page.getByTestId("generation-question-input").fill("aspirin headache?");
+web\tests\e2e\bundle_preview.spec.ts:144:  await page.getByTestId("generation-submit").click();
+web\tests\e2e\bundle_preview.spec.ts:145:  await expect(page.getByTestId("bundle-preview-error")).toBeVisible({
+web\tests\e2e\bundle_preview.spec.ts:148:  await expect(page.getByTestId("bundle-preview-error-code")).toHaveText(
+web\tests\e2e\benchmark.spec.ts:18:    await expect(page.getByTestId("benchmark-page")).toBeVisible();
+web\tests\e2e\benchmark.spec.ts:26:      page.getByTestId("benchmark-no-results-dir").waitFor({
+web\tests\e2e\benchmark.spec.ts:30:      page.getByTestId("benchmark-empty").waitFor({
+web\tests\e2e\benchmark.spec.ts:34:      page.getByTestId("benchmark-list").waitFor({
+web\tests\e2e\benchmark.spec.ts:41:      page.getByTestId("benchmark-no-results-dir").isVisible(),
+web\tests\e2e\benchmark.spec.ts:42:      page.getByTestId("benchmark-empty").isVisible(),
+web\tests\e2e\benchmark.spec.ts:43:      page.getByTestId("benchmark-list").isVisible(),
+web\tests\e2e\generation.spec.ts:21:    await expect(page.getByTestId("generation-page")).toBeVisible();
+web\tests\e2e\generation.spec.ts:25:    await expect(page.getByTestId("generation-question-input")).toBeVisible();
+web\tests\e2e\generation.spec.ts:26:    await expect(page.getByTestId("generation-submit")).toBeVisible();
+web\tests\e2e\generation.spec.ts:33:      .getByTestId("generation-question-input")
+web\tests\e2e\generation.spec.ts:35:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\generation.spec.ts:36:    await expect(page.getByTestId("scope-unsuitable")).toBeVisible({
+web\tests\e2e\generation.spec.ts:45:      .getByTestId("generation-question-input")
+web\tests\e2e\generation.spec.ts:47:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\generation.spec.ts:48:    await expect(page.getByTestId("scope-unsuitable")).toBeVisible({
+web\tests\e2e\generation.spec.ts:57:      .getByTestId("generation-question-input")
+web\tests\e2e\generation.spec.ts:59:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\generation.spec.ts:65:        .getByTestId("generation-error")
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:73:      .getByTestId("generation-error")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:83:      await expect(page.getByTestId("generation-error")).toContainText(
+web\tests\e2e\generation.spec.ts:89:      await expect(page.getByTestId("verdict-badge")).toBeVisible();
+web\tests\e2e\generation.spec.ts:91:      await expect(page.getByTestId("toggle-dropped")).toBeVisible();
+web\tests\e2e\generation.spec.ts:98:    await page.getByTestId("generation-question-input").fill("ab");
+web\tests\e2e\generation.spec.ts:99:    await page.getByTestId("generation-submit").click();
+web\tests\e2e\generation.spec.ts:100:    await expect(page.getByTestId("generation-error")).toBeVisible();
+web\tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:7:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web\tests\e2e\frame_coverage_panel.spec.ts:8:  await expect(page.getByTestId("frame-coverage-progress")).toBeVisible();
+web\tests\e2e\frame_coverage_panel.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web\tests\e2e\frame_coverage_panel.spec.ts:13:  const gap = page.getByTestId("frame-coverage-gap-0");
+web\tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:24:  await page.getByTestId("frame-coverage-gap-0").click();
+web\tests\e2e\frame_coverage_panel.spec.ts:25:  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
+web\tests\e2e\frame_coverage_panel.spec.ts:28:  await expect(page.getByTestId("frame-gap-detail-title")).toContainText(
+web\tests\e2e\frame_coverage_panel.spec.ts:31:  await expect(page.getByTestId("frame-gap-action")).toContainText(
+web\tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:51:  await page.getByTestId("frame-coverage-gap-0").click();
+web\tests\e2e\frame_coverage_panel.spec.ts:52:  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
+web\tests\e2e\frame_coverage_panel.spec.ts:55:  await page.getByTestId("frame-gap-copy-button").click();
+web\tests\e2e\frame_coverage_panel.spec.ts:56:  await expect(page.getByTestId("frame-gap-copy-confirm")).toBeVisible();
+web\tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:7:  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:8:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:10:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web\tests\e2e\frame_coverage_adversarial.spec.ts:13:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:18:  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:19:  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:20:  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
+web\tests\e2e\frame_coverage_adversarial.spec.ts:21:  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
+web\tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:30:  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:31:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:32:  await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
+web\tests\e2e\frame_coverage_adversarial.spec.ts:33:  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
+web\tests\e2e\frame_coverage_adversarial.spec.ts:34:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web\tests\e2e\frame_coverage_adversarial.spec.ts:37:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
+web\tests\e2e\f2_walkthrough.spec.ts:81:    await page.getByTestId("intake-question-input").fill(q);
+web\tests\e2e\f2_walkthrough.spec.ts:82:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\f2_walkthrough.spec.ts:117:      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\f2_walkthrough.spec.ts:135:      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\f2_walkthrough.spec.ts:156:      await expect(page.getByTestId("intake-error")).toContainText("English");
+web\tests\e2e\f2_walkthrough.spec.ts:169:      await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+web\tests\e2e\f2_walkthrough.spec.ts:188:        await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
+web\tests\e2e\f2_walkthrough.spec.ts:191:        await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
+web\tests\e2e\f2_walkthrough.spec.ts:198:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\f2_walkthrough.spec.ts:199:    await expect(page.getByTestId("intake-error")).toContainText(
+web\tests\e2e\f2_walkthrough.spec.ts:205:    await page.getByTestId("intake-question-input").fill("   ");
+web\tests\e2e\f2_walkthrough.spec.ts:206:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\f2_walkthrough.spec.ts:207:    await expect(page.getByTestId("intake-error")).toContainText(
+web\tests\e2e\f2_walkthrough.spec.ts:218:    await page.getByTestId("intake-question-input").fill("a".repeat(2500));
+web\tests\e2e\f2_walkthrough.spec.ts:220:      (await page.getByTestId("intake-question-input").inputValue()).length,
+web\tests\e2e\f2_walkthrough.spec.ts:235:        page.getByTestId(`disambiguation-cluster-${cid}`),
+web\tests\e2e\f2_walkthrough.spec.ts:237:      await page.getByTestId(`disambiguation-cluster-${cid}`).click();
+web\tests\e2e\f2_walkthrough.spec.ts:238:      await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+web\tests\e2e\f2_walkthrough.spec.ts:252:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web\tests\e2e\f2_walkthrough.spec.ts:254:    await expect(page.getByTestId("disambig-picked-label")).toHaveText("");
+web\tests\e2e\f1_multi_tab.spec.ts:20:  await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\f1_multi_tab.spec.ts:22:  await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\f1_multi_tab.spec.ts:36:  await pageA.getByTestId("command-palette-input").fill("tirzepatide");
+web\tests\e2e\f1_multi_tab.spec.ts:37:  await pageB.getByTestId("command-palette-input").fill("housing");
+web\tests\e2e\f1_multi_tab.spec.ts:38:  await pageC.getByTestId("command-palette-input").fill("tariff");
+web\tests\e2e\f1_multi_tab.spec.ts:41:  await expect(pageA.getByTestId("palette-item-clinical")).toBeVisible({
+web\tests\e2e\f1_multi_tab.spec.ts:44:  await expect(pageB.getByTestId("palette-item-housing")).toBeVisible({
+web\tests\e2e\f1_multi_tab.spec.ts:47:  await expect(pageC.getByTestId("palette-item-trade")).toBeVisible({
+web\tests\e2e\f1_multi_tab.spec.ts:58:  await pageB.getByTestId("command-palette-input").fill("");
+web\tests\e2e\f1_multi_tab.spec.ts:63:  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
+web\tests\e2e\f1_multi_tab.spec.ts:68:  await pageA.getByTestId("command-palette-input").fill("");
+web\tests\e2e\f1_multi_tab.spec.ts:74:  await expect(pageA.getByTestId("palette-item-climate")).toHaveAttribute(
+web\tests\e2e\f1_multi_tab.spec.ts:85:  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
+web\tests\e2e\f1_multi_tab.spec.ts:89:  await expect(pageB.getByTestId("palette-item-climate")).not.toHaveAttribute(
+web\tests\e2e\f1_multi_tab.spec.ts:95:  await expect(pageC.getByTestId("palette-item-trade")).toHaveAttribute(
+web\tests\e2e\f1_a11y.spec.ts:24:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\f1_a11y.spec.ts:26:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web\tests\e2e\f1_a11y.spec.ts:39:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web\tests\e2e\disambiguation_modal.spec.ts:11:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web\tests\e2e\disambiguation_modal.spec.ts:17:        page.getByTestId(`disambiguation-cluster-${i}`),
+web\tests\e2e\disambiguation_modal.spec.ts:21:    await page.getByTestId("disambiguation-cluster-1").click();
+web\tests\e2e\disambiguation_modal.spec.ts:22:    await expect(page.getByTestId("last-picked")).toHaveText("1");
+web\tests\e2e\disambiguation_modal.spec.ts:24:    await page.getByTestId("reopen").click();
+web\tests\e2e\disambiguation_modal.spec.ts:25:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web\tests\e2e\disambiguation_modal.spec.ts:27:    await expect(page.getByTestId("last-picked")).toHaveText("");
+web\tests\e2e\demo_walkthrough.spec.ts:27:    await expect(page.getByTestId("template-grid")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:30:    await page.getByTestId("template-card-clinical-link").click();
+web\tests\e2e\demo_walkthrough.spec.ts:32:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:33:    await expect(page.getByTestId("intake-question-input")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:37:    await expect(page.getByTestId("retrieval-page")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:41:    await expect(page.getByTestId("generation-page")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:45:    await expect(page.getByTestId("benchmark-page")).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:61:      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+web\tests\e2e\demo_walkthrough.spec.ts:64:      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+web\tests\e2e\intake_edge.spec.ts:14:    .getByTestId("intake-question-input")
+web\tests\e2e\intake_edge.spec.ts:18:  await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake_edge.spec.ts:20:  await expect(page.getByTestId("intake-error")).toBeVisible();
+web\tests\e2e\intake_edge.spec.ts:21:  await expect(page.getByTestId("intake-error")).toContainText(
+web\tests\e2e\intake_edge.spec.ts:31:  await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+web\tests\e2e\intake_edge.spec.ts:48:  await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
+web\tests\e2e\intake_edge.spec.ts:49:  await page.getByTestId("pdf-drop-dismiss").click();
+web\tests\e2e\intake_edge.spec.ts:50:  await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\intake_disambiguation_negative.spec.ts:42:  await page.getByTestId("intake-question-input").fill(TIRZEPATIDE_QUESTION);
+web\tests\e2e\intake_disambiguation_negative.spec.ts:43:  await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake_disambiguation_negative.spec.ts:44:  await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake_disambiguation_negative.spec.ts:96:  await page.getByTestId("intake-question-input").fill(TIRZEPATIDE_QUESTION);
+web\tests\e2e\intake_disambiguation_negative.spec.ts:97:  await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake_disambiguation_negative.spec.ts:98:  await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:21:    await expect(page.getByTestId("retrieval-page")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:25:    await expect(page.getByTestId("retrieval-question-input")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:26:    await expect(page.getByTestId("retrieval-submit")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:33:      .getByTestId("retrieval-question-input")
+web\tests\e2e\retrieval.spec.ts:36:    await page.getByTestId("retrieval-submit").click();
+web\tests\e2e\retrieval.spec.ts:38:    await expect(page.getByTestId("scope-unsuitable")).toBeVisible({
+web\tests\e2e\retrieval.spec.ts:47:      .getByTestId("retrieval-question-input")
+web\tests\e2e\retrieval.spec.ts:50:    await page.getByTestId("retrieval-submit").click();
+web\tests\e2e\retrieval.spec.ts:52:    await expect(page.getByTestId("scope-unsuitable")).toBeVisible({
+web\tests\e2e\retrieval.spec.ts:61:      .getByTestId("retrieval-question-input")
+web\tests\e2e\retrieval.spec.ts:64:    await page.getByTestId("retrieval-submit").click();
+web\tests\e2e\retrieval.spec.ts:71:        .getByTestId("retrieval-error")
+web\tests\e2e\retrieval.spec.ts:74:        .getByTestId("corpus-brief")
+web\tests\e2e\retrieval.spec.ts:79:      .getByTestId("retrieval-error")
+web\tests\e2e\retrieval.spec.ts:82:      .getByTestId("corpus-brief")
+web\tests\e2e\retrieval.spec.ts:89:      await expect(page.getByTestId("retrieval-error")).toContainText(
+web\tests\e2e\retrieval.spec.ts:96:      await expect(page.getByTestId("adequacy-badge")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:97:      await expect(page.getByTestId("tier-badge-T1")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:98:      await expect(page.getByTestId("tier-badge-T2")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:99:      await expect(page.getByTestId("tier-badge-T3")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:106:    await page.getByTestId("retrieval-question-input").fill("ab");
+web\tests\e2e\retrieval.spec.ts:107:    await page.getByTestId("retrieval-submit").click();
+web\tests\e2e\retrieval.spec.ts:108:    await expect(page.getByTestId("retrieval-error")).toBeVisible();
+web\tests\e2e\landing_template_grid.spec.ts:40:      await expect(page.getByTestId("template-grid")).toBeVisible();
+web\tests\e2e\landing_template_grid.spec.ts:43:        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+web\tests\e2e\landing_template_grid.spec.ts:46:        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+web\tests\e2e\landing_template_grid.spec.ts:61:      const link = page.getByTestId(`template-card-${id}-link`);
+web\tests\e2e\landing_template_grid.spec.ts:71:      const card = page.getByTestId(`template-card-${id}`);
+web\tests\e2e\landing_template_grid.spec.ts:74:      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
+web\tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:12:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_source.spec.ts:16:  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+web\tests\e2e\sentence_inspector_source.spec.ts:20:  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+web\tests\e2e\sentence_inspector_source.spec.ts:23:  await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
+web\tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:32:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:35:  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:36:  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:11:  await expect(page.getByTestId("inspector-retracted-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:22:  await expect(page.getByTestId("inspector-stale-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:33:  await expect(page.getByTestId("inspector-retracted-0")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:34:  await expect(page.getByTestId("inspector-stale-0")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:13:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:14:  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:16:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:19:  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:20:  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:29:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:33:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:34:  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:35:  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:37:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:38:  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:39:  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+web\tests\e2e\intake.spec.ts:20:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web\tests\e2e\intake.spec.ts:22:    await expect(page.getByTestId("intake-question-input")).toBeVisible();
+web\tests\e2e\intake.spec.ts:23:    await expect(page.getByTestId("intake-submit")).toBeVisible();
+web\tests\e2e\intake.spec.ts:30:      .getByTestId("intake-question-input")
+web\tests\e2e\intake.spec.ts:34:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake.spec.ts:35:    await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake.spec.ts:38:    await expect(page.getByTestId("scope-status-badge")).toContainText(
+web\tests\e2e\intake.spec.ts:41:    await expect(page.getByTestId("scope-class-value")).toContainText(
+web\tests\e2e\intake.spec.ts:51:      .getByTestId("intake-question-input")
+web\tests\e2e\intake.spec.ts:54:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake.spec.ts:55:    await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake.spec.ts:56:    await expect(page.getByTestId("scope-status-badge")).toContainText(
+web\tests\e2e\intake.spec.ts:59:    await expect(page.getByTestId("scope-class-value")).toContainText("—");
+web\tests\e2e\intake.spec.ts:64:      .getByTestId("intake-question-input")
+web\tests\e2e\intake.spec.ts:67:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake.spec.ts:68:    await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake.spec.ts:69:    await expect(page.getByTestId("scope-status-badge")).toContainText(
+web\tests\e2e\intake.spec.ts:76:      .getByTestId("intake-question-input")
+web\tests\e2e\intake.spec.ts:81:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake.spec.ts:82:    await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake.spec.ts:88:    await expect(page.getByTestId("axis-row-population")).toContainText(
+web\tests\e2e\intake.spec.ts:94:    await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+web\tests\e2e\intake.spec.ts:100:    await page.getByTestId("intake-question-input").fill("ab");
+web\tests\e2e\intake.spec.ts:101:    await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake.spec.ts:102:    await expect(page.getByTestId("intake-error")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web\tests\e2e\sentence_inspector_latency.spec.ts:8:    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web\tests\e2e\sentence_inspector_latency.spec.ts:44:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:3:test("Row shows evaluator-flag badge when evaluator_agrees=false", async ({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:7:  const badge = page.getByTestId("evaluator-flag-sec_x:11");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:12:test("Row does NOT show evaluator-flag for evaluator_agrees=true", async ({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:15:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:16:  await expect(page.getByTestId("evaluator-flag-sec_x:5")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:19:test("Row does NOT show evaluator-flag for evaluator_agrees=null pending", async ({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:23:  await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:26:test("Click evaluator-flag → EvaluatorPane shows generator + evaluator readings (I-f9-002)", async ({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:30:  await page.getByTestId("evaluator-flag-sec_x:11").click();
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:31:  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:35:    page.getByTestId("evaluator-pane-generator-reading"),
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:38:    page.getByTestId("evaluator-pane-evaluator-reading"),
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:40:  await expect(page.getByTestId("evaluator-pane-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:43:  await expect(page.getByTestId("evaluator-pane-model")).toContainText(
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:47:  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:8:  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:20:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:30:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:31:  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:32:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:35:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:39:  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:40:  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:41:  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:43:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:46:  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:47:  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:50:  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:53:  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:54:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:58:  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:63:  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:64:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:67:  await expect(page.getByTestId("contradiction-category")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:70:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:73:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:80:  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:81:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:85:    page.getByTestId("contradiction-evidence-type-0"),
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:88:    page.getByTestId("contradiction-evidence-type-1"),
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:94:  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:95:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:99:    page.getByTestId("contradiction-jurisdiction-0"),
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:102:    page.getByTestId("contradiction-jurisdiction-1"),
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:107:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:108:  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:113:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:116:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:120:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:123:  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:126:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:127:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:55:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:56:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:93:    const sheet = page.getByTestId("sentence-inspector-sheet");
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:106:    await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web\tests\e2e\intake_disambiguation.spec.ts:67:  await page.getByTestId("intake-question-input").fill("BPEI");
+web\tests\e2e\intake_disambiguation.spec.ts:70:  await page.getByTestId("intake-submit").click();
+web\tests\e2e\intake_disambiguation.spec.ts:71:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web\tests\e2e\intake_disambiguation.spec.ts:79:  await page.getByTestId("disambiguation-cluster-1").click();
+web\tests\e2e\intake_disambiguation.spec.ts:80:  await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+web\tests\e2e\intake_disambiguation.spec.ts:83:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:3:test("Inspector renders Agree badge when evaluator_agrees=true", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:11:  await expect(page.getByTestId("inspector-agree")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:14:test("Inspector renders Disagree badge when evaluator_agrees=false", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:22:  await expect(page.getByTestId("inspector-disagree")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:25:test("Inspector renders Pending badge when evaluator_agrees=null", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:33:  await expect(page.getByTestId("inspector-agree-pending")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:38:  await expect(page.getByTestId("family-segregated")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:39:  await expect(page.getByTestId("report-evaluator")).toContainText(
+web\tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector.spec.ts:12:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector.spec.ts:15:  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
+web\tests\e2e\sentence_inspector.spec.ts:18:  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:11:  await expect(page.getByTestId("inspector-paywalled-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:13:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:24:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:28:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:31:    page.getByTestId("inspector-span-out-of-range-0-1"),
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:41:  await expect(row.getByTestId("inspector-t1-conflict")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:49:  await expect(row.getByTestId("inspector-t1-conflict")).toHaveCount(0);
+web\tests\e2e\upload_doc_preview.spec.ts:70:  await page.getByTestId("chunk-1").click();
+web\tests\e2e\upload_evidence_toggle.spec.ts:53:  const indicator = page.getByTestId("selected-doc-ids");
+web\tests\e2e\upload_dropzone.spec.ts:56:  await expect(page.getByTestId("upload-doc-id")).toBeVisible();
+web\tests\e2e\sse_client.spec.ts:16:  await expect(page.getByTestId("sse-harness")).toBeVisible();
+web\tests\e2e\sse_client.spec.ts:32:  await expect(page.getByTestId("sse-harness")).toBeVisible();
+web\tests\e2e\upload_parse_status.spec.ts:66:  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+web\tests\e2e\upload_parse_status.spec.ts:71:  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:12:  await expect(page.getByTestId("inspector-synthesis-claim")).toBeVisible();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:21:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:24:  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:13:  await expect(page.getByTestId("assertion-surface-legend")).toBeVisible();
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:14:  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:17:  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:28:    await expect(row.getByTestId(`surface-badge-${surface}`)).toBeVisible();
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:30:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\lib\api.ts:604:  evaluator_agrees: boolean | null;
+web\lib\api.ts:608:  evaluator_disagreement?: EvaluatorDisagreement | null;
+web\app\generation\components\verified_report_view.tsx:21:import { EvaluatorPane } from "./evaluator_pane";
+web\app\generation\components\verified_report_view.tsx:169:      {!dropped && sentence.evaluator_agrees === false ? (
+web\app\generation\components\verified_report_view.tsx:172:          data-testid={`evaluator-flag-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:176:            if (sentence.evaluator_disagreement)
+web\app\generation\components\verified_report_view.tsx:177:              onSelectEvaluator(sentence.evaluator_disagreement);
+web\app\generation\components\verified_report_view.tsx:183:              if (sentence.evaluator_disagreement)
+web\app\generation\components\verified_report_view.tsx:184:                onSelectEvaluator(sentence.evaluator_disagreement);
+web\app\generation\components\verified_report_view.tsx:425:      <EvaluatorPane
+web\app\generation\components\sentence_inspector.tsx:62:  evaluator_agrees,
+web\app\generation\components\sentence_inspector.tsx:64:  evaluator_agrees: boolean | null;
+web\app\generation\components\sentence_inspector.tsx:66:  if (evaluator_agrees === true) {
+web\app\generation\components\sentence_inspector.tsx:77:  if (evaluator_agrees === false) {
+web\app\generation\components\sentence_inspector.tsx:283:                    evaluator_agrees={sentence.evaluator_agrees}
+web\app\generation\components\evaluator_pane.tsx:12:export function EvaluatorPane({
+web\app\sentence_hover_test\_demo_stress.tsx:65:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo_coverage.tsx:90:            evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:127:            evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:137:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:146:          evaluator_agrees: false,
+web\app\sentence_hover_test\_demo.tsx:147:          // I-f9-002: detail payload powering EvaluatorPane.
+web\app\sentence_hover_test\_demo.tsx:148:          evaluator_disagreement: {
+web\app\sentence_hover_test\_demo.tsx:164:          evaluator_agrees: null,
+web\app\sentence_hover_test\_demo.tsx:173:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:182:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:191:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:201:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:210:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:227:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:237:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:249:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:258:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:271:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:315:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:350:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:380:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:415:          evaluator_agrees: true,
+
+ succeeded in 9509ms:
+web\tests\e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\lib\sentence_highlight.ts
+web\app\generation\components\sentence_inspector.tsx
+web\app\generation\components\evaluator_pane.tsx
+
+codex
+The existing implementation already has evaluator-flag test ids and a stress route. I’m narrowing to the component contract and the current route/test conventions, since that’s where a plan-only blocker would show up.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\_demo_stress.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_evaluator_flag.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\evaluator_pane.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\stress\\page.tsx" in C:\POLARIS
+ succeeded in 922ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const FULL_TEXT =
+  "The randomized trial enrolled adults and demonstrated a significant outcome at endpoint assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-stress-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Stress source ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J"],
+    snippet: FULL_TEXT.slice(0, 80),
+    full_text_available: true,
+    full_text: FULL_TEXT,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+export function StressHarness({ n }: { n: number }) {
+  const pool: EvidencePool = {
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sources: Array.from({ length: Math.min(n, 50) }, (_, i) => _src(i)),
+    adequacy: {
+      is_adequate: true,
+      sources_per_tier: { T1: Math.min(n, 50), T2: 0, T3: 0 },
+      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+      failure_reason: null,
+    },
+    queries_executed: ["stress"],
+    retrieval_started_at_utc: ISO,
+    retrieval_finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  const report: VerifiedReport = {
+    report_id: `r-stress-${n}`,
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sections: [
+      {
+        section_id: "sec_stress",
+        section_title: `Stress section (n=${n})`,
+        verified_sentences: Array.from({ length: n }, (_, i) => ({
+          section_id: "sec_stress",
+          sentence_text: `Stress sentence ${i} cites a source.`,
+          provenance_tokens: [
+            `[#ev:src-${i % Math.min(n, 50)}:0-${Math.min(40, FULL_TEXT.length)}]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        })),
+        section_verify_pass_rate: 1.0,
+        section_status: "verified",
+      },
+    ],
+    overall_verify_pass_rate: 1.0,
+    pipeline_verdict: "success",
+    generator_model: "test/stress",
+    evaluator_model: "strict_verify_v1",
+    family_segregation_passed: true,
+    verifier_pass_threshold: 0.4,
+    started_at_utc: ISO,
+    finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  return (
+    <div
+      data-testid={`inspector-latency-${n}`}
+      className="mx-auto max-w-4xl p-6"
+    >
+      <VerifiedReportView report={report} pool={pool} />
+    </div>
+  );
+}
+
+ succeeded in 940ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type { EvaluatorDisagreement } from "@/lib/api";
+
+export function EvaluatorPane({
+  open,
+  disagreement,
+  onOpenChange,
+}: {
+  open: boolean;
+  disagreement: EvaluatorDisagreement | null;
+  onOpenChange: (next: boolean) => void;
+}) {
+  // Codex iter-1 P2: clear fallback when disagreement payload is absent.
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="evaluator-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="evaluator-pane-title">
+            Generator vs Evaluator readings
+          </SheetTitle>
+          <SheetDescription>
+            Two-family evaluator disagrees with generator's claim. Compare both
+            readings against the same cited evidence.
+          </SheetDescription>
+        </SheetHeader>
+        {disagreement ? (
+          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+            <div
+              data-testid="evaluator-pane-generator-reading"
+              className="border-border rounded border bg-blue-500/5 p-2 text-xs"
+            >
+              <strong className="text-blue-700 dark:text-blue-300">
+                Generator:
+              </strong>{" "}
+              {disagreement.generator_reading}
+            </div>
+            <div
+              data-testid="evaluator-pane-evaluator-reading"
+              className="border-border rounded border bg-rose-500/5 p-2 text-xs"
+            >
+              <strong className="text-rose-700 dark:text-rose-300">
+                Evaluator:
+              </strong>{" "}
+              {disagreement.evaluator_reading}
+            </div>
+            <div className="text-muted-foreground text-xs">
+              <strong>Both reviewed:</strong>{" "}
+              <span className="flex flex-wrap gap-1">
+                {disagreement.cited_sources.map((src, i) => (
+                  <code
+                    key={i}
+                    data-testid={`evaluator-pane-source-${i}`}
+                    className="bg-muted/40 rounded px-1"
+                  >
+                    {src}
+                  </code>
+                ))}
+              </span>
+            </div>
+            <div className="text-muted-foreground text-xs">
+              <strong>Evaluator model:</strong>{" "}
+              <span data-testid="evaluator-pane-model">
+                {disagreement.evaluator_model}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p
+            data-testid="evaluator-pane-empty"
+            className="text-muted-foreground px-4 pb-4 text-sm italic"
+          >
+            No evaluator disagreement detail available.
+          </p>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 1031ms:
+import { expect, test } from "@playwright/test";
+
+test("Row shows evaluator-flag badge when evaluator_agrees=false", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const badge = page.getByTestId("evaluator-flag-sec_x:11");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Internal evaluator flagged this");
+});
+
+test("Row does NOT show evaluator-flag for evaluator_agrees=true", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("evaluator-flag-sec_x:5")).toHaveCount(0);
+});
+
+test("Row does NOT show evaluator-flag for evaluator_agrees=null pending", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+});
+
+test("Click evaluator-flag → EvaluatorPane shows generator + evaluator readings (I-f9-002)", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("evaluator-flag-sec_x:11").click();
+  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("evaluator-pane-generator-reading"),
+  ).toContainText("30%");
+  await expect(
+    page.getByTestId("evaluator-pane-evaluator-reading"),
+  ).toContainText("confidence interval");
+  await expect(page.getByTestId("evaluator-pane-source-0")).toContainText(
+    "src-1",
+  );
+  await expect(page.getByTestId("evaluator-pane-model")).toContainText(
+    "qwen-3.5-plus",
+  );
+  // SentenceInspector did NOT also open (propagation guard).
+  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+});
+
+ succeeded in 1078ms:
+import { StressHarness } from "../_demo_stress";
+
+export default async function StressPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ n?: string }>;
+}) {
+  const params = await searchParams;
+  const n = Number.parseInt(params.n ?? "50", 10);
+  const safe_n = Number.isFinite(n) && n > 0 && n <= 1000 ? n : 50;
+  return <StressHarness n={safe_n} />;
+}
+
+ succeeded in 1092ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvaluatorDisagreement,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { ContradictionPane } from "./contradiction_pane";
+import { EvaluatorPane } from "./evaluator_pane";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.evaluator_agrees === false ? (
+        <button
+          type="button"
+          data-testid={`evaluator-flag-${sentence_id}`}
+          title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+          onClick={(e) => {
+            e.stopPropagation();
+            if (sentence.evaluator_disagreement)
+              onSelectEvaluator(sentence.evaluator_disagreement);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.evaluator_disagreement)
+                onSelectEvaluator(sentence.evaluator_disagreement);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+        >
+          ⚠ Internal evaluator flagged this
+        </button>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                onSelectEvaluator={onSelectEvaluator}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] = useState<
+    ContradictionSignal | null
+  >(null);
+  const [evaluator_open, set_evaluator_open] =
+    useState<EvaluatorDisagreement | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          onSelectEvaluator={(d) => set_evaluator_open(d)}
+          pool={pool}
+        />
+      ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
+      <EvaluatorPane
+        open={evaluator_open !== null}
+        disagreement={evaluator_open}
+        onOpenChange={(open) => {
+          if (!open) set_evaluator_open(null);
+        }}
+      />
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+codex
+One possible issue is the query parameter name: the pre-flight constraint says `?disagree=all|none`, while the plan and acceptance criteria say `?mode=all|none`. I’m checking whether there are other repo-contract mismatches before assigning severity.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\_demo.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\coverage\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_ai_agent.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_latency.spec.ts" in C:\POLARIS
+ succeeded in 1119ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+
+// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const SOURCE_FULL_TEXT_5 =
+  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Cochrane review ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J", "Doe R", "Patel K"],
+    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+    full_text_available: true,
+    full_text: SOURCE_FULL_TEXT_5,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+const SRC_RETRACTED: RetrievalSource = {
+  source_id: "src-retracted",
+  url: "https://www.cochrane.org/CD-retracted",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (retracted)",
+  publication_date: FRESH_DATE,
+  authors: ["Doe R"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+  retracted: true,
+};
+
+const SRC_PAYWALLED: RetrievalSource = {
+  source_id: "src-paywalled",
+  url: "https://nejm.org/paywalled/abc",
+  domain: "nejm.org",
+  tier: "T1",
+  title: "Paywalled NEJM article",
+  publication_date: FRESH_DATE,
+  authors: ["Jones B"],
+  snippet: "Abstract excerpt only — full text behind paywall.",
+  full_text_available: false,
+  full_text: null,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const SRC_STALE: RetrievalSource = {
+  source_id: "src-stale",
+  url: "https://www.cochrane.org/CD-stale",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (3y old)",
+  publication_date: STALE_DATE,
+  authors: ["Patel K"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const POOL: EvidencePool = {
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sources: [
+    ...Array.from({ length: 10 }, (_, i) => _src(i)),
+    SRC_RETRACTED,
+    SRC_STALE,
+    SRC_PAYWALLED,
+  ],
+  adequacy: {
+    is_adequate: true,
+    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+    failure_reason: null,
+  },
+  queries_executed: ["aspirin migraine"],
+  retrieval_started_at_utc: ISO,
+  retrieval_finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+const REPORT: VerifiedReport = {
+  report_id: "r-hover-test",
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sections: [
+    {
+      section_id: "sec_x",
+      section_title: "Test section",
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
+          section_id: "sec_x",
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+          // I-f9-002: detail payload powering EvaluatorPane.
+          evaluator_disagreement: {
+            generator_reading:
+              "Generator concluded: drug X reduces 30-day mortality by 30% in adults.",
+            evaluator_reading:
+              "Evaluator reading: confidence interval overlaps null; effect size likely 10-20% not 30%.",
+            cited_sources: ["src-1"],
+            evaluator_model: "qwen-3.5-plus",
+          },
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+        {
+          section_id: "sec_x",
+          sentence_text: "These trials together suggest a moderate effect.",
+          provenance_tokens: [],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          is_synthesis_claim: true,
+        },
+        // sec_x:16 — retracted source (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Retracted-source demo sentence.",
+          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:17 — stale source >2y (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Stale-source demo sentence.",
+          provenance_tokens: [`[#ev:src-stale:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+        ...(
+          [
+            "table",
+            "summary_bullet",
+            "limitation",
+            "caption",
+            "heading",
+          ] as const
+        ).map((surface, k) => ({
+          section_id: "sec_x",
+          sentence_text: `${surface} assertion demo sentence.`,
+          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          assertion_surface: surface,
+        })),
+        // sec_x:23 — paywalled source (I-f5-010 case 1).
+        {
+          section_id: "sec_x",
+          sentence_text: "Paywalled-source demo sentence cites NEJM.",
+          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span with bad span demo sentence.",
+          provenance_tokens: [
+            `[#ev:src-0:0-30]`,
+            `[#ev:src-0:5000-5050]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+        {
+          section_id: "sec_x",
+          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+        {
+          section_id: "sec_x",
+          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+          provenance_tokens: [
+            `[#ev:src-0:0-20]`,
+            `[#ev:src-1:0-20]`,
+            `[#ev:src-2:0-20]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "numeric",
+            disagreeing_source_count: 3,
+            summary: "Three Cochrane reviews disagree on dose-response curve",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: "PT04",
+                claim_excerpt:
+                  "Aspirin significantly reduces headache at 81mg dose.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T2",
+                sample_size: 432,
+                hedge_language: "moderate confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin shows mixed results below 162mg threshold.",
+              },
+              {
+                source_id: "src-2",
+                source_tier: "T1",
+                sample_size: 2103,
+                hedge_language: "high confidence",
+                pt08_flag: "PT08",
+                claim_excerpt:
+                  "Aspirin demonstrates dose-response saturation above 325mg.",
+              },
+            ],
+          },
+        },
+        // sec_x:27 — self-contradiction (I-f8-003).
+        {
+          section_id: "sec_x",
+          sentence_text: "Self-contradiction demo: same source on both sides.",
+          provenance_tokens: [`[#ev:src-0:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "self_contradiction",
+            category: "categorical",
+            disagreeing_source_count: 1,
+            summary: "Single source contradicts itself across two paragraphs",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt: "Aspirin is safe at chronic doses.",
+              },
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin is dangerous beyond 8 weeks of chronic use.",
+              },
+            ],
+          },
+        },
+        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Regulatory non-numeric contradiction: FDA approved vs not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "regulatory",
+            disagreeing_source_count: 2,
+            summary: "FDA-approved per source A, not approved per source B",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is FDA-approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is NOT FDA-approved for indication Y.",
+              },
+            ],
+          },
+        },
+        // sec_x:29 — guideline-vs-trial conflict (I-f8-005).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Guideline-vs-trial: trial says efficacious, guideline disagrees.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "categorical",
+            disagreeing_source_count: 2,
+            summary:
+              "RCT shows efficacy; clinical practice guideline does not endorse",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "trial",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "guideline",
+                hedge_language: "moderate confidence",
+                claim_excerpt:
+                  "Cochrane guideline: insufficient evidence to endorse Drug X.",
+              },
+            ],
+          },
+        },
+        // sec_x:30 — jurisdictional disagreement (I-f8-006). FDA vs Health Canada.
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Jurisdictional disagreement: FDA approved, Health Canada not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "jurisdictional",
+            disagreeing_source_count: 2,
+            summary: "FDA approves; Health Canada has not approved",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "us",
+                hedge_language: "high confidence",
+                claim_excerpt: "FDA: Drug X approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "canada",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Health Canada: Drug X submission under review, not yet approved.",
+              },
+            ],
+          },
+        },
+      ],
+      section_verify_pass_rate: 1.0,
+      section_status: "verified",
+    },
+  ],
+  overall_verify_pass_rate: 1.0,
+  pipeline_verdict: "success",
+  generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
+  frame_coverage: {
+    covered_entity_count: 14,
+    total_entity_count: 15,
+    gaps: [
+      {
+        entity_name: "Pediatric population",
+        reason: "no_oa",
+        reason_detail: "no open-access version of Cochrane review",
+      },
+    ],
+  },
+  verifier_pass_threshold: 0.4,
+  started_at_utc: ISO,
+  finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+export function SentenceHoverHarness() {
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <VerifiedReportView report={REPORT} pool={POOL} />
+    </div>
+  );
+}
+
+ succeeded in 1303ms:
+import { CoverageHarness } from "../_demo_coverage";
+
+function clamp_non_negative_int(raw: string | undefined, dflt: number): number {
+  if (raw === undefined) return dflt;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return dflt;
+  return Math.min(n, 100);
+}
+
+export default async function CoveragePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+}) {
+  const params = await searchParams;
+  const covered = clamp_non_negative_int(params.covered, 14);
+  const gap_count = clamp_non_negative_int(params.gap_count, 1);
+  return <CoverageHarness covered={covered} gap_count={gap_count} />;
+}
+
+ succeeded in 1327ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+ * http://127.0.0.1:8000 for local development).
+ */
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
+
+export type TemplateId =
+  | "clinical"
+  | "trade"
+  | "housing"
+  | "defense"
+  | "climate"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await fetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await fetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given BPEI chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+ succeeded in 1367ms:
+import { expect, test } from "@playwright/test";
+
+const TIERS = [50, 100, 200, 500];
+
+for (const n of TIERS) {
+  test(`Inspector opens in <1000ms at n=${n} sentences`, async ({ page }) => {
+    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+    // Codex iter-1 P2: assert row count to prevent false-pass with fewer rows.
+    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+
+    // Codex iter-1 P2: use performance.now() for tighter precision.
+    const elapsed_ms = await page.evaluate(async () => {
+      const target = document.querySelector(
+        '[data-sentence-id="sec_stress:0"]',
+      ) as HTMLElement | null;
+      if (!target) throw new Error("sentence row not found");
+      const t0 = performance.now();
+      target.click();
+      // Wait for the Sheet to attach to the DOM.
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (
+            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (
+          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+        ) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      const t1 = performance.now();
+      return t1 - t0;
+    });
+
+    expect(elapsed_ms).toBeLessThan(1000);
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+  });
+}
+
+ succeeded in 1404ms:
+import { expect, test } from "@playwright/test";
+
+const N = 200;
+const PICK_COUNT = 10;
+const SEED = "polaris-i-f5-011";
+
+// xmur3 string-hash → 32-bit seed (public-domain implementation).
+function xmur3(str: string): () => number {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return h >>> 0;
+  };
+}
+
+// sfc32 PRNG (public-domain) seeded from 4 32-bit ints.
+function sfc32(a: number, b: number, c: number, d: number): () => number {
+  return () => {
+    a >>>= 0;
+    b >>>= 0;
+    c >>>= 0;
+    d >>>= 0;
+    let t = (a + b) | 0;
+    a = b ^ (b >>> 9);
+    b = (c + (c << 3)) | 0;
+    c = (c << 21) | (c >>> 11);
+    d = (d + 1) | 0;
+    t = (t + d) | 0;
+    c = (c + t) | 0;
+    return (t >>> 0) / 4294967296;
+  };
+}
+
+function pickIndices(): number[] {
+  const seed_fn = xmur3(SEED);
+  const rand = sfc32(seed_fn(), seed_fn(), seed_fn(), seed_fn());
+  const all = Array.from({ length: N }, (_, i) => i);
+  for (let i = N - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all.slice(0, PICK_COUNT);
+}
+
+test("AI agent navigates 10 random sentences; each opens evidence within 1s", async ({
+  page,
+}) => {
+  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+
+  const picks = pickIndices();
+  expect(picks).toHaveLength(PICK_COUNT);
+
+  for (const i of picks) {
+    const elapsed_ms = await page.evaluate(async (idx) => {
+      const target = document.querySelector(
+        `[data-sentence-id="sec_stress:${idx}"]`,
+      ) as HTMLElement | null;
+      if (!target) throw new Error(`sentence row ${idx} not found`);
+      const t0 = performance.now();
+      target.click();
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (
+            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (
+          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+        ) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      return performance.now() - t0;
+    }, i);
+
+    expect(elapsed_ms, `iter ${i}: click → Sheet`).toBeLessThan(1000);
+
+    // Each kept stress sentence cites src-(i mod 50) → inspector-source-0
+    // should always be present. Tolerate alternates for robustness.
+    const sheet = page.getByTestId("sentence-inspector-sheet");
+    await expect(sheet).toBeVisible();
+    const evidence_count = await page
+      .locator(
+        '[data-testid^="inspector-source-"], [data-testid="inspector-paywalled-0"], [data-testid="inspector-synthesis-claim"]',
+      )
+      .count();
+    expect(evidence_count, `iter ${i}: evidence card present`).toBeGreaterThan(
+      0,
+    );
+
+    // Per Codex iter-1 P1: close + assert detach before next iteration.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+  }
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web\\app\\sentence_hover_test -Recurse | Select-Object FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\page.tsx" in C:\POLARIS
+ succeeded in 832ms:
+
+FullName
+--------
+C:\POLARIS\web\app\sentence_hover_test\coverage
+C:\POLARIS\web\app\sentence_hover_test\stress
+C:\POLARIS\web\app\sentence_hover_test\_demo_coverage.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_stress.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo.tsx
+C:\POLARIS\web\app\sentence_hover_test\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\coverage\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\stress\page.tsx
+
+
+ succeeded in 847ms:
+import { SentenceHoverHarness } from "./_demo";
+
+export default function SentenceHoverTestPage() {
+  return <SentenceHoverHarness />;
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"evaluator_agrees === false|evaluator_disagreement|evaluator-flag|sentence_id=|kept-sentence\" web\\app\\generation\\components\\verified_report_view.tsx web\\app\\sentence_hover_test\\_demo_stress.tsx web\\tests\\e2e\\sentence_inspector_latency.spec.ts web\\app\\sentence_hover_test\\stress\\page.tsx web\\lib\\api.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"evaluator-pane|generator-reading|evaluator-reading|evaluator_model|cited_sources\" web\\app\\generation\\components\\evaluator_pane.tsx web\\lib\\api.ts web\\tests\\e2e\\sentence_inspector_evaluator_flag.spec.ts" in C:\POLARIS
+ succeeded in 761ms:
+web\lib\api.ts:608:  evaluator_disagreement?: EvaluatorDisagreement | null;
+web\tests\e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web\app\generation\components\verified_report_view.tsx:122:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web\app\generation\components\verified_report_view.tsx:169:      {!dropped && sentence.evaluator_agrees === false ? (
+web\app\generation\components\verified_report_view.tsx:172:          data-testid={`evaluator-flag-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:176:            if (sentence.evaluator_disagreement)
+web\app\generation\components\verified_report_view.tsx:177:              onSelectEvaluator(sentence.evaluator_disagreement);
+web\app\generation\components\verified_report_view.tsx:183:              if (sentence.evaluator_disagreement)
+web\app\generation\components\verified_report_view.tsx:184:                onSelectEvaluator(sentence.evaluator_disagreement);
+web\app\generation\components\verified_report_view.tsx:292:                sentence_id={`${section.section_id}:${idx}`}
+web\app\generation\components\verified_report_view.tsx:438:        sentence_id={inspector?.id ?? null}
+
+ succeeded in 794ms:
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:31:  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:35:    page.getByTestId("evaluator-pane-generator-reading"),
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:38:    page.getByTestId("evaluator-pane-evaluator-reading"),
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:40:  await expect(page.getByTestId("evaluator-pane-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:43:  await expect(page.getByTestId("evaluator-pane-model")).toContainText(
+web\app\generation\components\evaluator_pane.tsx:25:        data-testid="evaluator-pane"
+web\app\generation\components\evaluator_pane.tsx:30:          <SheetTitle data-testid="evaluator-pane-title">
+web\app\generation\components\evaluator_pane.tsx:41:              data-testid="evaluator-pane-generator-reading"
+web\app\generation\components\evaluator_pane.tsx:50:              data-testid="evaluator-pane-evaluator-reading"
+web\app\generation\components\evaluator_pane.tsx:61:                {disagreement.cited_sources.map((src, i) => (
+web\app\generation\components\evaluator_pane.tsx:64:                    data-testid={`evaluator-pane-source-${i}`}
+web\app\generation\components\evaluator_pane.tsx:74:              <span data-testid="evaluator-pane-model">
+web\app\generation\components\evaluator_pane.tsx:75:                {disagreement.evaluator_model}
+web\app\generation\components\evaluator_pane.tsx:81:            data-testid="evaluator-pane-empty"
+web\lib\api.ts:614:  cited_sources: string[];
+web\lib\api.ts:615:  evaluator_model: string;
+web\lib\api.ts:712:  evaluator_model: string;
+
+codex
+criterion_1: PASS, except note query-param naming inconsistency below.
+criterion_2: PASS.
+criterion_3: PASS.
+criterion_4: PASS.
+criterion_5: PASS.
+
+files_read:
+  - web/app/sentence_hover_test/_demo.tsx
+  - web/app/sentence_hover_test/_demo_stress.tsx
+  - web/app/sentence_hover_test/page.tsx
+  - web/app/sentence_hover_test/stress/page.tsx
+  - web/app/sentence_hover_test/coverage/page.tsx
+  - web/app/generation/components/verified_report_view.tsx
+  - web/app/generation/components/evaluator_pane.tsx
+  - web/lib/api.ts
+  - web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+  - web/tests/e2e/sentence_inspector_latency.spec.ts
+  - web/tests/e2e/sentence_inspector_ai_agent.spec.ts
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Pre-flight says the new harness param is `?disagree=all|none`, while the plan and acceptance criteria use `?mode=all|none`. Not a blocker because the acceptance criteria explicitly say `?mode=`, but the implementer should settle the name before coding to avoid later diff-review churn."
+  - "The mode=none spec should explicitly assert `kept-sentence` count is 12 before asserting zero `/^evaluator-flag-/` badges; otherwise a broken/empty route can false-pass the zero-badge assertion. The plan wording says 'across 12 rows', so this is covered if implemented literally."
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+43,502
+criterion_1: PASS, except note query-param naming inconsistency below.
+criterion_2: PASS.
+criterion_3: PASS.
+criterion_4: PASS.
+criterion_5: PASS.
+
+files_read:
+  - web/app/sentence_hover_test/_demo.tsx
+  - web/app/sentence_hover_test/_demo_stress.tsx
+  - web/app/sentence_hover_test/page.tsx
+  - web/app/sentence_hover_test/stress/page.tsx
+  - web/app/sentence_hover_test/coverage/page.tsx
+  - web/app/generation/components/verified_report_view.tsx
+  - web/app/generation/components/evaluator_pane.tsx
+  - web/lib/api.ts
+  - web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+  - web/tests/e2e/sentence_inspector_latency.spec.ts
+  - web/tests/e2e/sentence_inspector_ai_agent.spec.ts
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Pre-flight says the new harness param is `?disagree=all|none`, while the plan and acceptance criteria use `?mode=all|none`. Not a blocker because the acceptance criteria explicitly say `?mode=`, but the implementer should settle the name before coding to avoid later diff-review churn."
+  - "The mode=none spec should explicitly assert `kept-sentence` count is 12 before asserting zero `/^evaluator-flag-/` badges; otherwise a broken/empty route can false-pass the zero-badge assertion. The plan wording says 'across 12 rows', so this is covered if implemented literally."
+convergence_call: continue
+remaining_blockers_for_execution: []

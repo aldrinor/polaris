@@ -1,0 +1,2466 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0491-e6e2-73f0-a587-4780bdf47fed
+--------
+user
+# Codex Diff Review — I-f9-003 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only. DO NOT spawn dev servers / Playwright runs (sandbox blocks them per CLAUDE.md §8.4).
+
+**Issue:** I-f9-003 — F9 edge: no disagreements / all disagreements (closes F9: 3/3)
+**Brief:** APPROVED iter 1
+**Canonical-diff-sha256:** `5593a0688b247efcc0079939bc79e9bb6941818027cdb18dac5c56e43ef246d5`
+**LOC:** 153 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/app/sentence_hover_test/_demo_evaluator_edge.tsx   NEW +106 (EvaluatorEdgeHarness, 12 rows, mode=all|none)
+web/app/sentence_hover_test/evaluator_edge/page.tsx    NEW +12 (Next route reading ?mode=)
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts NEW +35 (3 tests: none-zero, all-twelve, click-opens-pane)
+```
+
+## What changed
+
+### Test harness
+- `EvaluatorEdgeHarness({mode})` builds 12 kept sentences. mode=none → all `evaluator_agrees=true`. mode=all → all flagged with full `evaluator_disagreement` payload.
+- Route validates mode against `"all"|"none"` literal set; default "none". Invalid values fall back to "none".
+
+### Playwright
+- Test 1 (mode=none): `kept-sentence` count == 12 (Codex iter-1 P2 explicit count check), `[data-testid^="evaluator-flag-"]` count == 0.
+- Test 2 (mode=all): `kept-sentence` count == 12, evaluator-flag count == 12.
+- Test 3 (mode=all click): badge opens EvaluatorPane with generator + evaluator readings.
+
+## Verification
+- `npx tsc --noEmit` (web/): exit 0.
+- No backend changes.
+
+## Risks for Codex Red-Team
+
+1. **Mode literal narrowing:** unknown `?mode=` values fall back to "none" — same defensive pattern as I-f5-008 stress + I-f7-004 coverage harnesses.
+2. **No production code changes:** harness lives at separate route; existing `/sentence_hover_test` demo unchanged.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 153 net. Under 200.
+5. **No new package dep.**
+6. **Closes F9** (3/3 issues).
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll do a static diff review only: read the new harness, route, and e2e test, then cross-check against the surrounding sentence hover test patterns and selectors.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/sentence_hover_test/_demo_evaluator_edge.tsx web/app/sentence_hover_test/evaluator_edge/page.tsx web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "EvaluatorEdgeHarness|evaluator-flag|kept-sentence|EvaluatorPane|sentence_hover_test" web/app web/tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1038ms:
+web/app\generation\components\evaluator_pane.tsx:12:export function EvaluatorPane({
+web/app\generation\components\verified_report_view.tsx:21:import { EvaluatorPane } from "./evaluator_pane";
+web/app\generation\components\verified_report_view.tsx:122:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web/app\generation\components\verified_report_view.tsx:172:          data-testid={`evaluator-flag-${sentence_id}`}
+web/app\generation\components\verified_report_view.tsx:425:      <EvaluatorPane
+web/tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:37:export function EvaluatorEdgeHarness({ mode }: { mode: "all" | "none" }) {
+web/app\sentence_hover_test\_demo.tsx:147:          // I-f9-002: detail payload powering EvaluatorPane.
+web/tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:20:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:30:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:107:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web/tests\e2e\sentence_inspector_ai_agent.spec.ts:56:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web/tests\e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:5:test("mode=none — 12 rows, zero evaluator-flag badges", async ({ page }) => {
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:6:  await page.goto("/sentence_hover_test/evaluator_edge?mode=none");
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:8:  // Codex iter-1 P2: explicitly assert kept-sentence count BEFORE asserting
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:10:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:11:  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(0);
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:14:test("mode=all — 12 rows, twelve evaluator-flag badges", async ({ page }) => {
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:15:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:17:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:18:  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(N);
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:21:test("mode=all — first flagged badge opens EvaluatorPane with both readings", async ({
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:24:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts:25:  await page.getByTestId("evaluator-flag-sec_x:0").click();
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:3:test("Row shows evaluator-flag badge when evaluator_agrees=false", async ({
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:7:  const badge = page.getByTestId("evaluator-flag-sec_x:11");
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:12:test("Row does NOT show evaluator-flag for evaluator_agrees=true", async ({
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:15:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:16:  await expect(page.getByTestId("evaluator-flag-sec_x:5")).toHaveCount(0);
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:19:test("Row does NOT show evaluator-flag for evaluator_agrees=null pending", async ({
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:22:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:23:  await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:26:test("Click evaluator-flag → EvaluatorPane shows generator + evaluator readings (I-f9-002)", async ({
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:29:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts:30:  await page.getByTestId("evaluator-flag-sec_x:11").click();
+web/tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web/app\sentence_hover_test\evaluator_edge\page.tsx:1:import { EvaluatorEdgeHarness } from "../_demo_evaluator_edge";
+web/app\sentence_hover_test\evaluator_edge\page.tsx:11:  return <EvaluatorEdgeHarness mode={mode} />;
+
+ succeeded in 1129ms:
+ succeeded in 1196ms:
+A  web/app/sentence_hover_test/_demo_evaluator_edge.tsx
+A  web/app/sentence_hover_test/evaluator_edge/page.tsx
+A  web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f9-003/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The files are staged additions, so the regular worktree diff is empty. I’m switching to the staged diff and reading the adjacent production component to validate the test harness against actual behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/evaluator_pane.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/sentence_hover_test/_demo_evaluator_edge.tsx web/app/sentence_hover_test/evaluator_edge/page.tsx web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo.tsx -TotalCount 240' in C:\POLARIS
+ succeeded in 1005ms:
+import { expect, test } from "@playwright/test";
+
+test("Row shows evaluator-flag badge when evaluator_agrees=false", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const badge = page.getByTestId("evaluator-flag-sec_x:11");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Internal evaluator flagged this");
+});
+
+test("Row does NOT show evaluator-flag for evaluator_agrees=true", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("evaluator-flag-sec_x:5")).toHaveCount(0);
+});
+
+test("Row does NOT show evaluator-flag for evaluator_agrees=null pending", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+});
+
+test("Click evaluator-flag → EvaluatorPane shows generator + evaluator readings (I-f9-002)", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("evaluator-flag-sec_x:11").click();
+  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("evaluator-pane-generator-reading"),
+  ).toContainText("30%");
+  await expect(
+    page.getByTestId("evaluator-pane-evaluator-reading"),
+  ).toContainText("confidence interval");
+  await expect(page.getByTestId("evaluator-pane-source-0")).toContainText(
+    "src-1",
+  );
+  await expect(page.getByTestId("evaluator-pane-model")).toContainText(
+    "qwen-3.5-plus",
+  );
+  // SentenceInspector did NOT also open (propagation guard).
+  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+});
+
+ succeeded in 1066ms:
+diff --git a/web/app/sentence_hover_test/_demo_evaluator_edge.tsx b/web/app/sentence_hover_test/_demo_evaluator_edge.tsx
+new file mode 100644
+index 0000000..a505411
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_evaluator_edge.tsx
+@@ -0,0 +1,106 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type {
++  EvidencePool,
++  RetrievalSource,
++  VerifiedReport,
++} from "@/lib/api";
++
++const ISO = new Date().toISOString();
++const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++
++const FULL_TEXT =
++  "The randomized trial enrolled adults and demonstrated a significant outcome at endpoint assessment.";
++
++const N = 12;
++
++function _src(i: number): RetrievalSource {
++  return {
++    source_id: `src-${i}`,
++    url: `https://www.cochrane.org/CD-edge-${i}`,
++    domain: "cochrane.org",
++    tier: "T1",
++    title: `Edge source ${i}`,
++    publication_date: FRESH_DATE,
++    authors: ["Smith J"],
++    snippet: FULL_TEXT.slice(0, 80),
++    full_text_available: true,
++    full_text: FULL_TEXT,
++    fetched_at_utc: ISO,
++    provenance: {},
++  };
++}
++
++export function EvaluatorEdgeHarness({ mode }: { mode: "all" | "none" }) {
++  const flagged = mode === "all";
++  const pool: EvidencePool = {
++    pool_id: `p-edge-${mode}`,
++    decision_id: `d-edge-${mode}`,
++    sources: Array.from({ length: N }, (_, i) => _src(i)),
++    adequacy: {
++      is_adequate: true,
++      sources_per_tier: { T1: N, T2: 0, T3: 0 },
++      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
++      failure_reason: null,
++    },
++    queries_executed: ["edge"],
++    retrieval_started_at_utc: ISO,
++    retrieval_finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++
++  const report: VerifiedReport = {
++    report_id: `r-edge-${mode}`,
++    pool_id: `p-edge-${mode}`,
++    decision_id: `d-edge-${mode}`,
++    sections: [
++      {
++        section_id: "sec_x",
++        section_title: `Evaluator-edge harness (mode=${mode})`,
++        verified_sentences: Array.from({ length: N }, (_, i) => ({
++          section_id: "sec_x",
++          sentence_text: `Edge sentence ${i} cites a source.`,
++          provenance_tokens: [`[#ev:src-${i}:0-30]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: !flagged,
++          ...(flagged
++            ? {
++                evaluator_disagreement: {
++                  generator_reading: `Generator reading for sentence ${i}: claim X.`,
++                  evaluator_reading: `Evaluator reading for sentence ${i}: confidence interval suggests Y.`,
++                  cited_sources: [`src-${i}`],
++                  evaluator_model: "qwen-3.5-plus",
++                },
++              }
++            : {}),
++        })),
++        section_verify_pass_rate: 1.0,
++        section_status: "verified",
++      },
++    ],
++    overall_verify_pass_rate: 1.0,
++    pipeline_verdict: "success",
++    generator_model: "test/edge",
++    evaluator_model: "strict_verify_v1",
++    family_segregation_passed: true,
++    verifier_pass_threshold: 0.4,
++    started_at_utc: ISO,
++    finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++
++  return (
++    <div
++      data-testid={`evaluator-edge-${mode}`}
++      className="mx-auto max-w-4xl p-6"
++    >
++      <VerifiedReportView report={report} pool={pool} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/evaluator_edge/page.tsx b/web/app/sentence_hover_test/evaluator_edge/page.tsx
+new file mode 100644
+index 0000000..621467a
+--- /dev/null
++++ b/web/app/sentence_hover_test/evaluator_edge/page.tsx
+@@ -0,0 +1,12 @@
++import { EvaluatorEdgeHarness } from "../_demo_evaluator_edge";
++
++export default async function EvaluatorEdgePage({
++  searchParams,
++}: {
++  searchParams: Promise<{ mode?: string }>;
++}) {
++  const params = await searchParams;
++  const mode: "all" | "none" =
++    params.mode === "all" || params.mode === "none" ? params.mode : "none";
++  return <EvaluatorEdgeHarness mode={mode} />;
++}
+diff --git a/web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts b/web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+new file mode 100644
+index 0000000..5addec8
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+@@ -0,0 +1,35 @@
++import { expect, test } from "@playwright/test";
++
++const N = 12;
++
++test("mode=none — 12 rows, zero evaluator-flag badges", async ({ page }) => {
++  await page.goto("/sentence_hover_test/evaluator_edge?mode=none");
++  await expect(page.getByTestId("evaluator-edge-none")).toBeVisible();
++  // Codex iter-1 P2: explicitly assert kept-sentence count BEFORE asserting
++  // zero badges, so an empty/broken route can't false-pass.
++  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
++  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(0);
++});
++
++test("mode=all — 12 rows, twelve evaluator-flag badges", async ({ page }) => {
++  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
++  await expect(page.getByTestId("evaluator-edge-all")).toBeVisible();
++  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
++  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(N);
++});
++
++test("mode=all — first flagged badge opens EvaluatorPane with both readings", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
++  await page.getByTestId("evaluator-flag-sec_x:0").click();
++  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(
++    page.getByTestId("evaluator-pane-generator-reading"),
++  ).toContainText("Generator reading");
++  await expect(
++    page.getByTestId("evaluator-pane-evaluator-reading"),
++  ).toContainText("Evaluator reading");
++});
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1085ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvaluatorDisagreement,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { ContradictionPane } from "./contradiction_pane";
+import { EvaluatorPane } from "./evaluator_pane";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.evaluator_agrees === false ? (
+        <button
+          type="button"
+          data-testid={`evaluator-flag-${sentence_id}`}
+          title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+          onClick={(e) => {
+            e.stopPropagation();
+            if (sentence.evaluator_disagreement)
+              onSelectEvaluator(sentence.evaluator_disagreement);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.evaluator_disagreement)
+                onSelectEvaluator(sentence.evaluator_disagreement);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+        >
+          ⚠ Internal evaluator flagged this
+        </button>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+
+ succeeded in 1134ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type { EvaluatorDisagreement } from "@/lib/api";
+
+export function EvaluatorPane({
+  open,
+  disagreement,
+  onOpenChange,
+}: {
+  open: boolean;
+  disagreement: EvaluatorDisagreement | null;
+  onOpenChange: (next: boolean) => void;
+}) {
+  // Codex iter-1 P2: clear fallback when disagreement payload is absent.
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="evaluator-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="evaluator-pane-title">
+            Generator vs Evaluator readings
+          </SheetTitle>
+          <SheetDescription>
+            Two-family evaluator disagrees with generator's claim. Compare both
+            readings against the same cited evidence.
+          </SheetDescription>
+        </SheetHeader>
+        {disagreement ? (
+          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+            <div
+              data-testid="evaluator-pane-generator-reading"
+              className="border-border rounded border bg-blue-500/5 p-2 text-xs"
+            >
+              <strong className="text-blue-700 dark:text-blue-300">
+                Generator:
+              </strong>{" "}
+              {disagreement.generator_reading}
+            </div>
+            <div
+              data-testid="evaluator-pane-evaluator-reading"
+              className="border-border rounded border bg-rose-500/5 p-2 text-xs"
+            >
+              <strong className="text-rose-700 dark:text-rose-300">
+                Evaluator:
+              </strong>{" "}
+              {disagreement.evaluator_reading}
+            </div>
+            <div className="text-muted-foreground text-xs">
+              <strong>Both reviewed:</strong>{" "}
+              <span className="flex flex-wrap gap-1">
+                {disagreement.cited_sources.map((src, i) => (
+                  <code
+                    key={i}
+                    data-testid={`evaluator-pane-source-${i}`}
+                    className="bg-muted/40 rounded px-1"
+                  >
+                    {src}
+                  </code>
+                ))}
+              </span>
+            </div>
+            <div className="text-muted-foreground text-xs">
+              <strong>Evaluator model:</strong>{" "}
+              <span data-testid="evaluator-pane-model">
+                {disagreement.evaluator_model}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p
+            data-testid="evaluator-pane-empty"
+            className="text-muted-foreground px-4 pb-4 text-sm italic"
+          >
+            No evaluator disagreement detail available.
+          </p>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 1214ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+
+// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const SOURCE_FULL_TEXT_5 =
+  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Cochrane review ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J", "Doe R", "Patel K"],
+    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+    full_text_available: true,
+    full_text: SOURCE_FULL_TEXT_5,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+const SRC_RETRACTED: RetrievalSource = {
+  source_id: "src-retracted",
+  url: "https://www.cochrane.org/CD-retracted",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (retracted)",
+  publication_date: FRESH_DATE,
+  authors: ["Doe R"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+  retracted: true,
+};
+
+const SRC_PAYWALLED: RetrievalSource = {
+  source_id: "src-paywalled",
+  url: "https://nejm.org/paywalled/abc",
+  domain: "nejm.org",
+  tier: "T1",
+  title: "Paywalled NEJM article",
+  publication_date: FRESH_DATE,
+  authors: ["Jones B"],
+  snippet: "Abstract excerpt only — full text behind paywall.",
+  full_text_available: false,
+  full_text: null,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const SRC_STALE: RetrievalSource = {
+  source_id: "src-stale",
+  url: "https://www.cochrane.org/CD-stale",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (3y old)",
+  publication_date: STALE_DATE,
+  authors: ["Patel K"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const POOL: EvidencePool = {
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sources: [
+    ...Array.from({ length: 10 }, (_, i) => _src(i)),
+    SRC_RETRACTED,
+    SRC_STALE,
+    SRC_PAYWALLED,
+  ],
+  adequacy: {
+    is_adequate: true,
+    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+    failure_reason: null,
+  },
+  queries_executed: ["aspirin migraine"],
+  retrieval_started_at_utc: ISO,
+  retrieval_finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+const REPORT: VerifiedReport = {
+  report_id: "r-hover-test",
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sections: [
+    {
+      section_id: "sec_x",
+      section_title: "Test section",
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
+          section_id: "sec_x",
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+          // I-f9-002: detail payload powering EvaluatorPane.
+          evaluator_disagreement: {
+            generator_reading:
+              "Generator concluded: drug X reduces 30-day mortality by 30% in adults.",
+            evaluator_reading:
+              "Evaluator reading: confidence interval overlaps null; effect size likely 10-20% not 30%.",
+            cited_sources: ["src-1"],
+            evaluator_model: "qwen-3.5-plus",
+          },
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+        {
+          section_id: "sec_x",
+          sentence_text: "These trials together suggest a moderate effect.",
+          provenance_tokens: [],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          is_synthesis_claim: true,
+        },
+        // sec_x:16 — retracted source (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Retracted-source demo sentence.",
+          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:17 — stale source >2y (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Stale-source demo sentence.",
+          provenance_tokens: [`[#ev:src-stale:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+        ...(
+          [
+            "table",
+            "summary_bullet",
+            "limitation",
+            "caption",
+            "heading",
+          ] as const
+        ).map((surface, k) => ({
+          section_id: "sec_x",
+          sentence_text: `${surface} assertion demo sentence.`,
+          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          assertion_surface: surface,
+        })),
+        // sec_x:23 — paywalled source (I-f5-010 case 1).
+        {
+          section_id: "sec_x",
+          sentence_text: "Paywalled-source demo sentence cites NEJM.",
+          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+        {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx | Select-Object -Skip 240 -First 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export type VerifiedReport|interface VerifiedReport|type ReportVerifiedSentence|EvaluatorDisagreement|keptSentences|searchParams: Promise" web/lib web/app -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/sentence_hover_test -Recurse -File | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/tests/e2e -Filter "sentence_inspector*_edge*.spec.ts" | Select-Object -ExpandProperty Name' in C:\POLARIS
+ succeeded in 1078ms:
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                onSelectEvaluator={onSelectEvaluator}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] = useState<
+    ContradictionSignal | null
+  >(null);
+  const [evaluator_open, set_evaluator_open] =
+    useState<EvaluatorDisagreement | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          onSelectEvaluator={(d) => set_evaluator_open(d)}
+          pool={pool}
+        />
+      ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
+      <EvaluatorPane
+        open={evaluator_open !== null}
+        disagreement={evaluator_open}
+        onOpenChange={(open) => {
+          if (!open) set_evaluator_open(null);
+        }}
+      />
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+ succeeded in 1081ms:
+web/lib\api.ts:608:  evaluator_disagreement?: EvaluatorDisagreement | null;
+web/lib\api.ts:611:export interface EvaluatorDisagreement {
+web/lib\api.ts:673:export interface VerifiedReportSection {
+web/lib\api.ts:704:export interface VerifiedReport {
+web/lib\api.ts:791:export function keptSentences(
+web/app\sentence_hover_test\coverage\page.tsx:13:  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+web/app\sentence_hover_test\evaluator_edge\page.tsx:6:  searchParams: Promise<{ mode?: string }>;
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:10:  searchParams: Promise<{ n?: string }>;
+web/app\generation\components\evaluator_pane.tsx:10:import type { EvaluatorDisagreement } from "@/lib/api";
+web/app\generation\components\evaluator_pane.tsx:18:  disagreement: EvaluatorDisagreement | null;
+web/app\generation\components\verified_report_view.tsx:9:  keptSentences,
+web/app\generation\components\verified_report_view.tsx:13:  type EvaluatorDisagreement,
+web/app\generation\components\verified_report_view.tsx:15:  type ReportVerifiedSentence,
+web/app\generation\components\verified_report_view.tsx:98:  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+web/app\generation\components\verified_report_view.tsx:255:  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+web/app\generation\components\verified_report_view.tsx:258:  const kept = keptSentences(section);
+web/app\generation\components\verified_report_view.tsx:331:    useState<EvaluatorDisagreement | null>(null);
+web/app\generation\components\sentence_inspector.tsx:13:  type ReportVerifiedSentence,
+web/app\sentence_hover_test\stress\page.tsx:6:  searchParams: Promise<{ n?: string }>;
+
+ succeeded in 1116ms:
+C:\POLARIS\web\app\sentence_hover_test\_demo_coverage.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_stress.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo.tsx
+C:\POLARIS\web\app\sentence_hover_test\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\coverage\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\stress\page.tsx
+
+ succeeded in 1153ms:
+sentence_inspector_evaluator_edge.spec.ts
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 560 -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/coverage/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/stress/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo_stress.tsx -TotalCount 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo_coverage.tsx -TotalCount 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/page.tsx' in C:\POLARIS
+ succeeded in 1213ms:
+import { CoverageHarness } from "../_demo_coverage";
+
+function clamp_non_negative_int(raw: string | undefined, dflt: number): number {
+  if (raw === undefined) return dflt;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return dflt;
+  return Math.min(n, 100);
+}
+
+export default async function CoveragePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+}) {
+  const params = await searchParams;
+  const covered = clamp_non_negative_int(params.covered, 14);
+  const gap_count = clamp_non_negative_int(params.gap_count, 1);
+  return <CoverageHarness covered={covered} gap_count={gap_count} />;
+}
+
+ succeeded in 1291ms:
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+
+ succeeded in 1265ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type {
+  EvidencePool,
+  FrameGap,
+  GapReason,
+  RetrievalSource,
+  VerifiedReport,
+} from "@/lib/api";
+
+const ISO = new Date().toISOString();
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+// Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
+// per Codex iter-1 P2 — explicit typed array).
+const GAP_REASONS: GapReason[] = [
+  "paywalled",
+  "no_oa",
+  "source_tier_ineligible",
+  "language_unavailable",
+  "retracted_only",
+  "jurisdiction_outside",
+  "not_indexed",
+  "embargoed",
+  "other",
+];
+
+const SRC: RetrievalSource = {
+  source_id: "src-cov-0",
+  url: "https://www.cochrane.org/CD-cov-0",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Coverage harness source",
+  publication_date: FRESH_DATE,
+  authors: ["Smith J"],
+  snippet: "Coverage demo source snippet text used by the harness.",
+  full_text_available: true,
+  full_text: "Coverage demo source snippet text used by the harness.",
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+export function CoverageHarness({
+  covered,
+  gap_count,
+}: {
+  covered: number;
+  gap_count: number;
+}) {
+  const total = covered + gap_count;
+  const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
+    entity_name: `Entity ${i + 1}`,
+    reason: GAP_REASONS[i % GAP_REASONS.length],
+    reason_detail: `synthetic detail ${i + 1}`,
+  }));
+  const pool: EvidencePool = {
+    pool_id: "p-cov",
+    decision_id: "d-cov",
+    sources: [SRC],
+    adequacy: {
+      is_adequate: true,
+      sources_per_tier: { T1: 1, T2: 0, T3: 0 },
+      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+      failure_reason: null,
+    },
+    queries_executed: ["coverage"],
+    retrieval_started_at_utc: ISO,
+    retrieval_finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+  const report: VerifiedReport = {
+    report_id: "r-cov",
+    pool_id: "p-cov",
+    decision_id: "d-cov",
+    sections: [
+      {
+        section_id: "sec_cov",
+        section_title: `Coverage harness (${covered}/${total})`,
+        verified_sentences: [
+          {
+            section_id: "sec_cov",
+            sentence_text: "Coverage harness sentinel sentence.",
+            provenance_tokens: ["[#ev:src-cov-0:0-20]"],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          },
+        ],
+        section_verify_pass_rate: 1.0,
+        section_status: "verified",
+      },
+    ],
+    overall_verify_pass_rate: 1.0,
+    pipeline_verdict: "success",
+    generator_model: "test/cov",
+    evaluator_model: "strict_verify_v1",
+    family_segregation_passed: true,
+    frame_coverage: {
+      covered_entity_count: covered,
+      total_entity_count: total,
+      gaps,
+    },
+    verifier_pass_threshold: 0.4,
+    started_at_utc: ISO,
+    finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+  return (
+    <div
+      data-testid={`coverage-harness-${covered}-${gap_count}`}
+      className="mx-auto max-w-4xl p-6"
+    >
+      <VerifiedReportView report={report} pool={pool} />
+    </div>
+  );
+}
+
+ succeeded in 1272ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const FULL_TEXT =
+  "The randomized trial enrolled adults and demonstrated a significant outcome at endpoint assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-stress-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Stress source ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J"],
+    snippet: FULL_TEXT.slice(0, 80),
+    full_text_available: true,
+    full_text: FULL_TEXT,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+export function StressHarness({ n }: { n: number }) {
+  const pool: EvidencePool = {
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sources: Array.from({ length: Math.min(n, 50) }, (_, i) => _src(i)),
+    adequacy: {
+      is_adequate: true,
+      sources_per_tier: { T1: Math.min(n, 50), T2: 0, T3: 0 },
+      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+      failure_reason: null,
+    },
+    queries_executed: ["stress"],
+    retrieval_started_at_utc: ISO,
+    retrieval_finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  const report: VerifiedReport = {
+    report_id: `r-stress-${n}`,
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sections: [
+      {
+        section_id: "sec_stress",
+        section_title: `Stress section (n=${n})`,
+        verified_sentences: Array.from({ length: n }, (_, i) => ({
+          section_id: "sec_stress",
+          sentence_text: `Stress sentence ${i} cites a source.`,
+          provenance_tokens: [
+            `[#ev:src-${i % Math.min(n, 50)}:0-${Math.min(40, FULL_TEXT.length)}]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        })),
+        section_verify_pass_rate: 1.0,
+        section_status: "verified",
+      },
+    ],
+    overall_verify_pass_rate: 1.0,
+    pipeline_verdict: "success",
+    generator_model: "test/stress",
+    evaluator_model: "strict_verify_v1",
+    family_segregation_passed: true,
+    verifier_pass_threshold: 0.4,
+    started_at_utc: ISO,
+    finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  return (
+    <div
+      data-testid={`inspector-latency-${n}`}
+      className="mx-auto max-w-4xl p-6"
+    >
+      <VerifiedReportView report={report} pool={pool} />
+    </div>
+  );
+}
+
+ succeeded in 1344ms:
+import { StressHarness } from "../_demo_stress";
+
+export default async function StressPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ n?: string }>;
+}) {
+  const params = await searchParams;
+  const n = Number.parseInt(params.n ?? "50", 10);
+  const safe_n = Number.isFinite(n) && n > 0 && n <= 1000 ? n : 50;
+  return <StressHarness n={safe_n} />;
+}
+
+ succeeded in 1403ms:
+import { SentenceHoverHarness } from "./_demo";
+
+export default function SentenceHoverTestPage() {
+  return <SentenceHoverHarness />;
+}
+
+codex
+The new route follows the same `searchParams` shape as the existing coverage and stress harnesses, and the test IDs line up with `VerifiedReportView`’s current row and evaluator flag rendering. I’m doing one last static pass for formatting/patch hygiene before I issue the verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --stat -- web/app/sentence_hover_test/_demo_evaluator_edge.tsx web/app/sentence_hover_test/evaluator_edge/page.tsx web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --check -- web/app/sentence_hover_test/_demo_evaluator_edge.tsx web/app/sentence_hover_test/evaluator_edge/page.tsx web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "evaluator-edge-|mode=all|mode=none|evaluator-flag-sec_x:0|Generator reading|Evaluator reading" web/app/sentence_hover_test web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts -S' in C:\POLARIS
+ succeeded in 1011ms:
+ .../sentence_hover_test/_demo_evaluator_edge.tsx   | 106 +++++++++++++++++++++
+ .../sentence_hover_test/evaluator_edge/page.tsx    |  12 +++
+ .../e2e/sentence_inspector_evaluator_edge.spec.ts  |  35 +++++++
+ 3 files changed, 153 insertions(+)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1049ms:
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:5:test("mode=none — 12 rows, zero evaluator-flag badges", async ({ page }) => {
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:6:  await page.goto("/sentence_hover_test/evaluator_edge?mode=none");
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:7:  await expect(page.getByTestId("evaluator-edge-none")).toBeVisible();
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:14:test("mode=all — 12 rows, twelve evaluator-flag badges", async ({ page }) => {
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:15:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:16:  await expect(page.getByTestId("evaluator-edge-all")).toBeVisible();
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:21:test("mode=all — first flagged badge opens EvaluatorPane with both readings", async ({
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:24:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:25:  await page.getByTestId("evaluator-flag-sec_x:0").click();
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:31:  ).toContainText("Generator reading");
+web/tests/e2e/sentence_inspector_evaluator_edge.spec.ts:34:  ).toContainText("Evaluator reading");
+web/app/sentence_hover_test\_demo.tsx:152:              "Evaluator reading: confidence interval overlaps null; effect size likely 10-20% not 30%.",
+web/app/sentence_hover_test\_demo_evaluator_edge.tsx:74:                  generator_reading: `Generator reading for sentence ${i}: claim X.`,
+web/app/sentence_hover_test\_demo_evaluator_edge.tsx:75:                  evaluator_reading: `Evaluator reading for sentence ${i}: confidence interval suggests Y.`,
+web/app/sentence_hover_test\_demo_evaluator_edge.tsx:100:      data-testid={`evaluator-edge-${mode}`}
+
+ succeeded in 1095ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+35,193
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
