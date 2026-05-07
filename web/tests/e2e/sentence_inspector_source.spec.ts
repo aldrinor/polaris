@@ -14,7 +14,7 @@ test("Inspector renders source URL + tier + span + retrieval trace", async ({
     /cochrane.org/,
   );
   await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
-  await expect(page.getByTestId("inspector-span-0")).toContainText(
+  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
     "randomized trial",
   );
   await expect(page.getByTestId("inspector-trace-0")).toContainText(

@@ -74,28 +74,60 @@ function AgreementBadge({
   );
 }
 
-function SourceCard({
+function SpanQuote({
   token,
+  text,
+  idx,
+  spanIdx,
+}: {
+  token: ParsedToken;
+  text: string;
+  idx: number;
+  spanIdx: number;
+}) {
+  const out_of_range = token.end > text.length;
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
   source,
   idx,
 }: {
-  token: ParsedToken;
+  tokens: ParsedToken[];
   source: RetrievalSource | undefined;
   idx: number;
 }) {
+  const first = tokens[0];
   if (!source) {
     return (
       <div
         data-testid={`inspector-source-missing-${idx}`}
         className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
       >
-        Source <code>{token.source_id}</code> not in pool — token {token.raw}.
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
       </div>
     );
   }
   const text = source.full_text ?? source.snippet ?? "";
-  const out_of_range = token.end > text.length;
-  const span = out_of_range ? "" : text.slice(token.start, token.end);
   return (
     <div
       data-testid={`inspector-source-${idx}`}
@@ -133,21 +165,17 @@ function SourceCard({
           </>
         )}
       </p>
-      {out_of_range ? (
-        <p
-          data-testid={`inspector-span-out-of-range-${idx}`}
-          className="text-rose-700 dark:text-rose-300"
-        >
-          (span out of range: {token.start}-{token.end} of {text.length})
-        </p>
-      ) : (
-        <blockquote
-          data-testid={`inspector-span-${idx}`}
-          className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
-        >
-          {span || "(empty span)"}
-        </blockquote>
-      )}
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote
+            key={j}
+            token={tok}
+            text={text}
+            idx={idx}
+            spanIdx={j}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -167,6 +195,13 @@ export function SentenceInspector({
 }) {
   const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
   const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -205,11 +240,11 @@ export function SentenceInspector({
                   data-testid="inspector-sources"
                   className="flex flex-col gap-2"
                 >
-                  {tokens.map((tok, i) => (
+                  {groups.map(([source_id, group_tokens], i) => (
                     <SourceCard
-                      key={i}
-                      token={tok}
-                      source={pool_index.get(tok.source_id)}
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
                       idx={i}
                     />
                   ))}
