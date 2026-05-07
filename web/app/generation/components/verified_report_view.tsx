@@ -10,6 +10,7 @@ import {
   type AssertionSurface,
   type ContradictionSignal,
   type DropReason,
+  type EvaluatorDisagreement,
   type EvidencePool,
   type ReportVerifiedSentence,
   type VerifiedReport,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/api";
 
 import { ContradictionPane } from "./contradiction_pane";
+import { EvaluatorPane } from "./evaluator_pane";
 
 const ASSERTION_SURFACES: AssertionSurface[] = [
   "prose",
@@ -84,6 +86,7 @@ function SentenceRow({
   hovered_id,
   onSelect,
   onSelectContradiction,
+  onSelectEvaluator,
   pool,
 }: {
   sentence: ReportVerifiedSentence;
@@ -92,6 +95,7 @@ function SentenceRow({
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
   onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
   pool: EvidencePool | null;
 }) {
   const dropped = !sentence.verifier_pass;
@@ -163,13 +167,27 @@ function SentenceRow({
         </span>
       ) : null}
       {!dropped && sentence.evaluator_agrees === false ? (
-        <span
+        <button
+          type="button"
           data-testid={`evaluator-flag-${sentence_id}`}
           title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
-          className="inline-flex w-fit items-center gap-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (sentence.evaluator_disagreement)
+              onSelectEvaluator(sentence.evaluator_disagreement);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.evaluator_disagreement)
+                onSelectEvaluator(sentence.evaluator_disagreement);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
         >
           ⚠ Internal evaluator flagged this
-        </span>
+        </button>
       ) : null}
       {!dropped && sentence.contradiction ? (
         <button
@@ -226,6 +244,7 @@ function SectionCard({
   hovered_id,
   onSelect,
   onSelectContradiction,
+  onSelectEvaluator,
   pool,
 }: {
   section: VerifiedReportSection;
@@ -233,6 +252,7 @@ function SectionCard({
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
   onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
   pool: EvidencePool | null;
 }) {
   const kept = keptSentences(section);
@@ -273,6 +293,7 @@ function SectionCard({
                 hovered_id={hovered_id}
                 onSelect={onSelect}
                 onSelectContradiction={onSelectContradiction}
+                onSelectEvaluator={onSelectEvaluator}
                 pool={pool}
               />
             ))}
@@ -306,6 +327,8 @@ export function VerifiedReportView({
   const [contradiction_open, set_contradiction_open] = useState<
     ContradictionSignal | null
   >(null);
+  const [evaluator_open, set_evaluator_open] =
+    useState<EvaluatorDisagreement | null>(null);
   return (
     <div
       ref={root_ref}
@@ -388,6 +411,7 @@ export function VerifiedReportView({
           hovered_id={hovered_id}
           onSelect={(id, sentence) => setInspector({ id, sentence })}
           onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          onSelectEvaluator={(d) => set_evaluator_open(d)}
           pool={pool}
         />
       ))}
@@ -396,6 +420,13 @@ export function VerifiedReportView({
         signal={contradiction_open}
         onOpenChange={(open) => {
           if (!open) set_contradiction_open(null);
+        }}
+      />
+      <EvaluatorPane
+        open={evaluator_open !== null}
+        disagreement={evaluator_open}
+        onOpenChange={(open) => {
+          if (!open) set_evaluator_open(null);
         }}
       />
       <SentenceInspector

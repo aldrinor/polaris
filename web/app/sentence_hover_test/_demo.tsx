@@ -144,6 +144,15 @@ const REPORT: VerifiedReport = {
           verifier_pass: true,
           drop_reason: null,
           evaluator_agrees: false,
+          // I-f9-002: detail payload powering EvaluatorPane.
+          evaluator_disagreement: {
+            generator_reading:
+              "Generator concluded: drug X reduces 30-day mortality by 30% in adults.",
+            evaluator_reading:
+              "Evaluator reading: confidence interval overlaps null; effect size likely 10-20% not 30%.",
+            cited_sources: ["src-1"],
+            evaluator_model: "qwen-3.5-plus",
+          },
         },
         // sec_x:12 — pending (no LLM judge pass yet).
         {

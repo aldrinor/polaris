@@ -1,0 +1,386 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index 06b6351..0a0b773 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -103,6 +103,14 @@ class VerifiedSentence(BaseModel):
+             "all six surfaces equally."
+         ),
+     )
++    evaluator_disagreement: "EvaluatorDisagreement | None" = Field(
++        default=None,
++        description=(
++            "Optional detail when evaluator_agrees=False (I-f9-002). "
++            "Carries the evaluator's competing reading of the same evidence "
++            "so the EvaluatorPane can render generator-vs-evaluator side-by-side."
++        ),
++    )
+     contradiction: "ContradictionSignal | None" = Field(
+         default=None,
+         description=(
+@@ -207,6 +215,18 @@ Distinguishes guideline-vs-trial, regulatory-vs-trial, etc. — common
+ sources of "the trial says X but the guideline says Y" contradictions."""
+ 
+ 
++class EvaluatorDisagreement(BaseModel):
++    """Two-family evaluator disagreement detail (I-f9-002).
++
++    Carries both readings of the same evidence so the user can compare
++    the generator's claim against the evaluator's competing reading."""
++
++    generator_reading: str = Field(min_length=1, max_length=1000)
++    evaluator_reading: str = Field(min_length=1, max_length=1000)
++    cited_sources: list[str] = Field(min_length=1)
++    evaluator_model: str = Field(min_length=1, max_length=200)
++
++
+ class ContradictionSide(BaseModel):
+     """One side of a contradiction (I-f8-002).
+ 
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index b0367cd..1eeb47f 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -10,6 +10,7 @@ from pydantic import ValidationError
+ from polaris_graph.generator2.verified_report import (
+     ContradictionSide,
+     ContradictionSignal,
++    EvaluatorDisagreement,
+     FrameCoverage,
+     FrameGap,
+     GenerationError,
+@@ -242,6 +243,46 @@ def test_contradiction_side_evidence_type_rejects_bogus():
+         _side(evidence_type="bogus_value")
+ 
+ 
++def test_evaluator_disagreement_minimal():
++    d = EvaluatorDisagreement(
++        generator_reading="Drug X reduces mortality 30%.",
++        evaluator_reading="Drug X reduces mortality 22% (CI overlap suggests 30% overstated).",
++        cited_sources=["src-0", "src-1"],
++        evaluator_model="qwen-3.5-plus",
++    )
++    assert len(d.cited_sources) == 2
++
++
++def test_evaluator_disagreement_cited_sources_min_one():
++    with pytest.raises(ValidationError):
++        EvaluatorDisagreement(
++            generator_reading="x",
++            evaluator_reading="y",
++            cited_sources=[],
++            evaluator_model="m",
++        )
++
++
++def test_verified_sentence_with_evaluator_disagreement_field():
++    # Codex iter-1 P2: cover the actual VerifiedSentence integration path,
++    # not only standalone EvaluatorDisagreement.
++    s = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="x.",
++        provenance_tokens=["[#ev:e:0-1]"],
++        verifier_pass=True,
++        evaluator_agrees=False,
++        evaluator_disagreement=EvaluatorDisagreement(
++            generator_reading="reading A",
++            evaluator_reading="reading B",
++            cited_sources=["src-0"],
++            evaluator_model="qwen-3.5-plus",
++        ),
++    )
++    assert s.evaluator_disagreement is not None
++    assert s.evaluator_disagreement.evaluator_model == "qwen-3.5-plus"
++
++
+ def test_contradiction_side_jurisdiction_default_unspecified():
+     s = _side()
+     assert s.jurisdiction == "unspecified"
+diff --git a/web/app/generation/components/evaluator_pane.tsx b/web/app/generation/components/evaluator_pane.tsx
+new file mode 100644
+index 0000000..83f9ec2
+--- /dev/null
++++ b/web/app/generation/components/evaluator_pane.tsx
+@@ -0,0 +1,90 @@
++"use client";
++
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import type { EvaluatorDisagreement } from "@/lib/api";
++
++export function EvaluatorPane({
++  open,
++  disagreement,
++  onOpenChange,
++}: {
++  open: boolean;
++  disagreement: EvaluatorDisagreement | null;
++  onOpenChange: (next: boolean) => void;
++}) {
++  // Codex iter-1 P2: clear fallback when disagreement payload is absent.
++  return (
++    <Sheet open={open} onOpenChange={onOpenChange}>
++      <SheetContent
++        data-testid="evaluator-pane"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle data-testid="evaluator-pane-title">
++            Generator vs Evaluator readings
++          </SheetTitle>
++          <SheetDescription>
++            Two-family evaluator disagrees with generator's claim. Compare both
++            readings against the same cited evidence.
++          </SheetDescription>
++        </SheetHeader>
++        {disagreement ? (
++          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
++            <div
++              data-testid="evaluator-pane-generator-reading"
++              className="border-border rounded border bg-blue-500/5 p-2 text-xs"
++            >
++              <strong className="text-blue-700 dark:text-blue-300">
++                Generator:
++              </strong>{" "}
++              {disagreement.generator_reading}
++            </div>
++            <div
++              data-testid="evaluator-pane-evaluator-reading"
++              className="border-border rounded border bg-rose-500/5 p-2 text-xs"
++            >
++              <strong className="text-rose-700 dark:text-rose-300">
++                Evaluator:
++              </strong>{" "}
++              {disagreement.evaluator_reading}
++            </div>
++            <div className="text-muted-foreground text-xs">
++              <strong>Both reviewed:</strong>{" "}
++              <span className="flex flex-wrap gap-1">
++                {disagreement.cited_sources.map((src, i) => (
++                  <code
++                    key={i}
++                    data-testid={`evaluator-pane-source-${i}`}
++                    className="bg-muted/40 rounded px-1"
++                  >
++                    {src}
++                  </code>
++                ))}
++              </span>
++            </div>
++            <div className="text-muted-foreground text-xs">
++              <strong>Evaluator model:</strong>{" "}
++              <span data-testid="evaluator-pane-model">
++                {disagreement.evaluator_model}
++              </span>
++            </div>
++          </div>
++        ) : (
++          <p
++            data-testid="evaluator-pane-empty"
++            className="text-muted-foreground px-4 pb-4 text-sm italic"
++          >
++            No evaluator disagreement detail available.
++          </p>
++        )}
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 469137e..183f803 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -10,6 +10,7 @@ import {
+   type AssertionSurface,
+   type ContradictionSignal,
+   type DropReason,
++  type EvaluatorDisagreement,
+   type EvidencePool,
+   type ReportVerifiedSentence,
+   type VerifiedReport,
+@@ -17,6 +18,7 @@ import {
+ } from "@/lib/api";
+ 
+ import { ContradictionPane } from "./contradiction_pane";
++import { EvaluatorPane } from "./evaluator_pane";
+ 
+ const ASSERTION_SURFACES: AssertionSurface[] = [
+   "prose",
+@@ -84,6 +86,7 @@ function SentenceRow({
+   hovered_id,
+   onSelect,
+   onSelectContradiction,
++  onSelectEvaluator,
+   pool,
+ }: {
+   sentence: ReportVerifiedSentence;
+@@ -92,6 +95,7 @@ function SentenceRow({
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+   onSelectContradiction: (signal: ContradictionSignal) => void;
++  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+   pool: EvidencePool | null;
+ }) {
+   const dropped = !sentence.verifier_pass;
+@@ -163,13 +167,27 @@ function SentenceRow({
+         </span>
+       ) : null}
+       {!dropped && sentence.evaluator_agrees === false ? (
+-        <span
++        <button
++          type="button"
+           data-testid={`evaluator-flag-${sentence_id}`}
+           title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+-          className="inline-flex w-fit items-center gap-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
++          onClick={(e) => {
++            e.stopPropagation();
++            if (sentence.evaluator_disagreement)
++              onSelectEvaluator(sentence.evaluator_disagreement);
++          }}
++          onKeyDown={(e) => {
++            if (e.key === "Enter" || e.key === " ") {
++              e.stopPropagation();
++              e.preventDefault();
++              if (sentence.evaluator_disagreement)
++                onSelectEvaluator(sentence.evaluator_disagreement);
++            }
++          }}
++          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+         >
+           ⚠ Internal evaluator flagged this
+-        </span>
++        </button>
+       ) : null}
+       {!dropped && sentence.contradiction ? (
+         <button
+@@ -226,6 +244,7 @@ function SectionCard({
+   hovered_id,
+   onSelect,
+   onSelectContradiction,
++  onSelectEvaluator,
+   pool,
+ }: {
+   section: VerifiedReportSection;
+@@ -233,6 +252,7 @@ function SectionCard({
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+   onSelectContradiction: (signal: ContradictionSignal) => void;
++  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+   pool: EvidencePool | null;
+ }) {
+   const kept = keptSentences(section);
+@@ -273,6 +293,7 @@ function SectionCard({
+                 hovered_id={hovered_id}
+                 onSelect={onSelect}
+                 onSelectContradiction={onSelectContradiction}
++                onSelectEvaluator={onSelectEvaluator}
+                 pool={pool}
+               />
+             ))}
+@@ -306,6 +327,8 @@ export function VerifiedReportView({
+   const [contradiction_open, set_contradiction_open] = useState<
+     ContradictionSignal | null
+   >(null);
++  const [evaluator_open, set_evaluator_open] =
++    useState<EvaluatorDisagreement | null>(null);
+   return (
+     <div
+       ref={root_ref}
+@@ -388,6 +411,7 @@ export function VerifiedReportView({
+           hovered_id={hovered_id}
+           onSelect={(id, sentence) => setInspector({ id, sentence })}
+           onSelectContradiction={(signal) => set_contradiction_open(signal)}
++          onSelectEvaluator={(d) => set_evaluator_open(d)}
+           pool={pool}
+         />
+       ))}
+@@ -398,6 +422,13 @@ export function VerifiedReportView({
+           if (!open) set_contradiction_open(null);
+         }}
+       />
++      <EvaluatorPane
++        open={evaluator_open !== null}
++        disagreement={evaluator_open}
++        onOpenChange={(open) => {
++          if (!open) set_evaluator_open(null);
++        }}
++      />
+       <SentenceInspector
+         open={inspector !== null}
+         onOpenChange={(open) => {
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 984bcf9..658451c 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -144,6 +144,15 @@ const REPORT: VerifiedReport = {
+           verifier_pass: true,
+           drop_reason: null,
+           evaluator_agrees: false,
++          // I-f9-002: detail payload powering EvaluatorPane.
++          evaluator_disagreement: {
++            generator_reading:
++              "Generator concluded: drug X reduces 30-day mortality by 30% in adults.",
++            evaluator_reading:
++              "Evaluator reading: confidence interval overlaps null; effect size likely 10-20% not 30%.",
++            cited_sources: ["src-1"],
++            evaluator_model: "qwen-3.5-plus",
++          },
+         },
+         // sec_x:12 — pending (no LLM judge pass yet).
+         {
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 492473f..8c81908 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -605,6 +605,14 @@ export interface ReportVerifiedSentence {
+   is_synthesis_claim?: boolean;
+   assertion_surface?: AssertionSurface;
+   contradiction?: ContradictionSignal | null;
++  evaluator_disagreement?: EvaluatorDisagreement | null;
++}
++
++export interface EvaluatorDisagreement {
++  generator_reading: string;
++  evaluator_reading: string;
++  cited_sources: string[];
++  evaluator_model: string;
+ }
+ 
+ export type ContradictionEvidenceType =
+diff --git a/web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts b/web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+index 6baf7c6..d9962cb 100644
+--- a/web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts
++++ b/web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+@@ -22,3 +22,27 @@ test("Row does NOT show evaluator-flag for evaluator_agrees=null pending", async
+   await page.goto("/sentence_hover_test");
+   await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+ });
++
++test("Click evaluator-flag → EvaluatorPane shows generator + evaluator readings (I-f9-002)", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("evaluator-flag-sec_x:11").click();
++  await expect(page.getByTestId("evaluator-pane")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(
++    page.getByTestId("evaluator-pane-generator-reading"),
++  ).toContainText("30%");
++  await expect(
++    page.getByTestId("evaluator-pane-evaluator-reading"),
++  ).toContainText("confidence interval");
++  await expect(page.getByTestId("evaluator-pane-source-0")).toContainText(
++    "src-1",
++  );
++  await expect(page.getByTestId("evaluator-pane-model")).toContainText(
++    "qwen-3.5-plus",
++  );
++  // SentenceInspector did NOT also open (propagation guard).
++  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
++});
