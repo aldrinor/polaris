@@ -1,0 +1,175 @@
+diff --git a/web/app/audit_live/_panels.tsx b/web/app/audit_live/_panels.tsx
+new file mode 100644
+index 0000000..6dc2148
+--- /dev/null
++++ b/web/app/audit_live/_panels.tsx
+@@ -0,0 +1,84 @@
++"use client";
++
++import { useEffect, useState } from "react";
++import { useSearchParams } from "next/navigation";
++
++import { SSEClient } from "@/lib/sse_client";
++import {
++  EVENT_LABELS,
++  EVENT_NAMES,
++  type LoggedEvent,
++  type SSEEventName,
++} from "@/lib/sse_events";
++
++const MAX_EVENTS = 50;
++
++export function LiveAuditPanels() {
++  const sp = useSearchParams();
++  const url = sp.get("url") ?? "/api/audit/stream";
++  const [events, setEvents] = useState<Record<SSEEventName, LoggedEvent[]>>(
++    () =>
++      Object.fromEntries(
++        EVENT_NAMES.map((n) => [n, [] as LoggedEvent[]]),
++      ) as Record<SSEEventName, LoggedEvent[]>,
++  );
++
++  useEffect(() => {
++    const c = new SSEClient(url, {
++      eventNames: [...EVENT_NAMES],
++      onEvent: (name, data) => {
++        const ev: LoggedEvent = {
++          name: name as SSEEventName,
++          ts: Date.now(),
++          payload: data,
++        };
++        setEvents((prev) => {
++          const next = { ...prev };
++          next[ev.name] = [...prev[ev.name], ev].slice(-MAX_EVENTS);
++          return next;
++        });
++      },
++    });
++    c.connect();
++    return () => c.close();
++  }, [url]);
++
++  return (
++    <div className="mx-auto max-w-5xl space-y-3 p-6 text-sm">
++      <h1 className="text-xl font-semibold">Live audit run</h1>
++      {EVENT_NAMES.map((name) => (
++        <section
++          key={name}
++          data-testid={`panel-${name}`}
++          className="border-border rounded-md border p-3"
++        >
++          <header className="mb-2 flex justify-between">
++            <span className="font-medium">{EVENT_LABELS[name]}</span>
++            <span
++              data-testid={`panel-${name}-count`}
++              className="text-muted-foreground text-xs"
++            >
++              {events[name].length} events
++            </span>
++          </header>
++          <ul className="max-h-32 overflow-auto text-xs">
++            {events[name].map((ev, i) => (
++              <li
++                key={i}
++                data-testid={`panel-${name}-row-${i}`}
++                className="border-border/40 border-t py-1"
++              >
++                <span className="text-muted-foreground tabular-nums">
++                  {new Date(ev.ts).toISOString().slice(11, 19)}
++                </span>
++                <pre className="ml-2 inline whitespace-pre-wrap">
++                  {ev.payload}
++                </pre>
++              </li>
++            ))}
++          </ul>
++        </section>
++      ))}
++    </div>
++  );
++}
+diff --git a/web/app/audit_live/page.tsx b/web/app/audit_live/page.tsx
+new file mode 100644
+index 0000000..aaffb85
+--- /dev/null
++++ b/web/app/audit_live/page.tsx
+@@ -0,0 +1,11 @@
++import { Suspense } from "react";
++
++import { LiveAuditPanels } from "./_panels";
++
++export default function AuditLivePage() {
++  return (
++    <Suspense fallback={<div>loading…</div>}>
++      <LiveAuditPanels />
++    </Suspense>
++  );
++}
+diff --git a/web/lib/sse_events.ts b/web/lib/sse_events.ts
+new file mode 100644
+index 0000000..aed81fc
+--- /dev/null
++++ b/web/lib/sse_events.ts
+@@ -0,0 +1,27 @@
++// I-f4-002 — Live audit-run event types (6 dedicated UI panels).
++
++export const EVENT_NAMES = [
++  "query_reform",
++  "retrieval_candidate",
++  "source_dropped",
++  "synthesis_decision",
++  "contradiction",
++  "verify_decision",
++] as const;
++
++export type SSEEventName = (typeof EVENT_NAMES)[number];
++
++export const EVENT_LABELS: Record<SSEEventName, string> = {
++  query_reform: "Query reformulations",
++  retrieval_candidate: "Retrieval candidates",
++  source_dropped: "Sources dropped",
++  synthesis_decision: "Synthesis decisions",
++  contradiction: "Contradiction events",
++  verify_decision: "Per-sentence verify decisions",
++};
++
++export interface LoggedEvent {
++  name: SSEEventName;
++  ts: number;
++  payload: string;
++}
+diff --git a/web/tests/e2e/audit_live.spec.ts b/web/tests/e2e/audit_live.spec.ts
+new file mode 100644
+index 0000000..6c3c86a
+--- /dev/null
++++ b/web/tests/e2e/audit_live.spec.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from "@playwright/test";
++
++import { EVENT_NAMES } from "../../lib/sse_events";
++
++test("each of 6 event-type panels renders within 1s of mock SSE emit", async ({
++  page,
++}) => {
++  const body = EVENT_NAMES.map(
++    (name, i) => `event: ${name}\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  await page.route("**/mock/sse", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "text/event-stream",
++      headers: { "cache-control": "no-cache" },
++      body,
++    });
++  });
++
++  await page.goto("/audit_live?url=/mock/sse");
++  for (const name of EVENT_NAMES) {
++    await expect(page.getByTestId(`panel-${name}-count`)).toContainText(
++      /[1-9]\d* events/,
++      {
++        timeout: 1000,
++      },
++    );
++  }
++});
