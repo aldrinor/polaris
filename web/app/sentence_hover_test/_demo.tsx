@@ -264,7 +264,8 @@ const REPORT: VerifiedReport = {
     gaps: [
       {
         entity_name: "Pediatric population",
-        reason: "no Cochrane review found",
+        reason: "no_oa",
+        reason_detail: "no open-access version of Cochrane review",
       },
     ],
   },

@@ -13,7 +13,8 @@ test("Frame coverage panel renders above the report with gap details", async ({
   const gap = page.getByTestId("frame-coverage-gap-0");
   await expect(gap).toBeVisible();
   await expect(gap).toContainText("Pediatric population");
-  await expect(gap).toContainText("no Cochrane review found");
+  await expect(gap).toContainText("No OA");
+  await expect(gap).toContainText("no open-access version of Cochrane review");
 });
 
 test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({

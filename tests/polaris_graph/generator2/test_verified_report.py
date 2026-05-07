@@ -116,9 +116,46 @@ def test_frame_coverage_with_gaps_passes():
     fc = FrameCoverage(
         covered_entity_count=14,
         total_entity_count=15,
-        gaps=[FrameGap(entity_name="Pediatric", reason="no Cochrane review")],
+        gaps=[
+            FrameGap(
+                entity_name="Pediatric",
+                reason="no_oa",
+                reason_detail="no open-access version of Cochrane review",
+            )
+        ],
     )
     assert len(fc.gaps) == 1
+    assert fc.gaps[0].reason == "no_oa"
+
+
+def test_frame_gap_accepts_all_9_enum_values():
+    for r in (
+        "paywalled",
+        "no_oa",
+        "source_tier_ineligible",
+        "language_unavailable",
+        "retracted_only",
+        "jurisdiction_outside",
+        "not_indexed",
+        "embargoed",
+        "other",
+    ):
+        g = FrameGap(entity_name="x", reason=r)
+        assert g.reason == r
+
+
+def test_frame_gap_rejects_bogus_reason():
+    with pytest.raises(ValidationError):
+        FrameGap(entity_name="x", reason="bogus_value")  # type: ignore[arg-type]
+
+
+def test_frame_gap_reason_detail_optional_and_bounded():
+    g = FrameGap(entity_name="x", reason="other")
+    assert g.reason_detail is None
+    g2 = FrameGap(entity_name="x", reason="other", reason_detail="abc")
+    assert g2.reason_detail == "abc"
+    with pytest.raises(ValidationError):
+        FrameGap(entity_name="x", reason="other", reason_detail="x" * 600)
 
 
 def test_frame_coverage_count_mismatch_rejected():

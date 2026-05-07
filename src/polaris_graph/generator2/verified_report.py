@@ -168,11 +168,37 @@ class VerifiedSentence(BaseModel):
 # FrameCoverage (I-f7-001)
 # ---------------------------------------------------------------------------
 
+GapReason = Literal[
+    "paywalled",
+    "no_oa",
+    "source_tier_ineligible",
+    "language_unavailable",
+    "retracted_only",
+    "jurisdiction_outside",
+    "not_indexed",
+    "embargoed",
+    "other",
+]
+"""Frozen taxonomy of frame-gap reasons (I-f7-002).
+
+Replaces the free-text reason from I-f7-001. Forces consistent UI
+labels and analytics aggregation. `other` is the escape hatch — paired
+with `reason_detail` when it's used."""
+
+
 class FrameGap(BaseModel):
     """A single uncovered entity in a frame coverage report."""
 
     entity_name: str = Field(min_length=1, max_length=200)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: GapReason
+    reason_detail: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Optional free-text supplement to the enum reason "
+            "(I-f7-002). Renders as 'Label: detail' in the panel."
+        ),
+    )
 
 
 class FrameCoverage(BaseModel):
