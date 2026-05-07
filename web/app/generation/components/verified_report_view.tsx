@@ -157,6 +157,15 @@ function SentenceRow({
           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
         </span>
       ) : null}
+      {!dropped && sentence.contradiction ? (
+        <span
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          className="inline-flex items-center gap-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
+        </span>
+      ) : null}
       {t1_conflict ? (
         <span
           data-testid="inspector-t1-conflict"

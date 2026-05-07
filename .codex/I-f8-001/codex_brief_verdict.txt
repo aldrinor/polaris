@@ -1,0 +1,2750 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e03d9-05c2-7b92-89f6-ea9a9698673d
+--------
+user
+# Codex Brief Review — I-f8-001 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review (separate Codex call) = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f8-001 — when a sentence has a contradiction signal (≥2 sources disagree on the cited claim), render an inline `⚠ N sources disagree` badge on that sentence row. Subsequent F8 issues build on this surface (I-f8-002 side pane with all sides, I-f8-003 adversarial cases, etc.).
+- **Constraints:** Today's verified_report.py has no contradiction signal — it's a generator-supplied annotation that future Issues populate. This Issue ships the SCHEMA + UI surface; honest substrate per CLAUDE.md §9.4 (no silent overclaim).
+- **Done-when:** acceptance criteria 1-7 below.
+
+## Plan
+
+### Backend
+1. `src/polaris_graph/generator2/verified_report.py`:
+   - Add `ContradictionSignal` BaseModel: `disagreeing_source_count: int (ge=2, le=20)`, `summary: str (min_length=1, max_length=500)`.
+   - Add `contradiction: ContradictionSignal | None = None` field to `VerifiedSentence`.
+2. Tests in `test_verified_report.py`: 3 new tests:
+   - Default None.
+   - With signal, count=2, summary present.
+   - count=1 rejected (need ≥2 to be a "disagreement").
+
+### Frontend
+3. `web/lib/api.ts`: add `ContradictionSignal` interface + optional `contradiction?: ContradictionSignal | null` on `ReportVerifiedSentence`.
+4. `web/app/generation/components/verified_report_view.tsx`: in `SentenceRow`, when `sentence.contradiction != null`, render a `⚠ N sources disagree` inline badge with testid `inspector-contradiction-{i}` (where i is the sentence index in section). Tooltip = the summary.
+5. `web/app/sentence_hover_test/_demo.tsx`: APPEND sec_x:26 with `contradiction: { disagreeing_source_count: 3, summary: "Three Cochrane reviews disagree on dose-response curve" }`.
+6. `web/tests/e2e/sentence_inspector_contradiction.spec.ts` (new):
+   - Test 1: sec_x:26 row shows `inspector-contradiction-26` badge with text containing "3 sources disagree".
+   - Test 2: sec_x:5 (normal) shows NO contradiction badge.
+
+## Risks for Codex Red-Team
+1. **Schema field optional + default None:** existing fixtures untouched.
+2. **Frontend type `?: ... | null`:** undefined coerces to null, no badge.
+3. **Honest substrate:** today's generator does NOT populate contradiction; demo is the only render path. Future Issue (I-f8-002+) wires real detection.
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** estimated ~100 LOC. Under 200.
+6. **Testid collision:** sentence rows already have a generic `kept-sentence` testid. The contradiction badge gets a uniquely-indexed testid `inspector-contradiction-{section_id}-{idx}` or `inspector-contradiction-{idx}` scoped to its parent row — choose: use the index inside the section (matches multispan testid convention).
+
+## Acceptance criteria
+
+1. `ContradictionSignal` Pydantic model added (count ≥2 ≤20, summary length-bounded).
+2. `VerifiedSentence.contradiction: ContradictionSignal | None = None`.
+3. 3 backend tests cover model + count-rejection.
+4. Frontend type + optional `contradiction?: ContradictionSignal | null`.
+5. Inline badge `inspector-contradiction-{idx}` renders when present; absent otherwise.
+6. Demo + Playwright cover positive + negative cases.
+7. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-7.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll inspect the relevant model, UI component, demo route, and existing tests so the review is grounded in the current shapes rather than just the proposed edits.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class VerifiedSentence|VerifiedSentence|ReportVerifiedSentence|SentenceRow|inspector-|kept-sentence|sentence_hover_test|sec_x" src web tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "verified_report.py" -g "test_verified_report.py" -g "api.ts" -g "verified_report_view.tsx" -g "_demo.tsx" -g "*.spec.ts"' in C:\POLARIS
+ succeeded in 1998ms:
+web\app\generation\components\verified_report_view.tsx:13:  type ReportVerifiedSentence,
+web\app\generation\components\verified_report_view.tsx:77:function SentenceRow({
+web\app\generation\components\verified_report_view.tsx:85:  sentence: ReportVerifiedSentence;
+web\app\generation\components\verified_report_view.tsx:89:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web\app\generation\components\verified_report_view.tsx:113:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web\app\generation\components\verified_report_view.tsx:162:          data-testid="inspector-t1-conflict"
+web\app\generation\components\verified_report_view.tsx:183:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web\app\generation\components\verified_report_view.tsx:216:              <SentenceRow
+web\app\generation\components\verified_report_view.tsx:251:    sentence: ReportVerifiedSentence;
+web\app\generation\components\sentence_inspector.tsx:13:  type ReportVerifiedSentence,
+web\app\generation\components\sentence_inspector.tsx:52:      data-testid="inspector-synthesis-claim"
+web\app\generation\components\sentence_inspector.tsx:69:        data-testid="inspector-agree"
+web\app\generation\components\sentence_inspector.tsx:80:        data-testid="inspector-disagree"
+web\app\generation\components\sentence_inspector.tsx:90:      data-testid="inspector-agree-pending"
+web\app\generation\components\sentence_inspector.tsx:115:        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+web\app\generation\components\sentence_inspector.tsx:124:      data-testid={`inspector-span-${idx}-${spanIdx}`}
+web\app\generation\components\sentence_inspector.tsx:145:        data-testid={`inspector-source-missing-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:155:      data-testid={`inspector-source-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:160:          data-testid={`inspector-source-url-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:171:              data-testid={`inspector-paywalled-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:180:              data-testid={`inspector-retracted-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:189:              data-testid={`inspector-stale-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web\app\generation\components\sentence_inspector.tsx:206:        data-testid={`inspector-trace-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:243:  sentence: ReportVerifiedSentence | null;
+web\app\generation\components\sentence_inspector.tsx:259:        data-testid="sentence-inspector-sheet"
+web\app\generation\components\sentence_inspector.tsx:264:          <SheetTitle data-testid="sentence-inspector-id">
+web\app\generation\components\sentence_inspector.tsx:276:                  data-testid="sentence-inspector-text"
+web\app\generation\components\sentence_inspector.tsx:294:                  data-testid="inspector-sources"
+web\app\generation\components\sentence_inspector.tsx:309:                  data-testid="sentence-inspector-drop"
+web\app\inspector\[runId]\page.tsx:119:          <section role="alert" aria-labelledby="inspector-error-heading">
+web\app\inspector\[runId]\page.tsx:121:              id="inspector-error-heading"
+web\app\sentence_hover_test\_demo_stress.tsx:85:      data-testid={`inspector-latency-${n}`}
+web\app\sentence_hover_test\_demo.tsx:112:      section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:122:            section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:130:        // sec_x:10 — agree state (explicit for I-f5-004).
+web\app\sentence_hover_test\_demo.tsx:132:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:139:        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+web\app\sentence_hover_test\_demo.tsx:141:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:148:        // sec_x:12 — pending (no LLM judge pass yet).
+web\app\sentence_hover_test\_demo.tsx:150:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:157:        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+web\app\sentence_hover_test\_demo.tsx:159:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:166:        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+web\app\sentence_hover_test\_demo.tsx:168:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:175:        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+web\app\sentence_hover_test\_demo.tsx:177:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:185:        // sec_x:16 — retracted source (I-f5-007).
+web\app\sentence_hover_test\_demo.tsx:187:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:194:        // sec_x:17 — stale source >2y (I-f5-007).
+web\app\sentence_hover_test\_demo.tsx:196:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:203:        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+web\app\sentence_hover_test\_demo.tsx:213:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:221:        // sec_x:23 — paywalled source (I-f5-010 case 1).
+web\app\sentence_hover_test\_demo.tsx:223:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:230:        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+web\app\sentence_hover_test\_demo.tsx:232:          section_id: "sec_x",
+web\app\sentence_hover_test\_demo.tsx:242:        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+web\app\sentence_hover_test\_demo.tsx:244:          section_id: "sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:16:    VerifiedSentence,
+tests\polaris_graph\generator2\test_verified_report.py:24:# ---------- VerifiedSentence ----------
+tests\polaris_graph\generator2\test_verified_report.py:27:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:39:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:40:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:48:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:49:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:57:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:58:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:68:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:69:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:78:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:79:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:89:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:90:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:101:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:102:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:176:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:177:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:187:        s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:188:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:199:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:200:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:209:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:210:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:222:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:223:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:233:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:234:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:245:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:246:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:256:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:257:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:265:    s = VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:266:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:277:        VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:278:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:286:def _kept(text: str = "kept sentence") -> VerifiedSentence:
+tests\polaris_graph\generator2\test_verified_report.py:287:    return VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:288:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:295:def _dropped(reason: str = "numeric_mismatch") -> VerifiedSentence:
+tests\polaris_graph\generator2\test_verified_report.py:296:    return VerifiedSentence(
+tests\polaris_graph\generator2\test_verified_report.py:297:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:317:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:330:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:340:            section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:349:        section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:401:                    section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:416:                    section_id="sec_x",
+tests\polaris_graph\generator2\test_verified_report.py:431:                section_id="sec_x",
+tests\polaris_graph\generator2\test_strict_verify.py:15:from polaris_graph.generator2.verified_report import VerifiedSentence
+tests\polaris_graph\generator2\test_strict_verify.py:94:        section_id="sec_x",
+tests\polaris_graph\generator2\test_strict_verify.py:289:        section_id="sec_x",
+tests\polaris_graph\generator2\test_strict_verify.py:292:    assert isinstance(rec, VerifiedSentence)
+tests\polaris_graph\generator2\test_strict_verify.py:302:        section_id="sec_x",
+tests\polaris_graph\generator2\test_strict_verify.py:313:        section_id="sec_x",
+tests\polaris_graph\generator2\test_strict_verify.py:324:        VerifiedSentence(
+tests\polaris_graph\generator2\test_strict_verify.py:337:        VerifiedSentence(
+tests\polaris_graph\generator2\test_strict_verify.py:350:        VerifiedSentence(
+tests\polaris_graph\generator2\test_strict_verify.py:356:        VerifiedSentence(
+tests\polaris_graph\generator2\test_strict_verify.py:362:        VerifiedSentence(
+tests\polaris_graph\evidence_contract\test_gate.py:22:    VerifiedSentence,
+tests\polaris_graph\evidence_contract\test_gate.py:70:                    VerifiedSentence(
+tests\polaris_graph\benchmark\test_dimension_scorers.py:26:    VerifiedSentence,
+tests\polaris_graph\benchmark\test_dimension_scorers.py:88:def _kept(text: str, tokens: list[str]) -> VerifiedSentence:
+tests\polaris_graph\benchmark\test_dimension_scorers.py:89:    return VerifiedSentence(
+tests\polaris_graph\benchmark\test_dimension_scorers.py:90:        section_id="sec_x",
+tests\polaris_graph\benchmark\test_dimension_scorers.py:97:def _section(*sentences: VerifiedSentence) -> Section:
+tests\polaris_graph\benchmark\test_dimension_scorers.py:99:        section_id="sec_x",
+tests\polaris_graph\benchmark\test_dimension_scorers.py:193:        section_id="sec_x",
+tests\polaris_graph\benchmark\test_dimension_scorers.py:196:            VerifiedSentence(
+tests\polaris_graph\benchmark\test_dimension_scorers.py:197:                section_id="sec_x",
+tests\polaris_graph\golden\test_slice_005_goldens.py:112:                    "section_id": "sec_x",
+tests\polaris_graph\golden\test_slice_005_goldens.py:116:                            "section_id": "sec_x",
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:77:                    "section_id": "sec_x",
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:81:                            "section_id": "sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:36:    VerifiedSentence,
+tests\polaris_graph\golden\test_slice_004_goldens.py:207:                section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:210:                    VerifiedSentence(
+tests\polaris_graph\golden\test_slice_004_goldens.py:211:                        section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:225:                section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:228:                    VerifiedSentence(
+tests\polaris_graph\golden\test_slice_004_goldens.py:229:                        section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:234:                    VerifiedSentence(
+tests\polaris_graph\golden\test_slice_004_goldens.py:235:                        section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:249:                section_id="sec_x",
+tests\polaris_graph\golden\test_slice_004_goldens.py:252:                    VerifiedSentence(
+tests\polaris_graph\golden\test_slice_004_goldens.py:253:                        section_id="sec_x",
+web\lib\api.ts:213:export interface VerifiedSentence {
+web\lib\api.ts:231:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:598:export interface ReportVerifiedSentence {
+web\lib\api.ts:620:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:737:): ReportVerifiedSentence[] {
+web\tests\e2e\visual.spec.ts:41:    await expect(page).toHaveScreenshot("inspector-executive-summary.png", {
+web\tests\e2e\visual.spec.ts:55:    await expect(page).toHaveScreenshot("inspector-verified-sentences.png", {
+web\tests\e2e\visual.spec.ts:68:    await expect(page).toHaveScreenshot("inspector-error-state.png", {
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:17:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:68:        VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:69:            section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:81:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:15:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:58:def _kept(text: str, tokens: list[str], section_id: str = "sec_x") -> VerifiedSentence:
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:59:    return VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:67:def _dropped(section_id: str = "sec_x") -> VerifiedSentence:
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:68:    return VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:102:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:120:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:124:            VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:125:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:160:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:175:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:191:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:211:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:232:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:249:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:266:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:27:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:76:def _report(sentence: VerifiedSentence) -> VerifiedReport:
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:82:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:102:    sentence = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:103:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:135:    sentence = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:136:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:146:    sentence = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:147:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:157:    sentence = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:158:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:27:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:94:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:97:            VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:98:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:185:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:188:                    VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:189:                        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:252:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:255:            VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:256:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:261:            VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:262:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:14:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:65:def _report(sentences: list[VerifiedSentence], verdict: str = "success") -> VerifiedReport:
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:68:            section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:76:            section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:100:    sentence = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:101:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:115:        VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:116:            section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:134:    dropped = VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:135:        section_id="sec_x",
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:15"]').click();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:12:  await expect(page.getByTestId("inspector-synthesis-claim")).toBeVisible();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:19:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:21:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:24:  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:19:    VerifiedSentence,
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:83:        section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:86:            VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:87:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:155:                section_id="sec_x",
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:158:                    VerifiedSentence(
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:159:                        section_id="sec_x",
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:27:    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:30:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_source.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:12:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_source.spec.ts:16:  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+web\tests\e2e\sentence_inspector_source.spec.ts:20:  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+web\tests\e2e\sentence_inspector_source.spec.ts:23:  await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
+web\tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:30:  await page.locator('[data-sentence-id="sec_x:9"]').click();
+web\tests\e2e\sentence_inspector_source.spec.ts:32:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:35:  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:36:  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+tests\v6\test_charts.py:116:        VerifiedSentence,
+tests\v6\test_charts.py:138:            VerifiedSentence(
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:16"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:11:  await expect(page.getByTestId("inspector-retracted-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:18:  await page.locator('[data-sentence-id="sec_x:17"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:22:  await expect(page.getByTestId("inspector-stale-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:33:  await expect(page.getByTestId("inspector-retracted-0")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:34:  await expect(page.getByTestId("inspector-stale-0")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:13"]').click();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:13:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:14:  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:16:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:19:  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:20:  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:27:  await page.locator('[data-sentence-id="sec_x:14"]').click();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:29:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:33:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:34:  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:35:  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:37:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:38:  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:39:  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web\tests\e2e\sentence_inspector_latency.spec.ts:8:    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web\tests\e2e\sentence_inspector_latency.spec.ts:25:            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_latency.spec.ts:33:          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_latency.spec.ts:44:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:56:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:72:            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:80:          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:91:    // Each kept stress sentence cites src-(i mod 50) → inspector-source-0
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:93:    const sheet = page.getByTestId("sentence-inspector-sheet");
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:97:        '[data-testid^="inspector-source-"], [data-testid="inspector-paywalled-0"], [data-testid="inspector-synthesis-claim"]',
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:106:    await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:10"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:11:  await expect(page.getByTestId("inspector-agree")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:18:  await page.locator('[data-sentence-id="sec_x:11"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:22:  await expect(page.getByTestId("inspector-disagree")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:12"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:33:  await expect(page.getByTestId("inspector-agree-pending")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:23"]').click();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:11:  await expect(page.getByTestId("inspector-paywalled-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:13:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:23:  await page.locator('[data-sentence-id="sec_x:24"]').click();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:24:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:28:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:31:    page.getByTestId("inspector-span-out-of-range-0-1"),
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:39:  const row = page.locator('[data-sentence-id="sec_x:25"]');
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:41:  await expect(row.getByTestId("inspector-t1-conflict")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:48:  const row = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:49:  await expect(row.getByTestId("inspector-t1-conflict")).toHaveCount(0);
+web\tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector.spec.ts:9:  const target = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector.spec.ts:12:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector.spec.ts:15:  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
+web\tests\e2e\sentence_inspector.spec.ts:16:    "sec_x:5",
+web\tests\e2e\sentence_inspector.spec.ts:18:  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
+tests\v6\test_schemas.py:42:        VerifiedSentence,
+tests\v6\test_schemas.py:63:            VerifiedSentence(
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_hover.spec.ts:9:  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
+web\tests\e2e\sentence_hover.spec.ts:10:  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
+web\tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+tests\polaris_graph\api\test_audit_bundle_route.py:92:                "section_id": "sec_x",
+tests\polaris_graph\api\test_audit_bundle_route.py:96:                        "section_id": "sec_x",
+tests\polaris_graph\api\test_audit_bundle_route.py:110:                "section_id": "sec_x",
+tests\polaris_graph\api\test_audit_bundle_route.py:114:                        "section_id": "sec_x",
+src\polaris_v6\schemas\evidence_contract.py:37:class VerifiedSentence(BaseModel):
+src\polaris_v6\schemas\evidence_contract.py:97:    verified_sentences: list[VerifiedSentence]
+tests\polaris_graph\test_inspector_router.py:221:    """Codex M-3 high: evidence-pane was OUTSIDE inspector-main; the grid never
+tests\polaris_graph\test_inspector_router.py:222:    actually split. Now the pane lives INSIDE main, beside .inspector-views."""
+tests\polaris_graph\test_inspector_router.py:226:    main_idx = body.find('class="inspector-main"')
+tests\polaris_graph\test_inspector_router.py:227:    views_idx = body.find('class="inspector-views"', main_idx)
+tests\polaris_v6\api\test_app_slice_route_mount.py:227:                "section_id": "sec_x",
+tests\polaris_v6\api\test_app_slice_route_mount.py:231:                        "section_id": "sec_x",
+src\polaris_graph\generator2\section_blueprint.py:7:for VerifiedSentence.section_id + UI anchors) and a human-readable title.
+src\polaris_graph\generator2\generator.py:15:        verify_sentence_to_record() per sentence  -> VerifiedSentence
+src\polaris_graph\generator2\generator.py:51:    VerifiedSentence,
+src\polaris_graph\generator2\generator.py:143:    def attempt() -> tuple[list[VerifiedSentence], float]:
+src\polaris_graph\generator2\verified_report.py:67:# VerifiedSentence — atomic verified unit
+src\polaris_graph\generator2\verified_report.py:70:class VerifiedSentence(BaseModel):
+src\polaris_graph\generator2\verified_report.py:119:    def _drop_reason_consistency(self) -> "VerifiedSentence":
+src\polaris_graph\generator2\verified_report.py:131:    def _evaluator_agreement_consistency(self) -> "VerifiedSentence":
+src\polaris_graph\generator2\verified_report.py:141:    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
+src\polaris_graph\generator2\verified_report.py:246:    verified_sentences: list[VerifiedSentence] = Field(default_factory=list)
+src\polaris_graph\generator2\verified_report.py:250:    def kept_sentences(self) -> list[VerifiedSentence]:
+src\polaris_graph\generator2\strict_verify.py:11:constructs a VerifiedSentence for use by the generator orchestrator.
+src\polaris_graph\generator2\strict_verify.py:33:    VerifiedSentence,
+src\polaris_graph\generator2\strict_verify.py:167:) -> VerifiedSentence:
+src\polaris_graph\generator2\strict_verify.py:168:    """Convenience: wrap verify_sentence into a VerifiedSentence record.
+src\polaris_graph\generator2\strict_verify.py:179:    return VerifiedSentence(
+src\polaris_graph\generator2\strict_verify.py:194:def section_pass_rate(sentences: list[VerifiedSentence]) -> float:
+src\polaris_graph\audit_bundle\snapshot_sources.py:5:Walks every kept VerifiedSentence across every non-dropped Section in
+
+2026-05-07T19:10:29.941099Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.7 seconds
+Output:
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\lib\api.ts
+web\app\sentence_hover_test\_demo.tsx
+web\app\generation\components\verified_report_view.tsx
+tests\polaris_graph\generator2\test_verified_report.py
+src\polaris_graph\generator2\verified_report.py
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 2664ms:
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\lib\api.ts
+web\app\sentence_hover_test\_demo.tsx
+web\app\generation\components\verified_report_view.tsx
+tests\polaris_graph\generator2\test_verified_report.py
+src\polaris_graph\generator2\verified_report.py
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+codex
+The relevant files are present. I’m narrowing to the schema boundaries and the sentence-row render/test conventions, especially whether the proposed test ID and demo index line up with how rows are currently keyed.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\generator2\\verified_report.py -TotalCount 290" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 580 -First 170" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_adversarial.spec.ts -TotalCount 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx -TotalCount 340" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\generator2\\test_verified_report.py -TotalCount 470" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\_demo.tsx -TotalCount 340" in C:\POLARIS
+ succeeded in 1669ms:
+"""VerifiedReport schema for slice 003 (generator + strict-verify).
+
+Per `.codex/slices/slice_003/architecture_proposal.md` §"verified_report.py".
+
+Pure-types module. No I/O, no LLM, no network. Slice 003's
+process_generation() consumes an EvidencePool (slice 002 output) and
+produces a VerifiedReport, which slice 004 will export as an audit
+bundle.
+
+Lives in `polaris_graph.generator2` (note the `2`) to keep separation
+from heritage `polaris_graph.generator` (multi_section, live_deepseek)
+which serves the legacy honest-rebuild pipeline. Coexistence by design
+per PLAN.md §4 Heritage Import.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Type literals
+# ---------------------------------------------------------------------------
+
+SectionStatus = Literal["verified", "regenerated", "dropped"]
+"""Per-section outcome from strict_verify:
+
+- "verified": original generation passed >=verifier_pass_threshold of
+  sentences strict-verified
+- "regenerated": original failed; regeneration attempt passed
+- "dropped": both attempts failed; section excluded from final report
+"""
+
+PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+"""Top-level verdict per CLAUDE.md §9.1 invariant 4."""
+
+AssertionSurface = Literal[
+    "prose",
+    "table",
+    "summary_bullet",
+    "limitation",
+    "caption",
+    "heading",
+]
+"""Render-surface kind of a verified assertion (I-f5-009).
+
+Per Carney plan §F: every assertion-bearing surface in a verified report
+must be gated-and-clickable through the Inspector OR explicitly marked
+ungated. Today's generator emits only "prose"; future Issues populate
+the other 5 surfaces as the generator learns to label table cells,
+summary bullets, etc."""
+
+DropReason = Literal[
+    "invalid_token",       # token doesn't reference a known source_id
+    "span_out_of_range",   # span_start > span_end or > len(full_text)
+    "numeric_mismatch",    # decimal in sentence not present in cited span
+    "overlap_too_low",     # < min_content_overlap shared content words
+    "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
+]
+
+
+# ---------------------------------------------------------------------------
+# VerifiedSentence — atomic verified unit
+# ---------------------------------------------------------------------------
+
+class VerifiedSentence(BaseModel):
+    """A single sentence emitted by the generator after strict-verify.
+
+    Sentences that fail strict_verify are still represented here with
+    `verifier_pass=False` and a `drop_reason`, so the audit bundle can
+    surface "what got proposed and dropped" alongside "what shipped."
+    """
+
+    section_id: str = Field(min_length=1)
+    sentence_text: str = Field(min_length=1)
+    provenance_tokens: list[str] = Field(
+        default_factory=list,
+        description="Token strings of form '[#ev:<source_id>:<start>-<end>]'",
+    )
+    verifier_pass: bool
+    drop_reason: DropReason | None = None
+    evaluator_agrees: bool | None = Field(
+        default=None,
+        description=(
+            "Two-family evaluator agreement per CLAUDE.md §9.1 invariant 1. "
+            "True = evaluator confirms generator claim; False = evaluator "
+            "disagrees; None = pending (no evaluator pass yet). At rule-based "
+            "stage this mirrors verifier_pass; future Issue plugs in the "
+            "real two-family LLM judge to populate this independently."
+        ),
+    )
+    assertion_surface: AssertionSurface = Field(
+        default="prose",
+        description=(
+            "Render-surface kind per I-f5-009. Default 'prose' preserves "
+            "back-compat with all existing fixtures. Non-prose values are "
+            "populated by future generator wiring (table cells, summary "
+            "bullets, limitations, captions, headings); the Inspector gates "
+            "all six surfaces equally."
+        ),
+    )
+    is_synthesis_claim: bool = Field(
+        default=False,
+        description=(
+            "True iff sentence is a synthesis claim (e.g., a discussion "
+            "paragraph summarizing across sources without quoting any one). "
+            "Synthesis claims have no provenance_tokens by definition; "
+            "non-synthesis kept sentences MUST have ≥1 provenance token. "
+            "Today's generator defaults to False; future Issue may wire the "
+            "prompt template to label synthesis sentences explicitly."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _drop_reason_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.drop_reason is None:
+            raise ValueError(
+                "drop_reason is required when verifier_pass=False"
+            )
+        if self.verifier_pass is True and self.drop_reason is not None:
+            raise ValueError(
+                "drop_reason must be None when verifier_pass=True"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _evaluator_agreement_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.evaluator_agrees is True:
+            raise ValueError(
+                "evaluator_agrees=True is forbidden when verifier_pass=False "
+                "(rule-based dropped the sentence; evaluator cannot pass it "
+                "without contradicting strict-verify)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
+        if self.is_synthesis_claim and self.verifier_pass is False:
+            raise ValueError(
+                "is_synthesis_claim=True requires verifier_pass=True "
+                "(synthesis claims either ship or are dropped before reaching "
+                "this record)"
+            )
+        if self.is_synthesis_claim and len(self.provenance_tokens) > 0:
+            raise ValueError(
+                "is_synthesis_claim=True requires provenance_tokens=[] "
+                "(synthesis claims have no specific provenance — that's the "
+                "definition)"
+            )
+        if (
+            not self.is_synthesis_claim
+            and self.verifier_pass is True
+            and len(self.provenance_tokens) == 0
+        ):
+            raise ValueError(
+                "kept non-synthesis sentence requires ≥1 provenance token; "
+                "set is_synthesis_claim=True for prose without specific "
+                "provenance"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# FrameCoverage (I-f7-001)
+# ---------------------------------------------------------------------------
+
+GapReason = Literal[
+    "paywalled",
+    "no_oa",
+    "source_tier_ineligible",
+    "language_unavailable",
+    "retracted_only",
+    "jurisdiction_outside",
+    "not_indexed",
+    "embargoed",
+    "other",
+]
+"""Frozen taxonomy of frame-gap reasons (I-f7-002).
+
+Replaces the free-text reason from I-f7-001. Forces consistent UI
+labels and analytics aggregation. `other` is the escape hatch — paired
+with `reason_detail` when it's used."""
+
+
+class FrameGap(BaseModel):
+    """A single uncovered entity in a frame coverage report."""
+
+    entity_name: str = Field(min_length=1, max_length=200)
+    reason: GapReason
+    reason_detail: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Optional free-text supplement to the enum reason "
+            "(I-f7-002). Renders as 'Label: detail' in the panel."
+        ),
+    )
+
+
+class FrameCoverage(BaseModel):
+    """Top-of-report frame coverage summary (I-f7-001).
+
+    Surfaces "X of N entities covered" with explicit gap reasons. Consumed
+    by the FrameCoveragePanel above the verified report. Optional on
+    VerifiedReport; older payloads without coverage render no panel."""
+
+    covered_entity_count: int = Field(ge=0)
+    total_entity_count: int = Field(ge=0)
+    gaps: list[FrameGap] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _counts_consistency(self) -> "FrameCoverage":
+        if self.covered_entity_count > self.total_entity_count:
+            raise ValueError(
+                "covered_entity_count cannot exceed total_entity_count"
+            )
+        if (
+            self.covered_entity_count + len(self.gaps)
+            != self.total_entity_count
+        ):
+            raise ValueError(
+                "covered_entity_count + len(gaps) must equal total_entity_count"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Section
+# ---------------------------------------------------------------------------
+
+class Section(BaseModel):
+    """A report section (e.g. 'Population', 'Outcomes').
+
+    `verified_sentences` includes both passed AND dropped sentences for
+    audit completeness; UI filters by `verifier_pass` when rendering the
+    user-facing report. `section_verify_pass_rate` is over all attempted
+    sentences (not just kept ones).
+    """
+
+    section_id: str = Field(min_length=1)
+    section_title: str = Field(min_length=1, max_length=200)
+    verified_sentences: list[VerifiedSentence] = Field(default_factory=list)
+    section_verify_pass_rate: float = Field(ge=0.0, le=1.0)
+    section_status: SectionStatus
+
+    def kept_sentences(self) -> list[VerifiedSentence]:
+        """Filter to sentences that passed strict_verify."""
+        return [s for s in self.verified_sentences if s.verifier_pass]
+
+
+# ---------------------------------------------------------------------------
+# VerifiedReport
+# ---------------------------------------------------------------------------
+
+class VerifiedReport(BaseModel):
+    """The slice 003 output. Bound to a slice-002 pool via pool_id +
+    a slice-001 decision via decision_id. Same pool can produce different
+    reports across runs (LLM nondeterminism); report_id distinguishes them.
+    """
+
+    report_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    pool_id: str = Field(min_length=1)
+    decision_id: str = Field(min_length=1)
+    sections: list[Section] = Field(default_factory=list)
+    overall_verify_pass_rate: float = Field(ge=0.0, le=1.0)
+    pipeline_verdict: PipelineVerdict
+    generator_model: str = Field(min_length=1, max_length=200)
+    evaluator_model: str = Field(
+        min_length=1,
+        max_length=200,
+        description=(
+            "Two-family evaluator identifier per CLAUDE.md §9.1 invariant 1. "
+            "Rule-based stage value: 'strict_verify_v1'. When a real LLM "
+            "judge wires in (separate Issue), this becomes the OpenRouter "
+            "model id from a different training family than generator_model."
+        ),
+    )
+    family_segregation_passed: bool = Field(
+        default=True,
+        description=(
+            "True iff generator and evaluator are confirmed to be from "
+            "different training lineages (rule-based always True; future "
+            "two-family LLM judge invokes "
+            "openrouter_client.check_family_segregation)."
+        ),
+    )
+
+ succeeded in 1998ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          pool={pool}
+        />
+      ))}
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+
+ succeeded in 2565ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders paywalled badge when source.full_text_available=false", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:23"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-paywalled-0")).toBeVisible();
+  // URL still actionable.
+  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+    "href",
+    /nejm\.org/,
+  );
+});
+
+test("Inspector flags out-of-range second span in multi-span case", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:24"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  // First span valid (0-30 within full_text length).
+  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+  // Second span out-of-range (5000-5050 beyond full_text length).
+  await expect(
+    page.getByTestId("inspector-span-out-of-range-0-1"),
+  ).toBeVisible();
+});
+
+test("Row shows T1-conflict heuristic when ≥2 T1 sources cited", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:25"]');
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId("inspector-t1-conflict")).toBeVisible();
+});
+
+test("Row does NOT show T1-conflict for single-T1-source sentence", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:5"]');
+  await expect(row.getByTestId("inspector-t1-conflict")).toHaveCount(0);
+});
+
+ succeeded in 3129ms:
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+
+ succeeded in 3693ms:
+"""Tests for polaris_graph.generator2.verified_report schemas."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from pydantic import ValidationError
+
+from polaris_graph.generator2.verified_report import (
+    FrameCoverage,
+    FrameGap,
+    GenerationError,
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ---------- VerifiedSentence ----------
+
+def test_verified_sentence_pass_minimal():
+    s = VerifiedSentence(
+        section_id="sec_population",
+        sentence_text="Adults aged 65+ were enrolled.",
+        provenance_tokens=["[#ev:abc-123:100-150]"],
+        verifier_pass=True,
+    )
+    assert s.verifier_pass
+    assert s.drop_reason is None
+
+
+def test_verified_sentence_fail_requires_drop_reason():
+    with pytest.raises(ValidationError, match="drop_reason is required"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Bogus sentence.",
+            verifier_pass=False,
+        )
+
+
+def test_verified_sentence_pass_rejects_drop_reason():
+    with pytest.raises(ValidationError, match="must be None when verifier_pass=True"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Good sentence.",
+            verifier_pass=True,
+            drop_reason="numeric_mismatch",
+        )
+
+
+def test_verified_sentence_drop_with_reason():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="Numeric claim 23%.",
+        provenance_tokens=["[#ev:abc:0-100]"],
+        verifier_pass=False,
+        drop_reason="numeric_mismatch",
+    )
+    assert s.drop_reason == "numeric_mismatch"
+
+
+def test_verified_sentence_evaluator_agrees_default_none():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.evaluator_agrees is None
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=True,
+    )
+    assert s.evaluator_agrees is True
+
+
+def test_verified_sentence_evaluator_agrees_false_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=False,
+    )
+    assert s.evaluator_agrees is False
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+    with pytest.raises(ValidationError, match="evaluator_agrees=True is forbidden"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            verifier_pass=False,
+            drop_reason="numeric_mismatch",
+            evaluator_agrees=True,
+        )
+
+
+def test_frame_coverage_minimal_no_gaps():
+    fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+    assert fc.gaps == []
+
+
+def test_frame_coverage_with_gaps_passes():
+    fc = FrameCoverage(
+        covered_entity_count=14,
+        total_entity_count=15,
+        gaps=[
+            FrameGap(
+                entity_name="Pediatric",
+                reason="no_oa",
+                reason_detail="no open-access version of Cochrane review",
+            )
+        ],
+    )
+    assert len(fc.gaps) == 1
+    assert fc.gaps[0].reason == "no_oa"
+
+
+def test_frame_gap_accepts_all_9_enum_values():
+    for r in (
+        "paywalled",
+        "no_oa",
+        "source_tier_ineligible",
+        "language_unavailable",
+        "retracted_only",
+        "jurisdiction_outside",
+        "not_indexed",
+        "embargoed",
+        "other",
+    ):
+        g = FrameGap(entity_name="x", reason=r)
+        assert g.reason == r
+
+
+def test_frame_gap_rejects_bogus_reason():
+    with pytest.raises(ValidationError):
+        FrameGap(entity_name="x", reason="bogus_value")  # type: ignore[arg-type]
+
+
+def test_frame_gap_reason_detail_optional_and_bounded():
+    g = FrameGap(entity_name="x", reason="other")
+    assert g.reason_detail is None
+    g2 = FrameGap(entity_name="x", reason="other", reason_detail="abc")
+    assert g2.reason_detail == "abc"
+    with pytest.raises(ValidationError):
+        FrameGap(entity_name="x", reason="other", reason_detail="x" * 600)
+
+
+def test_frame_coverage_count_mismatch_rejected():
+    with pytest.raises(ValidationError, match="must equal total_entity_count"):
+        FrameCoverage(
+            covered_entity_count=14,
+            total_entity_count=15,
+            gaps=[],  # 14 + 0 != 15
+        )
+
+
+def test_frame_coverage_covered_exceeds_total_rejected():
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        FrameCoverage(covered_entity_count=16, total_entity_count=15)
+
+
+def test_verified_sentence_assertion_surface_default_prose():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.assertion_surface == "prose"
+
+
+def test_verified_sentence_assertion_surface_accepts_six_values():
+    for surface in ("prose", "table", "summary_bullet", "limitation", "caption", "heading"):
+        s = VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            provenance_tokens=["[#ev:e:0-1]"],
+            verifier_pass=True,
+            assertion_surface=surface,
+        )
+        assert s.assertion_surface == surface
+
+
+def test_verified_sentence_assertion_surface_rejects_bogus():
+    with pytest.raises(ValidationError):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            provenance_tokens=["[#ev:e:0-1]"],
+            verifier_pass=True,
+            assertion_surface="bogus_surface",  # type: ignore[arg-type]
+        )
+
+
+def test_verified_sentence_synthesis_claim_allows_empty_tokens():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="These trials together suggest moderate effect.",
+        provenance_tokens=[],
+        verifier_pass=True,
+        is_synthesis_claim=True,
+    )
+    assert s.is_synthesis_claim is True
+    assert s.provenance_tokens == []
+
+
+def test_verified_sentence_synthesis_claim_with_tokens_forbidden():
+    with pytest.raises(ValidationError, match="provenance_tokens=\\[\\]"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Synthesis with token.",
+            provenance_tokens=["[#ev:e:0-3]"],
+            verifier_pass=True,
+            is_synthesis_claim=True,
+        )
+
+
+def test_verified_sentence_synthesis_claim_with_pass_false_forbidden():
+    with pytest.raises(ValidationError, match="verifier_pass=True"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Bad synthesis.",
+            provenance_tokens=[],
+            verifier_pass=False,
+            drop_reason="no_provenance_token",
+            is_synthesis_claim=True,
+        )
+
+
+def test_verified_sentence_kept_non_synthesis_must_have_tokens():
+    with pytest.raises(ValidationError, match="≥1 provenance token"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Kept claim with no tokens.",
+            provenance_tokens=[],
+            verifier_pass=True,
+            is_synthesis_claim=False,
+        )
+
+
+def test_verified_sentence_invalid_drop_reason():
+    with pytest.raises(ValidationError):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x",
+            verifier_pass=False,
+            drop_reason="bogus_reason",  # type: ignore[arg-type]
+        )
+
+
+def test_verified_sentence_no_token_drop():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="Sentence with no token.",
+        provenance_tokens=[],
+        verifier_pass=False,
+        drop_reason="no_provenance_token",
+    )
+    assert s.provenance_tokens == []
+
+
+def test_verified_sentence_blank_text_rejected():
+    with pytest.raises(ValidationError):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="",
+            verifier_pass=True,
+        )
+
+
+# ---------- Section ----------
+
+def _kept(text: str = "kept sentence") -> VerifiedSentence:
+    return VerifiedSentence(
+        section_id="sec_x",
+        sentence_text=text,
+        provenance_tokens=["[#ev:abc:0-100]"],
+        verifier_pass=True,
+    )
+
+
+def _dropped(reason: str = "numeric_mismatch") -> VerifiedSentence:
+    return VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="dropped sentence",
+        verifier_pass=False,
+        drop_reason=reason,  # type: ignore[arg-type]
+    )
+
+
+def test_section_minimal():
+    s = Section(
+        section_id="sec_population",
+        section_title="Population",
+        verified_sentences=[_kept(), _kept(), _dropped()],
+        section_verify_pass_rate=0.667,
+        section_status="verified",
+    )
+    assert len(s.verified_sentences) == 3
+
+
+def test_section_kept_sentences_filters():
+    s = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_kept(), _dropped(), _kept()],
+        section_verify_pass_rate=0.667,
+        section_status="verified",
+    )
+    assert len(s.kept_sentences()) == 2
+    assert all(k.verifier_pass for k in s.kept_sentences())
+
+
+def test_section_pass_rate_must_be_0_to_1():
+    with pytest.raises(ValidationError):
+        Section(
+            section_id="sec_x",
+            section_title="X",
+            section_verify_pass_rate=1.5,
+            section_status="verified",
+        )
+
+
+def test_section_invalid_status_rejected():
+    with pytest.raises(ValidationError):
+        Section(
+            section_id="sec_x",
+            section_title="X",
+            section_verify_pass_rate=0.5,
+            section_status="weird",  # type: ignore[arg-type]
+        )
+
+
+def test_section_dropped_status_allowed():
+    s = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_dropped(), _dropped()],
+        section_verify_pass_rate=0.0,
+        section_status="dropped",
+    )
+    assert s.section_status == "dropped"
+
+
+# ---------- VerifiedReport ----------
+
+def _success_report(**overrides) -> VerifiedReport:
+    started = _now()
+    finished = started + timedelta(seconds=10)
+    base = dict(
+        pool_id="pool-1",
+        decision_id="dec-1",
+        sections=[
+            Section(
+                section_id="sec_population",
+                section_title="Population",
+                verified_sentences=[_kept(), _kept()],
+                section_verify_pass_rate=1.0,
+                section_status="verified",
+            )
+        ],
+        overall_verify_pass_rate=1.0,
+        pipeline_verdict="success",
+        generator_model="deepseek-v4-flash",
+        evaluator_model="strict_verify_v1",
+        verifier_pass_threshold=0.4,
+        started_at_utc=started,
+        finished_at_utc=finished,
+        latency_ms=10000,
+        cost_usd=0.05,
+    )
+    base.update(overrides)
+    return VerifiedReport(**base)  # type: ignore[arg-type]
+
+
+def test_verified_report_success_minimal():
+    r = _success_report()
+    assert r.report_id  # uuid
+    assert r.pipeline_verdict == "success"
+    assert len(r.sections) == 1
+
+
+def test_verified_report_success_requires_at_least_one_kept_section():
+    with pytest.raises(ValidationError, match="at least one non-dropped section"):
+        _success_report(
+            sections=[
+                Section(
+                    section_id="sec_x",
+                    section_title="X",
+                    section_verify_pass_rate=0.0,
+                    section_status="dropped",
+                )
+            ]
+        )
+
+
+def test_verified_report_abort_requires_all_dropped():
+    with pytest.raises(ValidationError, match="all sections .* to be dropped"):
+        _success_report(
+            pipeline_verdict="abort_no_verified_sections",
+            sections=[
+                Section(
+                    section_id="sec_x",
+                    section_title="X",
+                    verified_sentences=[_kept()],
+                    section_verify_pass_rate=1.0,
+                    section_status="verified",
+                )
+            ],
+        )
+
+
+def test_verified_report_abort_with_all_dropped_passes():
+    r = _success_report(
+        pipeline_verdict="abort_no_verified_sections",
+        sections=[
+            Section(
+                section_id="sec_x",
+                section_title="X",
+                verified_sentences=[_dropped()],
+                section_verify_pass_rate=0.0,
+                section_status="dropped",
+            )
+        ],
+        overall_verify_pass_rate=0.0,
+    )
+    assert r.pipeline_verdict == "abort_no_verified_sections"
+
+
+def test_verified_report_abort_with_no_sections_passes():
+    """Empty sections list is allowed for abort verdict."""
+    r = _success_report(
+        pipeline_verdict="abort_no_verified_sections",
+        sections=[],
+        overall_verify_pass_rate=0.0,
+    )
+    assert r.sections == []
+
+
+def test_verified_report_finished_before_started_rejected():
+    started = _now()
+    with pytest.raises(ValidationError, match="finished_at_utc must be"):
+        _success_report(
+            started_at_utc=started,
+            finished_at_utc=started - timedelta(seconds=1),
+        )
+
+
+def test_verified_report_negative_latency_rejected():
+    with pytest.raises(ValidationError):
+        _success_report(latency_ms=-1)
+
+
+def test_verified_report_negative_cost_rejected():
+    with pytest.raises(ValidationError):
+        _success_report(cost_usd=-0.01)
+
+
+ succeeded in 4241ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+
+// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const SOURCE_FULL_TEXT_5 =
+  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Cochrane review ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J", "Doe R", "Patel K"],
+    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+    full_text_available: true,
+    full_text: SOURCE_FULL_TEXT_5,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+const SRC_RETRACTED: RetrievalSource = {
+  source_id: "src-retracted",
+  url: "https://www.cochrane.org/CD-retracted",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (retracted)",
+  publication_date: FRESH_DATE,
+  authors: ["Doe R"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+  retracted: true,
+};
+
+const SRC_PAYWALLED: RetrievalSource = {
+  source_id: "src-paywalled",
+  url: "https://nejm.org/paywalled/abc",
+  domain: "nejm.org",
+  tier: "T1",
+  title: "Paywalled NEJM article",
+  publication_date: FRESH_DATE,
+  authors: ["Jones B"],
+  snippet: "Abstract excerpt only — full text behind paywall.",
+  full_text_available: false,
+  full_text: null,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const SRC_STALE: RetrievalSource = {
+  source_id: "src-stale",
+  url: "https://www.cochrane.org/CD-stale",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (3y old)",
+  publication_date: STALE_DATE,
+  authors: ["Patel K"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const POOL: EvidencePool = {
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sources: [
+    ...Array.from({ length: 10 }, (_, i) => _src(i)),
+    SRC_RETRACTED,
+    SRC_STALE,
+    SRC_PAYWALLED,
+  ],
+  adequacy: {
+    is_adequate: true,
+    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+    failure_reason: null,
+  },
+  queries_executed: ["aspirin migraine"],
+  retrieval_started_at_utc: ISO,
+  retrieval_finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+const REPORT: VerifiedReport = {
+  report_id: "r-hover-test",
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sections: [
+    {
+      section_id: "sec_x",
+      section_title: "Test section",
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
+          section_id: "sec_x",
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+        {
+          section_id: "sec_x",
+          sentence_text: "These trials together suggest a moderate effect.",
+          provenance_tokens: [],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          is_synthesis_claim: true,
+        },
+        // sec_x:16 — retracted source (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Retracted-source demo sentence.",
+          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:17 — stale source >2y (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Stale-source demo sentence.",
+          provenance_tokens: [`[#ev:src-stale:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+        ...(
+          [
+            "table",
+            "summary_bullet",
+            "limitation",
+            "caption",
+            "heading",
+          ] as const
+        ).map((surface, k) => ({
+          section_id: "sec_x",
+          sentence_text: `${surface} assertion demo sentence.`,
+          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          assertion_surface: surface,
+        })),
+        // sec_x:23 — paywalled source (I-f5-010 case 1).
+        {
+          section_id: "sec_x",
+          sentence_text: "Paywalled-source demo sentence cites NEJM.",
+          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span with bad span demo sentence.",
+          provenance_tokens: [
+            `[#ev:src-0:0-30]`,
+            `[#ev:src-0:5000-5050]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+        {
+          section_id: "sec_x",
+          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+      ],
+      section_verify_pass_rate: 1.0,
+      section_status: "verified",
+    },
+  ],
+  overall_verify_pass_rate: 1.0,
+  pipeline_verdict: "success",
+  generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
+  frame_coverage: {
+    covered_entity_count: 14,
+    total_entity_count: 15,
+    gaps: [
+      {
+        entity_name: "Pediatric population",
+        reason: "no_oa",
+        reason_detail: "no open-access version of Cochrane review",
+      },
+    ],
+  },
+  verifier_pass_threshold: 0.4,
+  started_at_utc: ISO,
+  finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+export function SentenceHoverHarness() {
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <VerifiedReportView report={REPORT} pool={POOL} />
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 190 -First 70" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx | Select-Object -Skip 320 -First 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_agreement.spec.ts -TotalCount 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_surfaces.spec.ts -TotalCount 90" in C:\POLARIS
+ succeeded in 1683ms:
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await fetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+
+ succeeded in 2247ms:
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          pool={pool}
+        />
+      ))}
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+ succeeded in 3034ms:
+import { expect, test } from "@playwright/test";
+
+const SURFACES: { id: number; surface: string }[] = [
+  { id: 18, surface: "table" },
+  { id: 19, surface: "summary_bullet" },
+  { id: 20, surface: "limitation" },
+  { id: 21, surface: "caption" },
+  { id: 22, surface: "heading" },
+];
+
+test("Report header shows assertion-surface legend", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("assertion-surface-legend")).toBeVisible();
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Prose",
+  );
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Heading",
+  );
+});
+
+for (const { id, surface } of SURFACES) {
+  test(`${surface} sentence is clickable and opens Inspector`, async ({
+    page,
+  }) => {
+    await page.goto("/sentence_hover_test");
+    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
+    await expect(row.getByTestId(`surface-badge-${surface}`)).toBeVisible();
+    await row.click();
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+      timeout: 500,
+    });
+  });
+}
+
+ succeeded in 3686ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders Agree badge when evaluator_agrees=true", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:10"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-agree")).toBeVisible();
+});
+
+test("Inspector renders Disagree badge when evaluator_agrees=false", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:11"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-disagree")).toBeVisible();
+});
+
+test("Inspector renders Pending badge when evaluator_agrees=null", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:12"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-agree-pending")).toBeVisible();
+});
+
+test("Report header shows family-segregated badge", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("family-segregated")).toBeVisible();
+  await expect(page.getByTestId("report-evaluator")).toContainText(
+    "strict_verify_v1",
+  );
+});
+
+codex
+```yaml
+criteria:
+  - "1. OK - ContradictionSignal schema can be added cleanly with count and summary bounds."
+  - "2. OK - VerifiedSentence can safely default contradiction to None without fixture churn."
+  - "3. OK - Proposed backend tests cover default, valid signal, and count<2 rejection."
+  - "4. OK - Frontend type extension matches existing ReportVerifiedSentence pattern."
+  - "5. OK - SentenceRow has the section index available via sentence_id/idx path; badge rendering is feasible."
+  - "6. OK - Demo currently ends at sec_x:25, so appending sec_x:26 is coherent; Playwright positive/negative coverage fits existing tests."
+  - "7. OK - Planned change is plausibly under the 200 LOC cap."
+
+files_read:
+  - "src/polaris_graph/generator2/verified_report.py"
+  - "tests/polaris_graph/generator2/test_verified_report.py"
+  - "web/lib/api.ts"
+  - "web/app/generation/components/verified_report_view.tsx"
+  - "web/app/sentence_hover_test/_demo.tsx"
+  - "web/tests/e2e/sentence_inspector_adversarial.spec.ts"
+  - "web/tests/e2e/sentence_inspector_agreement.spec.ts"
+  - "web/tests/e2e/sentence_inspector_surfaces.spec.ts"
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "The plan specifies tooltip=summary, but the Playwright tests only assert badge presence/text. Low risk, but implementation should still assert the title/tooltip if this is considered part of done-when."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+35,304
+```yaml
+criteria:
+  - "1. OK - ContradictionSignal schema can be added cleanly with count and summary bounds."
+  - "2. OK - VerifiedSentence can safely default contradiction to None without fixture churn."
+  - "3. OK - Proposed backend tests cover default, valid signal, and count<2 rejection."
+  - "4. OK - Frontend type extension matches existing ReportVerifiedSentence pattern."
+  - "5. OK - SentenceRow has the section index available via sentence_id/idx path; badge rendering is feasible."
+  - "6. OK - Demo currently ends at sec_x:25, so appending sec_x:26 is coherent; Playwright positive/negative coverage fits existing tests."
+  - "7. OK - Planned change is plausibly under the 200 LOC cap."
+
+files_read:
+  - "src/polaris_graph/generator2/verified_report.py"
+  - "tests/polaris_graph/generator2/test_verified_report.py"
+  - "web/lib/api.ts"
+  - "web/app/generation/components/verified_report_view.tsx"
+  - "web/app/sentence_hover_test/_demo.tsx"
+  - "web/tests/e2e/sentence_inspector_adversarial.spec.ts"
+  - "web/tests/e2e/sentence_inspector_agreement.spec.ts"
+  - "web/tests/e2e/sentence_inspector_surfaces.spec.ts"
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "The plan specifies tooltip=summary, but the Playwright tests only assert badge presence/text. Low risk, but implementation should still assert the title/tooltip if this is considered part of done-when."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

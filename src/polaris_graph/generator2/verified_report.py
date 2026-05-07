@@ -103,6 +103,15 @@ class VerifiedSentence(BaseModel):
             "all six surfaces equally."
         ),
     )
+    contradiction: "ContradictionSignal | None" = Field(
+        default=None,
+        description=(
+            "Optional contradiction signal (I-f8-001). When present, "
+            "≥2 sources cited for this sentence disagree on the claim. "
+            "Default None preserves back-compat. Future Issue (F8-002+) "
+            "wires real detection into the generator."
+        ),
+    )
     is_synthesis_claim: bool = Field(
         default=False,
         description=(
@@ -167,6 +176,17 @@ class VerifiedSentence(BaseModel):
 # ---------------------------------------------------------------------------
 # FrameCoverage (I-f7-001)
 # ---------------------------------------------------------------------------
+
+class ContradictionSignal(BaseModel):
+    """Inline contradiction annotation per sentence (I-f8-001).
+
+    Indicates ≥2 cited sources disagree on the claim in the sentence.
+    Future Issue (F8-002+) populates this from real conflict detection;
+    today the field is the surface, not the producer."""
+
+    disagreeing_source_count: int = Field(ge=2, le=20)
+    summary: str = Field(min_length=1, max_length=500)
+
 
 GapReason = Literal[
     "paywalled",
