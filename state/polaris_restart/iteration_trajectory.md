@@ -141,3 +141,5 @@ I-f3-003 brief iter1=APPROVE 0/0/2P2 accept_remaining
 I-f3-003 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=16823
 I-f3-004 brief iter1=REQ_CH (artifacts not at HEAD) iter2=APPROVE 0/0/0
 I-f3-004 diff iter1=APPROVE 0/0/0
+I-f3-005 brief iter1=REQ_CH (50MB backend mismatch) iter2=APPROVE 0/0/1P2
+I-f3-005 diff iter1=APPROVE 0/0/2P2 (LOC exemption granted); tokens=90577

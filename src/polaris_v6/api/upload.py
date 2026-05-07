@@ -31,7 +31,7 @@ DataClassification = Literal[
 ]
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
-MAX_BYTES = 25 * 1024 * 1024  # 25 MB per upload (Phase 0)
+MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
 
 
 class UploadResponse(BaseModel):
