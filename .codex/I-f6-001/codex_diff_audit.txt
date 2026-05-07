@@ -1,0 +1,1749 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e049c-6fc9-7d22-aac2-46acf99625ed
+--------
+user
+# Codex Diff Review — I-f6-001 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only — DO NOT spawn dev servers.
+
+**Issue:** I-f6-001 — Hover-card with debounced rendering
+**Brief:** APPROVED iter 2
+**Canonical-diff-sha256:** `5090c4a49973e973e0b51d4e8cf4462325ba7c7ec559b7d824ff50fd48595996`
+**LOC:** 91 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/components/ui/evidence-tooltip.tsx                       +18 (publishedDate prop, render row, Popup testid)
+web/app/sentence_hover_test/_demo_evidence_tooltip.tsx       NEW +33 (harness with EvidenceTooltipProvider delay={300})
+web/app/sentence_hover_test/evidence_tooltip/page.tsx        NEW +5 (Next route)
+web/tests/e2e/evidence_tooltip.spec.ts                       NEW +29 (debounce + content assertions)
+```
+
+## What changed
+
+### Component
+- `EvidenceTooltip.publishedDate?: string | null` prop added. Renders `Published: <date>` line between URL and quote when present.
+- `evidence-tooltip-popup` testid on `Tooltip.Popup`.
+- `evidence-tooltip-published` testid on the date line for explicit assertion.
+- Existing inspector call site at `web/app/inspector/[runId]/page.tsx:341` UNTOUCHED (Codex iter-1 P1 #2 — EvidenceContract.SourceSpan lacks publication_date; data-path expansion deferred to a separate Issue).
+
+### Harness
+- `_demo_evidence_tooltip.tsx`: minimal `<EvidenceTooltipProvider delay={300}>` wrapper around one `<EvidenceTooltip>` with all 4 fields populated. Trigger has `data-testid="evidence-tooltip-trigger"`.
+- `/sentence_hover_test/evidence_tooltip` route mounts the harness.
+
+### Playwright
+- Test asserts: (a) popup absent before hover, (b) popup absent ~50ms after hover (debounce baseline per Codex iter-1 P2), (c) popup visible within 500ms (300ms Provider delay + buffer), (d) content includes `tier T1`, `Published: 2024-03-15`, `randomized trial enrolled 1247 adults` excerpt.
+
+## Verification
+- `npx tsc --noEmit` (web/): exit 0.
+- No backend changes; existing `performance_hover.spec.ts` and `inspector/[runId]` call site untouched.
+
+## Risks for Codex Red-Team
+
+1. **Existing Tooltip.Provider:** other call sites that wrap their own EvidenceTooltip in a Provider continue to work; the harness's local Provider only affects the harness route.
+2. **Optional prop:** `publishedDate` defaults to undefined; existing inspector callers unaffected.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 91 net. Under 200.
+5. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll inspect the touched files and the surrounding tooltip/provider usage only, staying in static-review mode and not starting any server.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/ui/evidence-tooltip.tsx web/app/sentence_hover_test/_demo_evidence_tooltip.tsx web/app/sentence_hover_test/evidence_tooltip/page.tsx web/tests/e2e/evidence_tooltip.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"EvidenceTooltip|EvidenceTooltipProvider|Tooltip\\.Provider|evidence-tooltip\" web" in C:\POLARIS
+ succeeded in 919ms:
+ succeeded in 973ms:
+web\components\ui\evidence-tooltip.tsx:6:interface EvidenceTooltipProps {
+web\components\ui\evidence-tooltip.tsx:25:export function EvidenceTooltip({
+web\components\ui\evidence-tooltip.tsx:33:}: EvidenceTooltipProps) {
+web\components\ui\evidence-tooltip.tsx:50:            data-testid="evidence-tooltip-popup"
+web\components\ui\evidence-tooltip.tsx:64:                data-testid="evidence-tooltip-published"
+web\components\ui\evidence-tooltip.tsx:89:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:1:import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:3:export default function EvidenceTooltipPage() {
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:4:  return <EvidenceTooltipHarness />;
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:6:} from "@/components/ui/evidence-tooltip";
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:9: * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:14:export function EvidenceTooltipHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:18:        data-testid="evidence-tooltip-harness"
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:26:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:33:            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:34:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web\app\inspector\[runId]\page.tsx:341:      <EvidenceTooltip
+web\app\inspector\[runId]\page.tsx:350:      </EvidenceTooltip>,
+web\tests\e2e\evidence_tooltip.spec.ts:7:  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+web\tests\e2e\evidence_tooltip.spec.ts:9:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web\tests\e2e\evidence_tooltip.spec.ts:12:  await page.getByTestId("evidence-tooltip-trigger").hover();
+web\tests\e2e\evidence_tooltip.spec.ts:16:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web\tests\e2e\evidence_tooltip.spec.ts:19:  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+web\tests\e2e\evidence_tooltip.spec.ts:23:  const popup = page.getByTestId("evidence-tooltip-popup");
+web\tests\e2e\evidence_tooltip.spec.ts:25:  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+web\tests\e2e\performance_hover.spec.ts:28:  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+
+ succeeded in 1022ms:
+A  web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+A  web/app/sentence_hover_test/evidence_tooltip/page.tsx
+M  web/components/ui/evidence-tooltip.tsx
+A  web/tests/e2e/evidence_tooltip.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f6-001/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The touched files are staged, so I’m switching to the cached diff and reading the actual staged content plus the nearby inspector call site for context.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo_evidence_tooltip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/components/ui/evidence-tooltip.tsx web/app/sentence_hover_test/_demo_evidence_tooltip.tsx web/app/sentence_hover_test/evidence_tooltip/page.tsx web/tests/e2e/evidence_tooltip.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/evidence_tooltip.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/evidence-tooltip.tsx' in C:\POLARIS
+ succeeded in 955ms:
+"use client";
+
+import {
+  EvidenceTooltip,
+  EvidenceTooltipProvider,
+} from "@/components/ui/evidence-tooltip";
+
+/**
+ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+ * can assert (a) popup absent before hover, (b) popup absent immediately
+ * after hover (within ~50ms), (c) popup visible within 500ms.
+ */
+export function EvidenceTooltipHarness() {
+  return (
+    <EvidenceTooltipProvider delay={300}>
+      <div
+        data-testid="evidence-tooltip-harness"
+        className="mx-auto max-w-xl p-8"
+      >
+        <p className="mb-4 text-sm">
+          Hover the citation token below to see the evidence tooltip.
+        </p>
+        <p className="text-sm">
+          Aspirin reduces headache pain in adults
+          <EvidenceTooltip
+            evidenceId="src-demo-1"
+            sourceUrl="https://www.cochrane.org/CD-demo-1"
+            sourceTier="T1"
+            publishedDate="2024-03-15"
+            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+          >
+            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+          </EvidenceTooltip>
+          .
+        </p>
+      </div>
+    </EvidenceTooltipProvider>
+  );
+}
+
+ succeeded in 969ms:
+import { expect, test } from "@playwright/test";
+
+test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test/evidence_tooltip");
+  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
+  // (a) popup absent before any hover.
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
+  await page.getByTestId("evidence-tooltip-trigger").hover();
+  // Take a near-immediate sample (~50ms): should still be absent because of
+  // the 300ms Provider delay.
+  await page.waitForTimeout(50);
+  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+
+  // (c) within 500ms the popup should be present (300ms delay + buffer).
+  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
+    timeout: 500,
+  });
+  // Content checks.
+  const popup = page.getByTestId("evidence-tooltip-popup");
+  await expect(popup).toContainText("tier T1");
+  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
+    "Published: 2024-03-15",
+  );
+  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
+});
+
+ succeeded in 1004ms:
+diff --git a/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx b/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+new file mode 100644
+index 0000000..0509219
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+@@ -0,0 +1,40 @@
++"use client";
++
++import {
++  EvidenceTooltip,
++  EvidenceTooltipProvider,
++} from "@/components/ui/evidence-tooltip";
++
++/**
++ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
++ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
++ * can assert (a) popup absent before hover, (b) popup absent immediately
++ * after hover (within ~50ms), (c) popup visible within 500ms.
++ */
++export function EvidenceTooltipHarness() {
++  return (
++    <EvidenceTooltipProvider delay={300}>
++      <div
++        data-testid="evidence-tooltip-harness"
++        className="mx-auto max-w-xl p-8"
++      >
++        <p className="mb-4 text-sm">
++          Hover the citation token below to see the evidence tooltip.
++        </p>
++        <p className="text-sm">
++          Aspirin reduces headache pain in adults
++          <EvidenceTooltip
++            evidenceId="src-demo-1"
++            sourceUrl="https://www.cochrane.org/CD-demo-1"
++            sourceTier="T1"
++            publishedDate="2024-03-15"
++            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
++          >
++            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
++          </EvidenceTooltip>
++          .
++        </p>
++      </div>
++    </EvidenceTooltipProvider>
++  );
++}
+diff --git a/web/app/sentence_hover_test/evidence_tooltip/page.tsx b/web/app/sentence_hover_test/evidence_tooltip/page.tsx
+new file mode 100644
+index 0000000..5b96bd9
+--- /dev/null
++++ b/web/app/sentence_hover_test/evidence_tooltip/page.tsx
+@@ -0,0 +1,5 @@
++import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
++
++export default function EvidenceTooltipPage() {
++  return <EvidenceTooltipHarness />;
++}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index e810a09..5ca2707 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -8,6 +8,11 @@ interface EvidenceTooltipProps {
+   sourceUrl?: string;
+   spanText?: string;
+   sourceTier?: "T1" | "T2" | "T3";
++  /**
++   * I-f6-001: optional publication-date string surfaced in the popup
++   * as `Published: <date>`. When undefined/null, the line is omitted.
++   */
++  publishedDate?: string | null;
+   onClickToInspect?: () => void;
+   children: React.ReactNode;
+ }
+@@ -22,6 +27,7 @@ export function EvidenceTooltip({
+   sourceUrl,
+   spanText,
+   sourceTier,
++  publishedDate,
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
+@@ -40,7 +46,10 @@ export function EvidenceTooltip({
+       </Tooltip.Trigger>
+       <Tooltip.Portal>
+         <Tooltip.Positioner sideOffset={6} side="top">
+-          <Tooltip.Popup className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md">
++          <Tooltip.Popup
++            data-testid="evidence-tooltip-popup"
++            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
++          >
+             <p className="text-muted-foreground font-mono text-[11px]">
+               {evidenceId}
+               {sourceTier && ` · tier ${sourceTier}`}
+@@ -50,6 +59,14 @@ export function EvidenceTooltip({
+                 {sourceUrl}
+               </p>
+             )}
++            {publishedDate && (
++              <p
++                data-testid="evidence-tooltip-published"
++                className="text-muted-foreground mt-1 text-[11px]"
++              >
++                Published: {publishedDate}
++              </p>
++            )}
+             {spanText && (
+               <p className="text-foreground mt-2 text-xs leading-snug">
+                 &ldquo;
+diff --git a/web/tests/e2e/evidence_tooltip.spec.ts b/web/tests/e2e/evidence_tooltip.spec.ts
+new file mode 100644
+index 0000000..f42da3d
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip.spec.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from "@playwright/test";
++
++test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/evidence_tooltip");
++  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
++  // (a) popup absent before any hover.
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
++
++  // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
++  await page.getByTestId("evidence-tooltip-trigger").hover();
++  // Take a near-immediate sample (~50ms): should still be absent because of
++  // the 300ms Provider delay.
++  await page.waitForTimeout(50);
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
++
++  // (c) within 500ms the popup should be present (300ms delay + buffer).
++  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
++    timeout: 500,
++  });
++  // Content checks.
++  const popup = page.getByTestId("evidence-tooltip-popup");
++  await expect(popup).toContainText("tier T1");
++  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
++    "Published: 2024-03-15",
++  );
++  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
++});
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1043ms:
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import * as React from "react";
+
+interface EvidenceTooltipProps {
+  evidenceId: string;
+  sourceUrl?: string;
+  spanText?: string;
+  sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
+  onClickToInspect?: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+ * source span behind a provenance token. Click still triggers the right-
+ * pane Inspector view; hover shows a quick preview.
+ */
+export function EvidenceTooltip({
+  evidenceId,
+  sourceUrl,
+  spanText,
+  sourceTier,
+  publishedDate,
+  onClickToInspect,
+  children,
+}: EvidenceTooltipProps) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger
+        render={
+          <button
+            type="button"
+            onClick={onClickToInspect}
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+          />
+        }
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6} side="top">
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <p className="text-muted-foreground font-mono text-[11px]">
+              {evidenceId}
+              {sourceTier && ` · tier ${sourceTier}`}
+            </p>
+            {sourceUrl && (
+              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+                {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
+              </p>
+            )}
+            {spanText && (
+              <p className="text-foreground mt-2 text-xs leading-snug">
+                &ldquo;
+                {spanText.length > 240
+                  ? spanText.slice(0, 240) + "…"
+                  : spanText}
+                &rdquo;
+              </p>
+            )}
+            <p className="text-muted-foreground mt-2 text-[11px] italic">
+              Click to pin in Evidence pane
+            </p>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export const EvidenceTooltipProvider = Tooltip.Provider;
+
+codex
+The staged change is small and matches the brief. I’m checking the Base UI tooltip contract and the existing Playwright setup next, since those are the likely places a static issue would hide.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "webServer|baseURL|sentence_hover_test|testDir|fullyParallel" web -g "playwright*.ts" -g "*.config.ts" -g "*.spec.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/performance_hover.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"interface .*Provider|delay\\?|closeDelay|timeout|hover\" web/node_modules/@base-ui -g \"*.d.ts\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/playwright.config.ts' in C:\POLARIS
+ succeeded in 950ms:
+web\playwright.config.ts:17:  testDir: "./tests/e2e",
+web\playwright.config.ts:25:  fullyParallel: false, // single browser instance to keep memory bounded on dev
+web\playwright.config.ts:30:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+web\tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\evidence_tooltip.spec.ts:6:  await page.goto("/sentence_hover_test/evidence_tooltip");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web\tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:20:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:30:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:107:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web\tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:6:  await page.goto("/sentence_hover_test/evaluator_edge?mode=none");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:15:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:24:  await page.goto("/sentence_hover_test/evaluator_edge?mode=all");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:15:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:22:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:29:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web\tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+
+ succeeded in 1031ms:
+web/node_modules/@base-ui\react\direction-provider\DirectionProvider.d.ts:9:export interface DirectionProviderState {}
+web/node_modules/@base-ui\react\direction-provider\DirectionProvider.d.ts:10:export interface DirectionProviderProps {
+web/node_modules/@base-ui\react\field\label\FieldLabel.d.ts:17:   * This is useful to avoid inheriting label behaviors on `<button>` controls (such as `<Select.Trigger>` and `<Combobox.Trigger>`), including avoiding `:hover` on the button when hovering the label, and preventing clicks on the label from firing on the button.
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:30:   * How long to wait before the menu may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:35:  delay?: number | undefined;
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:37:   * How long to wait before closing the menu that was opened on hover.
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:43:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\menu\trigger\MenuTrigger.d.ts:45:   * Whether the menu should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:40:   * How long to wait before the menu may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:45:  delay?: number | undefined;
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:47:   * How long to wait before closing the menu that was opened on hover.
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:53:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:55:   * Whether the menu should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\menu\store\MenuStore.d.ts:16:  hoverEnabled: boolean;
+web/node_modules/@base-ui\react\menu\store\MenuStore.d.ts:24:  closeDelay: number;
+web/node_modules/@base-ui\react\menu\store\MenuStore.d.ts:48:  hoverEnabled: (state: State<unknown>) => boolean;
+web/node_modules/@base-ui\react\menu\store\MenuStore.d.ts:55:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\menu\root\MenuRoot.d.ts:34:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\combobox\root\ComboboxRoot.d.ts:30:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\combobox\root\ComboboxRoot.d.ts:75:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\combobox\root\AriaCombobox.d.ts:85:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\combobox\root\AriaCombobox.d.ts:122:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\navigation-menu\trigger\NavigationMenuTrigger.d.ts:4: * Opens the navigation menu popup when hovered or clicked, revealing the
+web/node_modules/@base-ui\react\navigation-menu\root\NavigationMenuRootContext.d.ts:37:  closeDelay: number;
+web/node_modules/@base-ui\react\navigation-menu\root\NavigationMenuRoot.d.ts:56:  delay?: number | undefined;
+web/node_modules/@base-ui\react\navigation-menu\root\NavigationMenuRoot.d.ts:61:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\avatar\fallback\AvatarFallback.d.ts:16:  delay?: number | undefined;
+web/node_modules/@base-ui\react\internals\TimeoutManager.d.ts:2: * A utility class to manage multiple timeouts.
+web/node_modules/@base-ui\react\internals\reason-parts.d.ts:3:export declare const triggerHover: "trigger-hover";
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:46:   * Whether the popover should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:51:   * How long to wait before the popover may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:56:  delay?: number | undefined;
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:58:   * How long to wait before closing the popover that was opened on hover.
+web/node_modules/@base-ui\react\popover\trigger\PopoverTrigger.d.ts:64:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\csp-provider\CSPProvider.d.ts:9:export interface CSPProviderState {}
+web/node_modules/@base-ui\react\csp-provider\CSPProvider.d.ts:10:export interface CSPProviderProps {
+web/node_modules/@base-ui\react\internals\labelable-provider\LabelableProvider.d.ts:6:export interface LabelableProviderState {}
+web/node_modules/@base-ui\react\internals\labelable-provider\LabelableProvider.d.ts:7:export interface LabelableProviderProps {
+web/node_modules/@base-ui\react\popover\store\PopoverStore.d.ts:19:  closeDelay: number;
+web/node_modules/@base-ui\react\popover\store\PopoverStore.d.ts:41:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\context-menu\root\ContextMenuRoot.d.ts:12:export interface ContextMenuRootProps extends Omit<Menu.Root.Props, 'modal' | 'openOnHover' | 'delay' | 'closeDelay' | 'onOpenChange'> {
+web/node_modules/@base-ui\react\esm\csp-provider\CSPProvider.d.ts:9:export interface CSPProviderState {}
+web/node_modules/@base-ui\react\esm\csp-provider\CSPProvider.d.ts:10:export interface CSPProviderProps {
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:33:  delay?: number | undefined;
+web/node_modules/@base-ui\react\tooltip\trigger\TooltipTrigger.d.ts:43:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.d.ts:13:  closeDelay: number;
+web/node_modules/@base-ui\react\tooltip\store\TooltipStore.d.ts:27:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\number-field\root\NumberFieldRoot.d.ts:89:   * hovering over the input.
+web/node_modules/@base-ui\react\tooltip\root\TooltipRoot.d.ts:35:   * Whether the tooltip contents can be hovered without closing the tooltip.
+web/node_modules/@base-ui\react\esm\context-menu\root\ContextMenuRoot.d.ts:12:export interface ContextMenuRootProps extends Omit<Menu.Root.Props, 'modal' | 'openOnHover' | 'delay' | 'closeDelay' | 'onOpenChange'> {
+web/node_modules/@base-ui\react\autocomplete\root\AutocompleteRoot.d.ts:57:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\autocomplete\root\AutocompleteRoot.d.ts:103:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProviderContext.d.ts:2:export interface TooltipProviderContext {
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProviderContext.d.ts:4:  closeDelay: number | undefined;
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:9:export interface TooltipProviderState {}
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:10:export interface TooltipProviderProps {
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:15:  delay?: number | undefined;
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:19:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:22:   * is closed within this timeout. Specified in milliseconds.
+web/node_modules/@base-ui\react\tooltip\provider\TooltipProvider.d.ts:25:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:33:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\trigger\TooltipTrigger.d.ts:43:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.d.ts:13:  closeDelay: number;
+web/node_modules/@base-ui\react\esm\tooltip\store\TooltipStore.d.ts:27:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\esm\tooltip\root\TooltipRoot.d.ts:35:   * Whether the tooltip contents can be hovered without closing the tooltip.
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProviderContext.d.ts:2:export interface TooltipProviderContext {
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProviderContext.d.ts:4:  closeDelay: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:30:   * How long to wait before the menu may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:35:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:37:   * How long to wait before closing the menu that was opened on hover.
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:43:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\trigger\MenuTrigger.d.ts:45:   * Whether the menu should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:9:export interface TooltipProviderState {}
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:10:export interface TooltipProviderProps {
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:15:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:19:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:22:   * is closed within this timeout. Specified in milliseconds.
+web/node_modules/@base-ui\react\esm\tooltip\provider\TooltipProvider.d.ts:25:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useListNavigation.d.ts:41:   * Whether hovering an item synchronizes the focus.
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHoverReferenceInteraction.d.ts:10:  delay?: Delay | (() => Delay) | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHoverReferenceInteraction.d.ts:26: * Provides hover interactions that should be attached to reference or trigger
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHoverFloatingInteraction.d.ts:14:  closeDelay?: number | (() => number) | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHoverFloatingInteraction.d.ts:22: * Provides hover interactions that should be attached to the floating element.
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHover.d.ts:22:  delay?: Delay | (() => Delay) | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHover.d.ts:25:   * regular hover event required.
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHover.d.ts:31: * Opens the floating element while hovering over the reference element, like
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useHover.d.ts:32: * CSS `:hover`.
+web/node_modules/@base-ui\react\floating-ui-react\hooks\useFocus.d.ts:13:  delay?: number | (() => number | undefined) | undefined;
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:40:   * How long to wait before the menu may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:45:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:47:   * How long to wait before closing the menu that was opened on hover.
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:53:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\submenu-trigger\MenuSubmenuTrigger.d.ts:55:   * Whether the menu should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\esm\avatar\fallback\AvatarFallback.d.ts:16:  delay?: number | undefined;
+web/node_modules/@base-ui\react\floating-ui-react\components\FloatingTree.d.ts:38: * - Nested floating elements that each open on hover
+web/node_modules/@base-ui\react\floating-ui-react\components\FloatingRootStore.d.ts:53:   * Syncs the event used by hover logic to distinguish hover-open from click-like interaction.
+web/node_modules/@base-ui\react\floating-ui-react\components\FloatingDelayGroup.d.ts:10:   * An optional explicit timeout to use for the group, which represents when
+web/node_modules/@base-ui\react\floating-ui-react\components\FloatingDelayGroup.d.ts:15:  timeoutMs?: number | undefined;
+web/node_modules/@base-ui\react\esm\menu\store\MenuStore.d.ts:16:  hoverEnabled: boolean;
+web/node_modules/@base-ui\react\esm\menu\store\MenuStore.d.ts:24:  closeDelay: number;
+web/node_modules/@base-ui\react\esm\menu\store\MenuStore.d.ts:48:  hoverEnabled: (state: State<unknown>) => boolean;
+web/node_modules/@base-ui\react\esm\menu\store\MenuStore.d.ts:55:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\esm\autocomplete\root\AutocompleteRoot.d.ts:57:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\esm\autocomplete\root\AutocompleteRoot.d.ts:103:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\esm\menu\root\MenuRoot.d.ts:34:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\select\scroll-up-arrow\SelectScrollUpArrow.d.ts:4: * An element that scrolls the select popup up when hovered. Does not render when using touch input.
+web/node_modules/@base-ui\react\select\scroll-down-arrow\SelectScrollDownArrow.d.ts:4: * An element that scrolls the select popup down when hovered. Does not render when using touch input.
+web/node_modules/@base-ui\react\toast\useToastManager.d.ts:34:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\select\root\SelectRoot.d.ts:59:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\toast\store.d.ts:13:  hovering: boolean;
+web/node_modules/@base-ui\react\toast\store.d.ts:15:  timeout: number;
+web/node_modules/@base-ui\react\toast\store.d.ts:28:  hovering: (state: State) => boolean;
+web/node_modules/@base-ui\react\toast\store.d.ts:39:  setHovering(hovering: boolean): void;
+web/node_modules/@base-ui\react\toast\provider\ToastProvider.d.ts:9:export interface ToastProviderState {}
+web/node_modules/@base-ui\react\toast\provider\ToastProvider.d.ts:10:export interface ToastProviderProps {
+web/node_modules/@base-ui\react\toast\provider\ToastProvider.d.ts:17:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\esm\combobox\root\ComboboxRoot.d.ts:30:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\esm\combobox\root\ComboboxRoot.d.ts:75:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\esm\combobox\root\AriaCombobox.d.ts:85:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\esm\combobox\root\AriaCombobox.d.ts:122:   * - `'pointer'`: the highlight changed due to pointer hovering.
+web/node_modules/@base-ui\react\drawer\provider\DrawerProviderContext.d.ts:2:export interface DrawerProviderContext {
+web/node_modules/@base-ui\react\drawer\provider\DrawerProvider.d.ts:9:export interface DrawerProviderState {}
+web/node_modules/@base-ui\react\drawer\provider\DrawerProvider.d.ts:10:export interface DrawerProviderProps {
+web/node_modules/@base-ui\react\esm\toast\useToastManager.d.ts:34:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\scroll-area\scrollbar\ScrollAreaScrollbarDataAttributes.d.ts:10:  hovering = "data-hovering",
+web/node_modules/@base-ui\react\scroll-area\scrollbar\ScrollAreaScrollbar.d.ts:13:   * Whether the scroll area is being hovered.
+web/node_modules/@base-ui\react\scroll-area\scrollbar\ScrollAreaScrollbar.d.ts:15:  hovering: boolean;
+web/node_modules/@base-ui\react\esm\toast\store.d.ts:13:  hovering: boolean;
+web/node_modules/@base-ui\react\esm\toast\store.d.ts:15:  timeout: number;
+web/node_modules/@base-ui\react\esm\toast\store.d.ts:28:  hovering: (state: State) => boolean;
+web/node_modules/@base-ui\react\esm\toast\store.d.ts:39:  setHovering(hovering: boolean): void;
+web/node_modules/@base-ui\react\scroll-area\root\ScrollAreaRootContext.d.ts:11:  hovering: boolean;
+web/node_modules/@base-ui\react\esm\field\label\FieldLabel.d.ts:17:   * This is useful to avoid inheriting label behaviors on `<button>` controls (such as `<Select.Trigger>` and `<Combobox.Trigger>`), including avoiding `:hover` on the button when hovering the label, and preventing clicks on the label from firing on the button.
+web/node_modules/@base-ui\react\esm\internals\TimeoutManager.d.ts:2: * A utility class to manage multiple timeouts.
+web/node_modules/@base-ui\react\esm\drawer\provider\DrawerProviderContext.d.ts:2:export interface DrawerProviderContext {
+web/node_modules/@base-ui\react\esm\drawer\provider\DrawerProvider.d.ts:9:export interface DrawerProviderState {}
+web/node_modules/@base-ui\react\esm\drawer\provider\DrawerProvider.d.ts:10:export interface DrawerProviderProps {
+web/node_modules/@base-ui\react\esm\toast\provider\ToastProvider.d.ts:9:export interface ToastProviderState {}
+web/node_modules/@base-ui\react\esm\toast\provider\ToastProvider.d.ts:10:export interface ToastProviderProps {
+web/node_modules/@base-ui\react\esm\toast\provider\ToastProvider.d.ts:17:  timeout?: number | undefined;
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:33:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\preview-card\trigger\PreviewCardTrigger.d.ts:38:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\preview-card\store\PreviewCardStore.d.ts:10:  closeDelayRef: React.RefObject<number>;
+web/node_modules/@base-ui\react\esm\direction-provider\DirectionProvider.d.ts:9:export interface DirectionProviderState {}
+web/node_modules/@base-ui\react\esm\direction-provider\DirectionProvider.d.ts:10:export interface DirectionProviderProps {
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useListNavigation.d.ts:41:   * Whether hovering an item synchronizes the focus.
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHoverReferenceInteraction.d.ts:10:  delay?: Delay | (() => Delay) | undefined;
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHoverReferenceInteraction.d.ts:26: * Provides hover interactions that should be attached to reference or trigger
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHoverFloatingInteraction.d.ts:14:  closeDelay?: number | (() => number) | undefined;
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHoverFloatingInteraction.d.ts:22: * Provides hover interactions that should be attached to the floating element.
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHover.d.ts:22:  delay?: Delay | (() => Delay) | undefined;
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHover.d.ts:25:   * regular hover event required.
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHover.d.ts:31: * Opens the floating element while hovering over the reference element, like
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useHover.d.ts:32: * CSS `:hover`.
+web/node_modules/@base-ui\react\esm\floating-ui-react\hooks\useFocus.d.ts:13:  delay?: number | (() => number | undefined) | undefined;
+web/node_modules/@base-ui\react\esm\scroll-area\scrollbar\ScrollAreaScrollbarDataAttributes.d.ts:10:  hovering = "data-hovering",
+web/node_modules/@base-ui\react\esm\scroll-area\scrollbar\ScrollAreaScrollbar.d.ts:13:   * Whether the scroll area is being hovered.
+web/node_modules/@base-ui\react\esm\scroll-area\scrollbar\ScrollAreaScrollbar.d.ts:15:  hovering: boolean;
+web/node_modules/@base-ui\react\esm\internals\reason-parts.d.ts:3:export declare const triggerHover: "trigger-hover";
+web/node_modules/@base-ui\react\esm\scroll-area\root\ScrollAreaRootContext.d.ts:11:  hovering: boolean;
+web/node_modules/@base-ui\react\esm\floating-ui-react\components\FloatingDelayGroup.d.ts:10:   * An optional explicit timeout to use for the group, which represents when
+web/node_modules/@base-ui\react\esm\floating-ui-react\components\FloatingDelayGroup.d.ts:15:  timeoutMs?: number | undefined;
+web/node_modules/@base-ui\react\esm\internals\labelable-provider\LabelableProvider.d.ts:6:export interface LabelableProviderState {}
+web/node_modules/@base-ui\react\esm\internals\labelable-provider\LabelableProvider.d.ts:7:export interface LabelableProviderProps {
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:33:  delay?: number | undefined;
+web/node_modules/@base-ui\react\preview-card\trigger\PreviewCardTrigger.d.ts:38:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\floating-ui-react\components\FloatingRootStore.d.ts:53:   * Syncs the event used by hover logic to distinguish hover-open from click-like interaction.
+web/node_modules/@base-ui\react\esm\floating-ui-react\components\FloatingTree.d.ts:38: * - Nested floating elements that each open on hover
+web/node_modules/@base-ui\react\preview-card\store\PreviewCardStore.d.ts:10:  closeDelayRef: React.RefObject<number>;
+web/node_modules/@base-ui\react\esm\navigation-menu\trigger\NavigationMenuTrigger.d.ts:4: * Opens the navigation menu popup when hovered or clicked, revealing the
+web/node_modules/@base-ui\react\esm\navigation-menu\root\NavigationMenuRootContext.d.ts:37:  closeDelay: number;
+web/node_modules/@base-ui\react\esm\navigation-menu\root\NavigationMenuRoot.d.ts:56:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\navigation-menu\root\NavigationMenuRoot.d.ts:61:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:46:   * Whether the popover should also open when the trigger is hovered.
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:51:   * How long to wait before the popover may be opened on hover. Specified in milliseconds.
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:56:  delay?: number | undefined;
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:58:   * How long to wait before closing the popover that was opened on hover.
+web/node_modules/@base-ui\react\esm\popover\trigger\PopoverTrigger.d.ts:64:  closeDelay?: number | undefined;
+web/node_modules/@base-ui\react\esm\popover\store\PopoverStore.d.ts:19:  closeDelay: number;
+web/node_modules/@base-ui\react\esm\popover\store\PopoverStore.d.ts:41:  closeDelay: (state: State<unknown>) => number;
+web/node_modules/@base-ui\react\esm\number-field\root\NumberFieldRoot.d.ts:89:   * hovering over the input.
+web/node_modules/@base-ui\react\esm\select\root\SelectRoot.d.ts:59:   * Disabling this prop allows CSS `:hover` to be differentiated from the `:focus` (`data-highlighted`) state.
+web/node_modules/@base-ui\react\esm\select\scroll-up-arrow\SelectScrollUpArrow.d.ts:4: * An element that scrolls the select popup up when hovered. Does not render when using touch input.
+web/node_modules/@base-ui\react\esm\select\scroll-down-arrow\SelectScrollDownArrow.d.ts:4: * An element that scrolls the select popup down when hovered. Does not render when using touch input.
+
+ succeeded in 1035ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.4 F-2 (root_cause) — measure REAL hover-to-tooltip latency.
+ *
+ * Closes outputs/audits/continuous/4fe03f7_audit.md P1.2: the original
+ * 2C.4 spec docstring promised hover-latency measurement but no test
+ * file actually exercised it.
+ *
+ * Approach
+ * --------
+ * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+ * waits its open-delay (~600ms in base-ui v1.4 default) before showing
+ * the popup. So end-to-end user-perceived latency is:
+ *
+ *   total_ms = base_ui_open_delay_ms + react_render_ms
+ *
+ * The render contribution is what we care about for perf regressions.
+ * We bound the WHOLE thing (1000ms = 600ms typical open-delay + 400ms
+ * render budget) so a regression in either component fails the gate.
+ *
+ * Hover target: the `[#ev:ev_clin_001:1200-1450]` provenance token
+ * inside the Verified-sentences tab on golden_clinical_001.
+ */
+
+test.describe("Performance — hover-to-tooltip end-to-end latency", () => {
+  // The popup unique signature is the `<p>` containing `<evidenceId> · tier <T>`
+  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+  // base-ui doesn't put role="tooltip" on Popup so we content-select instead.
+  const POPUP_TEXT = /ev_clin_001 · tier T1/;
+
+  test("token hover → tooltip visible < 1000ms (golden_clinical_001)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+
+    const start = Date.now();
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+    const totalMs = Date.now() - start;
+
+    expect(totalMs).toBeLessThan(1000);
+  });
+
+  test("hover-out hides tooltip < 500ms", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+
+    // Move the cursor far away to trigger close.
+    const start = Date.now();
+    await page.mouse.move(0, 0);
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "hidden",
+      timeout: 1_500,
+    });
+    const closeMs = Date.now() - start;
+
+    expect(closeMs).toBeLessThan(500);
+  });
+});
+
+ succeeded in 1040ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/node_modules/@base-ui/react/tooltip/popup/TooltipPopup.d.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/node_modules/@base-ui/react/tooltip/provider/TooltipProvider.d.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/node_modules/@base-ui/react/tooltip/portal/TooltipPortal.d.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/node_modules/@base-ui/react/tooltip/trigger/TooltipTrigger.d.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/node_modules/@base-ui/react/tooltip/root/TooltipRoot.d.ts' in C:\POLARIS
+ succeeded in 925ms:
+import * as React from 'react';
+import { FloatingPortalLite } from "../../utils/FloatingPortalLite.js";
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipPortal: React.ForwardRefExoticComponent<Omit<TooltipPortalProps, "ref"> & React.RefAttributes<HTMLDivElement>>;
+export interface TooltipPortalState {}
+export interface TooltipPortalProps extends FloatingPortalLite.Props<TooltipPortalState> {
+  /**
+   * Whether to keep the portal mounted in the DOM while the popup is hidden.
+   * @default false
+   */
+  keepMounted?: boolean | undefined;
+}
+export declare namespace TooltipPortal {
+  type State = TooltipPortalState;
+  type Props = TooltipPortalProps;
+}
+
+ succeeded in 931ms:
+import * as React from 'react';
+import type { BaseUIComponentProps } from "../../internals/types.js";
+import type { Align, Side } from "../../utils/useAnchorPositioning.js";
+import type { TransitionStatus } from "../../internals/useTransitionStatus.js";
+/**
+ * A container for the tooltip contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipPopup: React.ForwardRefExoticComponent<Omit<TooltipPopupProps, "ref"> & React.RefAttributes<HTMLDivElement>>;
+export interface TooltipPopupState {
+  /**
+   * Whether the tooltip is currently open.
+   */
+  open: boolean;
+  /**
+   * The side of the anchor the component is placed on.
+   */
+  side: Side;
+  /**
+   * The alignment of the component relative to the anchor.
+   */
+  align: Align;
+  /**
+   * Whether transitions should be skipped.
+   */
+  instant: 'delay' | 'focus' | 'dismiss' | undefined;
+  /**
+   * The transition status of the component.
+   */
+  transitionStatus: TransitionStatus;
+}
+export interface TooltipPopupProps extends BaseUIComponentProps<'div', TooltipPopupState> {}
+export declare namespace TooltipPopup {
+  type State = TooltipPopupState;
+  type Props = TooltipPopupProps;
+}
+
+ succeeded in 970ms:
+import * as React from 'react';
+import type { BaseUIComponentProps } from "../../internals/types.js";
+import { TooltipHandle } from "../store/TooltipHandle.js";
+/**
+ * An element to attach the tooltip to.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipTrigger: TooltipTrigger;
+export interface TooltipTrigger {
+  <Payload>(componentProps: TooltipTrigger.Props<Payload> & React.RefAttributes<HTMLElement>): React.JSX.Element;
+}
+export interface TooltipTriggerState {
+  /**
+   * Whether the tooltip is currently open.
+   */
+  open: boolean;
+}
+export interface TooltipTriggerProps<Payload = unknown> extends BaseUIComponentProps<'button', TooltipTriggerState> {
+  /**
+   * A handle to associate the trigger with a tooltip.
+   */
+  handle?: TooltipHandle<Payload> | undefined;
+  /**
+   * A payload to pass to the tooltip when it is opened.
+   */
+  payload?: Payload | undefined;
+  /**
+   * How long to wait before opening the tooltip. Specified in milliseconds.
+   * @default 600
+   */
+  delay?: number | undefined;
+  /**
+   * Whether the tooltip should close when this trigger is clicked.
+   * @default true
+   */
+  closeOnClick?: boolean | undefined;
+  /**
+   * How long to wait before closing the tooltip. Specified in milliseconds.
+   * @default 0
+   */
+  closeDelay?: number | undefined;
+  /**
+   * If `true`, the tooltip will not open when interacting with this trigger.
+   * Note that this doesn't apply the `disabled` attribute to the trigger element.
+   * If you want to disable the trigger element itself, you can pass the `disabled` prop to the trigger element via the `render` prop.
+   * @default false
+   */
+  disabled?: boolean | undefined;
+}
+export declare namespace TooltipTrigger {
+  type State = TooltipTriggerState;
+  type Props<Payload = unknown> = TooltipTriggerProps<Payload>;
+}
+
+ succeeded in 978ms:
+import * as React from 'react';
+/**
+ * Provides a shared delay for multiple tooltips. The grouping logic ensures that
+ * once a tooltip becomes visible, the adjacent tooltips will be shown instantly.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipProvider: React.FC<TooltipProvider.Props>;
+export interface TooltipProviderState {}
+export interface TooltipProviderProps {
+  children?: React.ReactNode;
+  /**
+   * How long to wait before opening a tooltip. Specified in milliseconds.
+   */
+  delay?: number | undefined;
+  /**
+   * How long to wait before closing a tooltip. Specified in milliseconds.
+   */
+  closeDelay?: number | undefined;
+  /**
+   * Another tooltip will open instantly if the previous tooltip
+   * is closed within this timeout. Specified in milliseconds.
+   * @default 400
+   */
+  timeout?: number | undefined;
+}
+export declare namespace TooltipProvider {
+  type State = TooltipProviderState;
+  type Props = TooltipProviderProps;
+}
+
+ succeeded in 1011ms:
+import * as React from 'react';
+import { type BaseUIChangeEventDetails } from "../../internals/createBaseUIEventDetails.js";
+import { type PayloadChildRenderFunction } from "../../utils/popups/index.js";
+import { type TooltipHandle } from "../store/TooltipHandle.js";
+import { REASONS } from "../../internals/reasons.js";
+/**
+ * Groups all parts of the tooltip.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ */
+export declare const TooltipRoot: <Payload>(props: TooltipRoot.Props<Payload>) => import("react/jsx-runtime").JSX.Element;
+export interface TooltipRootState {}
+export interface TooltipRootProps<Payload = unknown> {
+  /**
+   * Whether the tooltip is initially open.
+   *
+   * To render a controlled tooltip, use the `open` prop instead.
+   * @default false
+   */
+  defaultOpen?: boolean | undefined;
+  /**
+   * Whether the tooltip is currently open.
+   */
+  open?: boolean | undefined;
+  /**
+   * Event handler called when the tooltip is opened or closed.
+   */
+  onOpenChange?: ((open: boolean, eventDetails: TooltipRoot.ChangeEventDetails) => void) | undefined;
+  /**
+   * Event handler called after any animations complete when the tooltip is opened or closed.
+   */
+  onOpenChangeComplete?: ((open: boolean) => void) | undefined;
+  /**
+   * Whether the tooltip contents can be hovered without closing the tooltip.
+   * @default false
+   */
+  disableHoverablePopup?: boolean | undefined;
+  /**
+   * Determines which axis the tooltip should track the cursor on.
+   * @default 'none'
+   */
+  trackCursorAxis?: 'none' | 'x' | 'y' | 'both' | undefined;
+  /**
+   * A ref to imperative actions.
+   * - `unmount`: Unmounts the tooltip popup.
+   * - `close`: Closes the tooltip imperatively when called.
+   */
+  actionsRef?: React.RefObject<TooltipRoot.Actions | null> | undefined;
+  /**
+   * Whether the tooltip is disabled.
+   * @default false
+   */
+  disabled?: boolean | undefined;
+  /**
+   * A handle to associate the tooltip with a trigger.
+   * If specified, allows external triggers to control the tooltip's open state.
+   * Can be created with the Tooltip.createHandle() method.
+   */
+  handle?: TooltipHandle<Payload> | undefined;
+  /**
+   * The content of the tooltip.
+   * This can be a regular React node or a render function that receives the `payload` of the active trigger.
+   */
+  children?: React.ReactNode | PayloadChildRenderFunction<Payload>;
+  /**
+   * ID of the trigger that the tooltip is associated with.
+   * This is useful in conjunction with the `open` prop to create a controlled tooltip.
+   * There's no need to specify this prop when the tooltip is uncontrolled (that is, when the `open` prop is not set).
+   */
+  triggerId?: string | null | undefined;
+  /**
+   * ID of the trigger that the tooltip is associated with.
+   * This is useful in conjunction with the `defaultOpen` prop to create an initially open tooltip.
+   */
+  defaultTriggerId?: string | null | undefined;
+}
+export interface TooltipRootActions {
+  unmount: () => void;
+  close: () => void;
+}
+export type TooltipRootChangeEventReason = typeof REASONS.triggerHover | typeof REASONS.triggerFocus | typeof REASONS.triggerPress | typeof REASONS.outsidePress | typeof REASONS.escapeKey | typeof REASONS.disabled | typeof REASONS.imperativeAction | typeof REASONS.none;
+export type TooltipRootChangeEventDetails = BaseUIChangeEventDetails<TooltipRoot.ChangeEventReason> & {
+  preventUnmountOnClose(): void;
+};
+export declare namespace TooltipRoot {
+  type State = TooltipRootState;
+  type Props<Payload = unknown> = TooltipRootProps<Payload>;
+  type Actions = TooltipRootActions;
+  type ChangeEventReason = TooltipRootChangeEventReason;
+  type ChangeEventDetails = TooltipRootChangeEventDetails;
+}
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+34,673
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
