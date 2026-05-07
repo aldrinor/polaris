@@ -1,0 +1,175 @@
+diff --git a/web/app/audit_live/_panels.tsx b/web/app/audit_live/_panels.tsx
+index 39a31bb..f1a25b6 100644
+--- a/web/app/audit_live/_panels.tsx
++++ b/web/app/audit_live/_panels.tsx
+@@ -25,6 +25,12 @@ export function LiveAuditPanels() {
+       ) as Record<SSEEventName, LoggedEvent[]>,
+   );
+   const [cancelled, setCancelled] = useState(false);
++  const [cumulative, setCumulative] = useState({
++    source_dropped: 0,
++    retrieval_candidate: 0,
++    verify_decision_kept: 0,
++    verify_decision_dropped: 0,
++  });
+   const broadcast_ref = useRef<RunBroadcast | null>(null);
+   const sse_ref = useRef<SSEClient | null>(null);
+ 
+@@ -43,6 +49,30 @@ export function LiveAuditPanels() {
+           next[ev.name] = [...prev[ev.name], ev].slice(-MAX_EVENTS);
+           return next;
+         });
++        setCumulative((prev) => {
++          if (ev.name === "source_dropped")
++            return { ...prev, source_dropped: prev.source_dropped + 1 };
++          if (ev.name === "retrieval_candidate")
++            return {
++              ...prev,
++              retrieval_candidate: prev.retrieval_candidate + 1,
++            };
++          if (ev.name === "verify_decision") {
++            let kept_flag = false;
++            try {
++              kept_flag = JSON.parse(data)?.kept === true;
++            } catch {
++              kept_flag = false;
++            }
++            return kept_flag
++              ? { ...prev, verify_decision_kept: prev.verify_decision_kept + 1 }
++              : {
++                  ...prev,
++                  verify_decision_dropped: prev.verify_decision_dropped + 1,
++                };
++          }
++          return prev;
++        });
+       },
+     });
+     sse_ref.current = c;
+@@ -83,8 +113,33 @@ export function LiveAuditPanels() {
+     );
+   }
+ 
++  const partial_evidence =
++    cumulative.retrieval_candidate >= 5 &&
++    cumulative.source_dropped / cumulative.retrieval_candidate >= 0.8;
++  const all_verify_failed =
++    cumulative.verify_decision_kept + cumulative.verify_decision_dropped > 0 &&
++    cumulative.verify_decision_kept === 0;
++
+   return (
+     <div className="mx-auto max-w-5xl space-y-3 p-6 text-sm">
++      {partial_evidence && (
++        <div
++          data-testid="partial-evidence-warning"
++          className="rounded border border-amber-500/40 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
++        >
++          Partial evidence: ≥80% of retrieval candidates dropped (
++          {cumulative.source_dropped}/{cumulative.retrieval_candidate}).
++        </div>
++      )}
++      {all_verify_failed && (
++        <div
++          data-testid="zero-verified-abort"
++          className="rounded border border-rose-500/40 bg-rose-50 p-3 text-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
++        >
++          Zero-verified abort: no kept verify decisions across{" "}
++          {cumulative.verify_decision_dropped} attempts.
++        </div>
++      )}
+       <header className="flex items-center justify-between">
+         <h1 className="text-xl font-semibold">Live audit run</h1>
+         {run_id && (
+diff --git a/web/tests/e2e/audit_live_adversarial.spec.ts b/web/tests/e2e/audit_live_adversarial.spec.ts
+new file mode 100644
+index 0000000..60613bd
+--- /dev/null
++++ b/web/tests/e2e/audit_live_adversarial.spec.ts
+@@ -0,0 +1,87 @@
++import { expect, test } from "@playwright/test";
++
++async function fulfill_sse(
++  page: import("@playwright/test").Page,
++  body: string,
++) {
++  await page.route("**/mock/sse", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "text/event-stream",
++      headers: { "cache-control": "no-cache" },
++      body,
++    });
++  });
++}
++
++test("partial-evidence warning when 80% of candidates dropped", async ({
++  page,
++}) => {
++  const candidates = Array.from(
++    { length: 10 },
++    (_, i) => `event: retrieval_candidate\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  const drops = Array.from(
++    { length: 8 },
++    (_, i) => `event: source_dropped\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  await fulfill_sse(page, candidates + drops);
++  await page.goto("/audit_live?url=/mock/sse");
++  await expect(page.getByTestId("partial-evidence-warning")).toBeVisible({
++    timeout: 1500,
++  });
++});
++
++test("zero-verified-abort banner when all verify decisions drop", async ({
++  page,
++}) => {
++  const verifies = Array.from(
++    { length: 5 },
++    (_, i) => `event: verify_decision\ndata: {"kept":false,"i":${i}}\n\n`,
++  ).join("");
++  await fulfill_sse(page, verifies);
++  await page.goto("/audit_live?url=/mock/sse");
++  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
++    timeout: 1500,
++  });
++});
++
++test("no banners on normal path", async ({ page }) => {
++  const candidates = Array.from(
++    { length: 10 },
++    (_, i) => `event: retrieval_candidate\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  const drops = `event: source_dropped\ndata: {"i":0}\n\n`;
++  const verifies = Array.from(
++    { length: 5 },
++    (_, i) => `event: verify_decision\ndata: {"kept":true,"i":${i}}\n\n`,
++  ).join("");
++  await fulfill_sse(page, candidates + drops + verifies);
++  await page.goto("/audit_live?url=/mock/sse");
++  await expect(page.getByTestId("panel-verify_decision-count")).toContainText(
++    "5 events",
++    { timeout: 5000 },
++  );
++  await expect(page.getByTestId("partial-evidence-warning")).toBeHidden();
++  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
++});
++
++test("cap-boundary regression: 100 candidates + 50 drops (50%) does NOT trip warning", async ({
++  page,
++}) => {
++  const candidates = Array.from(
++    { length: 100 },
++    (_, i) => `event: retrieval_candidate\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  const drops = Array.from(
++    { length: 50 },
++    (_, i) => `event: source_dropped\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  await fulfill_sse(page, candidates + drops);
++  await page.goto("/audit_live?url=/mock/sse");
++  await expect(page.getByTestId("panel-source_dropped-count")).toContainText(
++    "50 events",
++    { timeout: 5000 },
++  );
++  await expect(page.getByTestId("partial-evidence-warning")).toBeHidden();
++});

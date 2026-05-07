@@ -25,6 +25,12 @@ export function LiveAuditPanels() {
       ) as Record<SSEEventName, LoggedEvent[]>,
   );
   const [cancelled, setCancelled] = useState(false);
+  const [cumulative, setCumulative] = useState({
+    source_dropped: 0,
+    retrieval_candidate: 0,
+    verify_decision_kept: 0,
+    verify_decision_dropped: 0,
+  });
   const broadcast_ref = useRef<RunBroadcast | null>(null);
   const sse_ref = useRef<SSEClient | null>(null);
 
@@ -42,6 +48,30 @@ export function LiveAuditPanels() {
           const next = { ...prev };
           next[ev.name] = [...prev[ev.name], ev].slice(-MAX_EVENTS);
           return next;
+        });
+        setCumulative((prev) => {
+          if (ev.name === "source_dropped")
+            return { ...prev, source_dropped: prev.source_dropped + 1 };
+          if (ev.name === "retrieval_candidate")
+            return {
+              ...prev,
+              retrieval_candidate: prev.retrieval_candidate + 1,
+            };
+          if (ev.name === "verify_decision") {
+            let kept_flag = false;
+            try {
+              kept_flag = JSON.parse(data)?.kept === true;
+            } catch {
+              kept_flag = false;
+            }
+            return kept_flag
+              ? { ...prev, verify_decision_kept: prev.verify_decision_kept + 1 }
+              : {
+                  ...prev,
+                  verify_decision_dropped: prev.verify_decision_dropped + 1,
+                };
+          }
+          return prev;
         });
       },
     });
@@ -83,8 +113,33 @@ export function LiveAuditPanels() {
     );
   }
 
+  const partial_evidence =
+    cumulative.retrieval_candidate >= 5 &&
+    cumulative.source_dropped / cumulative.retrieval_candidate >= 0.8;
+  const all_verify_failed =
+    cumulative.verify_decision_kept + cumulative.verify_decision_dropped > 0 &&
+    cumulative.verify_decision_kept === 0;
+
   return (
     <div className="mx-auto max-w-5xl space-y-3 p-6 text-sm">
+      {partial_evidence && (
+        <div
+          data-testid="partial-evidence-warning"
+          className="rounded border border-amber-500/40 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          Partial evidence: ≥80% of retrieval candidates dropped (
+          {cumulative.source_dropped}/{cumulative.retrieval_candidate}).
+        </div>
+      )}
+      {all_verify_failed && (
+        <div
+          data-testid="zero-verified-abort"
+          className="rounded border border-rose-500/40 bg-rose-50 p-3 text-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
+        >
+          Zero-verified abort: no kept verify decisions across{" "}
+          {cumulative.verify_decision_dropped} attempts.
+        </div>
+      )}
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Live audit run</h1>
         {run_id && (
