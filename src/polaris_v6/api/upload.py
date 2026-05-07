@@ -14,6 +14,7 @@ the caller; default is UNKNOWN and triggers conservative routing.
 from __future__ import annotations
 
 import hashlib
+import html as _html
 import uuid
 from typing import Literal
 
@@ -42,6 +43,8 @@ class UploadResponse(BaseModel):
     classification: DataClassification
     parse_status: Literal["queued", "completed", "failed"]
     chunk_preview: list[str]
+    content: str = ""
+    html: str = ""
 
 
 _UPLOAD_TABLE: dict[str, UploadResponse] = {}
@@ -80,8 +83,12 @@ async def upload_document(
         except Exception:
             text = ""
         chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+        preview_text = text
+        preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
     else:
         chunks = []
+        preview_text = ""
+        preview_html = ""
 
     response = UploadResponse(
         document_id=document_id,
@@ -91,6 +98,8 @@ async def upload_document(
         classification=classification,
         parse_status="completed" if chunks else "queued",
         chunk_preview=chunks[:3],
+        content=preview_text,
+        html=preview_html,
     )
     _UPLOAD_TABLE[document_id] = response
     return response
