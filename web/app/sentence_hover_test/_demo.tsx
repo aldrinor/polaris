@@ -111,6 +111,16 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
         },
+        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+        {
+          section_id: "sec_x",
+          sentence_text: "These trials together suggest a moderate effect.",
+          provenance_tokens: [],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          is_synthesis_claim: true,
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

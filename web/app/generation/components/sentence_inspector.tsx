@@ -36,6 +36,18 @@ const TIER_TONE: Record<RetrievalSourceTier, string> = {
   T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
 };
 
+function SynthesisClaimBadge() {
+  return (
+    <span
+      data-testid="inspector-synthesis-claim"
+      title="Synthesis claim — sentence summarizes across sources without quoting a specific span. No direct provenance by design."
+      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
+    >
+      Synthesis claim
+    </span>
+  );
+}
+
 function AgreementBadge({
   evaluator_agrees,
 }: {
@@ -227,9 +239,12 @@ export function SentenceInspector({
                 >
                   {sentence.sentence_text}
                 </p>
-                <AgreementBadge
-                  evaluator_agrees={sentence.evaluator_agrees}
-                />
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
               </div>
               {tokens.length === 0 ? (
                 <p className="text-muted-foreground text-xs italic">

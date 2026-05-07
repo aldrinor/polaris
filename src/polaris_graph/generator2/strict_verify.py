@@ -90,6 +90,7 @@ def verify_sentence(
     sentence_text: str,
     pool: EvidencePool,
     min_content_overlap: int | None = None,
+    is_synthesis_claim: bool = False,
 ) -> tuple[bool, DropReason | None]:
     """Return (verifier_pass, drop_reason) for `sentence_text` against `pool`.
 
@@ -102,6 +103,11 @@ def verify_sentence(
       3. spans within source bounds            → span_out_of_range
       4. every decimal in sentence in spans    → numeric_mismatch
       5. >=N shared content words              → overlap_too_low
+
+    If `is_synthesis_claim=True` AND the sentence has no tokens, return
+    (True, None) — synthesis claims pass without provenance by definition
+    (I-f5-006). If a synthesis claim DOES carry tokens, that's a generator
+    bug; we still run token checks so the underlying invariant holds.
     """
     threshold = (
         min_content_overlap
@@ -111,6 +117,8 @@ def verify_sentence(
 
     tokens = extract_tokens(sentence_text)
     if not tokens:
+        if is_synthesis_claim:
+            return True, None
         return False, "no_provenance_token"
 
     # Validate each token against the pool. Collect span texts for
@@ -155,13 +163,17 @@ def verify_sentence_to_record(
     section_id: str,
     pool: EvidencePool,
     min_content_overlap: int | None = None,
+    is_synthesis_claim: bool = False,
 ) -> VerifiedSentence:
     """Convenience: wrap verify_sentence into a VerifiedSentence record.
 
     Used by the generator orchestrator to build Section.verified_sentences.
     """
     passed, reason = verify_sentence(
-        sentence_text, pool, min_content_overlap=min_content_overlap
+        sentence_text,
+        pool,
+        min_content_overlap=min_content_overlap,
+        is_synthesis_claim=is_synthesis_claim,
     )
     tokens = [t.raw for t in extract_tokens(sentence_text)]
     return VerifiedSentence(
@@ -171,6 +183,7 @@ def verify_sentence_to_record(
         verifier_pass=passed,
         drop_reason=reason,
         evaluator_agrees=passed,
+        is_synthesis_claim=is_synthesis_claim,
     )
 
 

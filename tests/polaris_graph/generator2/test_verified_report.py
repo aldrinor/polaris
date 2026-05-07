@@ -105,6 +105,52 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
         )
 
 
+def test_verified_sentence_synthesis_claim_allows_empty_tokens():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="These trials together suggest moderate effect.",
+        provenance_tokens=[],
+        verifier_pass=True,
+        is_synthesis_claim=True,
+    )
+    assert s.is_synthesis_claim is True
+    assert s.provenance_tokens == []
+
+
+def test_verified_sentence_synthesis_claim_with_tokens_forbidden():
+    with pytest.raises(ValidationError, match="provenance_tokens=\\[\\]"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Synthesis with token.",
+            provenance_tokens=["[#ev:e:0-3]"],
+            verifier_pass=True,
+            is_synthesis_claim=True,
+        )
+
+
+def test_verified_sentence_synthesis_claim_with_pass_false_forbidden():
+    with pytest.raises(ValidationError, match="verifier_pass=True"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Bad synthesis.",
+            provenance_tokens=[],
+            verifier_pass=False,
+            drop_reason="no_provenance_token",
+            is_synthesis_claim=True,
+        )
+
+
+def test_verified_sentence_kept_non_synthesis_must_have_tokens():
+    with pytest.raises(ValidationError, match="≥1 provenance token"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Kept claim with no tokens.",
+            provenance_tokens=[],
+            verifier_pass=True,
+            is_synthesis_claim=False,
+        )
+
+
 def test_verified_sentence_invalid_drop_reason():
     with pytest.raises(ValidationError):
         VerifiedSentence(
