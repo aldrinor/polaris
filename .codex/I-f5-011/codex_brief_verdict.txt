@@ -1,0 +1,1368 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e03a1-cf30-7fb1-aaad-36a83830cfba
+--------
+user
+# Codex Brief Review — I-f5-011 (ITER 2 of 5)
+
+## Iter 2 changes per Codex iter 1
+
+- **P1 fix (Sheet close assertion):** between iterations, after `page.keyboard.press('Escape')`, AWAIT `expect(page.getByTestId('sentence-inspector-sheet')).toHaveCount(0)` to ensure the Base UI Sheet (200ms transition) fully detaches before the next click + MutationObserver. Otherwise iter 2 observes the stale mounted Sheet and asserts on previous-iteration evidence.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review (separate Codex call) = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f5-011 — final F5 acceptance test. An "AI agent" (programmatic test harness) navigates 10 RANDOM sentences from a stress report. For each: click → assert Inspector opens within 1000ms AND surfaces at least one evidence card (provenance source rendered) OR the appropriate adversarial badge (paywalled / out-of-range / synthesis-claim).
+- **Constraints:** Builds on I-f5-008 stress harness. The "AI agent" is a Playwright loop — random sentence picker + per-iteration timing + assertion of evidence presence. No real LLM agent in scope; the name "AI agent" is plan-§F terminology.
+- **Done-when:** acceptance criteria 1-6 below.
+
+## Plan
+
+### Frontend test only
+1. `web/tests/e2e/sentence_inspector_ai_agent.spec.ts` (new):
+   - Navigate to `/sentence_hover_test/stress?n=200`.
+   - Wait for `verified-report-view` and assert `kept-sentence` count == 200.
+   - Run a fixed-seed shuffle to pick 10 sentence indices in [0, 200) deterministically (seed = "polaris-i-f5-011" hashed into a small PRNG).
+   - For each picked index i:
+     - Capture `t0 = performance.now()` inside `page.evaluate`.
+     - Click `[data-sentence-id="sec_stress:i"]`.
+     - Wait via MutationObserver for `[data-testid="sentence-inspector-sheet"]`.
+     - Capture `t1 = performance.now()`.
+     - Assert `t1 - t0 < 1000`.
+     - Inside the Sheet, assert AT LEAST ONE evidence-card-shaped surface is present: ANY of `inspector-source-{j}` (j ≥ 0) OR `inspector-source-missing-{j}` OR `inspector-paywalled-{j}` OR `inspector-synthesis-claim`. (Each kept sentence in the stress harness cites src-{i mod 50}, so `inspector-source-0` should always be present — the multi-id tolerance is defense against future demo changes.)
+     - Close the Sheet via Escape key, then `await expect(page.getByTestId('sentence-inspector-sheet')).toHaveCount(0)` to confirm full detach before the next iteration (Codex iter-1 P1).
+2. Use a small PRNG inline (xmur3 + sfc32 from public-domain hash literature; ~15 lines) to keep the test deterministic without a dep.
+
+### Stress harness extension (small)
+3. `web/app/sentence_hover_test/_demo_stress.tsx`: no behavior change needed. Already produces N kept sentences each with one provenance token in I-f5-008.
+
+## Risks for Codex Red-Team
+1. **Determinism via PRNG:** seeded shuffle prevents flaky test ordering. PRNG is xmur3 (stringHash) + sfc32 (state); both pure JS, no deps.
+2. **Latency at random indices in 200-sentence list:** I-f5-008 already verified <1000ms at n=200 for first sentence; rendering all 200 rows happens once at navigation, click → Sheet only depends on per-sentence work.
+3. **Escape-key close:** Sheet's onOpenChange wires to ESC via @base-ui/react Dialog default behavior. Verify by reading the Sheet component.
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** estimated ~80 LOC test file. Under 200.
+6. **No new package dep.**
+
+## Acceptance criteria
+
+1. Test file exists at the named path.
+2. Test loads `/sentence_hover_test/stress?n=200` and asserts 200 kept sentences.
+3. Test picks 10 deterministic random indices (seed-fixed PRNG).
+4. For each: time-to-Sheet asserted <1000ms via `performance.now()`.
+5. For each: at least one evidence-card-shaped testid present in the Sheet.
+6. Test closes the Sheet between iterations.
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the plan against the existing test and UI surface, focusing on whether its assumptions about selectors, close behavior, and evidence test ids are sound.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(sentence_hover_test|sentence_inspector|inspector|verified-report|kept-sentence|Sheet|sheet)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"sentence-inspector-sheet|inspector-source|inspector-paywalled|inspector-synthesis-claim|kept-sentence|verified-report-view|data-sentence-id|onOpenChange|Escape|stress\\?n\" web" in C:\POLARIS
+ succeeded in 2030ms:
+web\lib\sentence_highlight.ts:11:  const selector = opts.selector ?? "[data-sentence-id]";
+web\lib\sentence_highlight.ts:30:      const id = el.getAttribute("data-sentence-id");
+web\app\components\home_keyboard_shell.tsx:51:      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
+web\app\components\command_palette.tsx:20:  onOpenChange: (next: boolean) => void;
+web\app\components\command_palette.tsx:46:export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+web\app\components\command_palette.tsx:83:        onOpenChange(false);
+web\app\components\command_palette.tsx:91:      onOpenChange={(next) => {
+web\app\components\command_palette.tsx:92:        onOpenChange(next);
+web\app\generation\components\verified_report_view.tsx:112:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web\app\generation\components\verified_report_view.tsx:113:      data-sentence-id={sentence_id}
+web\app\generation\components\verified_report_view.tsx:255:      data-testid="verified-report-view"
+web\app\generation\components\verified_report_view.tsx:337:        onOpenChange={(open) => {
+web\app\generation\components\sentence_inspector.tsx:52:      data-testid="inspector-synthesis-claim"
+web\app\generation\components\sentence_inspector.tsx:145:        data-testid={`inspector-source-missing-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:155:      data-testid={`inspector-source-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:160:          data-testid={`inspector-source-url-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:171:              data-testid={`inspector-paywalled-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:236:  onOpenChange,
+web\app\generation\components\sentence_inspector.tsx:242:  onOpenChange: (next: boolean) => void;
+web\app\generation\components\sentence_inspector.tsx:257:    <Sheet open={open} onOpenChange={onOpenChange}>
+web\app\generation\components\sentence_inspector.tsx:259:        data-testid="sentence-inspector-sheet"
+web\app\generation\components\sentence_inspector.tsx:294:                  data-testid="inspector-sources"
+web\app\intake\components\disambiguation_modal.tsx:43:      onOpenChange={(next_open) => {
+web\app\intake\components\ambiguity_modal.tsx:28:      onOpenChange={(next_open) => {
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:49:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:59:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\tests\e2e\command_palette.spec.ts:60:    await page.keyboard.press("Escape");
+web\tests\e2e\disambiguation_modal.spec.ts:26:    await page.keyboard.press("Escape");
+web\tests\e2e\f2_walkthrough.spec.ts:253:    await page.keyboard.press("Escape");
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_hover.spec.ts:9:  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
+web\tests\e2e\sentence_hover.spec.ts:10:  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector.spec.ts:9:  const target = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector.spec.ts:12:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:23"]').click();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:11:  await expect(page.getByTestId("inspector-paywalled-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:13:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:23:  await page.locator('[data-sentence-id="sec_x:24"]').click();
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:24:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:39:  const row = page.locator('[data-sentence-id="sec_x:25"]');
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:48:  const row = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web\tests\e2e\sentence_inspector_latency.spec.ts:16:        '[data-sentence-id="sec_stress:0"]',
+web\tests\e2e\sentence_inspector_latency.spec.ts:25:            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_latency.spec.ts:33:          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+web\tests\e2e\sentence_inspector_latency.spec.ts:44:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:10"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:18:  await page.locator('[data-sentence-id="sec_x:11"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:12"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:16"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:8:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:18:  await page.locator('[data-sentence-id="sec_x:17"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:19:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:30:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:13"]').click();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:13:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:14:  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:19:  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_multispan.spec.ts:27:  await page.locator('[data-sentence-id="sec_x:14"]').click();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:29:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_multispan.spec.ts:33:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:34:  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:35:  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+web\tests\e2e\sentence_inspector_source.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_source.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:12:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web\tests\e2e\sentence_inspector_source.spec.ts:30:  await page.locator('[data-sentence-id="sec_x:9"]').click();
+web\tests\e2e\sentence_inspector_source.spec.ts:32:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_source.spec.ts:35:  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:36:  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:27:    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:30:    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:15"]').click();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:9:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:12:  await expect(page.getByTestId("inspector-synthesis-claim")).toBeVisible();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:19:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:21:  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:24:  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
+
+ succeeded in 2812ms:
+web\tests\e2e\inspector.spec.ts
+web\screenshots\inspector_executive_summary.png
+web\screenshots\inspector_contradiction_golden.png
+web\screenshots\inspector_clinical_golden.png
+web\screenshots\inspector_charts_tab.png
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\components\ui\sheet.tsx
+web\tests\e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-executive-summary-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-error-state-chromium-win32.png
+web\app\sentence_hover_test\_demo.tsx
+web\app\sentence_hover_test\_demo_stress.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\sentence_hover_test\stress\page.tsx
+web\app\generation\components\sentence_inspector.tsx
+web\app\inspector\[runId]\page.tsx
+
+codex
+The selectors named in the plan exist in the codebase and are already used by adjacent Playwright tests. I’m reading the latency test and sheet/inspector wiring now to check whether the proposed MutationObserver timing and Escape-close assumptions line up with current behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_latency.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\_demo_stress.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\ui\\sheet.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\sentence_inspector.tsx" in C:\POLARIS
+ succeeded in 2205ms:
+import { expect, test } from "@playwright/test";
+
+const TIERS = [50, 100, 200, 500];
+
+for (const n of TIERS) {
+  test(`Inspector opens in <1000ms at n=${n} sentences`, async ({ page }) => {
+    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+    // Codex iter-1 P2: assert row count to prevent false-pass with fewer rows.
+    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+
+    // Codex iter-1 P2: use performance.now() for tighter precision.
+    const elapsed_ms = await page.evaluate(async () => {
+      const target = document.querySelector(
+        '[data-sentence-id="sec_stress:0"]',
+      ) as HTMLElement | null;
+      if (!target) throw new Error("sentence row not found");
+      const t0 = performance.now();
+      target.click();
+      // Wait for the Sheet to attach to the DOM.
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (
+            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (
+          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+        ) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      const t1 = performance.now();
+      return t1 - t0;
+    });
+
+    expect(elapsed_ms).toBeLessThan(1000);
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+  });
+}
+
+ succeeded in 3045ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          pool={pool}
+        />
+      ))}
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+ succeeded in 3693ms:
+"use client";
+
+import * as React from "react";
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
+
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { XIcon } from "lucide-react";
+
+function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />;
+}
+
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
+}
+
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
+}
+
+function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+}
+
+function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+  return (
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetContent({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  ...props
+}: SheetPrimitive.Popup.Props & {
+  side?: "top" | "right" | "bottom" | "left";
+  showCloseButton?: boolean;
+}) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
+        className={cn(
+          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            data-slot="sheet-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-3 right-3"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
+      </SheetPrimitive.Popup>
+    </SheetPortal>
+  );
+}
+
+function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-header"
+      className={cn("flex flex-col gap-0.5 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-footer"
+      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+  return (
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
+      className={cn(
+        "font-heading text-foreground text-base font-medium",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetDescription({
+  className,
+  ...props
+}: SheetPrimitive.Description.Props) {
+  return (
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+};
+
+ succeeded in 4601ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type RetrievalSource,
+  type RetrievalSourceTier,
+} from "@/lib/api";
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Content-word overlap too low",
+  no_provenance_token: "No provenance token",
+};
+
+const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+  T1: "Regulatory & Cochrane systematic reviews — highest evidentiary weight",
+  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
+  T3: "Registries, clinical guidelines, government health agencies",
+};
+
+const STALE_THRESHOLD_DAYS = 730;
+
+function isStale(publication_date: string | null): boolean {
+  if (!publication_date) return false;
+  const t = new Date(publication_date).getTime();
+  if (isNaN(t)) return false;
+  const age_days = (Date.now() - t) / (24 * 3600 * 1000);
+  return age_days > STALE_THRESHOLD_DAYS;
+}
+
+const TIER_TONE: Record<RetrievalSourceTier, string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+function SynthesisClaimBadge() {
+  return (
+    <span
+      data-testid="inspector-synthesis-claim"
+      title="Synthesis claim — sentence summarizes across sources without quoting a specific span. No direct provenance by design."
+      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
+    >
+      Synthesis claim
+    </span>
+  );
+}
+
+function AgreementBadge({
+  evaluator_agrees,
+}: {
+  evaluator_agrees: boolean | null;
+}) {
+  if (evaluator_agrees === true) {
+    return (
+      <span
+        data-testid="inspector-agree"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+        title="Two-family evaluator agrees with generator claim"
+      >
+        Agree
+      </span>
+    );
+  }
+  if (evaluator_agrees === false) {
+    return (
+      <span
+        data-testid="inspector-disagree"
+        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        title="Two-family evaluator disagrees with generator claim"
+      >
+        Disagree
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="inspector-agree-pending"
+      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+      title="Two-family evaluator pass not yet recorded"
+    >
+      Pending
+    </span>
+  );
+}
+
+function SpanQuote({
+  token,
+  text,
+  idx,
+  spanIdx,
+}: {
+  token: ParsedToken;
+  text: string;
+  idx: number;
+  spanIdx: number;
+}) {
+  const out_of_range = token.end > text.length;
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote
+            key={j}
+            token={tok}
+            text={text}
+            idx={idx}
+            spanIdx={j}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 5613ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const FULL_TEXT =
+  "The randomized trial enrolled adults and demonstrated a significant outcome at endpoint assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-stress-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Stress source ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J"],
+    snippet: FULL_TEXT.slice(0, 80),
+    full_text_available: true,
+    full_text: FULL_TEXT,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+export function StressHarness({ n }: { n: number }) {
+  const pool: EvidencePool = {
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sources: Array.from({ length: Math.min(n, 50) }, (_, i) => _src(i)),
+    adequacy: {
+      is_adequate: true,
+      sources_per_tier: { T1: Math.min(n, 50), T2: 0, T3: 0 },
+      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+      failure_reason: null,
+    },
+    queries_executed: ["stress"],
+    retrieval_started_at_utc: ISO,
+    retrieval_finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  const report: VerifiedReport = {
+    report_id: `r-stress-${n}`,
+    pool_id: `p-stress-${n}`,
+    decision_id: `d-stress-${n}`,
+    sections: [
+      {
+        section_id: "sec_stress",
+        section_title: `Stress section (n=${n})`,
+        verified_sentences: Array.from({ length: n }, (_, i) => ({
+          section_id: "sec_stress",
+          sentence_text: `Stress sentence ${i} cites a source.`,
+          provenance_tokens: [
+            `[#ev:src-${i % Math.min(n, 50)}:0-${Math.min(40, FULL_TEXT.length)}]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        })),
+        section_verify_pass_rate: 1.0,
+        section_status: "verified",
+      },
+    ],
+    overall_verify_pass_rate: 1.0,
+    pipeline_verdict: "success",
+    generator_model: "test/stress",
+    evaluator_model: "strict_verify_v1",
+    family_segregation_passed: true,
+    verifier_pass_threshold: 0.4,
+    started_at_utc: ISO,
+    finished_at_utc: ISO,
+    latency_ms: 0,
+    cost_usd: 0,
+  };
+
+  return (
+    <div
+      data-testid={`inspector-latency-${n}`}
+      className="mx-auto max-w-4xl p-6"
+    >
+      <VerifiedReportView report={report} pool={pool} />
+    </div>
+  );
+}
+
+codex
+The stress harness does produce 200 kept rows with valid `src-{i % 50}` provenance when `n=200`, and the inspector renders the planned `inspector-source-0` id for those rows. I’m checking the stress route parse/clamp next so the row-count criterion is grounded.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_synthesis.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_surfaces.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\stress\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector_source.spec.ts" in C:\POLARIS
+ succeeded in 1591ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders synthesis-claim badge for is_synthesis_claim=true", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:15"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-synthesis-claim")).toBeVisible();
+});
+
+test("Inspector does NOT render synthesis-claim badge for non-synthesis sentence", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:5"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
+});
+
+ succeeded in 2149ms:
+import { StressHarness } from "../_demo_stress";
+
+export default async function StressPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ n?: string }>;
+}) {
+  const params = await searchParams;
+  const n = Number.parseInt(params.n ?? "50", 10);
+  const safe_n = Number.isFinite(n) && n > 0 && n <= 1000 ? n : 50;
+  return <StressHarness n={safe_n} />;
+}
+
+ succeeded in 2564ms:
+import { expect, test } from "@playwright/test";
+
+const SURFACES: { id: number; surface: string }[] = [
+  { id: 18, surface: "table" },
+  { id: 19, surface: "summary_bullet" },
+  { id: 20, surface: "limitation" },
+  { id: 21, surface: "caption" },
+  { id: 22, surface: "heading" },
+];
+
+test("Report header shows assertion-surface legend", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("assertion-surface-legend")).toBeVisible();
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Prose",
+  );
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Heading",
+  );
+});
+
+for (const { id, surface } of SURFACES) {
+  test(`${surface} sentence is clickable and opens Inspector`, async ({
+    page,
+  }) => {
+    await page.goto("/sentence_hover_test");
+    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
+    await expect(row.getByTestId(`surface-badge-${surface}`)).toBeVisible();
+    await row.click();
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+      timeout: 500,
+    });
+  });
+}
+
+ succeeded in 3108ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders source URL + tier + span + retrieval trace", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:5"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+    "href",
+    /cochrane.org/,
+  );
+  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+    "randomized trial",
+  );
+  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+    "Cochrane review",
+  );
+  await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
+});
+
+test("Inspector shows missing-source badge when token references unknown source", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:9"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+    "src-ghost",
+  );
+});
+
+codex
+criteria:
+  - "1. COVERED: plan creates `web/tests/e2e/sentence_inspector_ai_agent.spec.ts`."
+  - "2. COVERED: plan loads `/sentence_hover_test/stress?n=200` and asserts 200 kept sentences."
+  - "3. COVERED: plan uses a fixed-seed deterministic shuffle to select 10 indices."
+  - "4. COVERED: plan times click-to-Sheet with `performance.now()` and asserts `<1000ms`."
+  - "5. COVERED: plan checks for source/evidence/adversarial Inspector surfaces."
+  - "6. COVERED: plan closes with Escape and waits for Sheet detach between iterations."
+
+files_read:
+  - `web/tests/e2e/sentence_inspector_latency.spec.ts`
+  - `web/app/generation/components/sentence_inspector.tsx`
+  - `web/app/generation/components/verified_report_view.tsx`
+  - `web/app/sentence_hover_test/_demo_stress.tsx`
+  - `web/components/ui/sheet.tsx`
+  - `web/app/sentence_hover_test/stress/page.tsx`
+  - `web/tests/e2e/sentence_inspector_surfaces.spec.ts`
+  - `web/tests/e2e/sentence_inspector_synthesis.spec.ts`
+  - `web/tests/e2e/sentence_inspector_source.spec.ts`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+tokens used
+23,739
+criteria:
+  - "1. COVERED: plan creates `web/tests/e2e/sentence_inspector_ai_agent.spec.ts`."
+  - "2. COVERED: plan loads `/sentence_hover_test/stress?n=200` and asserts 200 kept sentences."
+  - "3. COVERED: plan uses a fixed-seed deterministic shuffle to select 10 indices."
+  - "4. COVERED: plan times click-to-Sheet with `performance.now()` and asserts `<1000ms`."
+  - "5. COVERED: plan checks for source/evidence/adversarial Inspector surfaces."
+  - "6. COVERED: plan closes with Escape and waits for Sheet detach between iterations."
+
+files_read:
+  - `web/tests/e2e/sentence_inspector_latency.spec.ts`
+  - `web/app/generation/components/sentence_inspector.tsx`
+  - `web/app/generation/components/verified_report_view.tsx`
+  - `web/app/sentence_hover_test/_demo_stress.tsx`
+  - `web/components/ui/sheet.tsx`
+  - `web/app/sentence_hover_test/stress/page.tsx`
+  - `web/tests/e2e/sentence_inspector_surfaces.spec.ts`
+  - `web/tests/e2e/sentence_inspector_synthesis.spec.ts`
+  - `web/tests/e2e/sentence_inspector_source.spec.ts`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
