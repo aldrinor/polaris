@@ -8,6 +8,11 @@ interface EvidenceTooltipProps {
   sourceUrl?: string;
   spanText?: string;
   sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
   onClickToInspect?: () => void;
   children: React.ReactNode;
 }
@@ -22,6 +27,7 @@ export function EvidenceTooltip({
   sourceUrl,
   spanText,
   sourceTier,
+  publishedDate,
   onClickToInspect,
   children,
 }: EvidenceTooltipProps) {
@@ -40,7 +46,10 @@ export function EvidenceTooltip({
       </Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Positioner sideOffset={6} side="top">
-          <Tooltip.Popup className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md">
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
             <p className="text-muted-foreground font-mono text-[11px]">
               {evidenceId}
               {sourceTier && ` · tier ${sourceTier}`}
@@ -48,6 +57,14 @@ export function EvidenceTooltip({
             {sourceUrl && (
               <p className="text-muted-foreground mt-1 truncate text-[11px]">
                 {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
               </p>
             )}
             {spanText && (

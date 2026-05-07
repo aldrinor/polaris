@@ -1,0 +1,143 @@
+diff --git a/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx b/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+new file mode 100644
+index 0000000..0509219
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+@@ -0,0 +1,40 @@
++"use client";
++
++import {
++  EvidenceTooltip,
++  EvidenceTooltipProvider,
++} from "@/components/ui/evidence-tooltip";
++
++/**
++ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
++ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
++ * can assert (a) popup absent before hover, (b) popup absent immediately
++ * after hover (within ~50ms), (c) popup visible within 500ms.
++ */
++export function EvidenceTooltipHarness() {
++  return (
++    <EvidenceTooltipProvider delay={300}>
++      <div
++        data-testid="evidence-tooltip-harness"
++        className="mx-auto max-w-xl p-8"
++      >
++        <p className="mb-4 text-sm">
++          Hover the citation token below to see the evidence tooltip.
++        </p>
++        <p className="text-sm">
++          Aspirin reduces headache pain in adults
++          <EvidenceTooltip
++            evidenceId="src-demo-1"
++            sourceUrl="https://www.cochrane.org/CD-demo-1"
++            sourceTier="T1"
++            publishedDate="2024-03-15"
++            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
++          >
++            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
++          </EvidenceTooltip>
++          .
++        </p>
++      </div>
++    </EvidenceTooltipProvider>
++  );
++}
+diff --git a/web/app/sentence_hover_test/evidence_tooltip/page.tsx b/web/app/sentence_hover_test/evidence_tooltip/page.tsx
+new file mode 100644
+index 0000000..5b96bd9
+--- /dev/null
++++ b/web/app/sentence_hover_test/evidence_tooltip/page.tsx
+@@ -0,0 +1,5 @@
++import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
++
++export default function EvidenceTooltipPage() {
++  return <EvidenceTooltipHarness />;
++}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index e810a09..5ca2707 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -8,6 +8,11 @@ interface EvidenceTooltipProps {
+   sourceUrl?: string;
+   spanText?: string;
+   sourceTier?: "T1" | "T2" | "T3";
++  /**
++   * I-f6-001: optional publication-date string surfaced in the popup
++   * as `Published: <date>`. When undefined/null, the line is omitted.
++   */
++  publishedDate?: string | null;
+   onClickToInspect?: () => void;
+   children: React.ReactNode;
+ }
+@@ -22,6 +27,7 @@ export function EvidenceTooltip({
+   sourceUrl,
+   spanText,
+   sourceTier,
++  publishedDate,
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
+@@ -40,7 +46,10 @@ export function EvidenceTooltip({
+       </Tooltip.Trigger>
+       <Tooltip.Portal>
+         <Tooltip.Positioner sideOffset={6} side="top">
+-          <Tooltip.Popup className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md">
++          <Tooltip.Popup
++            data-testid="evidence-tooltip-popup"
++            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
++          >
+             <p className="text-muted-foreground font-mono text-[11px]">
+               {evidenceId}
+               {sourceTier && ` · tier ${sourceTier}`}
+@@ -50,6 +59,14 @@ export function EvidenceTooltip({
+                 {sourceUrl}
+               </p>
+             )}
++            {publishedDate && (
++              <p
++                data-testid="evidence-tooltip-published"
++                className="text-muted-foreground mt-1 text-[11px]"
++              >
++                Published: {publishedDate}
++              </p>
++            )}
+             {spanText && (
+               <p className="text-foreground mt-2 text-xs leading-snug">
+                 &ldquo;
+diff --git a/web/tests/e2e/evidence_tooltip.spec.ts b/web/tests/e2e/evidence_tooltip.spec.ts
+new file mode 100644
+index 0000000..f42da3d
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip.spec.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from "@playwright/test";
++
++test("Tooltip absent before hover; debounced; visible within 500ms after hover", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/evidence_tooltip");
++  await expect(page.getByTestId("evidence-tooltip-harness")).toBeVisible();
++  // (a) popup absent before any hover.
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
++
++  // (b) Codex iter-1 P2: pop NOT visible immediately after hover (debounce).
++  await page.getByTestId("evidence-tooltip-trigger").hover();
++  // Take a near-immediate sample (~50ms): should still be absent because of
++  // the 300ms Provider delay.
++  await page.waitForTimeout(50);
++  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
++
++  // (c) within 500ms the popup should be present (300ms delay + buffer).
++  await expect(page.getByTestId("evidence-tooltip-popup")).toBeVisible({
++    timeout: 500,
++  });
++  // Content checks.
++  const popup = page.getByTestId("evidence-tooltip-popup");
++  await expect(popup).toContainText("tier T1");
++  await expect(page.getByTestId("evidence-tooltip-published")).toContainText(
++    "Published: 2024-03-15",
++  );
++  await expect(popup).toContainText("randomized trial enrolled 1247 adults");
++});
