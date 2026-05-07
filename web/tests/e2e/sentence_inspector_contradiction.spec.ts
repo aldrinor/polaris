@@ -89,6 +89,20 @@ test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
   ).toContainText("Guideline");
 });
 
+test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("contradiction-jurisdiction-0"),
+  ).toContainText("United States");
+  await expect(
+    page.getByTestId("contradiction-jurisdiction-1"),
+  ).toContainText("Canada");
+});
+
 test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
   await page.goto("/sentence_hover_test");
   const badge = page.getByTestId("inspector-contradiction-sec_x:27");

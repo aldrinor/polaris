@@ -242,6 +242,22 @@ def test_contradiction_side_evidence_type_rejects_bogus():
         _side(evidence_type="bogus_value")
 
 
+def test_contradiction_side_jurisdiction_default_unspecified():
+    s = _side()
+    assert s.jurisdiction == "unspecified"
+
+
+def test_contradiction_side_jurisdiction_all_seven_values():
+    for j in ("canada", "us", "eu", "uk", "who", "other", "unspecified"):
+        s = _side(jurisdiction=j)
+        assert s.jurisdiction == j
+
+
+def test_contradiction_side_jurisdiction_rejects_bogus():
+    with pytest.raises(ValidationError):
+        _side(jurisdiction="bogus_value")
+
+
 def test_contradiction_signal_category_default_other():
     sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
     assert sig.category == "other"

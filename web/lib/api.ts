@@ -616,6 +616,15 @@ export type ContradictionEvidenceType =
   | "expert_opinion"
   | "unspecified";
 
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
 export interface ContradictionSide {
   source_id: string;
   source_tier: "T1" | "T2" | "T3";
@@ -624,6 +633,7 @@ export interface ContradictionSide {
   pt08_flag?: string | null;
   claim_excerpt: string;
   evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
 }
 
 export type ContradictionKind = "multi_source" | "self_contradiction";

@@ -11,6 +11,7 @@ import type {
   ContradictionCategory,
   ContradictionEvidenceType,
   ContradictionSignal,
+  Jurisdiction,
 } from "@/lib/api";
 
 const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
@@ -20,6 +21,16 @@ const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
   observational: "Observational",
   regulatory_label: "Regulatory label",
   expert_opinion: "Expert opinion",
+  unspecified: "Unspecified",
+};
+
+const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
+  canada: "Canada",
+  us: "United States",
+  eu: "European Union",
+  uk: "United Kingdom",
+  who: "WHO",
+  other: "Other",
   unspecified: "Unspecified",
 };
 
@@ -102,6 +113,18 @@ export function ContradictionPane({
                         className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] tracking-widest text-violet-700 uppercase dark:text-violet-300"
                       >
                         {EVIDENCE_TYPE_LABEL[et]}
+                      </span>
+                    );
+                  })()}
+                  {(() => {
+                    const j = side.jurisdiction ?? "unspecified";
+                    if (j === "unspecified") return null;
+                    return (
+                      <span
+                        data-testid={`contradiction-jurisdiction-${idx}`}
+                        className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] tracking-widest text-cyan-700 uppercase dark:text-cyan-300"
+                      >
+                        {JURISDICTION_LABEL[j]}
                       </span>
                     );
                   })()}
