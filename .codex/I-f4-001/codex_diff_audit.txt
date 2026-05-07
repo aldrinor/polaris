@@ -1,0 +1,1082 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e017a-ab22-7ce3-ac2d-7810af4e91a5
+--------
+user
+# Codex Diff Review — I-f4-001 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f4-001 — SSE EventSource consumer with reconnect/backoff
+**Brief:** APPROVED iter 4 (0/0/0/2P2)
+**Canonical-diff-sha256:** `3a970643e294d4298cd3c0ff8eaaa52716428d7eaed2d7004cd0ecfddc95eb82`
+**LOC:** 190 net (10 under CHARTER §1 200-cap)
+**Tests:** Lint clean.
+
+## Files
+
+```
+web/lib/sse_client.ts            NEW +88
+web/app/sse/page.tsx             NEW +11
+web/app/sse/_harness.tsx         NEW +53
+web/tests/e2e/sse_client.spec.ts NEW +38
+```
+
+## What changed
+
+**`sse_client.ts`:** `SSEClient` class + `SSEClientOpts` interface. `connect()` opens EventSource, registers `onmessage` + each name in `eventNames` via `addEventListener`. `_received_message` reset per connect. On open-without-message after maxRetries: terminal error + close. Backoff: `min(initial * 2^attempts, cap)`.
+
+**`page.tsx`:** Server Component shell wrapping `SSEHarness` in `Suspense` (per Codex iter-4 P2 around `useSearchParams`).
+
+**`_harness.tsx`:** Client Component reads `?url=` and `?max=` from useSearchParams, instantiates SSEClient with low backoff (initial=100ms, cap=500ms) for fast tests, exposes `window.__sse__ = { attempts, total_connects, messages, errors }`.
+
+**`sse_client.spec.ts`:** 2 tests:
+- Test 1: `page.route("**/mock/sse")` returns text/event-stream; `hits===1` returns short body that closes; subsequent hits return stable. Asserts `total_connects >= 2` within 2000ms.
+- Test 2: `page.route("**/mock/sse-fail")` always returns 500. With `?max=3`, asserts `errors[*].terminal === true` within 5000ms.
+
+## Risks for Codex Red-Team
+
+1. **Production wiring out-of-scope.** Mission restated iter 4: I-f4-001 ships library + harness + tests; production migration is I-f4-001a follow-up. Existing `subscribeToRun()` at `web/lib/api.ts:313` unchanged.
+2. **Suspense wrapper.** `useSearchParams()` in Client component requires Suspense boundary in Next App Router; `page.tsx` provides.
+3. **Per-connection `_received_message` reset.** First line of `connect()` is `this._received_message = false;` — fresh state each connection (per Codex iter-3 P2).
+4. **`total_connects` counter** is independent of `_attempts` — never reset; tracks every EventSource creation.
+5. **Mock SSE via `route.fulfill`** sufficient for force-disconnect assertion; doesn't need long-lived stream.
+6. **§9.4 N/A frontend.**
+7. **CHARTER §1 LOC cap.** 190 net.
+8. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+# CANONICAL DIFF
+
+`diff
+diff --git a/web/app/sse/_harness.tsx b/web/app/sse/_harness.tsx
+new file mode 100644
+index 0000000..027818a
+--- /dev/null
++++ b/web/app/sse/_harness.tsx
+@@ -0,0 +1,53 @@
++"use client";
++
++import { useEffect } from "react";
++import { useSearchParams } from "next/navigation";
++
++import { SSEClient } from "@/lib/sse_client";
++
++declare global {
++  interface Window {
++    __sse__?: {
++      attempts: number;
++      total_connects: number;
++      messages: string[];
++      errors: { terminal: boolean; attempts: number }[];
++    };
++  }
++}
++
++export function SSEHarness() {
++  const sp = useSearchParams();
++  const url = sp.get("url") ?? "/api/audit/stream";
++  const max = parseInt(sp.get("max") ?? "10", 10);
++
++  useEffect(() => {
++    const state = {
++      attempts: 0,
++      total_connects: 0,
++      messages: [] as string[],
++      errors: [] as { terminal: boolean; attempts: number }[],
++    };
++    window.__sse__ = state;
++    const c = new SSEClient(url, {
++      maxRetries: max,
++      initialBackoffMs: 100,
++      maxBackoffMs: 500,
++      onMessage: (d) => {
++        state.messages.push(d);
++        state.total_connects = c.getTotalConnects();
++      },
++      onOpen: () => {
++        state.total_connects = c.getTotalConnects();
++      },
++      onError: (e) => {
++        state.attempts = c.getAttempts();
++        state.errors.push(e);
++      },
++    });
++    c.connect();
++    return () => c.close();
++  }, [url, max]);
++
++  return <div data-testid="sse-harness">SSE harness ready</div>;
++}
+diff --git a/web/app/sse/page.tsx b/web/app/sse/page.tsx
+new file mode 100644
+index 0000000..83c9608
+--- /dev/null
++++ b/web/app/sse/page.tsx
+@@ -0,0 +1,11 @@
++import { Suspense } from "react";
++
++import { SSEHarness } from "./_harness";
++
++export default function SSETestHarnessPage() {
++  return (
++    <Suspense fallback={<div>loading…</div>}>
++      <SSEHarness />
++    </Suspense>
++  );
++}
+diff --git a/web/lib/sse_client.ts b/web/lib/sse_client.ts
+new file mode 100644
+index 0000000..70b0a8a
+--- /dev/null
++++ b/web/lib/sse_client.ts
+@@ -0,0 +1,88 @@
++// I-f4-001 — SSE consumer with reconnect/backoff. Tested library; not yet wired into subscribeToRun() (I-f4-001a).
++
++export interface SSEClientOpts {
++  initialBackoffMs?: number;
++  maxBackoffMs?: number;
++  maxRetries?: number;
++  eventNames?: string[];
++  onMessage?: (data: string) => void;
++  onEvent?: (name: string, data: string) => void;
++  onOpen?: () => void;
++  onError?: (err: { terminal: boolean; attempts: number }) => void;
++  onReconnect?: (attempts: number) => void;
++}
++
++export class SSEClient {
++  private _es: EventSource | null = null;
++  private _attempts = 0;
++  private _total_connects = 0;
++  private _closed = false;
++  private _received_message = false;
++  private _timer: ReturnType<typeof setTimeout> | null = null;
++
++  constructor(
++    private url: string,
++    private opts: SSEClientOpts = {},
++  ) {}
++
++  connect(): void {
++    if (this._closed) return;
++    this._received_message = false;
++    this._total_connects += 1;
++    const es = new EventSource(this.url);
++    this._es = es;
++    es.onopen = () => this.opts.onOpen?.();
++    es.onmessage = (ev: MessageEvent) => {
++      this._received_message = true;
++      this._attempts = 0;
++      this.opts.onMessage?.(ev.data);
++    };
++    for (const name of this.opts.eventNames ?? []) {
++      es.addEventListener(name, (ev) => {
++        this._received_message = true;
++        this._attempts = 0;
++        this.opts.onEvent?.(name, (ev as MessageEvent).data);
++      });
++    }
++    es.onerror = () => {
++      es.close();
++      this._es = null;
++      if (this._closed) return;
++      const max_retries = this.opts.maxRetries ?? 10;
++      if (this._attempts >= max_retries && !this._received_message) {
++        this.opts.onError?.({ terminal: true, attempts: this._attempts });
++        this._closed = true;
++        return;
++      }
++      const initial = this.opts.initialBackoffMs ?? 200;
++      const cap = this.opts.maxBackoffMs ?? 1000;
++      const delay = Math.min(initial * 2 ** this._attempts, cap);
++      this._attempts += 1;
++      this.opts.onError?.({ terminal: false, attempts: this._attempts });
++      this._timer = setTimeout(() => {
++        this.opts.onReconnect?.(this._attempts);
++        this.connect();
++      }, delay);
++    };
++  }
++
++  close(): void {
++    this._closed = true;
++    if (this._timer) clearTimeout(this._timer);
++    this._timer = null;
++    this._es?.close();
++    this._es = null;
++  }
++
++  getAttempts(): number {
++    return this._attempts;
++  }
++
++  getTotalConnects(): number {
++    return this._total_connects;
++  }
++
++  getReadyState(): number {
++    return this._es?.readyState ?? -1;
++  }
++}
+diff --git a/web/tests/e2e/sse_client.spec.ts b/web/tests/e2e/sse_client.spec.ts
+new file mode 100644
+index 0000000..90fefdd
+--- /dev/null
++++ b/web/tests/e2e/sse_client.spec.ts
+@@ -0,0 +1,38 @@
++import { expect, test } from "@playwright/test";
++
++test("reconnects within 2s after force-disconnect", async ({ page }) => {
++  let hits = 0;
++  await page.route("**/mock/sse", async (route) => {
++    hits += 1;
++    await route.fulfill({
++      status: 200,
++      contentType: "text/event-stream",
++      headers: { "cache-control": "no-cache" },
++      body: hits === 1 ? "data: first\n\n" : "data: stable\n\n",
++    });
++  });
++
++  await page.goto("/sse?url=/mock/sse");
++  await expect(page.getByTestId("sse-harness")).toBeVisible();
++  await page.waitForFunction(
++    () => (window.__sse__?.total_connects ?? 0) >= 2,
++    undefined,
++    {
++      timeout: 2000,
++    },
++  );
++});
++
++test("stops after maxRetries on persistent failure", async ({ page }) => {
++  await page.route("**/mock/sse-fail", async (route) => {
++    await route.fulfill({ status: 500, body: "down" });
++  });
++
++  await page.goto("/sse?url=/mock/sse-fail&max=3");
++  await expect(page.getByTestId("sse-harness")).toBeVisible();
++  await page.waitForFunction(
++    () => (window.__sse__?.errors ?? []).some((e) => e.terminal),
++    undefined,
++    { timeout: 5000 },
++  );
++});
+
+``n
+
+codex
+I’m reviewing the diff as submitted against the requested execution risks and treating this as a review-only pass, so I’ll focus on blockers and solid follow-up issues rather than editing files.
+codex
+The core reconnect loop matches the brief: it resets per-connection message state, closes the browser-managed `EventSource` before manual retry, and uses the intended exponential cap. The issues I’m checking now are API edges and whether the test harness creates unintended production surface.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g 'tsconfig*.json' -g 'playwright.config.*' -g 'package.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "subscribeToRun|/api/audit/stream|__sse__|SSEClient" web' in C:\POLARIS
+2026-05-07T08:09:51.883211Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web\tsconfig.json
+web\playwright.config.ts
+web\package.json
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+
+ exited 1 in 1244ms:
+web\tsconfig.json
+web\playwright.config.ts
+web\package.json
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+
+ succeeded in 1474ms:
+web\lib\sse_client.ts:1:// I-f4-001 — SSE consumer with reconnect/backoff. Tested library; not yet wired into subscribeToRun() (I-f4-001a).
+web\lib\sse_client.ts:3:export interface SSEClientOpts {
+web\lib\sse_client.ts:15:export class SSEClient {
+web\lib\sse_client.ts:25:    private opts: SSEClientOpts = {},
+web\lib\api.ts:308:export function subscribeToRun(
+web\app\runs\[runId]\page.tsx:18:  subscribeToRun,
+web\app\runs\[runId]\page.tsx:45:    const source = subscribeToRun(
+web\app\sse\_harness.tsx:6:import { SSEClient } from "@/lib/sse_client";
+web\app\sse\_harness.tsx:10:    __sse__?: {
+web\app\sse\_harness.tsx:21:  const url = sp.get("url") ?? "/api/audit/stream";
+web\app\sse\_harness.tsx:31:    window.__sse__ = state;
+web\app\sse\_harness.tsx:32:    const c = new SSEClient(url, {
+web\tests\e2e\sse_client.spec.ts:18:    () => (window.__sse__?.total_connects ?? 0) >= 2,
+web\tests\e2e\sse_client.spec.ts:34:    () => (window.__sse__?.errors ?? []).some((e) => e.terminal),
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\lib\\api.ts -Pattern 'subscribeToRun' -Context 0,40" in C:\POLARIS
+ succeeded in 1394ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1780ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 1964ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 2302ms:
+
+> web\lib\api.ts:308:export function subscribeToRun(
+  web\lib\api.ts:309:  runId: string,
+  web\lib\api.ts:310:  onEvent: (event: StreamEvent) => void,
+  web\lib\api.ts:311:  onError?: (error: Event) => void,
+  web\lib\api.ts:312:): EventSource {
+  web\lib\api.ts:313:  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+  web\lib\api.ts:314:
+  web\lib\api.ts:315:  const handler = (event: MessageEvent<string>) => {
+  web\lib\api.ts:316:    try {
+  web\lib\api.ts:317:      const parsed = JSON.parse(event.data);
+  web\lib\api.ts:318:      onEvent({ event: event.type, data: parsed });
+  web\lib\api.ts:319:    } catch {
+  web\lib\api.ts:320:      onEvent({ event: event.type, data: { raw: event.data } });
+  web\lib\api.ts:321:    }
+  web\lib\api.ts:322:  };
+  web\lib\api.ts:323:
+  web\lib\api.ts:324:  for (const eventName of [
+  web\lib\api.ts:325:    "scope_decision",
+  web\lib\api.ts:326:    "retrieval_progress",
+  web\lib\api.ts:327:    "verifier_verdict",
+  web\lib\api.ts:328:    "section_complete",
+  web\lib\api.ts:329:    "run_complete",
+  web\lib\api.ts:330:  ]) {
+  web\lib\api.ts:331:    source.addEventListener(eventName, handler);
+  web\lib\api.ts:332:  }
+  web\lib\api.ts:333:
+  web\lib\api.ts:334:  if (onError) {
+  web\lib\api.ts:335:    source.onerror = onError;
+  web\lib\api.ts:336:  }
+  web\lib\api.ts:337:  return source;
+  web\lib\api.ts:338:}
+  web\lib\api.ts:339:
+  web\lib\api.ts:340:// ---------------------------------------------------------------------------
+  web\lib\api.ts:341:// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+  web\lib\api.ts:342:// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+  web\lib\api.ts:343:// ---------------------------------------------------------------------------
+  web\lib\api.ts:344:
+  web\lib\api.ts:345:export type IntakeStatus =
+  web\lib\api.ts:346:  | "in_scope"
+  web\lib\api.ts:347:  | "ambiguous_needs_clarification"
+  web\lib\api.ts:348:  | "out_of_scope"
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web'"\\lib\\sse_client.ts | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web'"\\app\\sse\\_harness.tsx | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web'"\\tests\\e2e\\sse_client.spec.ts | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 1282ms:
+   1: "use client";
+   2: 
+   3: import { useEffect } from "react";
+   4: import { useSearchParams } from "next/navigation";
+   5: 
+   6: import { SSEClient } from "@/lib/sse_client";
+   7: 
+   8: declare global {
+   9:   interface Window {
+  10:     __sse__?: {
+  11:       attempts: number;
+  12:       total_connects: number;
+  13:       messages: string[];
+  14:       errors: { terminal: boolean; attempts: number }[];
+  15:     };
+  16:   }
+  17: }
+  18: 
+  19: export function SSEHarness() {
+  20:   const sp = useSearchParams();
+  21:   const url = sp.get("url") ?? "/api/audit/stream";
+  22:   const max = parseInt(sp.get("max") ?? "10", 10);
+  23: 
+  24:   useEffect(() => {
+  25:     const state = {
+  26:       attempts: 0,
+  27:       total_connects: 0,
+  28:       messages: [] as string[],
+  29:       errors: [] as { terminal: boolean; attempts: number }[],
+  30:     };
+  31:     window.__sse__ = state;
+  32:     const c = new SSEClient(url, {
+  33:       maxRetries: max,
+  34:       initialBackoffMs: 100,
+  35:       maxBackoffMs: 500,
+  36:       onMessage: (d) => {
+  37:         state.messages.push(d);
+  38:         state.total_connects = c.getTotalConnects();
+  39:       },
+  40:       onOpen: () => {
+  41:         state.total_connects = c.getTotalConnects();
+  42:       },
+  43:       onError: (e) => {
+  44:         state.attempts = c.getAttempts();
+  45:         state.errors.push(e);
+  46:       },
+  47:     });
+  48:     c.connect();
+  49:     return () => c.close();
+  50:   }, [url, max]);
+  51: 
+  52:   return <div data-testid="sse-harness">SSE harness ready</div>;
+  53: }
+
+ succeeded in 1674ms:
+   1: // I-f4-001 — SSE consumer with reconnect/backoff. Tested library; not yet wired into subscribeToRun() (I-f4-001a).
+   2: 
+   3: export interface SSEClientOpts {
+   4:   initialBackoffMs?: number;
+   5:   maxBackoffMs?: number;
+   6:   maxRetries?: number;
+   7:   eventNames?: string[];
+   8:   onMessage?: (data: string) => void;
+   9:   onEvent?: (name: string, data: string) => void;
+  10:   onOpen?: () => void;
+  11:   onError?: (err: { terminal: boolean; attempts: number }) => void;
+  12:   onReconnect?: (attempts: number) => void;
+  13: }
+  14: 
+  15: export class SSEClient {
+  16:   private _es: EventSource | null = null;
+  17:   private _attempts = 0;
+  18:   private _total_connects = 0;
+  19:   private _closed = false;
+  20:   private _received_message = false;
+  21:   private _timer: ReturnType<typeof setTimeout> | null = null;
+  22: 
+  23:   constructor(
+  24:     private url: string,
+  25:     private opts: SSEClientOpts = {},
+  26:   ) {}
+  27: 
+  28:   connect(): void {
+  29:     if (this._closed) return;
+  30:     this._received_message = false;
+  31:     this._total_connects += 1;
+  32:     const es = new EventSource(this.url);
+  33:     this._es = es;
+  34:     es.onopen = () => this.opts.onOpen?.();
+  35:     es.onmessage = (ev: MessageEvent) => {
+  36:       this._received_message = true;
+  37:       this._attempts = 0;
+  38:       this.opts.onMessage?.(ev.data);
+  39:     };
+  40:     for (const name of this.opts.eventNames ?? []) {
+  41:       es.addEventListener(name, (ev) => {
+  42:         this._received_message = true;
+  43:         this._attempts = 0;
+  44:         this.opts.onEvent?.(name, (ev as MessageEvent).data);
+  45:       });
+  46:     }
+  47:     es.onerror = () => {
+  48:       es.close();
+  49:       this._es = null;
+  50:       if (this._closed) return;
+  51:       const max_retries = this.opts.maxRetries ?? 10;
+  52:       if (this._attempts >= max_retries && !this._received_message) {
+  53:         this.opts.onError?.({ terminal: true, attempts: this._attempts });
+  54:         this._closed = true;
+  55:         return;
+  56:       }
+  57:       const initial = this.opts.initialBackoffMs ?? 200;
+  58:       const cap = this.opts.maxBackoffMs ?? 1000;
+  59:       const delay = Math.min(initial * 2 ** this._attempts, cap);
+  60:       this._attempts += 1;
+  61:       this.opts.onError?.({ terminal: false, attempts: this._attempts });
+  62:       this._timer = setTimeout(() => {
+  63:         this.opts.onReconnect?.(this._attempts);
+  64:         this.connect();
+  65:       }, delay);
+  66:     };
+  67:   }
+  68: 
+  69:   close(): void {
+  70:     this._closed = true;
+  71:     if (this._timer) clearTimeout(this._timer);
+  72:     this._timer = null;
+  73:     this._es?.close();
+  74:     this._es = null;
+  75:   }
+  76: 
+  77:   getAttempts(): number {
+  78:     return this._attempts;
+  79:   }
+  80: 
+  81:   getTotalConnects(): number {
+  82:     return this._total_connects;
+  83:   }
+  84: 
+  85:   getReadyState(): number {
+  86:     return this._es?.readyState ?? -1;
+  87:   }
+  88: }
+
+ succeeded in 1840ms:
+   1: import { expect, test } from "@playwright/test";
+   2: 
+   3: test("reconnects within 2s after force-disconnect", async ({ page }) => {
+   4:   let hits = 0;
+   5:   await page.route("**/mock/sse", async (route) => {
+   6:     hits += 1;
+   7:     await route.fulfill({
+   8:       status: 200,
+   9:       contentType: "text/event-stream",
+  10:       headers: { "cache-control": "no-cache" },
+  11:       body: hits === 1 ? "data: first\n\n" : "data: stable\n\n",
+  12:     });
+  13:   });
+  14: 
+  15:   await page.goto("/sse?url=/mock/sse");
+  16:   await expect(page.getByTestId("sse-harness")).toBeVisible();
+  17:   await page.waitForFunction(
+  18:     () => (window.__sse__?.total_connects ?? 0) >= 2,
+  19:     undefined,
+  20:     {
+  21:       timeout: 2000,
+  22:     },
+  23:   );
+  24: });
+  25: 
+  26: test("stops after maxRetries on persistent failure", async ({ page }) => {
+  27:   await page.route("**/mock/sse-fail", async (route) => {
+  28:     await route.fulfill({ status: 500, body: "down" });
+  29:   });
+  30: 
+  31:   await page.goto("/sse?url=/mock/sse-fail&max=3");
+  32:   await expect(page.getByTestId("sse-harness")).toBeVisible();
+  33:   await page.waitForFunction(
+  34:     () => (window.__sse__?.errors ?? []).some((e) => e.terminal),
+  35:     undefined,
+  36:     { timeout: 5000 },
+  37:   );
+  38: });
+
+codex
+The existing frontend TypeScript config includes all test and app files in one project, so the `Window.__sse__` augmentation is visible to the Playwright test sources. I’m doing one typecheck pass now because lint alone would not catch a couple of API-shape issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+ succeeded in 6026ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - file: "web/app/sse/_harness.tsx:21"
+    issue: >
+      The `/sse` harness is a normal App Router page and defaults to opening
+      `/api/audit/stream`, with received data stored on `window.__sse__`. If this
+      route ships in production, it is a public debug subscriber surface. This is
+      not an execution blocker for the scoped harness/library work, but it should
+      be gated to e2e/dev or removed before production exposure.
+  - file: "web/app/sse/_harness.tsx:22"
+    issue: >
+      `parseInt()` can produce `NaN`, and `SSEClient` compares attempts with
+      `maxRetries` directly. With `?max=bad` or a bad consumer value, the terminal
+      retry condition never becomes true, causing unbounded retries. Low severity
+      because current tests pass valid values, but normalize to a finite
+      non-negative retry count.
+  - file: "web/lib/sse_client.ts:28"
+    issue: >
+      `connect()` is not idempotent: a second call while an EventSource or retry
+      timer is active can create overlapping connections and stale handlers. The
+      current harness calls it once, so this is not blocking, but production wiring
+      should either guard, close the prior source, or document single-use semantics.
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+48,702
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - file: "web/app/sse/_harness.tsx:21"
+    issue: >
+      The `/sse` harness is a normal App Router page and defaults to opening
+      `/api/audit/stream`, with received data stored on `window.__sse__`. If this
+      route ships in production, it is a public debug subscriber surface. This is
+      not an execution blocker for the scoped harness/library work, but it should
+      be gated to e2e/dev or removed before production exposure.
+  - file: "web/app/sse/_harness.tsx:22"
+    issue: >
+      `parseInt()` can produce `NaN`, and `SSEClient` compares attempts with
+      `maxRetries` directly. With `?max=bad` or a bad consumer value, the terminal
+      retry condition never becomes true, causing unbounded retries. Low severity
+      because current tests pass valid values, but normalize to a finite
+      non-negative retry count.
+  - file: "web/lib/sse_client.ts:28"
+    issue: >
+      `connect()` is not idempotent: a second call while an EventSource or retry
+      timer is active can create overlapping connections and stale handlers. The
+      current harness calls it once, so this is not blocking, but production wiring
+      should either guard, close the prior source, or document single-use semantics.
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

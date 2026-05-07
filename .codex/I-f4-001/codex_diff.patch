@@ -1,0 +1,214 @@
+diff --git a/web/app/sse/_harness.tsx b/web/app/sse/_harness.tsx
+new file mode 100644
+index 0000000..027818a
+--- /dev/null
++++ b/web/app/sse/_harness.tsx
+@@ -0,0 +1,53 @@
++"use client";
++
++import { useEffect } from "react";
++import { useSearchParams } from "next/navigation";
++
++import { SSEClient } from "@/lib/sse_client";
++
++declare global {
++  interface Window {
++    __sse__?: {
++      attempts: number;
++      total_connects: number;
++      messages: string[];
++      errors: { terminal: boolean; attempts: number }[];
++    };
++  }
++}
++
++export function SSEHarness() {
++  const sp = useSearchParams();
++  const url = sp.get("url") ?? "/api/audit/stream";
++  const max = parseInt(sp.get("max") ?? "10", 10);
++
++  useEffect(() => {
++    const state = {
++      attempts: 0,
++      total_connects: 0,
++      messages: [] as string[],
++      errors: [] as { terminal: boolean; attempts: number }[],
++    };
++    window.__sse__ = state;
++    const c = new SSEClient(url, {
++      maxRetries: max,
++      initialBackoffMs: 100,
++      maxBackoffMs: 500,
++      onMessage: (d) => {
++        state.messages.push(d);
++        state.total_connects = c.getTotalConnects();
++      },
++      onOpen: () => {
++        state.total_connects = c.getTotalConnects();
++      },
++      onError: (e) => {
++        state.attempts = c.getAttempts();
++        state.errors.push(e);
++      },
++    });
++    c.connect();
++    return () => c.close();
++  }, [url, max]);
++
++  return <div data-testid="sse-harness">SSE harness ready</div>;
++}
+diff --git a/web/app/sse/page.tsx b/web/app/sse/page.tsx
+new file mode 100644
+index 0000000..83c9608
+--- /dev/null
++++ b/web/app/sse/page.tsx
+@@ -0,0 +1,11 @@
++import { Suspense } from "react";
++
++import { SSEHarness } from "./_harness";
++
++export default function SSETestHarnessPage() {
++  return (
++    <Suspense fallback={<div>loading…</div>}>
++      <SSEHarness />
++    </Suspense>
++  );
++}
+diff --git a/web/lib/sse_client.ts b/web/lib/sse_client.ts
+new file mode 100644
+index 0000000..70b0a8a
+--- /dev/null
++++ b/web/lib/sse_client.ts
+@@ -0,0 +1,88 @@
++// I-f4-001 — SSE consumer with reconnect/backoff. Tested library; not yet wired into subscribeToRun() (I-f4-001a).
++
++export interface SSEClientOpts {
++  initialBackoffMs?: number;
++  maxBackoffMs?: number;
++  maxRetries?: number;
++  eventNames?: string[];
++  onMessage?: (data: string) => void;
++  onEvent?: (name: string, data: string) => void;
++  onOpen?: () => void;
++  onError?: (err: { terminal: boolean; attempts: number }) => void;
++  onReconnect?: (attempts: number) => void;
++}
++
++export class SSEClient {
++  private _es: EventSource | null = null;
++  private _attempts = 0;
++  private _total_connects = 0;
++  private _closed = false;
++  private _received_message = false;
++  private _timer: ReturnType<typeof setTimeout> | null = null;
++
++  constructor(
++    private url: string,
++    private opts: SSEClientOpts = {},
++  ) {}
++
++  connect(): void {
++    if (this._closed) return;
++    this._received_message = false;
++    this._total_connects += 1;
++    const es = new EventSource(this.url);
++    this._es = es;
++    es.onopen = () => this.opts.onOpen?.();
++    es.onmessage = (ev: MessageEvent) => {
++      this._received_message = true;
++      this._attempts = 0;
++      this.opts.onMessage?.(ev.data);
++    };
++    for (const name of this.opts.eventNames ?? []) {
++      es.addEventListener(name, (ev) => {
++        this._received_message = true;
++        this._attempts = 0;
++        this.opts.onEvent?.(name, (ev as MessageEvent).data);
++      });
++    }
++    es.onerror = () => {
++      es.close();
++      this._es = null;
++      if (this._closed) return;
++      const max_retries = this.opts.maxRetries ?? 10;
++      if (this._attempts >= max_retries && !this._received_message) {
++        this.opts.onError?.({ terminal: true, attempts: this._attempts });
++        this._closed = true;
++        return;
++      }
++      const initial = this.opts.initialBackoffMs ?? 200;
++      const cap = this.opts.maxBackoffMs ?? 1000;
++      const delay = Math.min(initial * 2 ** this._attempts, cap);
++      this._attempts += 1;
++      this.opts.onError?.({ terminal: false, attempts: this._attempts });
++      this._timer = setTimeout(() => {
++        this.opts.onReconnect?.(this._attempts);
++        this.connect();
++      }, delay);
++    };
++  }
++
++  close(): void {
++    this._closed = true;
++    if (this._timer) clearTimeout(this._timer);
++    this._timer = null;
++    this._es?.close();
++    this._es = null;
++  }
++
++  getAttempts(): number {
++    return this._attempts;
++  }
++
++  getTotalConnects(): number {
++    return this._total_connects;
++  }
++
++  getReadyState(): number {
++    return this._es?.readyState ?? -1;
++  }
++}
+diff --git a/web/tests/e2e/sse_client.spec.ts b/web/tests/e2e/sse_client.spec.ts
+new file mode 100644
+index 0000000..90fefdd
+--- /dev/null
++++ b/web/tests/e2e/sse_client.spec.ts
+@@ -0,0 +1,38 @@
++import { expect, test } from "@playwright/test";
++
++test("reconnects within 2s after force-disconnect", async ({ page }) => {
++  let hits = 0;
++  await page.route("**/mock/sse", async (route) => {
++    hits += 1;
++    await route.fulfill({
++      status: 200,
++      contentType: "text/event-stream",
++      headers: { "cache-control": "no-cache" },
++      body: hits === 1 ? "data: first\n\n" : "data: stable\n\n",
++    });
++  });
++
++  await page.goto("/sse?url=/mock/sse");
++  await expect(page.getByTestId("sse-harness")).toBeVisible();
++  await page.waitForFunction(
++    () => (window.__sse__?.total_connects ?? 0) >= 2,
++    undefined,
++    {
++      timeout: 2000,
++    },
++  );
++});
++
++test("stops after maxRetries on persistent failure", async ({ page }) => {
++  await page.route("**/mock/sse-fail", async (route) => {
++    await route.fulfill({ status: 500, body: "down" });
++  });
++
++  await page.goto("/sse?url=/mock/sse-fail&max=3");
++  await expect(page.getByTestId("sse-harness")).toBeVisible();
++  await page.waitForFunction(
++    () => (window.__sse__?.errors ?? []).some((e) => e.terminal),
++    undefined,
++    { timeout: 5000 },
++  );
++});
