@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from polaris_graph.generator2.verified_report import (
+    ContradictionSide,
     ContradictionSignal,
     FrameCoverage,
     FrameGap,
@@ -16,6 +17,17 @@ from polaris_graph.generator2.verified_report import (
     VerifiedReport,
     VerifiedSentence,
 )
+
+
+def _side(source_id: str = "src-x", **overrides) -> ContradictionSide:
+    base = dict(
+        source_id=source_id,
+        source_tier="T1",
+        hedge_language="moderate confidence",
+        claim_excerpt="example excerpt",
+    )
+    base.update(overrides)
+    return ContradictionSide(**base)  # type: ignore[arg-type]
 
 
 def _now() -> datetime:
@@ -136,6 +148,31 @@ def test_verified_sentence_with_contradiction_signal():
 def test_contradiction_signal_count_must_be_at_least_two():
     with pytest.raises(ValidationError):
         ContradictionSignal(disagreeing_source_count=1, summary="x")
+
+
+def test_contradiction_side_minimal():
+    s = _side()
+    assert s.source_tier == "T1"
+    assert s.sample_size is None
+    assert s.pt08_flag is None
+
+
+def test_contradiction_signal_with_sides_matching_count():
+    sig = ContradictionSignal(
+        disagreeing_source_count=3,
+        summary="three disagree",
+        sides=[_side("src-1"), _side("src-2"), _side("src-3")],
+    )
+    assert len(sig.sides) == 3
+
+
+def test_contradiction_signal_sides_count_mismatch_rejected():
+    with pytest.raises(ValidationError, match="len\\(sides\\)"):
+        ContradictionSignal(
+            disagreeing_source_count=3,
+            summary="x",
+            sides=[_side("src-1"), _side("src-2")],  # only 2 vs count=3
+        )
 
 
 def test_frame_coverage_minimal_no_gaps():

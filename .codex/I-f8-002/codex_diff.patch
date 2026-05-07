@@ -1,0 +1,452 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index cfd0152..e2a37e1 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -177,15 +177,40 @@ class VerifiedSentence(BaseModel):
+ # FrameCoverage (I-f7-001)
+ # ---------------------------------------------------------------------------
+ 
++class ContradictionSide(BaseModel):
++    """One side of a contradiction (I-f8-002).
++
++    Each side is a distinct cited source's position on the claim. Tier
++    + sample size + hedge language + PT08 flag inform reviewer judgment
++    of which side has the stronger evidentiary backing."""
++
++    source_id: str = Field(min_length=1, max_length=200)
++    source_tier: Literal["T1", "T2", "T3"]
++    sample_size: int | None = Field(default=None, ge=0)
++    hedge_language: str = Field(min_length=1, max_length=200)
++    pt08_flag: str | None = Field(default=None, max_length=50)
++    claim_excerpt: str = Field(min_length=1, max_length=500)
++
++
+ class ContradictionSignal(BaseModel):
+     """Inline contradiction annotation per sentence (I-f8-001).
+ 
+     Indicates ≥2 cited sources disagree on the claim in the sentence.
+-    Future Issue (F8-002+) populates this from real conflict detection;
+-    today the field is the surface, not the producer."""
++    `sides` (added I-f8-002) carries the per-source detail consumed by
++    the ContradictionPane; empty preserves I-f8-001 back-compat."""
+ 
+     disagreeing_source_count: int = Field(ge=2, le=20)
+     summary: str = Field(min_length=1, max_length=500)
++    sides: list[ContradictionSide] = Field(default_factory=list)
++
++    @model_validator(mode="after")
++    def _sides_count_consistency(self) -> "ContradictionSignal":
++        if self.sides and len(self.sides) != self.disagreeing_source_count:
++            raise ValueError(
++                "len(sides) must equal disagreeing_source_count when sides "
++                "is non-empty"
++            )
++        return self
+ 
+ 
+ GapReason = Literal[
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index e74a89d..ebd7510 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -8,6 +8,7 @@ import pytest
+ from pydantic import ValidationError
+ 
+ from polaris_graph.generator2.verified_report import (
++    ContradictionSide,
+     ContradictionSignal,
+     FrameCoverage,
+     FrameGap,
+@@ -18,6 +19,17 @@ from polaris_graph.generator2.verified_report import (
+ )
+ 
+ 
++def _side(source_id: str = "src-x", **overrides) -> ContradictionSide:
++    base = dict(
++        source_id=source_id,
++        source_tier="T1",
++        hedge_language="moderate confidence",
++        claim_excerpt="example excerpt",
++    )
++    base.update(overrides)
++    return ContradictionSide(**base)  # type: ignore[arg-type]
++
++
+ def _now() -> datetime:
+     return datetime.now(timezone.utc)
+ 
+@@ -138,6 +150,31 @@ def test_contradiction_signal_count_must_be_at_least_two():
+         ContradictionSignal(disagreeing_source_count=1, summary="x")
+ 
+ 
++def test_contradiction_side_minimal():
++    s = _side()
++    assert s.source_tier == "T1"
++    assert s.sample_size is None
++    assert s.pt08_flag is None
++
++
++def test_contradiction_signal_with_sides_matching_count():
++    sig = ContradictionSignal(
++        disagreeing_source_count=3,
++        summary="three disagree",
++        sides=[_side("src-1"), _side("src-2"), _side("src-3")],
++    )
++    assert len(sig.sides) == 3
++
++
++def test_contradiction_signal_sides_count_mismatch_rejected():
++    with pytest.raises(ValidationError, match="len\\(sides\\)"):
++        ContradictionSignal(
++            disagreeing_source_count=3,
++            summary="x",
++            sides=[_side("src-1"), _side("src-2")],  # only 2 vs count=3
++        )
++
++
+ def test_frame_coverage_minimal_no_gaps():
+     fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+     assert fc.gaps == []
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+new file mode 100644
+index 0000000..fae327a
+--- /dev/null
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -0,0 +1,91 @@
++"use client";
++
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import type { ContradictionSignal } from "@/lib/api";
++
++const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
++  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
++  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
++  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
++};
++
++export function ContradictionPane({
++  open,
++  signal,
++  onOpenChange,
++}: {
++  open: boolean;
++  signal: ContradictionSignal | null;
++  onOpenChange: (next: boolean) => void;
++}) {
++  // Codex iter-1 P2: tolerate signal.sides being absent at runtime.
++  const sides = signal?.sides ?? [];
++  return (
++    <Sheet open={open} onOpenChange={onOpenChange}>
++      <SheetContent
++        data-testid="contradiction-pane"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle data-testid="contradiction-pane-title">
++            Contradiction:{" "}
++            {signal ? `${signal.disagreeing_source_count} sources disagree` : ""}
++          </SheetTitle>
++          <SheetDescription>
++            {signal?.summary ?? ""}
++          </SheetDescription>
++        </SheetHeader>
++        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
++          {sides.map((side, idx) => (
++            <div
++              key={idx}
++              data-testid={`contradiction-side-${idx}`}
++              className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
++            >
++              <div className="flex items-center justify-between gap-2">
++                <code data-testid={`contradiction-source-${idx}`}>
++                  {side.source_id}
++                </code>
++                <span
++                  data-testid={`contradiction-tier-${idx}`}
++                  className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
++                >
++                  {side.source_tier}
++                </span>
++              </div>
++              <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
++                {side.sample_size !== null &&
++                side.sample_size !== undefined ? (
++                  <span data-testid={`contradiction-sample-${idx}`}>
++                    n = {side.sample_size}
++                  </span>
++                ) : null}
++                <span data-testid={`contradiction-hedge-${idx}`}>
++                  {side.hedge_language}
++                </span>
++                {side.pt08_flag ? (
++                  <span data-testid={`contradiction-pt08-${idx}`}>
++                    PT08: {side.pt08_flag}
++                  </span>
++                ) : null}
++              </div>
++              <blockquote
++                data-testid={`contradiction-claim-${idx}`}
++                className="border-l-2 border-amber-400 bg-amber-50 px-2 py-1 italic dark:bg-amber-900/20"
++              >
++                {side.claim_excerpt}
++              </blockquote>
++            </div>
++          ))}
++        </div>
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 29cafcc..477921d 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
+ import {
+   keptSentences,
+   type AssertionSurface,
++  type ContradictionSignal,
+   type DropReason,
+   type EvidencePool,
+   type ReportVerifiedSentence,
+@@ -15,6 +16,8 @@ import {
+   type VerifiedReportSection,
+ } from "@/lib/api";
+ 
++import { ContradictionPane } from "./contradiction_pane";
++
+ const ASSERTION_SURFACES: AssertionSurface[] = [
+   "prose",
+   "table",
+@@ -80,6 +83,7 @@ function SentenceRow({
+   sentence_id,
+   hovered_id,
+   onSelect,
++  onSelectContradiction,
+   pool,
+ }: {
+   sentence: ReportVerifiedSentence;
+@@ -87,6 +91,7 @@ function SentenceRow({
+   sentence_id: string;
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
++  onSelectContradiction: (signal: ContradictionSignal) => void;
+   pool: EvidencePool | null;
+ }) {
+   const dropped = !sentence.verifier_pass;
+@@ -158,13 +163,31 @@ function SentenceRow({
+         </span>
+       ) : null}
+       {!dropped && sentence.contradiction ? (
+-        <span
++        <button
++          type="button"
+           data-testid={`inspector-contradiction-${sentence_id}`}
+           title={sentence.contradiction.summary}
+-          className="inline-flex items-center gap-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
++          onClick={(e) => {
++            // Codex iter-1 P2: stop propagation so the parent row's
++            // SentenceInspector doesn't ALSO open.
++            e.stopPropagation();
++            if (sentence.contradiction)
++              onSelectContradiction(sentence.contradiction);
++          }}
++          onKeyDown={(e) => {
++            // Codex iter-1 P1: keyboard activation must not bubble to the
++            // parent row onKeyDown either, otherwise SentenceInspector opens.
++            if (e.key === "Enter" || e.key === " ") {
++              e.stopPropagation();
++              e.preventDefault();
++              if (sentence.contradiction)
++                onSelectContradiction(sentence.contradiction);
++            }
++          }}
++          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+         >
+           ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
+-        </span>
++        </button>
+       ) : null}
+       {t1_conflict ? (
+         <span
+@@ -184,12 +207,14 @@ function SectionCard({
+   show_dropped,
+   hovered_id,
+   onSelect,
++  onSelectContradiction,
+   pool,
+ }: {
+   section: VerifiedReportSection;
+   show_dropped: boolean;
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
++  onSelectContradiction: (signal: ContradictionSignal) => void;
+   pool: EvidencePool | null;
+ }) {
+   const kept = keptSentences(section);
+@@ -229,6 +254,7 @@ function SectionCard({
+                 sentence_id={`${section.section_id}:${idx}`}
+                 hovered_id={hovered_id}
+                 onSelect={onSelect}
++                onSelectContradiction={onSelectContradiction}
+                 pool={pool}
+               />
+             ))}
+@@ -259,6 +285,9 @@ export function VerifiedReportView({
+     id: string;
+     sentence: ReportVerifiedSentence;
+   } | null>(null);
++  const [contradiction_open, set_contradiction_open] = useState<
++    ContradictionSignal | null
++  >(null);
+   return (
+     <div
+       ref={root_ref}
+@@ -340,9 +369,17 @@ export function VerifiedReportView({
+           show_dropped={show_dropped}
+           hovered_id={hovered_id}
+           onSelect={(id, sentence) => setInspector({ id, sentence })}
++          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+           pool={pool}
+         />
+       ))}
++      <ContradictionPane
++        open={contradiction_open !== null}
++        signal={contradiction_open}
++        onOpenChange={(open) => {
++          if (!open) set_contradiction_open(null);
++        }}
++      />
+       <SentenceInspector
+         open={inspector !== null}
+         onOpenChange={(open) => {
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 95e462b..79b91d3 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -248,17 +248,50 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+         },
+-        // sec_x:26 — contradiction signal (I-f8-001).
++        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+         {
+           section_id: "sec_x",
+           sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+-          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
++          provenance_tokens: [
++            `[#ev:src-0:0-20]`,
++            `[#ev:src-1:0-20]`,
++            `[#ev:src-2:0-20]`,
++          ],
+           verifier_pass: true,
+           drop_reason: null,
+           evaluator_agrees: true,
+           contradiction: {
+             disagreeing_source_count: 3,
+             summary: "Three Cochrane reviews disagree on dose-response curve",
++            sides: [
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                sample_size: 1247,
++                hedge_language: "high confidence",
++                pt08_flag: "PT04",
++                claim_excerpt:
++                  "Aspirin significantly reduces headache at 81mg dose.",
++              },
++              {
++                source_id: "src-1",
++                source_tier: "T2",
++                sample_size: 432,
++                hedge_language: "moderate confidence",
++                pt08_flag: null,
++                claim_excerpt:
++                  "Aspirin shows mixed results below 162mg threshold.",
++              },
++              {
++                source_id: "src-2",
++                source_tier: "T1",
++                sample_size: 2103,
++                hedge_language: "high confidence",
++                pt08_flag: "PT08",
++                claim_excerpt:
++                  "Aspirin demonstrates dose-response saturation above 325mg.",
++              },
++            ],
+           },
+         },
+       ],
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 00d810f..9d47459 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -607,9 +607,19 @@ export interface ReportVerifiedSentence {
+   contradiction?: ContradictionSignal | null;
+ }
+ 
++export interface ContradictionSide {
++  source_id: string;
++  source_tier: "T1" | "T2" | "T3";
++  sample_size?: number | null;
++  hedge_language: string;
++  pt08_flag?: string | null;
++  claim_excerpt: string;
++}
++
+ export interface ContradictionSignal {
+   disagreeing_source_count: number;
+   summary: string;
++  sides?: ContradictionSide[];
+ }
+ 
+ export type AssertionSurface =
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index a3c4da2..28f0dbd 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -23,3 +23,37 @@ test("Sentence row without contradiction shows NO contradiction badge", async ({
+     0,
+   );
+ });
++
++test("Click contradiction badge → ContradictionPane shows N sides", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("inspector-contradiction-sec_x:26").click();
++  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
++    "3 sources disagree",
++  );
++  // 3 sides rendered.
++  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
++  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
++  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
++  // Side 0 detail check (T1 + sample + hedge + PT08 + claim).
++  await expect(page.getByTestId("contradiction-source-0")).toContainText(
++    "src-0",
++  );
++  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
++  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
++    "1247",
++  );
++  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
++    "high confidence",
++  );
++  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
++  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
++    "81mg",
++  );
++  // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
++  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
++});

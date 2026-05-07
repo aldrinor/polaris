@@ -248,17 +248,50 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
         },
-        // sec_x:26 — contradiction signal (I-f8-001).
+        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
         {
           section_id: "sec_x",
           sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
-          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          provenance_tokens: [
+            `[#ev:src-0:0-20]`,
+            `[#ev:src-1:0-20]`,
+            `[#ev:src-2:0-20]`,
+          ],
           verifier_pass: true,
           drop_reason: null,
           evaluator_agrees: true,
           contradiction: {
             disagreeing_source_count: 3,
             summary: "Three Cochrane reviews disagree on dose-response curve",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: "PT04",
+                claim_excerpt:
+                  "Aspirin significantly reduces headache at 81mg dose.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T2",
+                sample_size: 432,
+                hedge_language: "moderate confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin shows mixed results below 162mg threshold.",
+              },
+              {
+                source_id: "src-2",
+                source_tier: "T1",
+                sample_size: 2103,
+                hedge_language: "high confidence",
+                pt08_flag: "PT08",
+                claim_excerpt:
+                  "Aspirin demonstrates dose-response saturation above 325mg.",
+              },
+            ],
           },
         },
       ],
