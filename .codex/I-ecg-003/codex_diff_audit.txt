@@ -1,0 +1,1893 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0160-5e6a-7fb0-a8f1-57eaa2cea4ed
+--------
+user
+# Codex Diff Review — I-ecg-003 (ITER 3 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-ecg-003 — Contract editor UI
+**Brief:** APPROVED iter 1 (0/0/0/2P2)
+**Canonical-diff-sha256:** `2d54b7a39a5d9ec5e745f46a7f6a3ef3fd49d76bf715b6b0e3dc087a03a9db82`
+**LOC:** 491 net (291 over CHARTER §1 200-cap; LOC exemption requested)
+**Tests:** Lint clean; Playwright spec asserts download fires.
+
+## Diff iter-2 verdict consumed
+
+- P1 (added claims hard-code CA): RESOLVED iter 3 — `+ claim` button now defaults `required_jurisdictions` to `[...jurisdictions]` (current contract jurisdictions). Additionally, `pruned_claims` useMemo derives a render-time view that filters each claim's `required_jurisdictions` to current contract.jurisdictions, so toggling jurisdictions cleanly prunes downstream and keeps the validator/serializer aligned. on_submit serializes `pruned_claims` (NOT raw `claims`).
+- P1 (blank claim_id accepted): RESOLVED iter 3 — `validateContract` adds `if (!cl.claim_id.trim()) errs.push("claim_id required");` BEFORE the duplicate-id check.
+- P2 (max constraints not mirrored): NOTED iter 3, deferred — backend Pydantic max_length=200/1000/2000 enforcement at frontend is hardening; current backend will return 422 if exceeded. Captured as I-ecg-003a follow-up.
+
+## Diff iter-1 verdict consumed
+
+- P1 #1 (claim required_jurisdictions hard-coded to ['CA']): RESOLVED iter 2 — added per-claim jurisdiction checkbox grid (`ce-claim-${i}-jur-${j}`) driven by contract.jurisdictions. Operator can now select any combination per claim.
+- P1 #2 (validateContract too lenient vs backend Pydantic): RESOLVED iter 2 — added 5 new checks: blank entity name; coverage in [0, 100]; blank claim statement; empty claim expected_entities; empty claim required_jurisdictions. Mirrors backend Field constraints + min_length=1 enforcement.
+- P2 #1 (download assertion swallowed by `.catch`): RESOLVED iter 2 — replaced with explicit `dl_promise = page.waitForEvent("download", { timeout: 10_000 })` + `download.suggestedFilename()` regex assertion.
+- P2 #2 (no remove buttons): RESOLVED iter 2 — added `ce-rm-ent-${i}` + `ce-rm-claim-${i}` buttons (only rendered when length > 1, since min_length=1 enforced).
+- P2 #3 (localStorage claim mismatched): WITHDRAWN iter 2 — brief no longer claims localStorage; transient React state + JSON download is the actual deliverable. `_editor.tsx` is consistent.
+
+## Files
+
+```
+web/lib/contracts.ts                       NEW +96
+web/app/contracts/page.tsx                 NEW +21
+web/app/contracts/_editor.tsx              NEW +288
+web/tests/e2e/contract_editor.spec.ts      NEW +16
+```
+
+## What changed
+
+**`contracts.ts`:** TypeScript mirror of `src/polaris_graph/evidence_contract/schema.py`. `EvidenceContract`, `ExpectedEntity/Claim/SourceCoverage`, `Jurisdiction` types; `buildContract()` factory + `validateContract()` mirroring backend's 4 internal-consistency invariants (unique entity names, unique claim_ids, claim entity refs declared, claim jurisdictions ⊆ contract jurisdictions).
+
+**`page.tsx`:** Server Component shell with metadata; renders `<ContractEditor />`.
+
+**`_editor.tsx`:** Client component with form state for research_question, created_by, jurisdiction multiselect (5 checkboxes), source coverage (3 number inputs), entities list (add/remove + name + type), claims list (add/remove + claim_id + statement + comma-separated entities). Validates on submit; renders inline errors; on valid downloads JSON via blob URL + shows `data-testid="contract-saved"`.
+
+**`contract_editor.spec.ts`:** 1 Playwright test covering create + edit + save flow (per breakdown's "Playwright create/edit/save" acceptance). Asserts `contract-saved` testid + download event.
+
+## LOC exemption requested
+
+CHARTER §1 200-cap exceeded by 221. Prettier expansion drove the overrun (component logic is straightforward but Prettier formats every JSX prop on its own line with multi-line `onChange` arrow functions). Same pattern as I-f15-003 (381 LOC, exempted) — interactive form UI is artifact-inseparable. Splitting candidates considered:
+1. Move add-entity/add-claim button rows to separate sub-components → adds boilerplate, no net LOC reduction.
+2. Drop the entities/claims dynamic add → reduces feature surface but loses "edit" half of acceptance criteria.
+
+Brief author requests exemption analogous to I-f15-003 (Prettier expansion) + I-f15-006 (binding cross-validation coverage).
+
+## Risks for Codex Red-Team
+
+1. **Frontend mirror correctness.** Types match backend `polaris_graph.evidence_contract.schema` byte-for-byte (Jurisdiction enum, EntityType, all field names). Codex iter-1 P2 #1 explicitly flagged the wrong-shape import risk; resolved via `@/lib/contracts` (NEW) NOT `@/lib/api`.
+2. **No backend persistence.** Contract lives in localStorage + downloadable JSON only. Backend `/api/contracts` is I-ecg-003a follow-up.
+3. **Server vs Client split.** `page.tsx` Server (exports metadata); `_editor.tsx` Client (`"use client"`). No collision.
+4. **`globalThis.crypto?.randomUUID?.()` fallback.** SSR-safe; node test envs may lack crypto — fallback to Math.random().
+5. **Prettier-formatted; eslint clean.**
+6. **CHARTER §1 LOC cap.** 421 net. Exemption requested.
+7. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+# CANONICAL DIFF
+
+`diff
+diff --git a/web/app/contracts/_editor.tsx b/web/app/contracts/_editor.tsx
+new file mode 100644
+index 0000000..5b48168
+--- /dev/null
++++ b/web/app/contracts/_editor.tsx
+@@ -0,0 +1,343 @@
++"use client";
++
++import { useMemo, useState } from "react";
++
++import {
++  buildContract,
++  ENTITY_TYPES,
++  type EntityType,
++  type EvidenceContract,
++  type ExpectedClaim,
++  type ExpectedEntity,
++  JURISDICTIONS,
++  type Jurisdiction,
++  validateContract,
++} from "@/lib/contracts";
++
++export function ContractEditor() {
++  const [research_question, set_q] = useState("");
++  const [created_by, set_by] = useState("");
++  const [jurisdictions, set_jurs] = useState<Jurisdiction[]>(["CA"]);
++  const [t1, set_t1] = useState(0);
++  const [t2, set_t2] = useState(0);
++  const [t3, set_t3] = useState(0);
++  const [entities, set_entities] = useState<ExpectedEntity[]>([
++    { name: "", aliases: [], entity_type: "drug" },
++  ]);
++  const [claims, set_claims] = useState<ExpectedClaim[]>([
++    {
++      claim_id: "c1",
++      statement: "",
++      expected_entities: [],
++      required_jurisdictions: ["CA"],
++    },
++  ]);
++  const [errs, set_errs] = useState<string[]>([]);
++  const [saved, set_saved] = useState<EvidenceContract | null>(null);
++  const pruned_claims = useMemo(
++    () =>
++      claims.map((cl) => ({
++        ...cl,
++        required_jurisdictions: cl.required_jurisdictions.filter((j) =>
++          jurisdictions.includes(j),
++        ),
++      })),
++    [claims, jurisdictions],
++  );
++
++  function on_submit() {
++    const c = buildContract({
++      research_question,
++      created_by,
++      jurisdictions,
++      expected_entities: entities,
++      expected_claims: pruned_claims,
++      expected_source_coverage: {
++        tier_t1_min: t1,
++        tier_t2_min: t2,
++        tier_t3_min: t3,
++      },
++    });
++    const e = validateContract(c);
++    set_errs(e);
++    if (e.length === 0) {
++      set_saved(c);
++      const blob = new Blob([JSON.stringify(c, null, 2)], {
++        type: "application/json",
++      });
++      const url = URL.createObjectURL(blob);
++      const a = document.createElement("a");
++      a.href = url;
++      a.download = `contract_${c.contract_id.slice(0, 8)}.json`;
++      a.click();
++      URL.revokeObjectURL(url);
++    }
++  }
++
++  return (
++    <form
++      onSubmit={(e) => {
++        e.preventDefault();
++        on_submit();
++      }}
++      data-testid="contract-form"
++      className="space-y-4 text-sm"
++    >
++      <label className="block">
++        <span>Research question</span>
++        <input
++          data-testid="ce-question"
++          value={research_question}
++          onChange={(e) => set_q(e.target.value)}
++          className="border-input mt-1 w-full rounded border p-2"
++        />
++      </label>
++      <label className="block">
++        <span>Created by</span>
++        <input
++          data-testid="ce-by"
++          value={created_by}
++          onChange={(e) => set_by(e.target.value)}
++          className="border-input mt-1 w-full rounded border p-2"
++        />
++      </label>
++      <fieldset className="border-border rounded border p-3">
++        <legend>Jurisdictions</legend>
++        {JURISDICTIONS.map((j) => (
++          <label key={j} className="mr-3 inline-flex items-center gap-1">
++            <input
++              type="checkbox"
++              data-testid={`ce-jur-${j}`}
++              checked={jurisdictions.includes(j)}
++              onChange={(e) =>
++                set_jurs(
++                  e.target.checked
++                    ? [...jurisdictions, j]
++                    : jurisdictions.filter((x) => x !== j),
++                )
++              }
++            />
++            {j}
++          </label>
++        ))}
++      </fieldset>
++      <fieldset className="border-border rounded border p-3">
++        <legend>Source coverage (min)</legend>
++        <label className="mr-3">
++          T1{" "}
++          <input
++            data-testid="ce-t1"
++            type="number"
++            min={0}
++            value={t1}
++            onChange={(e) => set_t1(parseInt(e.target.value) || 0)}
++            className="border-input w-16 rounded border p-1"
++          />
++        </label>
++        <label className="mr-3">
++          T2{" "}
++          <input
++            data-testid="ce-t2"
++            type="number"
++            min={0}
++            value={t2}
++            onChange={(e) => set_t2(parseInt(e.target.value) || 0)}
++            className="border-input w-16 rounded border p-1"
++          />
++        </label>
++        <label className="mr-3">
++          T3{" "}
++          <input
++            data-testid="ce-t3"
++            type="number"
++            min={0}
++            value={t3}
++            onChange={(e) => set_t3(parseInt(e.target.value) || 0)}
++            className="border-input w-16 rounded border p-1"
++          />
++        </label>
++      </fieldset>
++      <fieldset className="border-border rounded border p-3">
++        <legend>Entities</legend>
++        {entities.map((ent, i) => (
++          <div key={i} className="mb-2 flex gap-2">
++            <input
++              data-testid={`ce-ent-name-${i}`}
++              placeholder="name"
++              value={ent.name}
++              onChange={(e) => {
++                const n = [...entities];
++                n[i] = { ...ent, name: e.target.value };
++                set_entities(n);
++              }}
++              className="border-input flex-1 rounded border p-1"
++            />
++            <select
++              data-testid={`ce-ent-type-${i}`}
++              value={ent.entity_type}
++              onChange={(e) => {
++                const n = [...entities];
++                n[i] = { ...ent, entity_type: e.target.value as EntityType };
++                set_entities(n);
++              }}
++              className="border-input rounded border p-1"
++            >
++              {ENTITY_TYPES.map((t) => (
++                <option key={t} value={t}>
++                  {t}
++                </option>
++              ))}
++            </select>
++            {entities.length > 1 && (
++              <button
++                type="button"
++                data-testid={`ce-rm-ent-${i}`}
++                onClick={() => set_entities(entities.filter((_, j) => j !== i))}
++                className="text-xs underline"
++              >
++                ×
++              </button>
++            )}
++          </div>
++        ))}
++        <button
++          type="button"
++          data-testid="ce-add-entity"
++          onClick={() =>
++            set_entities([
++              ...entities,
++              { name: "", aliases: [], entity_type: "drug" },
++            ])
++          }
++          className="text-xs underline"
++        >
++          + entity
++        </button>
++      </fieldset>
++      <fieldset className="border-border rounded border p-3">
++        <legend>Claims</legend>
++        {pruned_claims.map((cl, i) => (
++          <div key={i} className="mb-2 flex flex-col gap-1">
++            <input
++              data-testid={`ce-claim-id-${i}`}
++              placeholder="claim_id"
++              value={cl.claim_id}
++              onChange={(e) => {
++                const n = [...claims];
++                n[i] = { ...cl, claim_id: e.target.value };
++                set_claims(n);
++              }}
++              className="border-input rounded border p-1"
++            />
++            <input
++              data-testid={`ce-claim-stmt-${i}`}
++              placeholder="statement"
++              value={cl.statement}
++              onChange={(e) => {
++                const n = [...claims];
++                n[i] = { ...cl, statement: e.target.value };
++                set_claims(n);
++              }}
++              className="border-input rounded border p-1"
++            />
++            <input
++              data-testid={`ce-claim-ents-${i}`}
++              placeholder="entities (comma-sep)"
++              value={cl.expected_entities.join(",")}
++              onChange={(e) => {
++                const n = [...claims];
++                n[i] = {
++                  ...cl,
++                  expected_entities: e.target.value
++                    .split(",")
++                    .map((x) => x.trim())
++                    .filter(Boolean),
++                };
++                set_claims(n);
++              }}
++              className="border-input rounded border p-1"
++            />
++            <div
++              data-testid={`ce-claim-jurs-${i}`}
++              className="flex flex-wrap gap-2 text-xs"
++            >
++              {jurisdictions.map((j) => (
++                <label key={j} className="inline-flex items-center gap-1">
++                  <input
++                    type="checkbox"
++                    data-testid={`ce-claim-${i}-jur-${j}`}
++                    checked={cl.required_jurisdictions.includes(j)}
++                    onChange={(e) => {
++                      const n = [...claims];
++                      n[i] = {
++                        ...cl,
++                        required_jurisdictions: e.target.checked
++                          ? [...cl.required_jurisdictions, j]
++                          : cl.required_jurisdictions.filter((x) => x !== j),
++                      };
++                      set_claims(n);
++                    }}
++                  />
++                  {j}
++                </label>
++              ))}
++            </div>
++            {claims.length > 1 && (
++              <button
++                type="button"
++                data-testid={`ce-rm-claim-${i}`}
++                onClick={() => set_claims(claims.filter((_, j) => j !== i))}
++                className="self-start text-xs underline"
++              >
++                × remove
++              </button>
++            )}
++          </div>
++        ))}
++        <button
++          type="button"
++          data-testid="ce-add-claim"
++          onClick={() =>
++            set_claims([
++              ...claims,
++              {
++                claim_id: `c${claims.length + 1}`,
++                statement: "",
++                expected_entities: [],
++                required_jurisdictions: [...jurisdictions],
++              },
++            ])
++          }
++          className="text-xs underline"
++        >
++          + claim
++        </button>
++      </fieldset>
++      {errs.length > 0 && (
++        <ul
++          data-testid="contract-errors"
++          className="text-rose-700 dark:text-rose-300"
++        >
++          {errs.map((e, i) => (
++            <li key={i}>{e}</li>
++          ))}
++        </ul>
++      )}
++      <button
++        type="submit"
++        data-testid="contract-submit"
++        className="bg-foreground text-background rounded px-4 py-2"
++      >
++        Save + download
++      </button>
++      {saved && (
++        <p
++          data-testid="contract-saved"
++          className="text-green-700 dark:text-green-300"
++        >
++          Contract {saved.contract_id.slice(0, 8)} saved.
++        </p>
++      )}
++    </form>
++  );
++}
+diff --git a/web/app/contracts/page.tsx b/web/app/contracts/page.tsx
+new file mode 100644
+index 0000000..8b1b68e
+--- /dev/null
++++ b/web/app/contracts/page.tsx
+@@ -0,0 +1,21 @@
++import { ContractEditor } from "./_editor";
++
++export const metadata = {
++  title: "Evidence Contract editor — POLARIS Canada",
++  description:
++    "Declare expected entities, claims, jurisdictions, and source coverage before generation runs.",
++};
++
++export default function ContractsPage() {
++  return (
++    <div className="mx-auto max-w-3xl px-6 py-8">
++      <h1 className="mb-2 text-2xl font-semibold">Evidence Contract editor</h1>
++      <p className="text-muted-foreground mb-6 text-sm">
++        Define what the report MUST address before generation runs. The Evidence
++        Contract Gate (I-ecg-002) will refuse generation if the contract is
++        missing or unsatisfied (when POLARIS_REQUIRE_CONTRACT=1).
++      </p>
++      <ContractEditor />
++    </div>
++  );
++}
+diff --git a/web/lib/contracts.ts b/web/lib/contracts.ts
+new file mode 100644
+index 0000000..92603f4
+--- /dev/null
++++ b/web/lib/contracts.ts
+@@ -0,0 +1,110 @@
++// I-ecg-003 — frontend mirror of src/polaris_graph/evidence_contract/schema.py
++// (NOT web/lib/api.ts post-run EvidenceContract).
++
++export type Jurisdiction = "CA" | "US" | "EU" | "UK" | "GLOBAL";
++export const JURISDICTIONS: Jurisdiction[] = ["CA", "US", "EU", "UK", "GLOBAL"];
++export type EntityType =
++  | "drug"
++  | "condition"
++  | "intervention"
++  | "population"
++  | "outcome";
++export const ENTITY_TYPES: EntityType[] = [
++  "drug",
++  "condition",
++  "intervention",
++  "population",
++  "outcome",
++];
++
++export interface ExpectedEntity {
++  name: string;
++  aliases: string[];
++  entity_type: EntityType;
++}
++export interface ExpectedClaim {
++  claim_id: string;
++  statement: string;
++  expected_entities: string[];
++  required_jurisdictions: Jurisdiction[];
++}
++export interface ExpectedSourceCoverage {
++  tier_t1_min: number;
++  tier_t2_min: number;
++  tier_t3_min: number;
++}
++export interface EvidenceContract {
++  contract_id: string;
++  contract_version: "1.0";
++  research_question: string;
++  expected_entities: ExpectedEntity[];
++  expected_claims: ExpectedClaim[];
++  expected_source_coverage: ExpectedSourceCoverage;
++  jurisdictions: Jurisdiction[];
++  created_at_utc: string;
++  created_by: string;
++}
++
++function uuid(): string {
++  return (
++    globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
++  );
++}
++
++export function buildContract(
++  args: Omit<
++    EvidenceContract,
++    "contract_id" | "contract_version" | "created_at_utc"
++  >,
++): EvidenceContract {
++  return {
++    contract_id: uuid(),
++    contract_version: "1.0",
++    created_at_utc: new Date().toISOString(),
++    ...args,
++  };
++}
++
++export function validateContract(c: EvidenceContract): string[] {
++  const errs: string[] = [];
++  if (!c.research_question.trim()) errs.push("research_question required");
++  if (!c.created_by.trim()) errs.push("created_by required");
++  if (c.expected_entities.length === 0) errs.push("at least 1 entity required");
++  if (c.expected_claims.length === 0) errs.push("at least 1 claim required");
++  if (c.jurisdictions.length === 0)
++    errs.push("at least 1 jurisdiction required");
++  for (const e of c.expected_entities) {
++    if (!e.name.trim()) errs.push("entity name required");
++  }
++  const cov = c.expected_source_coverage;
++  for (const [k, v] of Object.entries(cov)) {
++    if (v < 0 || v > 100) errs.push(`${k} must be in [0, 100]`);
++  }
++  const names = c.expected_entities.map((e) => e.name);
++  if (new Set(names).size !== names.length)
++    errs.push("duplicate entity name(s)");
++  const ids = c.expected_claims.map((cl) => cl.claim_id);
++  if (new Set(ids).size !== ids.length) errs.push("duplicate claim_id(s)");
++  const declared = new Set(names);
++  const cjurs = new Set(c.jurisdictions);
++  for (const cl of c.expected_claims) {
++    if (!cl.claim_id.trim()) errs.push("claim_id required");
++    if (!cl.statement.trim())
++      errs.push(`claim ${cl.claim_id} statement required`);
++    if (cl.expected_entities.length === 0)
++      errs.push(`claim ${cl.claim_id} expected_entities required`);
++    if (cl.required_jurisdictions.length === 0)
++      errs.push(`claim ${cl.claim_id} required_jurisdictions required`);
++    for (const e of cl.expected_entities) {
++      if (!declared.has(e))
++        errs.push(`claim ${cl.claim_id} references undeclared entity ${e}`);
++    }
++    for (const j of cl.required_jurisdictions) {
++      if (!cjurs.has(j))
++        errs.push(
++          `claim ${cl.claim_id} jurisdiction ${j} not in contract jurisdictions`,
++        );
++    }
++  }
++  return errs;
++}
+diff --git a/web/tests/e2e/contract_editor.spec.ts b/web/tests/e2e/contract_editor.spec.ts
+new file mode 100644
+index 0000000..b3cfcdf
+--- /dev/null
++++ b/web/tests/e2e/contract_editor.spec.ts
+@@ -0,0 +1,17 @@
++import { expect, test } from "@playwright/test";
++
++test("create + edit + save evidence contract", async ({ page }) => {
++  await page.goto("/contracts");
++  await page.getByTestId("ce-question").fill("Does aspirin reduce headache?");
++  await page.getByTestId("ce-by").fill("operator-1");
++  await page.getByTestId("ce-ent-name-0").fill("aspirin");
++  await page.getByTestId("ce-claim-stmt-0").fill("aspirin reduces headache");
++  await page.getByTestId("ce-claim-ents-0").fill("aspirin");
++  const dl_promise = page.waitForEvent("download", { timeout: 10_000 });
++  await page.getByTestId("contract-submit").click();
++  await expect(page.getByTestId("contract-saved")).toBeVisible({
++    timeout: 10_000,
++  });
++  const download = await dl_promise;
++  expect(download.suggestedFilename()).toMatch(/^contract_[a-f0-9]{8}\.json$/);
++});
+
+``n
+
+codex
+I’ll review this against the actual schema and app/test conventions, then return the requested YAML with only execution-relevant findings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class .*Contract|EvidenceContract|ExpectedClaim|expected_source_coverage|tier_t1_min|Jurisdiction|EntityType" src web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"contracts|ContractEditor|contract_editor|waitForEvent\\(\\\"download\\\"|suggestedFilename\" web -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"(package.json|playwright|app/.+page.tsx|lib/.+\\.ts|tests/e2e)\"" in C:\POLARIS
+ succeeded in 1125ms:
+web\playwright.config.ts
+web\package.json
+
+2026-05-07T07:39:29.148213Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+rg: regex parse error:
+    (?:contracts|ContractEditor|contract_editor|waitForEvent\(\)
+    ^
+error: unclosed group
+
+ exited 1 in 1321ms:
+rg: regex parse error:
+    (?:contracts|ContractEditor|contract_editor|waitForEvent\(\)
+    ^
+error: unclosed group
+
+ succeeded in 1559ms:
+web\lib\contracts.ts:2:// (NOT web/lib/api.ts post-run EvidenceContract).
+web\lib\contracts.ts:4:export type Jurisdiction = "CA" | "US" | "EU" | "UK" | "GLOBAL";
+web\lib\contracts.ts:5:export const JURISDICTIONS: Jurisdiction[] = ["CA", "US", "EU", "UK", "GLOBAL"];
+web\lib\contracts.ts:6:export type EntityType =
+web\lib\contracts.ts:12:export const ENTITY_TYPES: EntityType[] = [
+web\lib\contracts.ts:23:  entity_type: EntityType;
+web\lib\contracts.ts:25:export interface ExpectedClaim {
+web\lib\contracts.ts:29:  required_jurisdictions: Jurisdiction[];
+web\lib\contracts.ts:32:  tier_t1_min: number;
+web\lib\contracts.ts:36:export interface EvidenceContract {
+web\lib\contracts.ts:41:  expected_claims: ExpectedClaim[];
+web\lib\contracts.ts:42:  expected_source_coverage: ExpectedSourceCoverage;
+web\lib\contracts.ts:43:  jurisdictions: Jurisdiction[];
+web\lib\contracts.ts:56:    EvidenceContract,
+web\lib\contracts.ts:59:): EvidenceContract {
+web\lib\contracts.ts:68:export function validateContract(c: EvidenceContract): string[] {
+web\lib\contracts.ts:79:  const cov = c.expected_source_coverage;
+web\lib\api.ts:222:export interface EvidenceContract {
+web\lib\api.ts:253:export async function getBundle(runId: string): Promise<EvidenceContract> {
+web\lib\api.ts:255:  return asJsonOrThrow<EvidenceContract>(response);
+web\lib\api.ts:285:export function downloadBundleAsJson(bundle: EvidenceContract): void {
+src\polaris_v6\schemas\evidence_contract.py:83:class EvidenceContract(BaseModel):
+web\app\contracts\_editor.tsx:8:  type EntityType,
+web\app\contracts\_editor.tsx:9:  type EvidenceContract,
+web\app\contracts\_editor.tsx:10:  type ExpectedClaim,
+web\app\contracts\_editor.tsx:13:  type Jurisdiction,
+web\app\contracts\_editor.tsx:20:  const [jurisdictions, set_jurs] = useState<Jurisdiction[]>(["CA"]);
+web\app\contracts\_editor.tsx:27:  const [claims, set_claims] = useState<ExpectedClaim[]>([
+web\app\contracts\_editor.tsx:36:  const [saved, set_saved] = useState<EvidenceContract | null>(null);
+web\app\contracts\_editor.tsx:55:      expected_source_coverage: {
+web\app\contracts\_editor.tsx:56:        tier_t1_min: t1,
+web\app\contracts\_editor.tsx:105:        <legend>Jurisdictions</legend>
+web\app\contracts\_editor.tsx:180:                n[i] = { ...ent, entity_type: e.target.value as EntityType };
+src\polaris_v6\charts\from_bundle.py:1:"""Build chart specs from an EvidenceContract bundle.
+src\polaris_v6\charts\from_bundle.py:24:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\charts\from_bundle.py:29:def chart_from_bundle(*, bundle: EvidenceContract, chart_type: ChartType) -> dict:
+web\app\inspector\[runId]\page.tsx:21:  type EvidenceContract,
+web\app\inspector\[runId]\page.tsx:32:  const [bundle, setBundle] = useState<EvidenceContract | null>(null);
+web\app\inspector\[runId]\page.tsx:270:  bundle: EvidenceContract;
+web\app\inspector\[runId]\page.tsx:358:function FramesTab({ bundle }: { bundle: EvidenceContract }) {
+web\app\inspector\[runId]\page.tsx:396:  bundle: EvidenceContract;
+web\app\inspector\[runId]\page.tsx:465:  bundle: EvidenceContract;
+web\app\inspector\[runId]\page.tsx:725:  bundle: EvidenceContract;
+src\polaris_graph\api\generation_route.py:24:    EvidenceContract,
+src\polaris_graph\api\generation_route.py:96:    contract: EvidenceContract | None = Field(
+src\polaris_v6\followup\__init__.py:3:Once a research run produces an EvidenceContract, the user can ask
+src\polaris_v6\followup\agent.py:5:ships this stub to lock the contract: takes a parent EvidenceContract
+src\polaris_v6\followup\agent.py:15:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\followup\agent.py:26:    parent: EvidenceContract,
+web\tests\e2e\inspector.spec.ts:7: * No mocks — the backend serves real EvidenceContract JSON from
+src\polaris_v6\compare\differ.py:1:"""Compare two EvidenceContract bundles side-by-side."""
+src\polaris_v6\compare\differ.py:7:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\compare\differ.py:29:def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+src\polaris_v6\api\followup.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\followup.py:31:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\api\compare.py:12:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\compare.py:17:def _load(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\compare.py:24:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\api\charts.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\charts.py:29:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\api\bundle.py:8:Phase 0 ships the endpoint contract that returns an EvidenceContract
+src\polaris_v6\api\bundle.py:22:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\bundle.py:39:@router.get("/{run_id}/bundle", response_model=EvidenceContract)
+src\polaris_v6\api\bundle.py:40:def get_bundle(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\bundle.py:48:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\adapters\evidence_pool_merger.py:11:EvidenceContract output) can reference.
+src\polaris_graph\evidence_contract\__init__.py:16:    EvidenceContract,
+src\polaris_graph\evidence_contract\__init__.py:17:    EvidenceContractError,
+src\polaris_graph\evidence_contract\__init__.py:18:    ExpectedClaim,
+src\polaris_graph\evidence_contract\__init__.py:21:    Jurisdiction,
+src\polaris_graph\evidence_contract\__init__.py:26:    "EvidenceContract",
+src\polaris_graph\evidence_contract\__init__.py:27:    "EvidenceContractError",
+src\polaris_graph\evidence_contract\__init__.py:28:    "ExpectedClaim",
+src\polaris_graph\evidence_contract\__init__.py:33:    "Jurisdiction",
+src\polaris_graph\evidence_contract\schema.py:7:DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+src\polaris_graph\evidence_contract\schema.py:11:Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+src\polaris_graph\evidence_contract\schema.py:26:class Jurisdiction(str, Enum):
+src\polaris_graph\evidence_contract\schema.py:34:EntityType = Literal["drug", "condition", "intervention", "population", "outcome"]
+src\polaris_graph\evidence_contract\schema.py:42:    entity_type: EntityType
+src\polaris_graph\evidence_contract\schema.py:45:class ExpectedClaim(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:51:    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+src\polaris_graph\evidence_contract\schema.py:57:    tier_t1_min: int = Field(ge=0, le=100)
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:69:    expected_claims: list[ExpectedClaim] = Field(min_length=1, max_length=50)
+src\polaris_graph\evidence_contract\schema.py:70:    expected_source_coverage: ExpectedSourceCoverage
+src\polaris_graph\evidence_contract\schema.py:71:    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+src\polaris_graph\evidence_contract\schema.py:76:    def _internal_consistency(self) -> "EvidenceContract":
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\generator\multi_section_generator.py:642:11. **Jurisdictional precision (M-29, for multi-authority synthesis)**: When citing regulatory, standards-setting, or governance sources from more than one jurisdiction (different countries, agencies, courts, or rulemaking bodies), attribute every specific assertion to the ONE jurisdiction whose source supports it. Do NOT use generic plural language like "both agencies", "all regulators", "authorities generally", "regulators require", "jurisdictions mandate", or similar when the evidence you cite comes from a single jurisdiction. A boxed warning in one jurisdiction is not the same legal instrument as a precaution in another jurisdiction; a formal contraindication in one framework is not automatically equivalent to a warning in another. If the evidence supports only one jurisdiction's position, write: "Jurisdiction A's framework classifies X as a contraindication [ev_A]. Jurisdiction B's framework addresses X through warnings and precautions [ev_B]." Only collapse to "both" / "all" / "generally" when you have a citation from each referenced jurisdiction in the SAME sentence proving the shared position.
+src\polaris_graph\generator\multi_section_generator.py:643:11b. **Jurisdictional coverage (M-37, for multi-authority completeness)**: When this section's evidence subset contains sources from MULTIPLE regulatory jurisdictions (examples of distinct jurisdictions: US FDA, European EMA, UK NICE/MHRA, Health Canada, Australian TGA, Japanese PMDA, Chinese NMPA, WHO), you MUST cite at least ONE source from EACH jurisdiction whose content appears in your evidence subset. Do not cite US and EU sources while silently skipping a Canadian Product Monograph, a Japanese PMDA decision, or an Australian TGA action that is present in your evidence. Jurisdiction-specific facts that appear in only one jurisdiction's source (e.g., KwikPen pen-device warnings, counterfeit-product communications, or jurisdiction-only approval indications) are the MOST valuable sentences in a regulatory section — name them explicitly with the jurisdiction attributed. This rule fires only when a jurisdiction's evidence is actually present in your subset; it does not require you to invent coverage.
+src\polaris_graph\evidence_contract\gate.py:14:from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+src\polaris_graph\evidence_contract\gate.py:19:JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
+src\polaris_graph\evidence_contract\gate.py:20:    Jurisdiction.CA: frozenset({"canada.ca", "gc.ca", "cochrane.org", "hc-sc.gc.ca"}),
+src\polaris_graph\evidence_contract\gate.py:21:    Jurisdiction.US: frozenset({"fda.gov", "nih.gov", "cdc.gov", "nlm.nih.gov"}),
+src\polaris_graph\evidence_contract\gate.py:22:    Jurisdiction.EU: frozenset({"ema.europa.eu", "efsa.europa.eu", "europa.eu"}),
+src\polaris_graph\evidence_contract\gate.py:23:    Jurisdiction.UK: frozenset({"nice.org.uk", "gov.uk", "mhra.gov.uk"}),
+src\polaris_graph\evidence_contract\gate.py:24:    Jurisdiction.GLOBAL: frozenset({"who.int", "cochrane.org"}),
+src\polaris_graph\evidence_contract\gate.py:28:class ContractRequiredError(Exception):
+src\polaris_graph\evidence_contract\gate.py:29:    """Raised when generation is invoked without an EvidenceContract."""
+src\polaris_graph\evidence_contract\gate.py:40:    contract: EvidenceContract | None, *, report_id: str | None = None
+src\polaris_graph\evidence_contract\gate.py:98:def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> bool:
+src\polaris_graph\evidence_contract\gate.py:107:    contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
+src\polaris_graph\evidence_contract\gate.py:130:    cov = contract.expected_source_coverage
+src\polaris_graph\evidence_contract\gate.py:134:    if counts[SourceTier.T1] < cov.tier_t1_min:
+src\polaris_graph\evidence_contract\gate.py:135:        failures.append(f"insufficient_t1_sources:{counts[SourceTier.T1]}<{cov.tier_t1_min}")
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:32:1. INPUT: a list of `JurisdictionFinding` records (one per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:59:is templated from the JurisdictionFinding records. This is
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:106:class JurisdictionFinding:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:160:class CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:167:def synthesis_to_dict(s: CrossJurisdictionSynthesis) -> dict[str, Any]:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:476:    finding: JurisdictionFinding,
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:502:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:540:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:542:    """Jurisdictions surface materially different prose. Emit a
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:571:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:645:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:647:) -> CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:651:    Returns a CrossJurisdictionSynthesis with one paragraph per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:671:    groups: dict[str, list[JurisdictionFinding]] = {}
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:689:    return CrossJurisdictionSynthesis(
+src\polaris_graph\generator\contract_section_runner.py:70:class ContractSectionPlanExt:
+src\polaris_graph\audit_ir\beat_both_scoring.py:439:class _JurisdictionalPrecisionScorer:
+src\polaris_graph\audit_ir\beat_both_scoring.py:638:    _JurisdictionalPrecisionScorer(),
+src\polaris_graph\auto_induction\contract_compare.py:40:class ContractComparison:
+src\polaris_graph\nodes\contract_outline.py:72:class ContractSlotPlan:
+src\polaris_graph\nodes\contract_outline.py:96:class ContractSectionPlan:
+src\polaris_graph\nodes\contract_outline.py:110:class ContractOutline:
+src\polaris_graph\retrieval\evidence_selector.py:86:# Jurisdiction detection is by URL host suffix. A row maps to exactly
+src\polaris_graph\audit_ir\contract_draft_store.py:143:class ContractDraftStatus(Enum):
+src\polaris_graph\audit_ir\contract_draft_store.py:160:class ContractKind(Enum):
+src\polaris_graph\audit_ir\contract_draft_store.py:180:class ContractDraftError(Exception):
+src\polaris_graph\audit_ir\contract_draft_store.py:184:class ContractDraftStateError(ContractDraftError):
+src\polaris_graph\audit_ir\contract_draft_store.py:188:class ContractApprovalGateError(ContractDraftError):
+src\polaris_graph\audit_ir\contract_draft_store.py:200:class ContractClause:
+src\polaris_graph\audit_ir\contract_draft_store.py:224:class ContractDraft:
+src\polaris_graph\audit_ir\contract_draft_store.py:764:class ContractDraftStore:
+src\polaris_graph\nodes\report_contract.py:74:class ContractSchemaError(ValueError):
+src\polaris_graph\nodes\report_contract.py:128:class ReportContract:
+src\polaris_graph\audit_ir\inspector_router.py:978:class _ContractDraftCreateRequest(BaseModel):
+
+codex
+The repo has the new frontend files in place, and the backend contract schema is under `src/polaris_graph/evidence_contract/schema.py`. I’m checking that exact model now because most real blockers here would come from frontend/backend contract drift.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\evidence_contract\\schema.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\contracts.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\contracts\\_editor.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 1443ms:
+// I-ecg-003 — frontend mirror of src/polaris_graph/evidence_contract/schema.py
+// (NOT web/lib/api.ts post-run EvidenceContract).
+
+export type Jurisdiction = "CA" | "US" | "EU" | "UK" | "GLOBAL";
+export const JURISDICTIONS: Jurisdiction[] = ["CA", "US", "EU", "UK", "GLOBAL"];
+export type EntityType =
+  | "drug"
+  | "condition"
+  | "intervention"
+  | "population"
+  | "outcome";
+export const ENTITY_TYPES: EntityType[] = [
+  "drug",
+  "condition",
+  "intervention",
+  "population",
+  "outcome",
+];
+
+export interface ExpectedEntity {
+  name: string;
+  aliases: string[];
+  entity_type: EntityType;
+}
+export interface ExpectedClaim {
+  claim_id: string;
+  statement: string;
+  expected_entities: string[];
+  required_jurisdictions: Jurisdiction[];
+}
+export interface ExpectedSourceCoverage {
+  tier_t1_min: number;
+  tier_t2_min: number;
+  tier_t3_min: number;
+}
+export interface EvidenceContract {
+  contract_id: string;
+  contract_version: "1.0";
+  research_question: string;
+  expected_entities: ExpectedEntity[];
+  expected_claims: ExpectedClaim[];
+  expected_source_coverage: ExpectedSourceCoverage;
+  jurisdictions: Jurisdiction[];
+  created_at_utc: string;
+  created_by: string;
+}
+
+function uuid(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
+  );
+}
+
+export function buildContract(
+  args: Omit<
+    EvidenceContract,
+    "contract_id" | "contract_version" | "created_at_utc"
+  >,
+): EvidenceContract {
+  return {
+    contract_id: uuid(),
+    contract_version: "1.0",
+    created_at_utc: new Date().toISOString(),
+    ...args,
+  };
+}
+
+export function validateContract(c: EvidenceContract): string[] {
+  const errs: string[] = [];
+  if (!c.research_question.trim()) errs.push("research_question required");
+  if (!c.created_by.trim()) errs.push("created_by required");
+  if (c.expected_entities.length === 0) errs.push("at least 1 entity required");
+  if (c.expected_claims.length === 0) errs.push("at least 1 claim required");
+  if (c.jurisdictions.length === 0)
+    errs.push("at least 1 jurisdiction required");
+  for (const e of c.expected_entities) {
+    if (!e.name.trim()) errs.push("entity name required");
+  }
+  const cov = c.expected_source_coverage;
+  for (const [k, v] of Object.entries(cov)) {
+    if (v < 0 || v > 100) errs.push(`${k} must be in [0, 100]`);
+  }
+  const names = c.expected_entities.map((e) => e.name);
+  if (new Set(names).size !== names.length)
+    errs.push("duplicate entity name(s)");
+  const ids = c.expected_claims.map((cl) => cl.claim_id);
+  if (new Set(ids).size !== ids.length) errs.push("duplicate claim_id(s)");
+  const declared = new Set(names);
+  const cjurs = new Set(c.jurisdictions);
+  for (const cl of c.expected_claims) {
+    if (!cl.claim_id.trim()) errs.push("claim_id required");
+    if (!cl.statement.trim())
+      errs.push(`claim ${cl.claim_id} statement required`);
+    if (cl.expected_entities.length === 0)
+      errs.push(`claim ${cl.claim_id} expected_entities required`);
+    if (cl.required_jurisdictions.length === 0)
+      errs.push(`claim ${cl.claim_id} required_jurisdictions required`);
+    for (const e of cl.expected_entities) {
+      if (!declared.has(e))
+        errs.push(`claim ${cl.claim_id} references undeclared entity ${e}`);
+    }
+    for (const j of cl.required_jurisdictions) {
+      if (!cjurs.has(j))
+        errs.push(
+          `claim ${cl.claim_id} jurisdiction ${j} not in contract jurisdictions`,
+        );
+    }
+  }
+  return errs;
+}
+
+ succeeded in 1622ms:
+"""Pre-generation evidence-expectation contract (I-ecg-001).
+
+Operator declares, BEFORE a research run starts, what entities + claims
++ jurisdictions + source-coverage the eventual report MUST address.
+I-ecg-002 enforces (gates generation against this contract).
+
+DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+which is the post-run artifact (run output). Different concepts; same
+class name acceptable since import paths disambiguate.
+
+Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+from regulatory-agency codes (FDA / EMA / NICE / HC / MHRA / TGA) to
+these jurisdictions is owned by I-ecg-002 (gate enforcement layer).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class Jurisdiction(str, Enum):
+    CA = "CA"
+    US = "US"
+    EU = "EU"
+    UK = "UK"
+    GLOBAL = "GLOBAL"
+
+
+EntityType = Literal["drug", "condition", "intervention", "population", "outcome"]
+
+
+class ExpectedEntity(BaseModel):
+    """A named entity (drug, condition, intervention, etc.) the report MUST address."""
+
+    name: str = Field(min_length=1, max_length=200)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    entity_type: EntityType
+
+
+class ExpectedClaim(BaseModel):
+    """A claim the report MUST make a verdict on."""
+
+    claim_id: str = Field(min_length=1, max_length=100)
+    statement: str = Field(min_length=1, max_length=1000)
+    expected_entities: list[str] = Field(min_length=1, max_length=20)
+    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+
+
+class ExpectedSourceCoverage(BaseModel):
+    """Minimum source counts per evidence-tier the report MUST cite."""
+
+    tier_t1_min: int = Field(ge=0, le=100)
+    tier_t2_min: int = Field(ge=0, le=100)
+    tier_t3_min: int = Field(ge=0, le=100)
+
+
+class EvidenceContract(BaseModel):
+    """Top-level expectation contract bound to one research question."""
+
+    contract_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    contract_version: Literal["1.0"] = "1.0"
+    research_question: str = Field(min_length=1, max_length=2000)
+    expected_entities: list[ExpectedEntity] = Field(min_length=1, max_length=50)
+    expected_claims: list[ExpectedClaim] = Field(min_length=1, max_length=50)
+    expected_source_coverage: ExpectedSourceCoverage
+    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _internal_consistency(self) -> "EvidenceContract":
+        names = [e.name for e in self.expected_entities]
+        if len(set(names)) != len(names):
+            dups = sorted({n for n in names if names.count(n) > 1})
+            raise ValueError(f"duplicate entity name(s): {dups}")
+        ids = [c.claim_id for c in self.expected_claims]
+        if len(set(ids)) != len(ids):
+            dups = sorted({i for i in ids if ids.count(i) > 1})
+            raise ValueError(f"duplicate claim_id(s): {dups}")
+        declared = set(names)
+        contract_jurs = set(self.jurisdictions)
+        for claim in self.expected_claims:
+            for ref in claim.expected_entities:
+                if ref not in declared:
+                    raise ValueError(
+                        f"claim {claim.claim_id!r} references undeclared entity {ref!r}"
+                    )
+            extra = set(claim.required_jurisdictions) - contract_jurs
+            if extra:
+                raise ValueError(
+                    f"claim {claim.claim_id!r} required_jurisdictions {sorted(j.value for j in extra)} "
+                    f"not in contract jurisdictions"
+                )
+        return self
+
+
+class EvidenceContractError(BaseModel):
+    """Returned when a contract fails validation (parallel to other slice errors)."""
+
+    error: bool = True
+    code: str
+    message: str
+    contract_id: str | None = None
+
+ succeeded in 1830ms:
+"use client";
+
+import { useMemo, useState } from "react";
+
+import {
+  buildContract,
+  ENTITY_TYPES,
+  type EntityType,
+  type EvidenceContract,
+  type ExpectedClaim,
+  type ExpectedEntity,
+  JURISDICTIONS,
+  type Jurisdiction,
+  validateContract,
+} from "@/lib/contracts";
+
+export function ContractEditor() {
+  const [research_question, set_q] = useState("");
+  const [created_by, set_by] = useState("");
+  const [jurisdictions, set_jurs] = useState<Jurisdiction[]>(["CA"]);
+  const [t1, set_t1] = useState(0);
+  const [t2, set_t2] = useState(0);
+  const [t3, set_t3] = useState(0);
+  const [entities, set_entities] = useState<ExpectedEntity[]>([
+    { name: "", aliases: [], entity_type: "drug" },
+  ]);
+  const [claims, set_claims] = useState<ExpectedClaim[]>([
+    {
+      claim_id: "c1",
+      statement: "",
+      expected_entities: [],
+      required_jurisdictions: ["CA"],
+    },
+  ]);
+  const [errs, set_errs] = useState<string[]>([]);
+  const [saved, set_saved] = useState<EvidenceContract | null>(null);
+  const pruned_claims = useMemo(
+    () =>
+      claims.map((cl) => ({
+        ...cl,
+        required_jurisdictions: cl.required_jurisdictions.filter((j) =>
+          jurisdictions.includes(j),
+        ),
+      })),
+    [claims, jurisdictions],
+  );
+
+  function on_submit() {
+    const c = buildContract({
+      research_question,
+      created_by,
+      jurisdictions,
+      expected_entities: entities,
+      expected_claims: pruned_claims,
+      expected_source_coverage: {
+        tier_t1_min: t1,
+        tier_t2_min: t2,
+        tier_t3_min: t3,
+      },
+    });
+    const e = validateContract(c);
+    set_errs(e);
+    if (e.length === 0) {
+      set_saved(c);
+      const blob = new Blob([JSON.stringify(c, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `contract_${c.contract_id.slice(0, 8)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        on_submit();
+      }}
+      data-testid="contract-form"
+      className="space-y-4 text-sm"
+    >
+      <label className="block">
+        <span>Research question</span>
+        <input
+          data-testid="ce-question"
+          value={research_question}
+          onChange={(e) => set_q(e.target.value)}
+          className="border-input mt-1 w-full rounded border p-2"
+        />
+      </label>
+      <label className="block">
+        <span>Created by</span>
+        <input
+          data-testid="ce-by"
+          value={created_by}
+          onChange={(e) => set_by(e.target.value)}
+          className="border-input mt-1 w-full rounded border p-2"
+        />
+      </label>
+      <fieldset className="border-border rounded border p-3">
+        <legend>Jurisdictions</legend>
+        {JURISDICTIONS.map((j) => (
+          <label key={j} className="mr-3 inline-flex items-center gap-1">
+            <input
+              type="checkbox"
+              data-testid={`ce-jur-${j}`}
+              checked={jurisdictions.includes(j)}
+              onChange={(e) =>
+                set_jurs(
+                  e.target.checked
+                    ? [...jurisdictions, j]
+                    : jurisdictions.filter((x) => x !== j),
+                )
+              }
+            />
+            {j}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="border-border rounded border p-3">
+        <legend>Source coverage (min)</legend>
+        <label className="mr-3">
+          T1{" "}
+          <input
+            data-testid="ce-t1"
+            type="number"
+            min={0}
+            value={t1}
+            onChange={(e) => set_t1(parseInt(e.target.value) || 0)}
+            className="border-input w-16 rounded border p-1"
+          />
+        </label>
+        <label className="mr-3">
+          T2{" "}
+          <input
+            data-testid="ce-t2"
+            type="number"
+            min={0}
+            value={t2}
+            onChange={(e) => set_t2(parseInt(e.target.value) || 0)}
+            className="border-input w-16 rounded border p-1"
+          />
+        </label>
+        <label className="mr-3">
+          T3{" "}
+          <input
+            data-testid="ce-t3"
+            type="number"
+            min={0}
+            value={t3}
+            onChange={(e) => set_t3(parseInt(e.target.value) || 0)}
+            className="border-input w-16 rounded border p-1"
+          />
+        </label>
+      </fieldset>
+      <fieldset className="border-border rounded border p-3">
+        <legend>Entities</legend>
+        {entities.map((ent, i) => (
+          <div key={i} className="mb-2 flex gap-2">
+            <input
+              data-testid={`ce-ent-name-${i}`}
+              placeholder="name"
+              value={ent.name}
+              onChange={(e) => {
+                const n = [...entities];
+                n[i] = { ...ent, name: e.target.value };
+                set_entities(n);
+              }}
+              className="border-input flex-1 rounded border p-1"
+            />
+            <select
+              data-testid={`ce-ent-type-${i}`}
+              value={ent.entity_type}
+              onChange={(e) => {
+                const n = [...entities];
+                n[i] = { ...ent, entity_type: e.target.value as EntityType };
+                set_entities(n);
+              }}
+              className="border-input rounded border p-1"
+            >
+              {ENTITY_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            {entities.length > 1 && (
+              <button
+                type="button"
+                data-testid={`ce-rm-ent-${i}`}
+                onClick={() => set_entities(entities.filter((_, j) => j !== i))}
+                className="text-xs underline"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          data-testid="ce-add-entity"
+          onClick={() =>
+            set_entities([
+              ...entities,
+              { name: "", aliases: [], entity_type: "drug" },
+            ])
+          }
+          className="text-xs underline"
+        >
+          + entity
+        </button>
+      </fieldset>
+      <fieldset className="border-border rounded border p-3">
+        <legend>Claims</legend>
+        {pruned_claims.map((cl, i) => (
+          <div key={i} className="mb-2 flex flex-col gap-1">
+            <input
+              data-testid={`ce-claim-id-${i}`}
+              placeholder="claim_id"
+              value={cl.claim_id}
+              onChange={(e) => {
+                const n = [...claims];
+                n[i] = { ...cl, claim_id: e.target.value };
+                set_claims(n);
+              }}
+              className="border-input rounded border p-1"
+            />
+            <input
+              data-testid={`ce-claim-stmt-${i}`}
+              placeholder="statement"
+              value={cl.statement}
+              onChange={(e) => {
+                const n = [...claims];
+                n[i] = { ...cl, statement: e.target.value };
+                set_claims(n);
+              }}
+              className="border-input rounded border p-1"
+            />
+            <input
+              data-testid={`ce-claim-ents-${i}`}
+              placeholder="entities (comma-sep)"
+              value={cl.expected_entities.join(",")}
+              onChange={(e) => {
+                const n = [...claims];
+                n[i] = {
+                  ...cl,
+                  expected_entities: e.target.value
+                    .split(",")
+                    .map((x) => x.trim())
+                    .filter(Boolean),
+                };
+                set_claims(n);
+              }}
+              className="border-input rounded border p-1"
+            />
+            <div
+              data-testid={`ce-claim-jurs-${i}`}
+              className="flex flex-wrap gap-2 text-xs"
+            >
+              {jurisdictions.map((j) => (
+                <label key={j} className="inline-flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    data-testid={`ce-claim-${i}-jur-${j}`}
+                    checked={cl.required_jurisdictions.includes(j)}
+                    onChange={(e) => {
+                      const n = [...claims];
+                      n[i] = {
+                        ...cl,
+                        required_jurisdictions: e.target.checked
+                          ? [...cl.required_jurisdictions, j]
+                          : cl.required_jurisdictions.filter((x) => x !== j),
+                      };
+                      set_claims(n);
+                    }}
+                  />
+                  {j}
+                </label>
+              ))}
+            </div>
+            {claims.length > 1 && (
+              <button
+                type="button"
+                data-testid={`ce-rm-claim-${i}`}
+                onClick={() => set_claims(claims.filter((_, j) => j !== i))}
+                className="self-start text-xs underline"
+              >
+                × remove
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          data-testid="ce-add-claim"
+          onClick={() =>
+            set_claims([
+              ...claims,
+              {
+                claim_id: `c${claims.length + 1}`,
+                statement: "",
+                expected_entities: [],
+                required_jurisdictions: [...jurisdictions],
+              },
+            ])
+          }
+          className="text-xs underline"
+        >
+          + claim
+        </button>
+      </fieldset>
+      {errs.length > 0 && (
+        <ul
+          data-testid="contract-errors"
+          className="text-rose-700 dark:text-rose-300"
+        >
+          {errs.map((e, i) => (
+            <li key={i}>{e}</li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="submit"
+        data-testid="contract-submit"
+        className="bg-foreground text-background rounded px-4 py-2"
+      >
+        Save + download
+      </button>
+      {saved && (
+        <p
+          data-testid="contract-saved"
+          className="text-green-700 dark:text-green-300"
+        >
+          Contract {saved.contract_id.slice(0, 8)} saved.
+        </p>
+      )}
+    </form>
+  );
+}
+
+ succeeded in 1804ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 2013ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+codex
+The current diff resolves the two prior P1s on the behavioral path: new claims inherit current contract jurisdictions, and empty claim IDs now produce validation errors. I’m doing one more pass for build/runtime traps around Next, Playwright, and serializer behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"export const metadata|use client|@/lib|app/.*/page|data-testid|localStorage|createObjectURL|revokeObjectURL\" web\\app web\\lib web\\tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"contract_|download|contract-saved|ce-claim|ce-jur|ce-add-claim|claim_id required|duplicate claim\" web\\app\\contracts web\\lib\\contracts.ts web\\tests\\e2e\\contract_editor.spec.ts -S" in C:\POLARIS
+ succeeded in 1210ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1398ms:
+web\lib\api.ts:289:  const url = URL.createObjectURL(blob);
+web\lib\api.ts:296:  URL.revokeObjectURL(url);
+web\app\components\command_palette.tsx:1:"use client";
+web\app\components\command_palette.tsx:7:import { cn } from "@/lib/utils";
+web\app\components\command_palette.tsx:99:          data-testid="command-palette"
+web\app\components\command_palette.tsx:105:            data-testid="command-palette-input"
+web\app\components\command_palette.tsx:118:                data-testid={`palette-item-${t.id}`}
+web\app\contracts\page.tsx:3:export const metadata = {
+web\app\components\home_keyboard_shell.tsx:1:"use client";
+web\app\components\home_keyboard_shell.tsx:45:          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+web\app\contracts\_editor.tsx:1:"use client";
+web\app\contracts\_editor.tsx:15:} from "@/lib/contracts";
+web\app\contracts\_editor.tsx:68:      const url = URL.createObjectURL(blob);
+web\app\contracts\_editor.tsx:73:      URL.revokeObjectURL(url);
+web\app\contracts\_editor.tsx:83:      data-testid="contract-form"
+web\app\contracts\_editor.tsx:89:          data-testid="ce-question"
+web\app\contracts\_editor.tsx:98:          data-testid="ce-by"
+web\app\contracts\_editor.tsx:110:              data-testid={`ce-jur-${j}`}
+web\app\contracts\_editor.tsx:129:            data-testid="ce-t1"
+web\app\contracts\_editor.tsx:140:            data-testid="ce-t2"
+web\app\contracts\_editor.tsx:151:            data-testid="ce-t3"
+web\app\contracts\_editor.tsx:165:              data-testid={`ce-ent-name-${i}`}
+web\app\contracts\_editor.tsx:176:              data-testid={`ce-ent-type-${i}`}
+web\app\contracts\_editor.tsx:194:                data-testid={`ce-rm-ent-${i}`}
+web\app\contracts\_editor.tsx:205:          data-testid="ce-add-entity"
+web\app\contracts\_editor.tsx:222:              data-testid={`ce-claim-id-${i}`}
+web\app\contracts\_editor.tsx:233:              data-testid={`ce-claim-stmt-${i}`}
+web\app\contracts\_editor.tsx:244:              data-testid={`ce-claim-ents-${i}`}
+web\app\contracts\_editor.tsx:261:              data-testid={`ce-claim-jurs-${i}`}
+web\app\contracts\_editor.tsx:268:                    data-testid={`ce-claim-${i}-jur-${j}`}
+web\app\contracts\_editor.tsx:288:                data-testid={`ce-rm-claim-${i}`}
+web\app\contracts\_editor.tsx:299:          data-testid="ce-add-claim"
+web\app\contracts\_editor.tsx:318:          data-testid="contract-errors"
+web\app\contracts\_editor.tsx:328:        data-testid="contract-submit"
+web\app\contracts\_editor.tsx:335:          data-testid="contract-saved"
+web\app\dashboard\page.tsx:1:"use client";
+web\app\dashboard\page.tsx:27:} from "@/lib/api";
+web\app\generation\page.tsx:7:export const metadata = {
+web\app\generation\page.tsx:53:        data-testid="generation-page"
+web\app\generation\components\BundlePreview.tsx:1:"use client";
+web\app\generation\components\BundlePreview.tsx:12:} from "@/lib/api";
+web\app\generation\components\BundlePreview.tsx:67:        data-testid="bundle-preview-loading"
+web\app\generation\components\BundlePreview.tsx:76:        data-testid="bundle-preview-error"
+web\app\generation\components\BundlePreview.tsx:81:        <span data-testid="bundle-preview-error-code">{s.code}</span>
+web\app\generation\components\BundlePreview.tsx:87:      data-testid="bundle-preview"
+web\app\generation\components\BundlePreview.tsx:91:        <span data-testid="bundle-preview-id">
+web\app\generation\components\BundlePreview.tsx:96:        <span data-testid="bundle-preview-file-count">
+web\app\generation\components\BundlePreview.tsx:99:        <span data-testid="bundle-preview-total-bytes">
+web\app\generation\components\BundlePreview.tsx:110:                data-testid={`bundle-preview-row-${ct}`}
+web\app\intake\page.tsx:8:export const metadata = {
+web\app\intake\page.tsx:38:        data-testid="intake-page"
+web\app\generation\components\verified_report_view.tsx:1:"use client";
+web\app\generation\components\verified_report_view.tsx:4:import { cn } from "@/lib/utils";
+web\app\generation\components\verified_report_view.tsx:11:} from "@/lib/api";
+web\app\generation\components\verified_report_view.tsx:38:      data-testid="verdict-badge"
+web\app\generation\components\verified_report_view.tsx:64:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web\app\generation\components\verified_report_view.tsx:101:      data-testid={`section-${section.section_id}`}
+web\app\generation\components\verified_report_view.tsx:152:    <div data-testid="verified-report-view" className="flex flex-col gap-4">
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx:3:export const metadata = {
+web\app\generation\components\generation_runner.tsx:1:"use client";
+web\app\generation\components\generation_runner.tsx:19:} from "@/lib/api";
+web\app\generation\components\generation_runner.tsx:128:            data-testid="generation-form"
+web\app\generation\components\generation_runner.tsx:138:              data-testid="generation-question-input"
+web\app\generation\components\generation_runner.tsx:156:              data-testid="generation-submit"
+web\app\generation\components\generation_runner.tsx:169:          data-testid="scope-unsuitable"
+web\app\generation\components\generation_runner.tsx:180:          data-testid="generation-error"
+web\app\generation\components\generation_runner.tsx:210:              data-testid="toggle-dropped"
+web\app\generation\components\generation_runner.tsx:247:      const url = URL.createObjectURL(blob);
+web\app\generation\components\generation_runner.tsx:254:      URL.revokeObjectURL(url);
+web\app\generation\components\generation_runner.tsx:269:        data-testid="audit-bundle-error"
+web\app\generation\components\generation_runner.tsx:283:      data-testid="download-audit-bundle"
+web\app\inspector\[runId]\page.tsx:1:"use client";
+web\app\inspector\[runId]\page.tsx:24:} from "@/lib/api";
+web\app\benchmark\page.tsx:7:export const metadata = {
+web\app\benchmark\page.tsx:46:        data-testid="benchmark-page"
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:1:"use client";
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:6:import type { DisambiguationCluster } from "@/lib/api";
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:29:      <output data-testid="last-picked">
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:34:        data-testid="reopen"
+web\app\intake\components\disambiguation_modal.tsx:1:"use client";
+web\app\intake\components\disambiguation_modal.tsx:7:import type { DisambiguationCluster } from "@/lib/api";
+web\app\intake\components\disambiguation_modal.tsx:67:                    data-testid={`disambiguation-cluster-${c.cluster_id}`}
+web\app\intake\components\ambiguity_modal.tsx:1:"use client";
+web\app\intake\components\ambiguity_modal.tsx:6:import { cn } from "@/lib/utils";
+web\app\intake\components\ambiguity_modal.tsx:7:import type { IntakeScopeDecision } from "@/lib/api";
+web\app\benchmark\components\benchmark_board.tsx:1:"use client";
+web\app\benchmark\components\benchmark_board.tsx:6:import { cn } from "@/lib/utils";
+web\app\benchmark\components\benchmark_board.tsx:14:} from "@/lib/api";
+web\app\benchmark\components\benchmark_board.tsx:93:      <Card data-testid="benchmark-loading">
+web\app\benchmark\components\benchmark_board.tsx:102:        data-testid="benchmark-no-results-dir"
+web\app\benchmark\components\benchmark_board.tsx:121:        data-testid="benchmark-empty"
+web\app\benchmark\components\benchmark_board.tsx:141:        data-testid="benchmark-error"
+web\app\benchmark\components\benchmark_board.tsx:153:      <Card data-testid="benchmark-list">
+web\app\benchmark\components\benchmark_board.tsx:163:              data-testid={`benchmark-link-${bench_id}`}
+web\app\benchmark\components\benchmark_board.tsx:176:      <Card data-testid="benchmark-loading-scoreboard">
+web\app\benchmark\components\benchmark_board.tsx:187:    <div data-testid="benchmark-board" className="flex flex-col gap-4">
+web\app\benchmark\components\benchmark_board.tsx:196:          <p className="text-sm" data-testid="benchmark-tally">
+web\app\benchmark\components\benchmark_board.tsx:229:                    data-testid={`agg-row-${dim}`}
+web\app\intake\components\intake_form.tsx:1:"use client";
+web\app\intake\components\intake_form.tsx:14:} from "@/lib/api";
+web\app\intake\components\intake_form.tsx:112:            data-testid="intake-form"
+web\app\intake\components\intake_form.tsx:122:              data-testid="intake-question-input"
+web\app\intake\components\intake_form.tsx:141:                data-testid="intake-submit"
+web\app\intake\components\intake_form.tsx:163:          data-testid="intake-error"
+web\app\intake\components\intake_form.tsx:194:      <output data-testid="disambig-picked-label" className="sr-only">
+web\app\intake\components\scope_decision_view.tsx:1:"use client";
+web\app\intake\components\scope_decision_view.tsx:4:import { cn } from "@/lib/utils";
+web\app\intake\components\scope_decision_view.tsx:9:} from "@/lib/api";
+web\app\intake\components\scope_decision_view.tsx:32:      data-testid="scope-status-badge"
+web\app\intake\components\scope_decision_view.tsx:48:      data-testid={`axis-row-${axis.axis}`}
+web\app\intake\components\scope_decision_view.tsx:86:    <Card data-testid="scope-decision-view" className="flex flex-col gap-3">
+web\app\intake\components\scope_decision_view.tsx:95:            data-testid="scope-class-value"
+web\app\intake\components\scope_decision_view.tsx:103:            data-testid="scope-latency-value"
+web\app\intake\components\scope_decision_view.tsx:140:                <li key={idx} data-testid="clarification-item">
+web\app\layout.tsx:18:export const metadata: Metadata = {
+web\tests\e2e\command_palette_adversarial.spec.ts:59:      const items = page.locator('[data-testid^="palette-item-"]');
+web\tests\e2e\command_palette_adversarial.spec.ts:74:      const items = page.locator('[data-testid^="palette-item-"]');
+web\app\page.tsx:125:          data-testid="template-grid"
+web\app\page.tsx:148:                data-testid={`template-card-${tpl.id}`}
+web\app\page.tsx:187:                          data-testid={`template-card-${tpl.id}-link`}
+web\tests\e2e\command_palette_suggest.spec.ts:28:    const items = page.locator('[data-testid^="palette-item-"]');
+web\tests\e2e\command_palette_suggest.spec.ts:50:    const items = page.locator('[data-testid^="palette-item-"]');
+web\tests\e2e\command_palette_suggest.spec.ts:61:    const items = page.locator('[data-testid^="palette-item-"]');
+web\app\intake\components\pdf_drop_banner.tsx:1:"use client";
+web\app\intake\components\pdf_drop_banner.tsx:45:        data-testid="pdf-drop-ready"
+web\app\intake\components\pdf_drop_banner.tsx:53:      data-testid="pdf-drop-banner"
+web\app\intake\components\pdf_drop_banner.tsx:59:        data-testid="pdf-drop-dismiss"
+web\tests\e2e\disambiguation_modal.spec.ts:12:    const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+web\tests\e2e\f2_walkthrough.spec.ts:98:        page.locator('[data-testid^="disambiguation-cluster-"]'),
+web\app\retrieval\components\corpus_brief.tsx:1:"use client";
+web\app\retrieval\components\corpus_brief.tsx:4:import { cn } from "@/lib/utils";
+web\app\retrieval\components\corpus_brief.tsx:10:} from "@/lib/api";
+web\app\retrieval\components\corpus_brief.tsx:36:      data-testid={`tier-badge-${tier}`}
+web\app\retrieval\components\corpus_brief.tsx:56:    <Card data-testid="corpus-brief" className="flex flex-col gap-3">
+web\app\retrieval\components\corpus_brief.tsx:60:          data-testid="adequacy-badge"
+web\app\retrieval\components\corpus_brief.tsx:86:            data-testid="adequacy-failure-reason"
+web\app\retrieval\components\corpus_brief.tsx:118:                data-testid="source-item"
+web\app\retrieval\page.tsx:7:export const metadata = {
+web\app\retrieval\page.tsx:46:        data-testid="retrieval-page"
+web\app\retrieval\components\retrieval_runner.tsx:1:"use client";
+web\app\retrieval\components\retrieval_runner.tsx:14:} from "@/lib/api";
+web\app\retrieval\components\retrieval_runner.tsx:116:            data-testid="retrieval-form"
+web\app\retrieval\components\retrieval_runner.tsx:126:              data-testid="retrieval-question-input"
+web\app\retrieval\components\retrieval_runner.tsx:147:              data-testid="retrieval-submit"
+web\app\retrieval\components\retrieval_runner.tsx:165:          data-testid="retrieval-error"
+web\app\retrieval\components\retrieval_runner.tsx:176:          data-testid="scope-unsuitable"
+web\app\retrieval\components\retrieval_runner.tsx:187:          data-testid="retrieval-error"
+web\tests\e2e\f1_multi_tab.spec.ts:6: * Same-context tabs share storage (cookies/localStorage) but each
+web\tests\e2e\f1_multi_tab.spec.ts:50:  await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web\tests\e2e\f1_multi_tab.spec.ts:51:  await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web\tests\e2e\f1_multi_tab.spec.ts:52:  await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web\tests\e2e\f1_multi_tab.spec.ts:59:  await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
+web\tests\e2e\f1_multi_tab.spec.ts:69:  await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
+web\tests\e2e\f1_multi_tab.spec.ts:94:  await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web\app\upload\page.tsx:3:export const metadata = {
+web\app\upload\page.tsx:12:      data-testid="upload-page"
+web\tests\e2e\intake_disambiguation.spec.ts:76:  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+web\app\upload\components\upload_workspace.tsx:1:"use client";
+web\app\upload\components\document_preview.tsx:1:"use client";
+web\app\upload\components\document_preview.tsx:5:import { getUpload, type UploadResponse } from "@/lib/api";
+web\app\upload\components\document_preview.tsx:80:  if (loading) return <div data-testid="preview-loading">Loading…</div>;
+web\app\upload\components\document_preview.tsx:81:  if (!response) return <div data-testid="preview-error">Failed to load</div>;
+web\app\upload\components\document_preview.tsx:86:      data-testid="document-preview"
+web\app\upload\components\document_preview.tsx:94:        data-testid="preview-iframe"
+web\app\upload\components\document_preview.tsx:101:              data-testid={`chunk-${i}`}
+web\app\upload\components\upload_drop_zone.tsx:1:"use client";
+web\app\upload\components\upload_drop_zone.tsx:5:import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
+web\app\upload\components\upload_drop_zone.tsx:149:        data-testid="upload-dropzone"
+web\app\upload\components\upload_drop_zone.tsx:182:              data-testid={`upload-file-${f.id}`}
+web\app\upload\components\upload_drop_zone.tsx:190:                    data-testid={`include-toggle-${f.id}`}
+web\app\upload\components\upload_drop_zone.tsx:202:                    <span data-testid="upload-doc-id">
+web\app\upload\components\upload_drop_zone.tsx:206:                      data-testid={`upload-parse-${f.id}`}
+web\app\upload\components\upload_drop_zone.tsx:219:                          data-testid={`open-preview-${f.id}`}
+web\app\upload\components\selected_docs_indicator.tsx:1:"use client";
+web\app\upload\components\selected_docs_indicator.tsx:12:        data-testid="selected-doc-ids"
+web\app\runs\[runId]\page.tsx:1:"use client";
+web\app\runs\[runId]\page.tsx:21:} from "@/lib/api";
+web\tests\e2e\upload_doc_preview.spec.ts:51:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web\tests\e2e\upload_doc_preview.spec.ts:61:  const openBtn = page.locator('[data-testid^="open-preview-"]').first();
+web\tests\e2e\upload_doc_preview.spec.ts:66:  const iframe = page.locator('[data-testid="preview-iframe"]');
+web\tests\e2e\upload_doc_preview.spec.ts:75:      '[data-testid="preview-iframe"]',
+web\tests\e2e\upload_evidence_toggle.spec.ts:42:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web\tests\e2e\upload_evidence_toggle.spec.ts:52:  await expect(page.locator('[data-testid^="include-toggle-"]')).toHaveCount(2);
+web\tests\e2e\upload_evidence_toggle.spec.ts:58:  const firstToggle = page.locator('[data-testid^="include-toggle-"]').first();
+web\tests\e2e\upload_dropzone.spec.ts:39:      const zone = document.querySelector('[data-testid="upload-dropzone"]')!;
+web\tests\e2e\upload_dropzone.spec.ts:83:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web\tests\e2e\upload_parse_status.spec.ts:13:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+
+ succeeded in 1599ms:
+web\tests\e2e\contract_editor.spec.ts:8:  await page.getByTestId("ce-claim-stmt-0").fill("aspirin reduces headache");
+web\tests\e2e\contract_editor.spec.ts:9:  await page.getByTestId("ce-claim-ents-0").fill("aspirin");
+web\tests\e2e\contract_editor.spec.ts:10:  const dl_promise = page.waitForEvent("download", { timeout: 10_000 });
+web\tests\e2e\contract_editor.spec.ts:12:  await expect(page.getByTestId("contract-saved")).toBeVisible({
+web\tests\e2e\contract_editor.spec.ts:15:  const download = await dl_promise;
+web\tests\e2e\contract_editor.spec.ts:16:  expect(download.suggestedFilename()).toMatch(/^contract_[a-f0-9]{8}\.json$/);
+web\lib\contracts.ts:37:  contract_id: string;
+web\lib\contracts.ts:38:  contract_version: "1.0";
+web\lib\contracts.ts:57:    "contract_id" | "contract_version" | "created_at_utc"
+web\lib\contracts.ts:61:    contract_id: uuid(),
+web\lib\contracts.ts:62:    contract_version: "1.0",
+web\lib\contracts.ts:87:  if (new Set(ids).size !== ids.length) errs.push("duplicate claim_id(s)");
+web\lib\contracts.ts:91:    if (!cl.claim_id.trim()) errs.push("claim_id required");
+web\app\contracts\_editor.tsx:71:      a.download = `contract_${c.contract_id.slice(0, 8)}.json`;
+web\app\contracts\_editor.tsx:110:              data-testid={`ce-jur-${j}`}
+web\app\contracts\_editor.tsx:222:              data-testid={`ce-claim-id-${i}`}
+web\app\contracts\_editor.tsx:233:              data-testid={`ce-claim-stmt-${i}`}
+web\app\contracts\_editor.tsx:244:              data-testid={`ce-claim-ents-${i}`}
+web\app\contracts\_editor.tsx:261:              data-testid={`ce-claim-jurs-${i}`}
+web\app\contracts\_editor.tsx:268:                    data-testid={`ce-claim-${i}-jur-${j}`}
+web\app\contracts\_editor.tsx:299:          data-testid="ce-add-claim"
+web\app\contracts\_editor.tsx:331:        Save + download
+web\app\contracts\_editor.tsx:335:          data-testid="contract-saved"
+web\app\contracts\_editor.tsx:338:          Contract {saved.contract_id.slice(0, 8)} saved.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\generation_runner.tsx -TotalCount 270 | Select-Object -Last 40" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts -TotalCount 310 | Select-Object -Last 40" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\layout.tsx" in C:\POLARIS
+ succeeded in 1197ms:
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+
+ succeeded in 1352ms:
+
+function DownloadAuditBundleButton({
+  decision,
+  pool,
+  report,
+}: {
+  decision: IntakeScopeDecision;
+  pool: EvidencePool;
+  report: VerifiedReport;
+}) {
+  const [dl_state, setDlState] = useState<DownloadState>({ kind: "idle" });
+
+  async function handle_click() {
+    setDlState({ kind: "loading" });
+    try {
+      const blob = await downloadAuditBundle(decision, pool, report);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit_${report.report_id}.tar.gz`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDlState({ kind: "ok" });
+    } catch (err) {
+      if (err instanceof AuditBundleError) {
+        setDlState({ kind: "error", code: err.code, message: err.message });
+      } else {
+        const msg = err instanceof Error ? err.message : "Unknown error.";
+        setDlState({ kind: "error", code: "unknown", message: msg });
+      }
+    }
+  }
+
+  if (dl_state.kind === "error") {
+    return (
+      <span
+        data-testid="audit-bundle-error"
+        className="text-xs text-rose-700 dark:text-rose-300"
+
+ succeeded in 1394ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        {children}
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+codex
+No project-level import or server/client split issue showed up. The remaining possible issues are max-bound hardening and a few UX gaps, which do not rise to P1 because the generated JSON shape is still valid for normal acceptance flow and backend rejection is the fallback for out-of-range sizes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck -- --pretty false' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint -- app/contracts/_editor.tsx app/contracts/page.tsx lib/contracts.ts tests/e2e/contract_editor.spec.ts' in C:\POLARIS\web
+ succeeded in 3861ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+ succeeded in 4527ms:
+
+> web@0.1.0 lint
+> eslint app/contracts/_editor.tsx app/contracts/page.tsx lib/contracts.ts tests/e2e/contract_editor.spec.ts
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "continuing: web/lib/contracts.ts:68 does not enforce backend max_length/list caps; oversized contracts can still download locally and be rejected later by backend. Deferred as I-ecg-003a."
+  - "novel: web/app/contracts/_editor.tsx:64 leaves the previous saved success message visible after a later invalid submit. Download is still blocked, so this is stale UI state, not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+35,187
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "continuing: web/lib/contracts.ts:68 does not enforce backend max_length/list caps; oversized contracts can still download locally and be rejected later by backend. Deferred as I-ecg-003a."
+  - "novel: web/app/contracts/_editor.tsx:64 leaves the previous saved success message visible after a later invalid submit. Download is still blocked, so this is stale UI state, not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
