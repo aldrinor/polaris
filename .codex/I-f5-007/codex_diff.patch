@@ -1,0 +1,288 @@
+diff --git a/src/polaris_graph/retrieval2/evidence_pool.py b/src/polaris_graph/retrieval2/evidence_pool.py
+index 3f7e96b..c8ca805 100644
+--- a/src/polaris_graph/retrieval2/evidence_pool.py
++++ b/src/polaris_graph/retrieval2/evidence_pool.py
+@@ -72,6 +72,16 @@ class Source(BaseModel):
+     full_text: str | None = None
+     fetched_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+     provenance: dict[str, Any] = Field(default_factory=dict)
++    retracted: bool = Field(
++        default=False,
++        description=(
++            "True iff source has been retracted post-publication "
++            "(I-f5-007). Default False — populated by future "
++            "CrossRef/Retraction Watch lookup. Today's retrieval "
++            "pipeline does not check; field is the surface for that "
++            "future wiring."
++        ),
++    )
+ 
+     @field_validator("domain")
+     @classmethod
+diff --git a/tests/polaris_graph/retrieval2/test_evidence_pool.py b/tests/polaris_graph/retrieval2/test_evidence_pool.py
+index ba50878..a9e7547 100644
+--- a/tests/polaris_graph/retrieval2/test_evidence_pool.py
++++ b/tests/polaris_graph/retrieval2/test_evidence_pool.py
+@@ -53,6 +53,31 @@ def test_source_minimal_construction():
+     assert s.authors == []
+ 
+ 
++def test_source_retracted_default_false_and_explicit_true():
++    s_default = Source(
++        url="https://www.cochrane.org/CD0001",
++        domain="cochrane.org",
++        tier=SourceTier.T1,
++        title="x",
++        snippet="x",
++    )
++    assert s_default.retracted is False
++
++    s_retracted = Source(
++        url="https://www.cochrane.org/CD0002",
++        domain="cochrane.org",
++        tier=SourceTier.T1,
++        title="x",
++        snippet="x",
++        retracted=True,
++    )
++    assert s_retracted.retracted is True
++    payload = s_retracted.model_dump(mode="json")
++    assert payload["retracted"] is True
++    rehydrated = Source.model_validate(payload)
++    assert rehydrated.retracted is True
++
++
+ def test_source_domain_lowercased():
+     s = Source(
+         url="https://NEJM.ORG/doi/abc",
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index 4c9cc85..b9b8a70 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -30,6 +30,16 @@ const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+   T3: "Registries, clinical guidelines, government health agencies",
+ };
+ 
++const STALE_THRESHOLD_DAYS = 730;
++
++function isStale(publication_date: string | null): boolean {
++  if (!publication_date) return false;
++  const t = new Date(publication_date).getTime();
++  if (isNaN(t)) return false;
++  const age_days = (Date.now() - t) / (24 * 3600 * 1000);
++  return age_days > STALE_THRESHOLD_DAYS;
++}
++
+ const TIER_TONE: Record<RetrievalSourceTier, string> = {
+   T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+   T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+@@ -155,13 +165,33 @@ function SourceCard({
+         >
+           {source.domain}
+         </a>
+-        <span
+-          data-testid={`inspector-tier-${source.tier}`}
+-          title={TIER_RATIONALE[source.tier]}
+-          className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+-        >
+-          {source.tier}
+-        </span>
++        <div className="flex items-center gap-1">
++          {source.retracted ? (
++            <span
++              data-testid={`inspector-retracted-${idx}`}
++              title="Source retracted post-publication"
++              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
++            >
++              Retracted
++            </span>
++          ) : null}
++          {isStale(source.publication_date) ? (
++            <span
++              data-testid={`inspector-stale-${idx}`}
++              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
++              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
++            >
++              Stale &gt;2y
++            </span>
++          ) : null}
++          <span
++            data-testid={`inspector-tier-${source.tier}`}
++            title={TIER_RATIONALE[source.tier]}
++            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
++          >
++            {source.tier}
++          </span>
++        </div>
+       </div>
+       <p
+         data-testid={`inspector-trace-${idx}`}
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index a7350c1..2c8843b 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -5,6 +5,16 @@ import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+ 
+ const ISO = new Date().toISOString();
+ 
++// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
++// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
++const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
++const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++
+ const SOURCE_FULL_TEXT_5 =
+   "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+ 
+@@ -15,7 +25,7 @@ function _src(i: number): RetrievalSource {
+     domain: "cochrane.org",
+     tier: "T1",
+     title: `Cochrane review ${i}`,
+-    publication_date: "2024-03-15",
++    publication_date: FRESH_DATE,
+     authors: ["Smith J", "Doe R", "Patel K"],
+     snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+     full_text_available: true,
+@@ -25,13 +35,44 @@ function _src(i: number): RetrievalSource {
+   };
+ }
+ 
++const SRC_RETRACTED: RetrievalSource = {
++  source_id: "src-retracted",
++  url: "https://www.cochrane.org/CD-retracted",
++  domain: "cochrane.org",
++  tier: "T1",
++  title: "Cochrane review (retracted)",
++  publication_date: FRESH_DATE,
++  authors: ["Doe R"],
++  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
++  full_text_available: true,
++  full_text: SOURCE_FULL_TEXT_5,
++  fetched_at_utc: ISO,
++  provenance: {},
++  retracted: true,
++};
++
++const SRC_STALE: RetrievalSource = {
++  source_id: "src-stale",
++  url: "https://www.cochrane.org/CD-stale",
++  domain: "cochrane.org",
++  tier: "T1",
++  title: "Cochrane review (3y old)",
++  publication_date: STALE_DATE,
++  authors: ["Patel K"],
++  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
++  full_text_available: true,
++  full_text: SOURCE_FULL_TEXT_5,
++  fetched_at_utc: ISO,
++  provenance: {},
++};
++
+ const POOL: EvidencePool = {
+   pool_id: "p-hover",
+   decision_id: "d-hover",
+-  sources: Array.from({ length: 10 }, (_, i) => _src(i)),
++  sources: [...Array.from({ length: 10 }, (_, i) => _src(i)), SRC_RETRACTED, SRC_STALE],
+   adequacy: {
+     is_adequate: true,
+-    sources_per_tier: { T1: 10, T2: 0, T3: 0 },
++    sources_per_tier: { T1: 12, T2: 0, T3: 0 },
+     min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+     failure_reason: null,
+   },
+@@ -121,6 +162,24 @@ const REPORT: VerifiedReport = {
+           evaluator_agrees: true,
+           is_synthesis_claim: true,
+         },
++        // sec_x:16 — retracted source (I-f5-007).
++        {
++          section_id: "sec_x",
++          sentence_text: "Retracted-source demo sentence.",
++          provenance_tokens: [`[#ev:src-retracted:0-30]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        // sec_x:17 — stale source >2y (I-f5-007).
++        {
++          section_id: "sec_x",
++          sentence_text: "Stale-source demo sentence.",
++          provenance_tokens: [`[#ev:src-stale:0-30]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index beab94a..3268057 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -476,6 +476,7 @@ export interface RetrievalSource {
+   full_text: string | null;
+   fetched_at_utc: string;
+   provenance: Record<string, unknown>;
++  retracted?: boolean;
+ }
+ 
+ export interface RetrievalAdequacyVerdict {
+diff --git a/web/tests/e2e/sentence_inspector_retracted_stale.spec.ts b/web/tests/e2e/sentence_inspector_retracted_stale.spec.ts
+new file mode 100644
+index 0000000..b12acf6
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_retracted_stale.spec.ts
+@@ -0,0 +1,35 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector renders retracted badge when source.retracted=true", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:16"]').click();
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-retracted-0")).toBeVisible();
++});
++
++test("Inspector renders stale badge when publication_date >2y old", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:17"]').click();
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-stale-0")).toBeVisible();
++});
++
++test("Inspector does NOT render retracted/stale badges for fresh non-retracted source", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:5"]').click();
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-retracted-0")).toHaveCount(0);
++  await expect(page.getByTestId("inspector-stale-0")).toHaveCount(0);
++});
+diff --git a/web/tests/e2e/sentence_inspector_source.spec.ts b/web/tests/e2e/sentence_inspector_source.spec.ts
+index 489feaa..d3b7b1f 100644
+--- a/web/tests/e2e/sentence_inspector_source.spec.ts
++++ b/web/tests/e2e/sentence_inspector_source.spec.ts
+@@ -20,9 +20,6 @@ test("Inspector renders source URL + tier + span + retrieval trace", async ({
+   await expect(page.getByTestId("inspector-trace-0")).toContainText(
+     "Cochrane review",
+   );
+-  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+-    "2024-03-15",
+-  );
+   await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
+ });
+ 

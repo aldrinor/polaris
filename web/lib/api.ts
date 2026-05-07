@@ -476,6 +476,7 @@ export interface RetrievalSource {
   full_text: string | null;
   fetched_at_utc: string;
   provenance: Record<string, unknown>;
+  retracted?: boolean;
 }
 
 export interface RetrievalAdequacyVerdict {

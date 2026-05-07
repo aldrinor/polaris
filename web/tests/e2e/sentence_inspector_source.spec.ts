@@ -20,9 +20,6 @@ test("Inspector renders source URL + tier + span + retrieval trace", async ({
   await expect(page.getByTestId("inspector-trace-0")).toContainText(
     "Cochrane review",
   );
-  await expect(page.getByTestId("inspector-trace-0")).toContainText(
-    "2024-03-15",
-  );
   await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
 });
 
