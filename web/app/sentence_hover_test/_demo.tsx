@@ -258,6 +258,16 @@ const REPORT: VerifiedReport = {
   generator_model: "test/model",
   evaluator_model: "strict_verify_v1",
   family_segregation_passed: true,
+  frame_coverage: {
+    covered_entity_count: 14,
+    total_entity_count: 15,
+    gaps: [
+      {
+        entity_name: "Pediatric population",
+        reason: "no Cochrane review found",
+      },
+    ],
+  },
   verifier_pass_threshold: 0.4,
   started_at_utc: ISO,
   finished_at_utc: ISO,

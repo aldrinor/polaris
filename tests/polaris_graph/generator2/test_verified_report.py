@@ -8,6 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from polaris_graph.generator2.verified_report import (
+    FrameCoverage,
+    FrameGap,
     GenerationError,
     Section,
     VerifiedReport,
@@ -103,6 +105,34 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
             drop_reason="numeric_mismatch",
             evaluator_agrees=True,
         )
+
+
+def test_frame_coverage_minimal_no_gaps():
+    fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+    assert fc.gaps == []
+
+
+def test_frame_coverage_with_gaps_passes():
+    fc = FrameCoverage(
+        covered_entity_count=14,
+        total_entity_count=15,
+        gaps=[FrameGap(entity_name="Pediatric", reason="no Cochrane review")],
+    )
+    assert len(fc.gaps) == 1
+
+
+def test_frame_coverage_count_mismatch_rejected():
+    with pytest.raises(ValidationError, match="must equal total_entity_count"):
+        FrameCoverage(
+            covered_entity_count=14,
+            total_entity_count=15,
+            gaps=[],  # 14 + 0 != 15
+        )
+
+
+def test_frame_coverage_covered_exceeds_total_rejected():
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        FrameCoverage(covered_entity_count=16, total_entity_count=15)
 
 
 def test_verified_sentence_assertion_surface_default_prose():

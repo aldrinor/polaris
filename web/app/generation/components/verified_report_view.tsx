@@ -33,6 +33,7 @@ const SURFACE_LABEL: Record<AssertionSurface, string> = {
   heading: "Heading",
 };
 
+import { FrameCoveragePanel } from "./frame_coverage_panel";
 import { SentenceInspector } from "./sentence_inspector";
 
 const STATUS_TONE: Record<string, string> = {
@@ -255,6 +256,7 @@ export function VerifiedReportView({
       data-testid="verified-report-view"
       className="flex flex-col gap-4"
     >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-lg">Verified report</CardTitle>
