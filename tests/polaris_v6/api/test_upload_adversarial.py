@@ -1,0 +1,91 @@
+"""I-f3-009 — adversarial 8-input matrix against /upload route."""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(scope="module")
+def client(monkeypatch_module=None):
+    """Hermetic v6 app build: clear external-service env vars first."""
+    for v in (
+        "SERPER_API_KEY", "OPENROUTER_API_KEY", "POLARIS_GPG_KEY_ID",
+        "OTEL_SEMCONV_STABILITY_OPT_IN", "SEMANTIC_SCHOLAR_API_KEY",
+    ):
+        os.environ.pop(v, None)
+    from polaris_v6.api.app import create_app
+    return TestClient(create_app())
+
+
+def _post(client: TestClient, name: str, content: bytes, mime: str = "application/octet-stream"):
+    return client.post(
+        "/upload",
+        files={"file": (name, content, mime)},
+        data={"classification": "UNKNOWN"},
+    )
+
+
+def test_100mb_rejected_413(client: TestClient) -> None:
+    big = b"\x00" * (101 * 1024 * 1024)
+    r = _post(client, "huge.pdf", big, "application/pdf")
+    assert r.status_code == 413
+
+
+def test_empty_file_rejected_422(client: TestClient) -> None:
+    r = _post(client, "empty.pdf", b"", "application/pdf")
+    assert r.status_code == 422
+
+
+def test_malformed_pdf_returns_queued(client: TestClient) -> None:
+    r = _post(client, "malformed.pdf", b"%PDF-1.0\n<not a real PDF>", "application/pdf")
+    assert r.status_code == 201
+    assert r.json()["parse_status"] == "queued"
+    assert r.json()["chunk_preview"] == []
+
+
+def test_password_pdf_returns_queued(client: TestClient) -> None:
+    # Synthetic encrypted-looking PDF stub. The current synchronous route
+    # does NOT decrypt; it queues with empty chunks.
+    fake_encrypted = b"%PDF-1.4\n/Encrypt 1 0 R\n<binary blob>"
+    r = _post(client, "encrypted.pdf", fake_encrypted, "application/pdf")
+    assert r.status_code == 201
+    assert r.json()["parse_status"] == "queued"
+
+
+def test_image_only_pdf_filename_returns_queued(client: TestClient) -> None:
+    # PNG bytes with .pdf filename. The route only checks extension, not magic.
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    )
+    r = _post(client, "image.pdf", png, "application/pdf")
+    assert r.status_code == 201
+    assert r.json()["parse_status"] == "queued"
+
+
+def test_docx_returns_queued(client: TestClient) -> None:
+    # DOCX is allowed by extension; sync route does not parse → queued.
+    fake_docx = b"PK\x03\x04" + b"\x00" * 100
+    r = _post(client, "doc.docx", fake_docx, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert r.status_code == 201
+    assert r.json()["parse_status"] == "queued"
+
+
+def test_txt_returns_completed(client: TestClient) -> None:
+    txt = b"Hello world\nThis is a test document for chunking.\n" * 5
+    r = _post(client, "doc.txt", txt, "text/plain")
+    assert r.status_code == 201
+    body = r.json()
+    assert body["parse_status"] == "completed"
+    assert len(body["chunk_preview"]) > 0
+    assert body["content"]
+    assert "<pre>" in body["html"]
+
+
+def test_epub_rejected_415(client: TestClient) -> None:
+    epub = b"PK\x03\x04" + b"\x00" * 100
+    r = _post(client, "book.epub", epub, "application/epub+zip")
+    assert r.status_code == 415
