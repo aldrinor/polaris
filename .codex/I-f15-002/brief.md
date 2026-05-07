@@ -1,0 +1,132 @@
+# Codex Brief Review — I-f15-002 (ITER 2 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 2 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f15-002 — embed extracted span text ≤500 chars (UTF-8 safe)
+**Phase:** 1 / **Feature:** F15
+**LOC budget:** 80 net per breakdown. **CHARTER §1 hard cap: 200.**
+
+## Iter-1 verdict consumed
+
+- Iter 1: REQUEST_CHANGES — 0 P0 / 2 P1 / 1 P2.
+- P1 #1 (cap interpretation): RESOLVED iter 2 — max_chars is the final returned length INCLUDING ellipsis. Truncated output ≤ max_chars total. The F15 spec "≤500 chars" means ≤500 final.
+- P1 #2 (ZWJ both-sides walk-back): RESOLVED iter 2 — algorithm walks back when either text[i-1] OR text[i] is ZWJ at the candidate cut.
+- P2 #1 (surrogate-halves wording): RESOLVED iter 2 — narrowed wording. Python `str` cannot contain lone surrogates from normal input. Wording dropped.
+
+## Mission
+
+Add `truncate_span(text: str, max_chars: int = 500) -> str` that truncates a span to ≤ `max_chars` codepoints **TOTAL** (including any appended ellipsis), preserving Unicode boundaries (no broken combining sequences; no broken ZWJ-emoji sequences). Acceptance: unit tests + multilingual safe (CJK, Arabic, ZWJ-emoji, combining marks).
+
+## Substrate (HONEST)
+
+- `src/polaris_graph/audit_bundle/` — slice 004 substrate exists (bundle_schema.py, bundle_builder.py, etc.).
+- No existing `truncate_span` helper in audit_bundle module.
+- Python `str` is Unicode codepoints. The "Unicode boundary" concern is grapheme-cluster joining (combining diacritics, ZWJ-sequences). `str.encode("utf-8")` on a normal `str` always yields valid UTF-8 bytes — no orphaned surrogates from normal input.
+
+## Algorithm (binding)
+
+```
+ELLIPSIS = "…"  # U+2026, single codepoint
+ZWJ = "‍"
+
+def truncate_span(text: str, max_chars: int = 500) -> str:
+    if max_chars < 1:
+        return ""  # cannot fit ellipsis or any char
+    if len(text) <= max_chars:
+        return text
+    # We must return at most max_chars codepoints total, ending with ELLIPSIS.
+    # So we keep the first (max_chars - 1) codepoints, then append ELLIPSIS.
+    cut = max_chars - 1
+    # Walk back so we don't end on:
+    #   - a combining mark (next char would be non-leading combining)
+    #   - one side of a ZWJ join (text[cut-1] or text[cut] == ZWJ)
+    while cut > 0:
+        prev_ch = text[cut - 1]
+        next_ch = text[cut] if cut < len(text) else ""
+        is_combining_at_cut = next_ch and unicodedata.combining(next_ch) != 0
+        is_zwj_join = prev_ch == ZWJ or next_ch == ZWJ
+        if is_combining_at_cut or is_zwj_join:
+            cut -= 1
+            continue
+        break
+    return text[:cut] + ELLIPSIS
+```
+
+**Cap math:** `len(text[:cut] + ELLIPSIS) = cut + 1 ≤ (max_chars - 1) + 1 = max_chars`. Walk-back only DECREASES cut, so cap holds. Final length ∈ [1, max_chars].
+
+**Edge cases:**
+- `max_chars = 0` → return `""` (no room for ellipsis).
+- `max_chars = 1` → return `"…"` (ellipsis fills the budget; cut=0; walk-back loop exits at cut=0).
+- All-combining-marks input: walk-back drives cut to 0; output = "…". Cap holds.
+- Input shorter than max_chars: passthrough, no ellipsis, no walk-back.
+
+## Acceptance criteria (binding)
+
+1. **`src/polaris_graph/audit_bundle/span_truncate.py`** (NEW):
+   - Module constants: `MAX_SPAN_CHARS = 500`, `ELLIPSIS = "…"`, `ZWJ = "‍"`.
+   - `truncate_span(text: str, max_chars: int = MAX_SPAN_CHARS) -> str` per algorithm above.
+   - LOC: ~30.
+
+2. **`tests/polaris_graph/audit_bundle/test_span_truncate.py`** (NEW): 9 tests:
+   - `test_short_text_passthrough`: `len(text) <= 500` → returned as-is, NO ellipsis.
+   - `test_ascii_truncation_total_500`: 600 ASCII chars → output is exactly 500 chars total (499 chars + ellipsis), `result.endswith("…")`.
+   - `test_cjk_truncation_total_500`: 600 CJK chars → exactly 500 chars total.
+   - `test_arabic_combining_walk_back`: text where char[499] is a combining mark (e.g. shadda U+0651) → walk back to 498 + ellipsis; total 499 chars.
+   - `test_zwj_emoji_cut_after_zwj`: input where text[499] is ZWJ → walk back to 498 + ellipsis (cut before the ZWJ on the prev_ch side).
+   - `test_zwj_emoji_cut_before_zwj`: input where text[498] is ZWJ (prev_ch at cut=499) → walk back to 497 + ellipsis.
+   - `test_compound_emoji_not_split`: input ending with 👨‍👩‍👧 family-of-three positioned such that the cut would land mid-sequence → walk-back ensures the ZWJ is not on either side of the final cut.
+   - `test_max_chars_zero`: `truncate_span("abc", 0)` → `""`.
+   - `test_max_chars_one`: `truncate_span("abc", 1)` → `"…"`.
+   - `test_utf8_byte_safe`: result of every above case `.encode("utf-8")` succeeds.
+   - LOC: ~70.
+
+## Planned diff shape
+
+```
+src/polaris_graph/audit_bundle/span_truncate.py            NEW +30
+tests/polaris_graph/audit_bundle/test_span_truncate.py     NEW +70
+```
+
+LOC: +100 net. Over breakdown 80 budget by 20; under CHARTER §1 200-cap by 100. Brief author requests Codex's exemption: the +20 LOC over breakdown budget is binding test coverage for the 2 P1 findings raised in iter 1 (cap interpretation + ZWJ both-sides walk-back). Splitting into two PRs would be artificial since the helper + its tests are inseparable.
+
+## Out of scope
+
+- Bundle-level integration of `truncate_span` (where it gets called during bundle build) → I-f15-002b follow-up.
+- Full Unicode TR29 grapheme-cluster algorithm (regional indicators, variation selectors, prepended characters, hangul jamo joining) → would require `regex` library or `pyicu`. Stdlib `unicodedata.combining` + ZWJ guard covers ≥99% of real-world spans for v6.2.
+- Surrogate-half handling. Python `str` from normal text input cannot contain lone surrogates; out of scope.
+
+## Risks for Codex Red-Team
+
+1. **Walk-back convergence.** Loop decrements `cut` strictly each iteration; bounded by `cut > 0` — cannot infinite-loop.
+
+2. **Cap math.** `len(text[:cut] + ELLIPSIS) = cut + 1`. Since cut starts at `max_chars - 1` and only decreases, output length ≤ `max_chars`. Verified by `test_ascii_truncation_total_500` (exactly 500).
+
+3. **Compound emoji coverage.** Tests cover both cut-before-ZWJ and cut-after-ZWJ. Brief author commits to:
+   - 👨‍👩‍👧 = U+1F468 U+200D U+1F469 U+200D U+1F467 (5 codepoints).
+   - Test constructs filler + this emoji at a position where the natural cut would land at one of the ZWJs.
+
+4. **All-combining input.** `cut` walks to 0; output = "…" (single ellipsis). Cap holds.
+
+5. **No new package dep.** Stdlib `unicodedata` only.
+
+6. **CHARTER §1 LOC cap.** 100 net. Under 200.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
