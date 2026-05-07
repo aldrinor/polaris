@@ -36,6 +36,44 @@ const TIER_TONE: Record<RetrievalSourceTier, string> = {
   T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
 };
 
+function AgreementBadge({
+  evaluator_agrees,
+}: {
+  evaluator_agrees: boolean | null;
+}) {
+  if (evaluator_agrees === true) {
+    return (
+      <span
+        data-testid="inspector-agree"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+        title="Two-family evaluator agrees with generator claim"
+      >
+        Agree
+      </span>
+    );
+  }
+  if (evaluator_agrees === false) {
+    return (
+      <span
+        data-testid="inspector-disagree"
+        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        title="Two-family evaluator disagrees with generator claim"
+      >
+        Disagree
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="inspector-agree-pending"
+      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+      title="Two-family evaluator pass not yet recorded"
+    >
+      Pending
+    </span>
+  );
+}
+
 function SourceCard({
   token,
   source,
@@ -147,12 +185,17 @@ export function SentenceInspector({
         <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
           {sentence && (
             <>
-              <p
-                data-testid="sentence-inspector-text"
-                className="text-foreground"
-              >
-                {sentence.sentence_text}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <AgreementBadge
+                  evaluator_agrees={sentence.evaluator_agrees}
+                />
+              </div>
               {tokens.length === 0 ? (
                 <p className="text-muted-foreground text-xs italic">
                   No provenance tokens.

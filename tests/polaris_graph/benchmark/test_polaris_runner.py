@@ -91,6 +91,7 @@ def _generation_response(verdict: str = "success") -> dict:
             "overall_verify_pass_rate": 1.0,
             "pipeline_verdict": verdict,
             "generator_model": "test/model",
+            "evaluator_model": "strict_verify_v1",
             "verifier_pass_threshold": 0.4,
             "started_at_utc": iso,
             "finished_at_utc": iso,

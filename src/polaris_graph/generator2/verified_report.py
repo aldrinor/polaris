@@ -67,6 +67,16 @@ class VerifiedSentence(BaseModel):
     )
     verifier_pass: bool
     drop_reason: DropReason | None = None
+    evaluator_agrees: bool | None = Field(
+        default=None,
+        description=(
+            "Two-family evaluator agreement per CLAUDE.md §9.1 invariant 1. "
+            "True = evaluator confirms generator claim; False = evaluator "
+            "disagrees; None = pending (no evaluator pass yet). At rule-based "
+            "stage this mirrors verifier_pass; future Issue plugs in the "
+            "real two-family LLM judge to populate this independently."
+        ),
+    )
 
     @model_validator(mode="after")
     def _drop_reason_consistency(self) -> "VerifiedSentence":
@@ -77,6 +87,16 @@ class VerifiedSentence(BaseModel):
         if self.verifier_pass is True and self.drop_reason is not None:
             raise ValueError(
                 "drop_reason must be None when verifier_pass=True"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _evaluator_agreement_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.evaluator_agrees is True:
+            raise ValueError(
+                "evaluator_agrees=True is forbidden when verifier_pass=False "
+                "(rule-based dropped the sentence; evaluator cannot pass it "
+                "without contradicting strict-verify)"
             )
         return self
 
@@ -122,6 +142,25 @@ class VerifiedReport(BaseModel):
     overall_verify_pass_rate: float = Field(ge=0.0, le=1.0)
     pipeline_verdict: PipelineVerdict
     generator_model: str = Field(min_length=1, max_length=200)
+    evaluator_model: str = Field(
+        min_length=1,
+        max_length=200,
+        description=(
+            "Two-family evaluator identifier per CLAUDE.md §9.1 invariant 1. "
+            "Rule-based stage value: 'strict_verify_v1'. When a real LLM "
+            "judge wires in (separate Issue), this becomes the OpenRouter "
+            "model id from a different training family than generator_model."
+        ),
+    )
+    family_segregation_passed: bool = Field(
+        default=True,
+        description=(
+            "True iff generator and evaluator are confirmed to be from "
+            "different training lineages (rule-based always True; future "
+            "two-family LLM judge invokes "
+            "openrouter_client.check_family_segregation)."
+        ),
+    )
     verifier_pass_threshold: float = Field(ge=0.0, le=1.0)
     started_at_utc: datetime
     finished_at_utc: datetime

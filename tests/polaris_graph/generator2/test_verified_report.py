@@ -62,6 +62,49 @@ def test_verified_sentence_drop_with_reason():
     assert s.drop_reason == "numeric_mismatch"
 
 
+def test_verified_sentence_evaluator_agrees_default_none():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.evaluator_agrees is None
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=True,
+    )
+    assert s.evaluator_agrees is True
+
+
+def test_verified_sentence_evaluator_agrees_false_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=False,
+    )
+    assert s.evaluator_agrees is False
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+    with pytest.raises(ValidationError, match="evaluator_agrees=True is forbidden"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            verifier_pass=False,
+            drop_reason="numeric_mismatch",
+            evaluator_agrees=True,
+        )
+
+
 def test_verified_sentence_invalid_drop_reason():
     with pytest.raises(ValidationError):
         VerifiedSentence(
@@ -186,6 +229,7 @@ def _success_report(**overrides) -> VerifiedReport:
         overall_verify_pass_rate=1.0,
         pipeline_verdict="success",
         generator_model="deepseek-v4-flash",
+        evaluator_model="strict_verify_v1",
         verifier_pass_threshold=0.4,
         started_at_utc=started,
         finished_at_utc=finished,

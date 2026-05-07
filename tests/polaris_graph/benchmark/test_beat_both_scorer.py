@@ -92,6 +92,7 @@ def _polaris_success(qid: str = "Q1", latency_ms: int = 60_000) -> PolarisRunRes
             "overall_verify_pass_rate": 1.0,
             "pipeline_verdict": "success",
             "generator_model": "test/m",
+            "evaluator_model": "strict_verify_v1",
             "verifier_pass_threshold": 0.4,
             "started_at_utc": iso,
             "finished_at_utc": iso,

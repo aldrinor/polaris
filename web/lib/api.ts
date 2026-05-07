@@ -600,6 +600,7 @@ export interface ReportVerifiedSentence {
   provenance_tokens: string[];
   verifier_pass: boolean;
   drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
 }
 
 export interface VerifiedReportSection {
@@ -618,6 +619,8 @@ export interface VerifiedReport {
   overall_verify_pass_rate: number;
   pipeline_verdict: PipelineVerdict;
   generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
   verifier_pass_threshold: number;
   started_at_utc: string;
   finished_at_utc: string;

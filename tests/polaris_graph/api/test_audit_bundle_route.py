@@ -129,6 +129,7 @@ def _payload(verdict: str = "success", pool_id: str = "pool-1") -> dict:
         "overall_verify_pass_rate": 1.0 if verdict == "success" else 0.0,
         "pipeline_verdict": verdict,
         "generator_model": "test/model",
+        "evaluator_model": "strict_verify_v1",
         "verifier_pass_threshold": 0.4,
         "started_at_utc": iso,
         "finished_at_utc": iso,

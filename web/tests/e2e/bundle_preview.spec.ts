@@ -32,6 +32,8 @@ const R = {
   overall_verify_pass_rate: 1,
   pipeline_verdict: "success",
   generator_model: "test-gen",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
   verifier_pass_threshold: 0.4,
   started_at_utc: ISO,
   finished_at_utc: ISO,

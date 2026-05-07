@@ -170,6 +170,7 @@ def verify_sentence_to_record(
         provenance_tokens=tokens,
         verifier_pass=passed,
         drop_reason=reason,
+        evaluator_agrees=passed,
     )
 
 
