@@ -1,0 +1,221 @@
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+new file mode 100644
+index 0000000..05bab0c
+--- /dev/null
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -0,0 +1,84 @@
++"use client";
++
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import { type DropReason, type ReportVerifiedSentence } from "@/lib/api";
++
++const DROP_REASON_LABEL: Record<DropReason, string> = {
++  invalid_token: "Invalid token (source not in pool)",
++  span_out_of_range: "Span out of range",
++  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
++  overlap_too_low: "Content-word overlap too low",
++  no_provenance_token: "No provenance token",
++};
++
++export function SentenceInspector({
++  open,
++  onOpenChange,
++  sentence,
++  sentence_id,
++}: {
++  open: boolean;
++  onOpenChange: (next: boolean) => void;
++  sentence: ReportVerifiedSentence | null;
++  sentence_id: string | null;
++}) {
++  return (
++    <Sheet open={open} onOpenChange={onOpenChange}>
++      <SheetContent
++        data-testid="sentence-inspector-sheet"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle data-testid="sentence-inspector-id">
++            {sentence_id ?? "Sentence inspector"}
++          </SheetTitle>
++          <SheetDescription>
++            Provenance and verification details for the selected sentence.
++          </SheetDescription>
++        </SheetHeader>
++        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
++          {sentence && (
++            <>
++              <p
++                data-testid="sentence-inspector-text"
++                className="text-foreground"
++              >
++                {sentence.sentence_text}
++              </p>
++              {sentence.provenance_tokens.length > 0 ? (
++                <ul
++                  data-testid="sentence-inspector-tokens"
++                  className="text-muted-foreground font-mono text-xs"
++                >
++                  {sentence.provenance_tokens.map((t, i) => (
++                    <li key={i}>{t}</li>
++                  ))}
++                </ul>
++              ) : (
++                <p className="text-muted-foreground text-xs italic">
++                  No provenance tokens.
++                </p>
++              )}
++              {sentence.drop_reason && (
++                <p
++                  data-testid="sentence-inspector-drop"
++                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
++                >
++                  dropped —{" "}
++                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
++                </p>
++              )}
++            </>
++          )}
++        </div>
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 2a79705..4caab27 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { useState } from "react";
++
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { useSentenceHover } from "@/lib/sentence_highlight";
+ import { cn } from "@/lib/utils";
+@@ -11,6 +13,8 @@ import {
+   type VerifiedReportSection,
+ } from "@/lib/api";
+ 
++import { SentenceInspector } from "./sentence_inspector";
++
+ const STATUS_TONE: Record<string, string> = {
+   verified:
+     "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+@@ -54,11 +58,13 @@ function SentenceRow({
+   show_dropped,
+   sentence_id,
+   hovered_id,
++  onSelect,
+ }: {
+   sentence: ReportVerifiedSentence;
+   show_dropped: boolean;
+   sentence_id: string;
+   hovered_id: string | null;
++  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+ }) {
+   const dropped = !sentence.verifier_pass;
+   if (dropped && !show_dropped) return null;
+@@ -67,8 +73,17 @@ function SentenceRow({
+     <li
+       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+       data-sentence-id={sentence_id}
++      role="button"
++      tabIndex={0}
++      onClick={() => onSelect(sentence_id, sentence)}
++      onKeyDown={(e) => {
++        if (e.key === "Enter" || e.key === " ") {
++          e.preventDefault();
++          onSelect(sentence_id, sentence);
++        }
++      }}
+       className={cn(
+-        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
++        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+         dropped
+           ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+           : "border-border bg-background",
+@@ -96,10 +111,12 @@ function SectionCard({
+   section,
+   show_dropped,
+   hovered_id,
++  onSelect,
+ }: {
+   section: VerifiedReportSection;
+   show_dropped: boolean;
+   hovered_id: string | null;
++  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+ }) {
+   const kept = keptSentences(section);
+   const dropped_count = section.verified_sentences.length - kept.length;
+@@ -137,6 +154,7 @@ function SectionCard({
+                 show_dropped={show_dropped}
+                 sentence_id={`${section.section_id}:${idx}`}
+                 hovered_id={hovered_id}
++                onSelect={onSelect}
+               />
+             ))}
+           </ul>
+@@ -160,6 +178,10 @@ export function VerifiedReportView({
+   show_dropped?: boolean;
+ }) {
+   const { hovered_id, root_ref } = useSentenceHover();
++  const [inspector, setInspector] = useState<{
++    id: string;
++    sentence: ReportVerifiedSentence;
++  } | null>(null);
+   return (
+     <div
+       ref={root_ref}
+@@ -208,8 +230,17 @@ export function VerifiedReportView({
+           section={section}
+           show_dropped={show_dropped}
+           hovered_id={hovered_id}
++          onSelect={(id, sentence) => setInspector({ id, sentence })}
+         />
+       ))}
++      <SentenceInspector
++        open={inspector !== null}
++        onOpenChange={(open) => {
++          if (!open) setInspector(null);
++        }}
++        sentence={inspector?.sentence ?? null}
++        sentence_id={inspector?.id ?? null}
++      />
+     </div>
+   );
+ }
+diff --git a/web/tests/e2e/sentence_inspector.spec.ts b/web/tests/e2e/sentence_inspector.spec.ts
+new file mode 100644
+index 0000000..ad7585c
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector.spec.ts
+@@ -0,0 +1,21 @@
++import { expect, test } from "@playwright/test";
++
++test("clicking a sentence opens the Inspector Sheet within 500ms", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await expect(page.getByTestId("verified-report-view")).toBeVisible();
++
++  const target = page.locator('[data-sentence-id="sec_x:5"]');
++  await target.click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
++    "sec_x:5",
++  );
++  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
++    "Test sentence 5",
++  );
++});
