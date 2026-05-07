@@ -38,6 +38,22 @@ SectionStatus = Literal["verified", "regenerated", "dropped"]
 PipelineVerdict = Literal["success", "abort_no_verified_sections"]
 """Top-level verdict per CLAUDE.md §9.1 invariant 4."""
 
+AssertionSurface = Literal[
+    "prose",
+    "table",
+    "summary_bullet",
+    "limitation",
+    "caption",
+    "heading",
+]
+"""Render-surface kind of a verified assertion (I-f5-009).
+
+Per Carney plan §F: every assertion-bearing surface in a verified report
+must be gated-and-clickable through the Inspector OR explicitly marked
+ungated. Today's generator emits only "prose"; future Issues populate
+the other 5 surfaces as the generator learns to label table cells,
+summary bullets, etc."""
+
 DropReason = Literal[
     "invalid_token",       # token doesn't reference a known source_id
     "span_out_of_range",   # span_start > span_end or > len(full_text)
@@ -75,6 +91,16 @@ class VerifiedSentence(BaseModel):
             "disagrees; None = pending (no evaluator pass yet). At rule-based "
             "stage this mirrors verifier_pass; future Issue plugs in the "
             "real two-family LLM judge to populate this independently."
+        ),
+    )
+    assertion_surface: AssertionSurface = Field(
+        default="prose",
+        description=(
+            "Render-surface kind per I-f5-009. Default 'prose' preserves "
+            "back-compat with all existing fixtures. Non-prose values are "
+            "populated by future generator wiring (table cells, summary "
+            "bullets, limitations, captions, headings); the Inspector gates "
+            "all six surfaces equally."
         ),
     )
     is_synthesis_claim: bool = Field(

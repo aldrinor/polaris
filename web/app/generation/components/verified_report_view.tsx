@@ -7,12 +7,31 @@ import { useSentenceHover } from "@/lib/sentence_highlight";
 import { cn } from "@/lib/utils";
 import {
   keptSentences,
+  type AssertionSurface,
   type DropReason,
   type EvidencePool,
   type ReportVerifiedSentence,
   type VerifiedReport,
   type VerifiedReportSection,
 } from "@/lib/api";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
 
 import { SentenceInspector } from "./sentence_inspector";
 
@@ -91,9 +110,24 @@ function SentenceRow({
         hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
       )}
     >
-      <span className={cn(dropped ? "" : "text-foreground")}>
-        {sentence.sentence_text}
-      </span>
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
       {sentence.provenance_tokens.length > 0 && !dropped ? (
         <span className="text-muted-foreground font-mono text-[10px]">
           {sentence.provenance_tokens.join(" ")}
@@ -248,6 +282,13 @@ export function VerifiedReportView({
               {report.latency_ms} ms
             </dd>
           </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
         </CardContent>
       </Card>
 

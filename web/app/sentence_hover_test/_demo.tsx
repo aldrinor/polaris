@@ -180,6 +180,24 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
         },
+        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+        ...(
+          [
+            "table",
+            "summary_bullet",
+            "limitation",
+            "caption",
+            "heading",
+          ] as const
+        ).map((surface, k) => ({
+          section_id: "sec_x",
+          sentence_text: `${surface} assertion demo sentence.`,
+          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          assertion_surface: surface,
+        })),
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

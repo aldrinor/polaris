@@ -105,6 +105,39 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
         )
 
 
+def test_verified_sentence_assertion_surface_default_prose():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.assertion_surface == "prose"
+
+
+def test_verified_sentence_assertion_surface_accepts_six_values():
+    for surface in ("prose", "table", "summary_bullet", "limitation", "caption", "heading"):
+        s = VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            provenance_tokens=["[#ev:e:0-1]"],
+            verifier_pass=True,
+            assertion_surface=surface,
+        )
+        assert s.assertion_surface == surface
+
+
+def test_verified_sentence_assertion_surface_rejects_bogus():
+    with pytest.raises(ValidationError):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            provenance_tokens=["[#ev:e:0-1]"],
+            verifier_pass=True,
+            assertion_surface="bogus_surface",  # type: ignore[arg-type]
+        )
+
+
 def test_verified_sentence_synthesis_claim_allows_empty_tokens():
     s = VerifiedSentence(
         section_id="sec_x",

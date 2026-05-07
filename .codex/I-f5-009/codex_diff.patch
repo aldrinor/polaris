@@ -1,0 +1,258 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index ca051ce..ad7762c 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -38,6 +38,22 @@ SectionStatus = Literal["verified", "regenerated", "dropped"]
+ PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+ """Top-level verdict per CLAUDE.md §9.1 invariant 4."""
+ 
++AssertionSurface = Literal[
++    "prose",
++    "table",
++    "summary_bullet",
++    "limitation",
++    "caption",
++    "heading",
++]
++"""Render-surface kind of a verified assertion (I-f5-009).
++
++Per Carney plan §F: every assertion-bearing surface in a verified report
++must be gated-and-clickable through the Inspector OR explicitly marked
++ungated. Today's generator emits only "prose"; future Issues populate
++the other 5 surfaces as the generator learns to label table cells,
++summary bullets, etc."""
++
+ DropReason = Literal[
+     "invalid_token",       # token doesn't reference a known source_id
+     "span_out_of_range",   # span_start > span_end or > len(full_text)
+@@ -77,6 +93,16 @@ class VerifiedSentence(BaseModel):
+             "real two-family LLM judge to populate this independently."
+         ),
+     )
++    assertion_surface: AssertionSurface = Field(
++        default="prose",
++        description=(
++            "Render-surface kind per I-f5-009. Default 'prose' preserves "
++            "back-compat with all existing fixtures. Non-prose values are "
++            "populated by future generator wiring (table cells, summary "
++            "bullets, limitations, captions, headings); the Inspector gates "
++            "all six surfaces equally."
++        ),
++    )
+     is_synthesis_claim: bool = Field(
+         default=False,
+         description=(
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index 469195c..faf9d36 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -105,6 +105,39 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+         )
+ 
+ 
++def test_verified_sentence_assertion_surface_default_prose():
++    s = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="x.",
++        provenance_tokens=["[#ev:e:0-1]"],
++        verifier_pass=True,
++    )
++    assert s.assertion_surface == "prose"
++
++
++def test_verified_sentence_assertion_surface_accepts_six_values():
++    for surface in ("prose", "table", "summary_bullet", "limitation", "caption", "heading"):
++        s = VerifiedSentence(
++            section_id="sec_x",
++            sentence_text="x.",
++            provenance_tokens=["[#ev:e:0-1]"],
++            verifier_pass=True,
++            assertion_surface=surface,
++        )
++        assert s.assertion_surface == surface
++
++
++def test_verified_sentence_assertion_surface_rejects_bogus():
++    with pytest.raises(ValidationError):
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text="x.",
++            provenance_tokens=["[#ev:e:0-1]"],
++            verifier_pass=True,
++            assertion_surface="bogus_surface",  # type: ignore[arg-type]
++        )
++
++
+ def test_verified_sentence_synthesis_claim_allows_empty_tokens():
+     s = VerifiedSentence(
+         section_id="sec_x",
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 44eb61d..6e4865e 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -7,6 +7,7 @@ import { useSentenceHover } from "@/lib/sentence_highlight";
+ import { cn } from "@/lib/utils";
+ import {
+   keptSentences,
++  type AssertionSurface,
+   type DropReason,
+   type EvidencePool,
+   type ReportVerifiedSentence,
+@@ -14,6 +15,24 @@ import {
+   type VerifiedReportSection,
+ } from "@/lib/api";
+ 
++const ASSERTION_SURFACES: AssertionSurface[] = [
++  "prose",
++  "table",
++  "summary_bullet",
++  "limitation",
++  "caption",
++  "heading",
++];
++
++const SURFACE_LABEL: Record<AssertionSurface, string> = {
++  prose: "Prose",
++  table: "Table",
++  summary_bullet: "Summary bullet",
++  limitation: "Limitation",
++  caption: "Caption",
++  heading: "Heading",
++};
++
+ import { SentenceInspector } from "./sentence_inspector";
+ 
+ const STATUS_TONE: Record<string, string> = {
+@@ -91,9 +110,24 @@ function SentenceRow({
+         hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+       )}
+     >
+-      <span className={cn(dropped ? "" : "text-foreground")}>
+-        {sentence.sentence_text}
+-      </span>
++      <div className="flex items-start gap-2">
++        {(() => {
++          const surface = sentence.assertion_surface ?? "prose";
++          if (surface === "prose") return null;
++          return (
++            <span
++              data-testid={`surface-badge-${surface}`}
++              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
++              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
++            >
++              {SURFACE_LABEL[surface]}
++            </span>
++          );
++        })()}
++        <span className={cn(dropped ? "" : "text-foreground")}>
++          {sentence.sentence_text}
++        </span>
++      </div>
+       {sentence.provenance_tokens.length > 0 && !dropped ? (
+         <span className="text-muted-foreground font-mono text-[10px]">
+           {sentence.provenance_tokens.join(" ")}
+@@ -248,6 +282,13 @@ export function VerifiedReportView({
+               {report.latency_ms} ms
+             </dd>
+           </dl>
++          <p
++            data-testid="assertion-surface-legend"
++            className="text-muted-foreground mt-3 text-xs"
++          >
++            Gated assertion surfaces (all clickable through Inspector):{" "}
++            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
++          </p>
+         </CardContent>
+       </Card>
+ 
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 2c8843b..cc9c6d4 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -180,6 +180,24 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+         },
++        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
++        ...(
++          [
++            "table",
++            "summary_bullet",
++            "limitation",
++            "caption",
++            "heading",
++          ] as const
++        ).map((surface, k) => ({
++          section_id: "sec_x",
++          sentence_text: `${surface} assertion demo sentence.`,
++          provenance_tokens: [`[#ev:src-${k}:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          assertion_surface: surface,
++        })),
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 3268057..41dea85 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -603,8 +603,17 @@ export interface ReportVerifiedSentence {
+   drop_reason: DropReason | null;
+   evaluator_agrees: boolean | null;
+   is_synthesis_claim?: boolean;
++  assertion_surface?: AssertionSurface;
+ }
+ 
++export type AssertionSurface =
++  | "prose"
++  | "table"
++  | "summary_bullet"
++  | "limitation"
++  | "caption"
++  | "heading";
++
+ export interface VerifiedReportSection {
+   section_id: string;
+   section_title: string;
+diff --git a/web/tests/e2e/sentence_inspector_surfaces.spec.ts b/web/tests/e2e/sentence_inspector_surfaces.spec.ts
+new file mode 100644
+index 0000000..d98ba5b
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_surfaces.spec.ts
+@@ -0,0 +1,34 @@
++import { expect, test } from "@playwright/test";
++
++const SURFACES: { id: number; surface: string }[] = [
++  { id: 18, surface: "table" },
++  { id: 19, surface: "summary_bullet" },
++  { id: 20, surface: "limitation" },
++  { id: 21, surface: "caption" },
++  { id: 22, surface: "heading" },
++];
++
++test("Report header shows assertion-surface legend", async ({ page }) => {
++  await page.goto("/sentence_hover_test");
++  await expect(page.getByTestId("assertion-surface-legend")).toBeVisible();
++  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
++    "Prose",
++  );
++  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
++    "Heading",
++  );
++});
++
++for (const { id, surface } of SURFACES) {
++  test(`${surface} sentence is clickable and opens Inspector`, async ({
++    page,
++  }) => {
++    await page.goto("/sentence_hover_test");
++    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
++    await expect(row.getByTestId(`surface-badge-${surface}`)).toBeVisible();
++    await row.click();
++    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++      timeout: 500,
++    });
++  });
++}
