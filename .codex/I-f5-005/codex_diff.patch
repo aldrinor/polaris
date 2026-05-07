@@ -1,0 +1,221 @@
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index edab9b5..db1f13b 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -74,28 +74,60 @@ function AgreementBadge({
+   );
+ }
+ 
+-function SourceCard({
++function SpanQuote({
+   token,
+-  source,
++  text,
+   idx,
++  spanIdx,
+ }: {
+   token: ParsedToken;
++  text: string;
++  idx: number;
++  spanIdx: number;
++}) {
++  const out_of_range = token.end > text.length;
++  const span = out_of_range ? "" : text.slice(token.start, token.end);
++  if (out_of_range) {
++    return (
++      <p
++        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
++        className="text-rose-700 dark:text-rose-300"
++      >
++        (span out of range: {token.start}-{token.end} of {text.length})
++      </p>
++    );
++  }
++  return (
++    <blockquote
++      data-testid={`inspector-span-${idx}-${spanIdx}`}
++      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
++    >
++      {span || "(empty span)"}
++    </blockquote>
++  );
++}
++
++function SourceCard({
++  tokens,
++  source,
++  idx,
++}: {
++  tokens: ParsedToken[];
+   source: RetrievalSource | undefined;
+   idx: number;
+ }) {
++  const first = tokens[0];
+   if (!source) {
+     return (
+       <div
+         data-testid={`inspector-source-missing-${idx}`}
+         className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+       >
+-        Source <code>{token.source_id}</code> not in pool — token {token.raw}.
++        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+       </div>
+     );
+   }
+   const text = source.full_text ?? source.snippet ?? "";
+-  const out_of_range = token.end > text.length;
+-  const span = out_of_range ? "" : text.slice(token.start, token.end);
+   return (
+     <div
+       data-testid={`inspector-source-${idx}`}
+@@ -133,21 +165,17 @@ function SourceCard({
+           </>
+         )}
+       </p>
+-      {out_of_range ? (
+-        <p
+-          data-testid={`inspector-span-out-of-range-${idx}`}
+-          className="text-rose-700 dark:text-rose-300"
+-        >
+-          (span out of range: {token.start}-{token.end} of {text.length})
+-        </p>
+-      ) : (
+-        <blockquote
+-          data-testid={`inspector-span-${idx}`}
+-          className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+-        >
+-          {span || "(empty span)"}
+-        </blockquote>
+-      )}
++      <div className="flex flex-col gap-1">
++        {tokens.map((tok, j) => (
++          <SpanQuote
++            key={j}
++            token={tok}
++            text={text}
++            idx={idx}
++            spanIdx={j}
++          />
++        ))}
++      </div>
+     </div>
+   );
+ }
+@@ -167,6 +195,13 @@ export function SentenceInspector({
+ }) {
+   const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+   const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
++  const grouped: Map<string, ParsedToken[]> = new Map();
++  for (const tok of tokens) {
++    const arr = grouped.get(tok.source_id) ?? [];
++    arr.push(tok);
++    grouped.set(tok.source_id, arr);
++  }
++  const groups = [...grouped.entries()];
+   return (
+     <Sheet open={open} onOpenChange={onOpenChange}>
+       <SheetContent
+@@ -205,11 +240,11 @@ export function SentenceInspector({
+                   data-testid="inspector-sources"
+                   className="flex flex-col gap-2"
+                 >
+-                  {tokens.map((tok, i) => (
++                  {groups.map(([source_id, group_tokens], i) => (
+                     <SourceCard
+-                      key={i}
+-                      token={tok}
+-                      source={pool_index.get(tok.source_id)}
++                      key={source_id}
++                      tokens={group_tokens}
++                      source={pool_index.get(source_id)}
+                       idx={i}
+                     />
+                   ))}
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index b5a06fb..f5cee51 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -93,6 +93,24 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: null,
+         },
++        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
++        {
++          section_id: "sec_x",
++          sentence_text: "Multi-span same-source demo sentence.",
++          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
++        {
++          section_id: "sec_x",
++          sentence_text: "Multi-source demo sentence.",
++          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/tests/e2e/sentence_inspector_multispan.spec.ts b/web/tests/e2e/sentence_inspector_multispan.spec.ts
+new file mode 100644
+index 0000000..f1acfb9
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_multispan.spec.ts
+@@ -0,0 +1,40 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector groups multi-span same-source into one card with N blockquotes", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:13"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  // ONE source card (src-0 grouped).
++  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
++  // TWO span blockquotes inside that one card.
++  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
++  // Source URL + tier + trace rendered ONCE.
++  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
++  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
++});
++
++test("Inspector renders multi-source spans as separate cards", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:14"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  // TWO source cards (src-1 then src-2 in token order).
++  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
++  // Each card has one span.
++  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
++});
+diff --git a/web/tests/e2e/sentence_inspector_source.spec.ts b/web/tests/e2e/sentence_inspector_source.spec.ts
+index e401006..489feaa 100644
+--- a/web/tests/e2e/sentence_inspector_source.spec.ts
++++ b/web/tests/e2e/sentence_inspector_source.spec.ts
+@@ -14,7 +14,7 @@ test("Inspector renders source URL + tier + span + retrieval trace", async ({
+     /cochrane.org/,
+   );
+   await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+-  await expect(page.getByTestId("inspector-span-0")).toContainText(
++  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+     "randomized trial",
+   );
+   await expect(page.getByTestId("inspector-trace-0")).toContainText(

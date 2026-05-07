@@ -93,6 +93,24 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: null,
         },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

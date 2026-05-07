@@ -1,0 +1,2532 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0310-f159-7af3-9787-53d7c5eebb60
+--------
+user
+# Codex Diff Review — I-f5-005 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Issue:** I-f5-005 — Inspector multi-span support
+**Brief:** APPROVED iter 1
+**Canonical-diff-sha256:** `8c692caac1b255283d3bcff712ec3002d09e6e98280f0c94c4699597555c14b5`
+**LOC:** 93 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/app/generation/components/sentence_inspector.tsx    EDIT (group-by-source refactor + SpanQuote split)
+web/app/sentence_hover_test/_demo.tsx                   EDIT (sec_x:13 multi-span; sec_x:14 multi-source)
+web/tests/e2e/sentence_inspector_source.spec.ts         EDIT (testid renamed inspector-span-0 -> inspector-span-0-0)
+web/tests/e2e/sentence_inspector_multispan.spec.ts      NEW +42 (2 Playwright tests)
+```
+
+## What changed
+
+### Refactor (sentence_inspector.tsx)
+- Tokens grouped by `source_id` into `Map<string, ParsedToken[]>` preserving first-occurrence order. Iterated as `[source_id, group_tokens][]`.
+- `SourceCard` now takes `tokens: ParsedToken[]` (was single `token`); renders source URL/tier/trace ONCE at top, then iterates over `tokens` rendering one `<SpanQuote>` per span.
+- `SpanQuote` extracted as a separate component handling out-of-range guard + blockquote rendering. testid `inspector-span-{i}-{j}` where i = source group index, j = span index within group.
+- Existing testids preserved: `inspector-source-{i}` / `inspector-source-url-{i}` / `inspector-tier-{T}` / `inspector-trace-{i}` / `inspector-source-missing-{i}` continue to refer to the per-source group card. Span testid changed from `inspector-span-{i}` to `inspector-span-{i}-{j}`.
+- I-f5-003 spec (`sentence_inspector_source.spec.ts`) updated to match the new j=0 testid (`inspector-span-0-0`).
+
+### Demo fixture (_demo.tsx)
+- APPENDED sec_x:13: two tokens to src-0 (spans 0-30, 60-90) → multi-span same-source.
+- APPENDED sec_x:14: one token to src-1 + one to src-2 → multi-source.
+- Existing sentences sec_x:0..12 preserved unchanged.
+
+### New Playwright spec (sentence_inspector_multispan.spec.ts)
+- Test 1 (sec_x:13 same-source): exactly ONE source card; `inspector-source-1` has count 0; TWO blockquotes (`inspector-span-0-0`, `inspector-span-0-1`); URL/trace rendered ONCE.
+- Test 2 (sec_x:14 multi-source): TWO source cards; each card has one span (`inspector-span-0-0`, `inspector-span-1-0`); `inspector-span-0-1` has count 0.
+
+## Verification
+- `npx tsc --noEmit` passes (web/), exit 0.
+- I-f5-003 spec assertions updated for new testid scheme; agreement spec (I-f5-004) unaffected (uses sentence-text testids, not span testids).
+
+## Risks for Codex Red-Team
+
+1. **Testid scheme migration:** I-f5-003 used `inspector-span-{i}`; new scheme is `inspector-span-{i}-{j}`. Existing spec updated in same diff to assert `inspector-span-0-0`. Verify no other test references `inspector-span-N` (single index).
+2. **Map iteration order:** `Map<source_id, ...>` insertion order preserved per ECMAScript spec. Test 2 asserts src-1 → idx 0, src-2 → idx 1 in token-occurrence order.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 93 net. Comfortably under 200.
+5. **No backend change, no fixture sweep, no schema migration.**
+6. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review this as a diff, focusing first on behavioral regressions and test coverage. I’m going to inspect the touched files plus any remaining `inspector-span-*` references so the verdict is grounded in the actual workspace.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "inspector-span-" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+ succeeded in 1412ms:
+web\app\generation\components\sentence_inspector.tsx:        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+web\app\generation\components\sentence_inspector.tsx:      data-testid={`inspector-span-${idx}-${spanIdx}`}
+web\tests\e2e\sentence_inspector_source.spec.ts:  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+web\tests\e2e\sentence_inspector_multispan.spec.ts:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_multispan.spec.ts:  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+
+ succeeded in 1783ms:
+ succeeded in 2216ms:
+M  web/app/generation/components/sentence_inspector.tsx
+M  web/app/sentence_hover_test/_demo.tsx
+A  web/tests/e2e/sentence_inspector_multispan.spec.ts
+M  web/tests/e2e/sentence_inspector_source.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f5-005/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The changes are staged, so the unstaged diff is empty. The only span testid references now use the two-index form in the touched files, which addresses the stated migration risk; next I’m reading the staged patch itself.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/generation/components/sentence_inspector.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/sentence_hover_test/_demo.tsx web/tests/e2e/sentence_inspector_source.spec.ts web/tests/e2e/sentence_inspector_multispan.spec.ts' in C:\POLARIS
+ succeeded in 1546ms:
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index b5a06fb..f5cee51 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -93,6 +93,24 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: null,
+         },
++        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
++        {
++          section_id: "sec_x",
++          sentence_text: "Multi-span same-source demo sentence.",
++          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
++        {
++          section_id: "sec_x",
++          sentence_text: "Multi-source demo sentence.",
++          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/tests/e2e/sentence_inspector_multispan.spec.ts b/web/tests/e2e/sentence_inspector_multispan.spec.ts
+new file mode 100644
+index 0000000..f1acfb9
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_multispan.spec.ts
+@@ -0,0 +1,40 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector groups multi-span same-source into one card with N blockquotes", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:13"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  // ONE source card (src-0 grouped).
++  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
++  // TWO span blockquotes inside that one card.
++  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
++  // Source URL + tier + trace rendered ONCE.
++  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
++  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
++});
++
++test("Inspector renders multi-source spans as separate cards", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:14"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  // TWO source cards (src-1 then src-2 in token order).
++  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
++  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
++  // Each card has one span.
++  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
++  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
++});
+diff --git a/web/tests/e2e/sentence_inspector_source.spec.ts b/web/tests/e2e/sentence_inspector_source.spec.ts
+index e401006..489feaa 100644
+--- a/web/tests/e2e/sentence_inspector_source.spec.ts
++++ b/web/tests/e2e/sentence_inspector_source.spec.ts
+@@ -14,7 +14,7 @@ test("Inspector renders source URL + tier + span + retrieval trace", async ({
+     /cochrane.org/,
+   );
+   await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+-  await expect(page.getByTestId("inspector-span-0")).toContainText(
++  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+     "randomized trial",
+   );
+   await expect(page.getByTestId("inspector-trace-0")).toContainText(
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1827ms:
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index edab9b5..db1f13b 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -74,28 +74,60 @@ function AgreementBadge({
+   );
+ }
+ 
+-function SourceCard({
++function SpanQuote({
+   token,
+-  source,
++  text,
+   idx,
++  spanIdx,
+ }: {
+   token: ParsedToken;
++  text: string;
++  idx: number;
++  spanIdx: number;
++}) {
++  const out_of_range = token.end > text.length;
++  const span = out_of_range ? "" : text.slice(token.start, token.end);
++  if (out_of_range) {
++    return (
++      <p
++        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
++        className="text-rose-700 dark:text-rose-300"
++      >
++        (span out of range: {token.start}-{token.end} of {text.length})
++      </p>
++    );
++  }
++  return (
++    <blockquote
++      data-testid={`inspector-span-${idx}-${spanIdx}`}
++      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
++    >
++      {span || "(empty span)"}
++    </blockquote>
++  );
++}
++
++function SourceCard({
++  tokens,
++  source,
++  idx,
++}: {
++  tokens: ParsedToken[];
+   source: RetrievalSource | undefined;
+   idx: number;
+ }) {
++  const first = tokens[0];
+   if (!source) {
+     return (
+       <div
+         data-testid={`inspector-source-missing-${idx}`}
+         className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+       >
+-        Source <code>{token.source_id}</code> not in pool — token {token.raw}.
++        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+       </div>
+     );
+   }
+   const text = source.full_text ?? source.snippet ?? "";
+-  const out_of_range = token.end > text.length;
+-  const span = out_of_range ? "" : text.slice(token.start, token.end);
+   return (
+     <div
+       data-testid={`inspector-source-${idx}`}
+@@ -133,21 +165,17 @@ function SourceCard({
+           </>
+         )}
+       </p>
+-      {out_of_range ? (
+-        <p
+-          data-testid={`inspector-span-out-of-range-${idx}`}
+-          className="text-rose-700 dark:text-rose-300"
+-        >
+-          (span out of range: {token.start}-{token.end} of {text.length})
+-        </p>
+-      ) : (
+-        <blockquote
+-          data-testid={`inspector-span-${idx}`}
+-          className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+-        >
+-          {span || "(empty span)"}
+-        </blockquote>
+-      )}
++      <div className="flex flex-col gap-1">
++        {tokens.map((tok, j) => (
++          <SpanQuote
++            key={j}
++            token={tok}
++            text={text}
++            idx={idx}
++            spanIdx={j}
++          />
++        ))}
++      </div>
+     </div>
+   );
+ }
+@@ -167,6 +195,13 @@ export function SentenceInspector({
+ }) {
+   const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+   const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
++  const grouped: Map<string, ParsedToken[]> = new Map();
++  for (const tok of tokens) {
++    const arr = grouped.get(tok.source_id) ?? [];
++    arr.push(tok);
++    grouped.set(tok.source_id, arr);
++  }
++  const groups = [...grouped.entries()];
+   return (
+     <Sheet open={open} onOpenChange={onOpenChange}>
+       <SheetContent
+@@ -205,11 +240,11 @@ export function SentenceInspector({
+                   data-testid="inspector-sources"
+                   className="flex flex-col gap-2"
+                 >
+-                  {tokens.map((tok, i) => (
++                  {groups.map(([source_id, group_tokens], i) => (
+                     <SourceCard
+-                      key={i}
+-                      token={tok}
+-                      source={pool_index.get(tok.source_id)}
++                      key={source_id}
++                      tokens={group_tokens}
++                      source={pool_index.get(source_id)}
+                       idx={i}
+                     />
+                   ))}
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2251ms:
+ .../generation/components/sentence_inspector.tsx   | 83 +++++++++++++++-------
+ web/app/sentence_hover_test/_demo.tsx              | 18 +++++
+ web/tests/e2e/sentence_inspector_multispan.spec.ts | 40 +++++++++++
+ web/tests/e2e/sentence_inspector_source.spec.ts    |  2 +-
+ 4 files changed, 118 insertions(+), 25 deletions(-)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+The staged component patch is compact: it groups parsed provenance tokens by `source_id`, then renders one card per group and one quote per token. I’m checking the surrounding parser/source model and the demo fixture text lengths now, because the likely execution risks are malformed grouping assumptions or out-of-range fixture spans.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/sentence_inspector.tsx -TotalCount 280' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo.tsx -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "type ParsedToken|interface ParsedToken|function parseAllTokens|function parseToken|type RetrievalSource|interface RetrievalSource|const SOURCES|source_id" web/app/generation/components/sentence_inspector.tsx web/app/sentence_hover_test/_demo.tsx' in C:\POLARIS
+ succeeded in 1437ms:
+web/app/sentence_hover_test/_demo.tsx:13:    source_id: `src-${i}`,
+web/app/generation/components/sentence_inspector.tsx:14:  type RetrievalSource,
+web/app/generation/components/sentence_inspector.tsx:15:  type RetrievalSourceTier,
+web/app/generation/components/sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app/generation/components/sentence_inspector.tsx:126:        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+web/app/generation/components/sentence_inspector.tsx:197:  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+web/app/generation/components/sentence_inspector.tsx:200:    const arr = grouped.get(tok.source_id) ?? [];
+web/app/generation/components/sentence_inspector.tsx:202:    grouped.set(tok.source_id, arr);
+web/app/generation/components/sentence_inspector.tsx:243:                  {groups.map(([source_id, group_tokens], i) => (
+web/app/generation/components/sentence_inspector.tsx:245:                      key={source_id}
+web/app/generation/components/sentence_inspector.tsx:247:                      source={pool_index.get(source_id)}
+
+ succeeded in 1814ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type RetrievalSource,
+  type RetrievalSourceTier,
+} from "@/lib/api";
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Content-word overlap too low",
+  no_provenance_token: "No provenance token",
+};
+
+const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+  T1: "Regulatory & Cochrane systematic reviews — highest evidentiary weight",
+  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
+  T3: "Registries, clinical guidelines, government health agencies",
+};
+
+const TIER_TONE: Record<RetrievalSourceTier, string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+function AgreementBadge({
+  evaluator_agrees,
+}: {
+  evaluator_agrees: boolean | null;
+}) {
+  if (evaluator_agrees === true) {
+    return (
+      <span
+        data-testid="inspector-agree"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+        title="Two-family evaluator agrees with generator claim"
+      >
+        Agree
+      </span>
+    );
+  }
+  if (evaluator_agrees === false) {
+    return (
+      <span
+        data-testid="inspector-disagree"
+        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        title="Two-family evaluator disagrees with generator claim"
+      >
+        Disagree
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="inspector-agree-pending"
+      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+      title="Two-family evaluator pass not yet recorded"
+    >
+      Pending
+    </span>
+  );
+}
+
+function SpanQuote({
+  token,
+  text,
+  idx,
+  spanIdx,
+}: {
+  token: ParsedToken;
+  text: string;
+  idx: number;
+  spanIdx: number;
+}) {
+  const out_of_range = token.end > text.length;
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <span
+          data-testid={`inspector-tier-${source.tier}`}
+          title={TIER_RATIONALE[source.tier]}
+          className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+        >
+          {source.tier}
+        </span>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote
+            key={j}
+            token={tok}
+            text={text}
+            idx={idx}
+            spanIdx={j}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <AgreementBadge
+                  evaluator_agrees={sentence.evaluator_agrees}
+                />
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 2185ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+
+const SOURCE_FULL_TEXT_5 =
+  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Cochrane review ${i}`,
+    publication_date: "2024-03-15",
+    authors: ["Smith J", "Doe R", "Patel K"],
+    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+    full_text_available: true,
+    full_text: SOURCE_FULL_TEXT_5,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+const POOL: EvidencePool = {
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sources: Array.from({ length: 10 }, (_, i) => _src(i)),
+  adequacy: {
+    is_adequate: true,
+    sources_per_tier: { T1: 10, T2: 0, T3: 0 },
+    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+    failure_reason: null,
+  },
+  queries_executed: ["aspirin migraine"],
+  retrieval_started_at_utc: ISO,
+  retrieval_finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+const REPORT: VerifiedReport = {
+  report_id: "r-hover-test",
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sections: [
+    {
+      section_id: "sec_x",
+      section_title: "Test section",
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
+          section_id: "sec_x",
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+      ],
+      section_verify_pass_rate: 1.0,
+      section_status: "verified",
+    },
+  ],
+  overall_verify_pass_rate: 1.0,
+  pipeline_verdict: "success",
+  generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
+  verifier_pass_threshold: 0.4,
+  started_at_utc: ISO,
+  finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+export function SentenceHoverHarness() {
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <VerifiedReportView report={REPORT} pool={POOL} />
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/provenance_tokens.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "provenance_tokens|source_id|ParsedToken|parseAllTokens|inspector-source|inspector-span" web/app web/lib web/tests/e2e' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_multispan.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_source.spec.ts' in C:\POLARIS
+ succeeded in 1386ms:
+web/lib\provenance_tokens.ts:5:export interface ParsedToken {
+web/lib\provenance_tokens.ts:7:  source_id: string;
+web/lib\provenance_tokens.ts:12:export function parseProvenanceToken(token: string): ParsedToken | null {
+web/lib\provenance_tokens.ts:17:    source_id: match[1],
+web/lib\provenance_tokens.ts:23:export function parseAllTokens(tokens: string[]): ParsedToken[] {
+web/lib\provenance_tokens.ts:26:    .filter((t): t is ParsedToken => t !== null);
+web/lib\api.ts:143:  member_source_ids: string[];
+web/lib\api.ts:153:  source_id: string;
+web/lib\api.ts:216:  provenance_tokens: string[];
+web/lib\api.ts:467:  source_id: string;
+web/lib\api.ts:600:  provenance_tokens: string[];
+web/app\sentence_hover_test\_demo.tsx:13:    source_id: `src-${i}`,
+web/app\sentence_hover_test\_demo.tsx:63:            provenance_tokens: [token],
+web/app\sentence_hover_test\_demo.tsx:73:          provenance_tokens: [`[#ev:src-0:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:82:          provenance_tokens: [`[#ev:src-1:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:91:          provenance_tokens: [`[#ev:src-2:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:100:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+web/app\sentence_hover_test\_demo.tsx:109:          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+web/app\retrieval\components\corpus_brief.tsx:117:                key={source.source_id}
+web/app\dashboard\page.tsx:141:            source_id: `${u.document_id}:${ui}-${ci}`,
+web/app\generation\components\verified_report_view.tsx:97:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+web/app\generation\components\verified_report_view.tsx:99:          {sentence.provenance_tokens.join(" ")}
+web/app\generation\page.tsx:66:              [#ev:source_id:start-end]
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\sentence_inspector.tsx:83:  token: ParsedToken;
+web/app\generation\components\sentence_inspector.tsx:93:        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+web/app\generation\components\sentence_inspector.tsx:102:      data-testid={`inspector-span-${idx}-${spanIdx}`}
+web/app\generation\components\sentence_inspector.tsx:115:  tokens: ParsedToken[];
+web/app\generation\components\sentence_inspector.tsx:123:        data-testid={`inspector-source-missing-${idx}`}
+web/app\generation\components\sentence_inspector.tsx:126:        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+web/app\generation\components\sentence_inspector.tsx:133:      data-testid={`inspector-source-${idx}`}
+web/app\generation\components\sentence_inspector.tsx:138:          data-testid={`inspector-source-url-${idx}`}
+web/app\generation\components\sentence_inspector.tsx:196:  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+web/app\generation\components\sentence_inspector.tsx:197:  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+web/app\generation\components\sentence_inspector.tsx:198:  const grouped: Map<string, ParsedToken[]> = new Map();
+web/app\generation\components\sentence_inspector.tsx:200:    const arr = grouped.get(tok.source_id) ?? [];
+web/app\generation\components\sentence_inspector.tsx:202:    grouped.set(tok.source_id, arr);
+web/app\generation\components\sentence_inspector.tsx:240:                  data-testid="inspector-sources"
+web/app\generation\components\sentence_inspector.tsx:243:                  {groups.map(([source_id, group_tokens], i) => (
+web/app\generation\components\sentence_inspector.tsx:245:                      key={source_id}
+web/app\generation\components\sentence_inspector.tsx:247:                      source={pool_index.get(source_id)}
+web/tests/e2e\sentence_inspector_source.spec.ts:12:  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+web/tests/e2e\sentence_inspector_source.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+web/tests/e2e\sentence_inspector_source.spec.ts:38:  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_source.spec.ts:39:  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+web/tests/e2e\sentence_inspector_multispan.spec.ts:13:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:14:  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:16:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:17:  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:19:  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:33:  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:34:  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:35:  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:37:  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:38:  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
+web/tests/e2e\sentence_inspector_multispan.spec.ts:39:  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+
+ succeeded in 1789ms:
+// I-f5-003 — frontend mirror of polaris_graph.generator2.provenance.
+
+const TOKEN_RE = /^\[#ev:([a-zA-Z0-9_\-]+):(\d+)-(\d+)\]$/;
+
+export interface ParsedToken {
+  raw: string;
+  source_id: string;
+  start: number;
+  end: number;
+}
+
+export function parseProvenanceToken(token: string): ParsedToken | null {
+  const match = TOKEN_RE.exec(token.trim());
+  if (!match) return null;
+  return {
+    raw: token,
+    source_id: match[1],
+    start: parseInt(match[2], 10),
+    end: parseInt(match[3], 10),
+  };
+}
+
+export function parseAllTokens(tokens: string[]): ParsedToken[] {
+  return tokens
+    .map(parseProvenanceToken)
+    .filter((t): t is ParsedToken => t !== null);
+}
+
+ succeeded in 2041ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector groups multi-span same-source into one card with N blockquotes", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:13"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  // ONE source card (src-0 grouped).
+  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+  // TWO span blockquotes inside that one card.
+  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-span-0-1")).toBeVisible();
+  // Source URL + tier + trace rendered ONCE.
+  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
+});
+
+test("Inspector renders multi-source spans as separate cards", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:14"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  // TWO source cards (src-1 then src-2 in token order).
+  await expect(page.getByTestId("inspector-source-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-source-1")).toBeVisible();
+  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+  // Each card has one span.
+  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-span-1-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+});
+
+ succeeded in 2426ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders source URL + tier + span + retrieval trace", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:5"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
+    "href",
+    /cochrane.org/,
+  );
+  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+  await expect(page.getByTestId("inspector-span-0-0")).toContainText(
+    "randomized trial",
+  );
+  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+    "Cochrane review",
+  );
+  await expect(page.getByTestId("inspector-trace-0")).toContainText(
+    "2024-03-15",
+  );
+  await expect(page.getByTestId("inspector-trace-0")).toContainText("Smith J");
+});
+
+test("Inspector shows missing-source badge when token references unknown source", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:9"]').click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-source-missing-0")).toBeVisible();
+  await expect(page.getByTestId("inspector-source-missing-0")).toContainText(
+    "src-ghost",
+  );
+});
+
+codex
+The parser only accepts non-negative integer ranges and preserves token array order, so the new grouping order follows the original token order. The demo’s new spans are within the shared source text, so the happy-path assertions won’t accidentally pass through the out-of-range branch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sentence_hover_test|webServer|baseURL|port" web/playwright.config.ts web/tests/e2e web/app' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/playwright.config.ts' in C:\POLARIS
+ succeeded in 1341ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1700ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 2196ms:
+web/playwright.config.ts:1:import { defineConfig, devices } from "@playwright/test";
+web/playwright.config.ts:12: *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+web/playwright.config.ts:16:export default defineConfig({
+web/playwright.config.ts:28:  reporter: [["list"]],
+web/playwright.config.ts:30:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+web/playwright.config.ts:33:    viewport: { width: 1440, height: 900 },
+web/app\audit_live\_panels.tsx:3:import { useEffect, useRef, useState } from "react";
+web/app\audit_live\_panels.tsx:4:import { useSearchParams } from "next/navigation";
+web/app\audit_live\_panels.tsx:6:import { RunBroadcast } from "@/lib/run_broadcast";
+web/app\audit_live\_panels.tsx:7:import { SSEClient } from "@/lib/sse_client";
+web/app\audit_live\_panels.tsx:8:import {
+web/app\audit_live\_panels.tsx:17:export function LiveAuditPanels() {
+web/app\audit_live\page.tsx:1:import { Suspense } from "react";
+web/app\audit_live\page.tsx:3:import { LiveAuditPanels } from "./_panels";
+web/app\audit_live\page.tsx:5:export default function AuditLivePage() {
+web/app\contracts\_editor.tsx:3:import { useMemo, useState } from "react";
+web/app\contracts\_editor.tsx:5:import {
+web/app\contracts\_editor.tsx:17:export function ContractEditor() {
+web/app\contracts\page.tsx:1:import { ContractEditor } from "./_editor";
+web/app\contracts\page.tsx:3:export const metadata = {
+web/app\contracts\page.tsx:9:export default function ContractsPage() {
+web/app\contracts\page.tsx:14:        Define what the report MUST address before generation runs. The Evidence
+web/app\dashboard\page.tsx:3:import Link from "next/link";
+web/app\dashboard\page.tsx:4:import { useRouter } from "next/navigation";
+web/app\dashboard\page.tsx:5:import { useEffect, useState } from "react";
+web/app\dashboard\page.tsx:7:import { Button } from "@/components/ui/button";
+web/app\dashboard\page.tsx:8:import {
+web/app\dashboard\page.tsx:15:import { Input } from "@/components/ui/input";
+web/app\dashboard\page.tsx:16:import {
+web/app\dashboard\page.tsx:69:export default function DashboardPage() {
+web/app\dashboard\page.tsx:279:              Optional: upload supporting documents
+web/app\components\home_keyboard_shell.tsx:3:import Link from "next/link";
+web/app\components\home_keyboard_shell.tsx:4:import { useEffect, useRef, useState, type ReactNode } from "react";
+web/app\components\home_keyboard_shell.tsx:6:import { Button } from "@/components/ui/button";
+web/app\components\home_keyboard_shell.tsx:8:import { CommandPalette } from "./command_palette";
+web/app\components\home_keyboard_shell.tsx:21:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app\globals.css:1:@import "tailwindcss";
+web/app\globals.css:2:@import "tw-animate-css";
+web/app\globals.css:3:@import "shadcn/tailwind.css";
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:3:import { useState } from "react";
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:5:import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:6:import type { DisambiguationCluster } from "@/lib/api";
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:15:export function DisambiguationModalHarnessClient({ count }: { count: number }) {
+web/app\components\command_palette.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web/app\components\command_palette.tsx:4:import { useRouter } from "next/navigation";
+web/app\components\command_palette.tsx:5:import { useEffect, useState, type RefObject } from "react";
+web/app\components\command_palette.tsx:7:import { cn } from "@/lib/utils";
+web/app\components\command_palette.tsx:46:export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+web/tests/e2e\audit_live_multitab.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\audit_live_multitab.spec.ts:3:import { EVENT_NAMES } from "../../lib/sse_events";
+web/tests/e2e\audit_live_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\audit_live_adversarial.spec.ts:4:  page: import("@playwright/test").Page,
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:1:import { DisambiguationModalHarnessClient } from "./_client";
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:3:export const metadata = {
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:7:export default async function Page({
+web/tests/e2e\audit_live.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\audit_live.spec.ts:3:import { EVENT_NAMES } from "../../lib/sse_events";
+web/app\benchmark\page.tsx:1:import Link from "next/link";
+web/app\benchmark\page.tsx:3:import { Button } from "@/components/ui/button";
+web/app\benchmark\page.tsx:5:import { BenchmarkBoard } from "./components/benchmark_board";
+web/app\benchmark\page.tsx:7:export const metadata = {
+web/app\benchmark\page.tsx:13:export default function BenchmarkPage() {
+web/tests/e2e\audit_bundle.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\audit_bundle.spec.ts:7: * produces a VerifiedReport, the "Download audit bundle" button is
+web/tests/e2e\audit_bundle.spec.ts:25:    // Wait for either verified report or generation error
+web/tests/e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web/tests/e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web/tests/e2e\audit_bundle.spec.ts:49:      page.getByTestId("verified-report-view").waitFor({
+web/tests/e2e\audit_bundle.spec.ts:59:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web/tests/e2e\audit_bundle.spec.ts:60:      // No report -> no download button to test; skip
+web/tests/e2e\accessibility.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web/tests/e2e\accessibility.spec.ts:2:import { expect, test } from "@playwright/test";
+web/tests/e2e\accessibility.spec.ts:25:async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+web/tests/e2e\bundle_preview.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web/tests/e2e\bundle_preview.spec.ts:28:  report_id: "r1",
+web/tests/e2e\bundle_preview.spec.ts:52:    verified_report: { count: 1, bytes: 4096 },
+web/tests/e2e\bundle_preview.spec.ts:94:    report: R,
+web/tests/e2e\bundle_preview.spec.ts:117:    "verified_report",
+web/tests/e2e\bundle_preview.spec.ts:137:        report_id: "r1",
+web/app\generation\components\generation_runner.tsx:3:import { useState } from "react";
+web/app\generation\components\generation_runner.tsx:5:import { Button } from "@/components/ui/button";
+web/app\generation\components\generation_runner.tsx:6:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\generation\components\generation_runner.tsx:7:import {
+web/app\generation\components\generation_runner.tsx:18:  type VerifiedReport,
+web/app\generation\components\generation_runner.tsx:21:import { BundlePreview } from "./BundlePreview";
+web/app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web/app\generation\components\generation_runner.tsx:40:      report: VerifiedReport;
+web/app\generation\components\generation_runner.tsx:43:export function GenerationRunner() {
+web/app\generation\components\generation_runner.tsx:109:      setState({ kind: "ok", decision, pool, report: generation.report });
+web/app\generation\components\generation_runner.tsx:194:          {state.report.pipeline_verdict === "success" ? (
+web/app\generation\components\generation_runner.tsx:198:              report={state.report}
+web/app\generation\components\generation_runner.tsx:205:              report={state.report}
+web/app\generation\components\generation_runner.tsx:216:          <VerifiedReportView
+web/app\generation\components\generation_runner.tsx:217:            report={state.report}
+web/app\generation\components\generation_runner.tsx:236:  report,
+web/app\generation\components\generation_runner.tsx:240:  report: VerifiedReport;
+web/app\generation\components\generation_runner.tsx:247:      const blob = await downloadAuditBundle(decision, pool, report);
+web/app\generation\components\generation_runner.tsx:251:      a.download = `audit_${report.report_id}.tar.gz`;
+web/tests/e2e\benchmark.spec.ts:1:import { expect, test } from "@playwright/test";
+web/app\generation\components\sentence_inspector.tsx:3:import {
+web/app\generation\components\sentence_inspector.tsx:10:import {
+web/app\generation\components\sentence_inspector.tsx:13:  type ReportVerifiedSentence,
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\sentence_inspector.tsx:183:export function SentenceInspector({
+web/app\generation\components\sentence_inspector.tsx:192:  sentence: ReportVerifiedSentence | null;
+web/tests/e2e\command_palette.spec.ts:1:import { expect, test } from "@playwright/test";
+web/app\generation\page.tsx:1:import Link from "next/link";
+web/app\generation\page.tsx:3:import { Button } from "@/components/ui/button";
+web/app\generation\page.tsx:5:import { GenerationRunner } from "./components/generation_runner";
+web/app\generation\page.tsx:7:export const metadata = {
+web/app\generation\page.tsx:13:export default function GenerationPage() {
+web/app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this
+web/app\generation\page.tsx:82:            verified report into a portable evidence bundle. Slice 005
+web/app\generation\components\verified_report_view.tsx:3:import { useState } from "react";
+web/app\generation\components\verified_report_view.tsx:5:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\generation\components\verified_report_view.tsx:6:import { useSentenceHover } from "@/lib/sentence_highlight";
+web/app\generation\components\verified_report_view.tsx:7:import { cn } from "@/lib/utils";
+web/app\generation\components\verified_report_view.tsx:8:import {
+web/app\generation\components\verified_report_view.tsx:12:  type ReportVerifiedSentence,
+web/app\generation\components\verified_report_view.tsx:13:  type VerifiedReport,
+web/app\generation\components\verified_report_view.tsx:14:  type VerifiedReportSection,
+web/app\generation\components\verified_report_view.tsx:17:import { SentenceInspector } from "./sentence_inspector";
+web/app\generation\components\verified_report_view.tsx:64:  sentence: ReportVerifiedSentence;
+web/app\generation\components\verified_report_view.tsx:68:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web/app\generation\components\verified_report_view.tsx:117:  section: VerifiedReportSection;
+web/app\generation\components\verified_report_view.tsx:120:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web/app\generation\components\verified_report_view.tsx:174:export function VerifiedReportView({
+web/app\generation\components\verified_report_view.tsx:175:  report,
+web/app\generation\components\verified_report_view.tsx:179:  report: VerifiedReport;
+web/app\generation\components\verified_report_view.tsx:186:    sentence: ReportVerifiedSentence;
+web/app\generation\components\verified_report_view.tsx:191:      data-testid="verified-report-view"
+web/app\generation\components\verified_report_view.tsx:196:          <CardTitle className="text-lg">Verified report</CardTitle>
+web/app\generation\components\verified_report_view.tsx:197:          <VerdictBadge verdict={report.pipeline_verdict} />
+web/app\generation\components\verified_report_view.tsx:203:              {report.generator_model}
+web/app\generation\components\verified_report_view.tsx:208:              data-testid="report-evaluator"
+web/app\generation\components\verified_report_view.tsx:210:              {report.evaluator_model}
+web/app\generation\components\verified_report_view.tsx:211:              {report.family_segregation_passed ? (
+web/app\generation\components\verified_report_view.tsx:231:              {Math.round(report.overall_verify_pass_rate * 100)}%
+web/app\generation\components\verified_report_view.tsx:236:                report.sections.filter((s) => s.section_status !== "dropped")
+web/app\generation\components\verified_report_view.tsx:241:                report.sections.filter((s) => s.section_status === "dropped")
+web/app\generation\components\verified_report_view.tsx:248:              {report.latency_ms} ms
+web/app\generation\components\verified_report_view.tsx:254:      {report.sections.map((section) => (
+web/app\generation\components\BundlePreview.tsx:3:import { useEffect, useState } from "react";
+web/app\generation\components\BundlePreview.tsx:5:import {
+web/app\generation\components\BundlePreview.tsx:10:  type VerifiedReport,
+web/app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web/app\generation\components\BundlePreview.tsx:34:export function BundlePreview({
+web/app\generation\components\BundlePreview.tsx:37:  report,
+web/app\generation\components\BundlePreview.tsx:41:  report: VerifiedReport;
+web/app\generation\components\BundlePreview.tsx:46:    previewAuditBundle(decision, pool, report)
+web/app\generation\components\BundlePreview.tsx:62:  }, [decision, pool, report]);
+web/tests/e2e\command_palette_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\command_palette_suggest.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\contract_editor.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\disambiguation_modal.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\demo_walkthrough.spec.ts:1:import { expect, test } from "@playwright/test";
+web/app\benchmark\components\benchmark_board.tsx:3:import { useEffect, useState } from "react";
+web/app\benchmark\components\benchmark_board.tsx:5:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\benchmark\components\benchmark_board.tsx:6:import { cn } from "@/lib/utils";
+web/app\benchmark\components\benchmark_board.tsx:7:import {
+web/app\benchmark\components\benchmark_board.tsx:45:export function BenchmarkBoard() {
+web/tests/e2e\f1_a11y.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web/tests/e2e\f1_a11y.spec.ts:2:import { expect, test } from "@playwright/test";
+web/tests/e2e\f1_a11y.spec.ts:22:    await page.setViewportSize({ width: 1024, height: 768 });
+web/tests/e2e\f1_a11y.spec.ts:35:    await page.setViewportSize({ width: 1024, height: 768 });
+web/tests/e2e\f2_walkthrough.spec.ts:1:import { writeFileSync } from "node:fs";
+web/tests/e2e\f2_walkthrough.spec.ts:2:import path from "node:path";
+web/tests/e2e\f2_walkthrough.spec.ts:3:import { expect, test, type Page } from "@playwright/test";
+web/app\intake\page.tsx:1:import Link from "next/link";
+web/app\intake\page.tsx:3:import { Button } from "@/components/ui/button";
+web/app\intake\page.tsx:5:import { IntakeForm } from "./components/intake_form";
+web/app\intake\page.tsx:6:import { PdfDropBanner } from "./components/pdf_drop_banner";
+web/app\intake\page.tsx:8:export const metadata = {
+web/app\intake\page.tsx:14:export default function IntakePage() {
+web/app\inspector\[runId]\page.tsx:3:import Link from "next/link";
+web/app\inspector\[runId]\page.tsx:4:import { use, useEffect, useState } from "react";
+web/app\inspector\[runId]\page.tsx:6:import { Button } from "@/components/ui/button";
+web/app\inspector\[runId]\page.tsx:7:import {
+web/app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web/app\inspector\[runId]\page.tsx:15:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\inspector\[runId]\page.tsx:16:import {
+web/app\inspector\[runId]\page.tsx:30:export default function InspectorPage({ params }: InspectorPageProps) {
+web/app\inspector\[runId]\page.tsx:111:              Export bundle JSON
+web/app\runs\[runId]\page.tsx:3:import Link from "next/link";
+web/app\runs\[runId]\page.tsx:4:import { use, useEffect, useState } from "react";
+web/app\runs\[runId]\page.tsx:6:import { Button } from "@/components/ui/button";
+web/app\runs\[runId]\page.tsx:7:import {
+web/app\runs\[runId]\page.tsx:14:import {
+web/app\runs\[runId]\page.tsx:27:export default function RunDetailPage({ params }: RunPageProps) {
+web/app\runs\[runId]\page.tsx:84:                      ? `Bundle export failed: ${err.message}`
+web/app\runs\[runId]\page.tsx:85:                      : "Bundle export failed",
+web/app\runs\[runId]\page.tsx:90:              Export bundle
+web/app\runs\[runId]\page.tsx:158:                      ? `Bundle export failed: ${err.message}`
+web/app\runs\[runId]\page.tsx:159:                      : "Bundle export failed",
+web/app\runs\[runId]\page.tsx:164:              Export current bundle
+web/tests/e2e\f1_multi_tab.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\f1_multi_tab.spec.ts:18:async function open_palette(page: import("@playwright/test").Page) {
+web/app\intake\components\disambiguation_modal.tsx:3:import { useEffect, useRef } from "react";
+web/app\intake\components\disambiguation_modal.tsx:4:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web/app\intake\components\disambiguation_modal.tsx:6:import { Button } from "@/components/ui/button";
+web/app\intake\components\disambiguation_modal.tsx:7:import type { DisambiguationCluster } from "@/lib/api";
+web/app\intake\components\disambiguation_modal.tsx:11:export type DisambiguationModalProps = {
+web/app\intake\components\disambiguation_modal.tsx:25:export function DisambiguationModal({
+web/app\intake\components\disambiguation_modal.tsx:48:        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs" />
+web/app\intake\components\ambiguity_modal.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web/app\intake\components\ambiguity_modal.tsx:5:import { Button } from "@/components/ui/button";
+web/app\intake\components\ambiguity_modal.tsx:6:import { cn } from "@/lib/utils";
+web/app\intake\components\ambiguity_modal.tsx:7:import type { IntakeScopeDecision } from "@/lib/api";
+web/app\intake\components\ambiguity_modal.tsx:16:export function AmbiguityModal({
+web/app\intake\components\ambiguity_modal.tsx:37:            "supports-backdrop-filter:backdrop-blur-xs",
+web/app\sign-in\page.tsx:1:import Link from "next/link";
+web/app\sign-in\page.tsx:3:import { Button } from "@/components/ui/button";
+web/app\sign-in\page.tsx:4:import {
+web/app\sign-in\page.tsx:12:import { Input } from "@/components/ui/input";
+web/app\sign-in\page.tsx:14:export default function SignInPage() {
+web/app\intake\components\intake_form.tsx:3:import { useState } from "react";
+web/app\intake\components\intake_form.tsx:5:import { Button } from "@/components/ui/button";
+web/app\intake\components\intake_form.tsx:6:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\intake\components\intake_form.tsx:7:import { Input } from "@/components/ui/input";
+web/app\intake\components\intake_form.tsx:8:import {
+web/app\intake\components\intake_form.tsx:16:import { AmbiguityModal } from "./ambiguity_modal";
+web/app\intake\components\intake_form.tsx:17:import { DisambiguationModal } from "./disambiguation_modal";
+web/app\intake\components\intake_form.tsx:18:import { ScopeDecisionView } from "./scope_decision_view";
+web/app\intake\components\intake_form.tsx:42:export function IntakeForm() {
+web/app\intake\components\intake_form.tsx:67:        message: "POLARIS currently supports English questions only.",
+web/app\intake\components\pdf_drop_banner.tsx:3:import { useEffect, useState } from "react";
+web/app\intake\components\pdf_drop_banner.tsx:11:export function PdfDropBanner() {
+web/app\layout.tsx:1:import type { Metadata } from "next";
+web/app\layout.tsx:2:import { Geist, Geist_Mono } from "next/font/google";
+web/app\layout.tsx:4:import { Toaster } from "@/components/ui/sonner";
+web/app\layout.tsx:6:import "./globals.css";
+web/app\layout.tsx:18:export const metadata: Metadata = {
+web/app\layout.tsx:24:export default function RootLayout({
+web/app\retrieval\page.tsx:1:import Link from "next/link";
+web/app\retrieval\page.tsx:3:import { Button } from "@/components/ui/button";
+web/app\retrieval\page.tsx:5:import { RetrievalRunner } from "./components/retrieval_runner";
+web/app\retrieval\page.tsx:7:export const metadata = {
+web/app\retrieval\page.tsx:13:export default function RetrievalPage() {
+web/app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web/app\sentence_hover_test\_demo.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web/app\sentence_hover_test\_demo.tsx:45:const REPORT: VerifiedReport = {
+web/app\sentence_hover_test\_demo.tsx:46:  report_id: "r-hover-test",
+web/app\sentence_hover_test\_demo.tsx:131:export function SentenceHoverHarness() {
+web/app\sentence_hover_test\_demo.tsx:134:      <VerifiedReportView report={REPORT} pool={POOL} />
+web/app\page.tsx:1:import Link from "next/link";
+web/app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web/app\page.tsx:4:import { Button } from "@/components/ui/button";
+web/app\page.tsx:5:import {
+web/app\page.tsx:90:      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+web/app\page.tsx:106:export default function HomePage() {
+web/app\sse\page.tsx:1:import { Suspense } from "react";
+web/app\sse\page.tsx:3:import { SSEHarness } from "./_harness";
+web/app\sse\page.tsx:5:export default function SSETestHarnessPage() {
+web/app\retrieval\components\retrieval_runner.tsx:3:import { useState } from "react";
+web/app\retrieval\components\retrieval_runner.tsx:5:import { Button } from "@/components/ui/button";
+web/app\retrieval\components\retrieval_runner.tsx:6:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\retrieval\components\retrieval_runner.tsx:7:import {
+web/app\retrieval\components\retrieval_runner.tsx:16:import { CorpusBrief } from "./corpus_brief";
+web/app\retrieval\components\retrieval_runner.tsx:43:export function RetrievalRunner() {
+web/tests/e2e\inspector.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\inspector.spec.ts:47:  test("Export bundle JSON button is present", async ({ page }) => {
+web/tests/e2e\inspector.spec.ts:49:      page.getByRole("button", { name: /Export bundle JSON/ }),
+web/tests/e2e\generation.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\generation.spec.ts:11: * happy path renders a verified report; without them the chain fails
+web/tests/e2e\generation.spec.ts:62:    // verified report renders. Both are valid e2e outcomes.
+web/tests/e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web/tests/e2e\generation.spec.ts:75:    const report_visible = await page
+web/tests/e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web/tests/e2e\generation.spec.ts:79:    expect(error_visible || report_visible).toBe(true);
+web/tests/e2e\generation.spec.ts:88:    if (report_visible) {
+web/app\upload\page.tsx:1:import { UploadWorkspace } from "./components/upload_workspace";
+web/app\upload\page.tsx:3:export const metadata = {
+web/app\upload\page.tsx:9:export default function UploadPage() {
+web/app\retrieval\components\corpus_brief.tsx:3:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\retrieval\components\corpus_brief.tsx:4:import { cn } from "@/lib/utils";
+web/app\retrieval\components\corpus_brief.tsx:5:import {
+web/app\retrieval\components\corpus_brief.tsx:51:export function CorpusBrief({ pool }: { pool: EvidencePool }) {
+web/app\sse\_harness.tsx:3:import { useEffect } from "react";
+web/app\sse\_harness.tsx:4:import { useSearchParams } from "next/navigation";
+web/app\sse\_harness.tsx:6:import { SSEClient } from "@/lib/sse_client";
+web/app\sse\_harness.tsx:19:export function SSEHarness() {
+web/tests/e2e\intake_disambiguation.spec.ts:1:import { expect, test } from "@playwright/test";
+web/app\sentence_hover_test\page.tsx:1:import { SentenceHoverHarness } from "./_demo";
+web/app\sentence_hover_test\page.tsx:3:export default function SentenceHoverTestPage() {
+web/tests/e2e\intake_edge.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\intake_edge.spec.ts:22:    "POLARIS currently supports English",
+web/app\upload\components\upload_workspace.tsx:3:import { useState } from "react";
+web/app\upload\components\upload_workspace.tsx:5:import { SelectedDocsIndicator } from "./selected_docs_indicator";
+web/app\upload\components\upload_workspace.tsx:6:import { UploadDropZone } from "./upload_drop_zone";
+web/app\upload\components\upload_workspace.tsx:8:export function UploadWorkspace() {
+web/app\upload\components\selected_docs_indicator.tsx:5:export function SelectedDocsIndicator({ ids }: Props) {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\performance.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web/app\upload\components\upload_drop_zone.tsx:3:import { useEffect, useId, useRef, useState } from "react";
+web/app\upload\components\upload_drop_zone.tsx:5:import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
+web/app\upload\components\upload_drop_zone.tsx:7:import { DocumentPreview } from "./document_preview";
+web/app\upload\components\upload_drop_zone.tsx:53:export function UploadDropZone({
+web/app\upload\components\upload_drop_zone.tsx:89:            error: `unsupported extension ${ext}`,
+web/tests/e2e\landing_template_grid.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web/tests/e2e\landing_template_grid.spec.ts:2:import { expect, test } from "@playwright/test";
+web/tests/e2e\landing_template_grid.spec.ts:12: *  - 8 cards render at 4 viewports (1920/1024/768/375)
+web/tests/e2e\landing_template_grid.spec.ts:37:      await page.setViewportSize({ width: vp.width, height: vp.height });
+web/tests/e2e\landing_template_grid.spec.ts:79:    await page.setViewportSize({ width: 1024, height: 768 });
+web/tests/e2e\sentence_hover.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web/tests/e2e\retrieval.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web/app\upload\components\document_preview.tsx:3:import { useEffect, useRef, useState } from "react";
+web/app\upload\components\document_preview.tsx:5:import { getUpload, type UploadResponse } from "@/lib/api";
+web/app\upload\components\document_preview.tsx:51:export function DocumentPreview({ documentId }: Props) {
+web/tests/e2e\performance_hover.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\intake.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector_agreement.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_agreement.spec.ts:36:test("Report header shows family-segregated badge", async ({ page }) => {
+web/tests/e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_agreement.spec.ts:39:  await expect(page.getByTestId("report-evaluator")).toContainText(
+web/tests/e2e\sentence_inspector_multispan.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sse_client.spec.ts:1:import { expect, test } from "@playwright/test";
+web/app\intake\components\scope_decision_view.tsx:3:import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+web/app\intake\components\scope_decision_view.tsx:4:import { cn } from "@/lib/utils";
+web/app\intake\components\scope_decision_view.tsx:5:import type {
+web/app\intake\components\scope_decision_view.tsx:80:export function ScopeDecisionView({
+web/tests/e2e\sentence_inspector_source.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests/e2e\sentence_inspector_source.spec.ts:32:  await page.goto("/sentence_hover_test");
+web/tests/e2e\upload_doc_preview.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\upload_dropzone.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\upload_dropzone.spec.ts:3:async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+web/tests/e2e\upload_dropzone.spec.ts:27:  page: import("@playwright/test").Page,
+web/tests/e2e\visual.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\upload_evidence_toggle.spec.ts:1:import { expect, test } from "@playwright/test";
+web/tests/e2e\upload_parse_status.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+
+codex
+The Playwright config does not auto-start Next, so a direct e2e run would only be valid if the frontend server is already up on the configured base URL. I’m going to run the local typecheck; after that I’ll decide whether a targeted browser test is feasible without changing the environment.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+ succeeded in 3859ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+Typecheck passes in the current workspace. I’m doing one lightweight server check before deciding whether to run the new Playwright spec, since this repo’s e2e config expects an already-running frontend.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'try { (Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:3738/sentence_hover_test -TimeoutSec 3).StatusCode } catch { $_.Exception.Message }' in C:\POLARIS
+ succeeded in 3459ms:
+No connection could be made because the target machine actively refused it. (127.0.0.1:3738)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_hover.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx -TotalCount 260' in C:\POLARIS
+ succeeded in 1730ms:
+import { expect, test } from "@playwright/test";
+
+test("hovering a sentence applies bg-yellow-100; switching clears prior", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+
+  const s7 = page.locator('[data-sentence-id="sec_x:7"]');
+  const s3 = page.locator('[data-sentence-id="sec_x:3"]');
+
+  await s7.hover();
+  await expect(s7).toHaveClass(/bg-yellow-100/, { timeout: 500 });
+
+  await s3.hover();
+  await expect(s3).toHaveClass(/bg-yellow-100/, { timeout: 500 });
+  await expect(s7).not.toHaveClass(/bg-yellow-100/);
+});
+
+ succeeded in 2054ms:
+import { expect, test } from "@playwright/test";
+
+test("clicking a sentence opens the Inspector Sheet within 500ms", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+
+  const target = page.locator('[data-sentence-id="sec_x:5"]');
+  await target.click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
+    "sec_x:5",
+  );
+  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
+    "Test sentence 5",
+  );
+});
+
+ succeeded in 2430ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <span className={cn(dropped ? "" : "text-foreground")}>
+        {sentence.sentence_text}
+      </span>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx | Select-Object -Skip 260 -First 80' in C:\POLARIS
+ succeeded in 1353ms:
+        />
+      ))}
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+codex
+The diff itself is not showing an obvious execution blocker. I’m going to run the new spec under Chromium with a temporary local Next dev server, then tear the server down in the same command so there isn’t a lingering process.
+2026-05-07T15:34:12.656332Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$outLog = '"'C:\\tmp\\polaris-i-f5-005-next-out.log'
+"'$errLog = '"'C:\\tmp\\polaris-i-f5-005-next-err.log'
+Remove-Item -LiteralPath "'$outLog, $errLog -Force -ErrorAction SilentlyContinue
+$server = Start-Process -FilePath '"'npm.cmd' -ArgumentList @('run','dev','--','-p','3738') -WorkingDirectory 'C:\\POLARIS\\web' -RedirectStandardOutput "'$outLog -RedirectStandardError $errLog -PassThru -WindowStyle Hidden
+$testCode = 1
+function Stop-ProcessTree([int]$ProcessId) {
+  Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue | ForEach-Object { Stop-ProcessTree ([int]$_.ProcessId) }
+  Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 1
+    if ($server.HasExited) { throw "Next dev server exited early with code $($server.ExitCode)" }
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3738/sentence_hover_test' -TimeoutSec 2
+      if ("'$response.StatusCode -ge 200 -and $response.StatusCode -lt 500) { $ready = $true; break }
+    } catch {}
+  }
+  if (-not $ready) { throw '"'Next dev server did not become ready on port 3738' }
+  "'$env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3738'
+  & npx.cmd playwright test tests/e2e/sentence_inspector_multispan.spec.ts --project=chromium
+  "'$testCode = $LASTEXITCODE
+} catch {
+  Write-Error $_
+  $testCode = 1
+} finally {
+  Stop-ProcessTree $server.Id
+  '"'--- next stdout tail ---'
+  Get-Content -LiteralPath "'$outLog -Tail 40 -ErrorAction SilentlyContinue
+  '"'--- next stderr tail ---'
+  Get-Content -LiteralPath "'$errLog -Tail 40 -ErrorAction SilentlyContinue
+}
+exit $testCode'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$outLog = '"'C:\\tmp\\polaris-i-f5-005-next-out.log'
+"'$errLog = '"'C:\\tmp\\polaris-i-f5-005-next-err.log'
+Remove-Item -LiteralPath "'$outLog, $errLog -Force -ErrorAction SilentlyContinue
+$server = Start-Process -FilePath '"'npm.cmd' -ArgumentList @('run','dev','--','-p','3738') -WorkingDirectory 'C:\\POLARIS\\web' -RedirectStandardOutput "'$outLog -RedirectStandardError $errLog -PassThru -WindowStyle Hidden
+$testCode = 1
+function Stop-ProcessTree([int]$ProcessId) {
+  Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue | ForEach-Object { Stop-ProcessTree ([int]$_.ProcessId) }
+  Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 1
+    if ($server.HasExited) { throw "Next dev server exited early with code $($server.ExitCode)" }
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3738/sentence_hover_test' -TimeoutSec 2
+      if ("'$response.StatusCode -ge 200 -and $response.StatusCode -lt 500) { $ready = $true; break }
+    } catch {}
+  }
+  if (-not $ready) { throw '"'Next dev server did not become ready on port 3738' }
+  "'$env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3738'
+  & npx.cmd playwright test tests/e2e/sentence_inspector_multispan.spec.ts --project=chromium
+  "'$testCode = $LASTEXITCODE
+} catch {
+  Write-Error $_
+  $testCode = 1
+} finally {
+  Stop-ProcessTree $server.Id
+  '"'--- next stdout tail ---'
+  Get-Content -LiteralPath "'$outLog -Tail 40 -ErrorAction SilentlyContinue
+  '"'--- next stderr tail ---'
+  Get-Content -LiteralPath "'$errLog -Tail 40 -ErrorAction SilentlyContinue
+}
+exit $testCode' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$outLog = '"'C:\\tmp\\polaris-i-f5-005-next-out.log'
+"'$errLog = '"'C:\\tmp\\polaris-i-f5-005-next-err.log'
+Remove-Item -LiteralPath "'$outLog, $errLog -Force -ErrorAction SilentlyContinue
+$server = Start-Process -FilePath '"'npm.cmd' -ArgumentList @('run','dev','--','-p','3738') -WorkingDirectory 'C:\\POLARIS\\web' -RedirectStandardOutput "'$outLog -RedirectStandardError $errLog -PassThru -WindowStyle Hidden
+$testCode = 1
+function Stop-ProcessTree([int]$ProcessId) {
+  Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue | ForEach-Object { Stop-ProcessTree ([int]$_.ProcessId) }
+  Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 1
+    if ($server.HasExited) { throw "Next dev server exited early with code $($server.ExitCode)" }
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3738/sentence_hover_test' -TimeoutSec 2
+      if ("'$response.StatusCode -ge 200 -and $response.StatusCode -lt 500) { $ready = $true; break }
+    } catch {}
+  }
+  if (-not $ready) { throw '"'Next dev server did not become ready on port 3738' }
+  "'$env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3738'
+  & npx.cmd playwright test tests/e2e/sentence_inspector_multispan.spec.ts --project=chromium
+  "'$testCode = $LASTEXITCODE
+} catch {
+  Write-Error $_
+  $testCode = 1
+} finally {
+  Stop-ProcessTree $server.Id
+  '"'--- next stdout tail ---'
+  Get-Content -LiteralPath "'$outLog -Tail 40 -ErrorAction SilentlyContinue
+  '"'--- next stderr tail ---'
+  Get-Content -LiteralPath "'$errLog -Tail 40 -ErrorAction SilentlyContinue
+}
+exit $testCode'` rejected: blocked by policy
+codex
+The typecheck is clean. I attempted to run the new Playwright spec with a temporary background Next server, but this environment rejected the background process command before execution, so I’m continuing from static review plus typecheck.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector-span-[0-9]+\\\"|inspector-span-[0-9]+'|inspector-span-\\"'$'"\\{[a-zA-Z]+\\}\" web/tests web/app web/lib" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --check' in C:\POLARIS
+ succeeded in 1354ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+2026-05-07T15:34:24.975498Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+
+ exited 1 in 1710ms:
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+55,326
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
