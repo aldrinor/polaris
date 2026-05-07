@@ -146,6 +146,34 @@ def test_health(app: FastAPI):
     body = r.json()
     assert body["slice"] == "slice_004_audit_bundle_export"
     assert "gpg_sign" in body["pipeline_stages"]
+    assert body["signing_backend"] == "sentinel"
+
+
+def test_health_with_signer_override_returns_gpg(app: FastAPI):
+    _override_sign(app)
+    r = TestClient(app).get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    assert r.json()["signing_backend"] == "gpg"
+
+
+def test_health_env_var_drives_signing_backend_via_create_app(monkeypatch):
+    """POLARIS_GPG_KEY_ID set => v6 create_app() wires signer => health reports gpg."""
+    import polaris_graph.audit_bundle.gpg_signer as gpg_mod
+
+    class _StubSigner:
+        def sign(self, _payload: bytes) -> bytes:
+            return b"stub"
+
+    monkeypatch.setattr(gpg_mod, "build_gpg_signer", lambda: _StubSigner())
+    monkeypatch.setenv("POLARIS_GPG_KEY_ID", "test-key-id")
+    monkeypatch.delenv("POLARIS_BENCHMARK_RESULTS_DIR", raising=False)
+
+    from polaris_v6.api.app import create_app
+
+    v6_app = create_app()
+    r = TestClient(v6_app).get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    assert r.json()["signing_backend"] == "gpg"
 
 
 # ---------- 503 (no signer) ----------
