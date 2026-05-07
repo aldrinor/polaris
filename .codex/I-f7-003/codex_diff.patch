@@ -1,0 +1,207 @@
+diff --git a/web/app/generation/components/frame_coverage_panel.tsx b/web/app/generation/components/frame_coverage_panel.tsx
+index 823fc4e..f7f6b42 100644
+--- a/web/app/generation/components/frame_coverage_panel.tsx
++++ b/web/app/generation/components/frame_coverage_panel.tsx
+@@ -1,8 +1,29 @@
+ "use client";
+ 
++import { useState } from "react";
+ import { Card, CardContent } from "@/components/ui/card";
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import { Button } from "@/components/ui/button";
+ import { cn } from "@/lib/utils";
+-import type { FrameCoverage, GapReason } from "@/lib/api";
++import type { FrameCoverage, FrameGap, GapReason } from "@/lib/api";
++
++const UNBLOCK_ACTION: Record<GapReason, string> = {
++  paywalled: "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
++  no_oa: "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
++  source_tier_ineligible: "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
++  language_unavailable: "Request translation of ${entity_name} via institutional library translation service.",
++  retracted_only: "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
++  jurisdiction_outside: "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
++  not_indexed: "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
++  embargoed: "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
++  other: "Manually triage ${entity_name}; document resolution in operator notes.",
++};
+ 
+ const GAP_REASON_LABEL: Record<GapReason, string> = {
+   paywalled: "Paywalled",
+@@ -21,6 +42,10 @@ export function FrameCoveragePanel({
+ }: {
+   coverage: FrameCoverage | null | undefined;
+ }) {
++  const [selected_gap_idx, set_selected_gap_idx] = useState<number | null>(
++    null,
++  );
++  const [copied, set_copied] = useState(false);
+   if (!coverage) return null;
+   const { covered_entity_count, total_entity_count, gaps } = coverage;
+   // Codex iter-1 P2: degenerate empty 0/0/[] coverage is not informative;
+@@ -81,7 +106,16 @@ export function FrameCoveragePanel({
+               <li
+                 key={idx}
+                 data-testid={`frame-coverage-gap-${idx}`}
+-                className="text-amber-800 dark:text-amber-200"
++                role="button"
++                tabIndex={0}
++                onClick={() => set_selected_gap_idx(idx)}
++                onKeyDown={(e) => {
++                  if (e.key === "Enter" || e.key === " ") {
++                    e.preventDefault();
++                    set_selected_gap_idx(idx);
++                  }
++                }}
++                className="min-h-6 cursor-pointer rounded-md px-2 py-1 text-amber-800 hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-200"
+               >
+                 <strong>{g.entity_name}</strong> — {GAP_REASON_LABEL[g.reason]}
+                 {g.reason_detail ? `: ${g.reason_detail}` : ""}
+@@ -90,6 +124,92 @@ export function FrameCoveragePanel({
+           </ul>
+         ) : null}
+       </CardContent>
++      <FrameGapDetailSheet
++        gap={selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null}
++        copied={copied}
++        onClose={() => {
++          set_selected_gap_idx(null);
++          set_copied(false);
++        }}
++        onCopy={async (text) => {
++          try {
++            await navigator.clipboard.writeText(text);
++            set_copied(true);
++            setTimeout(() => set_copied(false), 2000);
++          } catch {
++            // clipboard write rejected (sandbox / no perm) — UI just doesn't flash.
++          }
++        }}
++      />
+     </Card>
+   );
+ }
++
++function FrameGapDetailSheet({
++  gap,
++  copied,
++  onClose,
++  onCopy,
++}: {
++  gap: FrameGap | null;
++  copied: boolean;
++  onClose: () => void;
++  onCopy: (text: string) => void;
++}) {
++  const action = gap
++    ? UNBLOCK_ACTION[gap.reason].replace(/\$\{entity_name\}/g, gap.entity_name)
++    : "";
++  return (
++    <Sheet
++      open={gap !== null}
++      onOpenChange={(open) => {
++        if (!open) onClose();
++      }}
++    >
++      <SheetContent
++        data-testid="frame-gap-detail-sheet"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle data-testid="frame-gap-detail-title">
++            {gap ? `${gap.entity_name} — ${GAP_REASON_LABEL[gap.reason]}` : ""}
++          </SheetTitle>
++          <SheetDescription>
++            Documented unblock action for this frame coverage gap.
++          </SheetDescription>
++        </SheetHeader>
++        {gap ? (
++          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
++            <p data-testid="frame-gap-detail-body" className="text-foreground">
++              {gap.reason_detail ?? "No additional detail provided."}
++            </p>
++            <p
++              data-testid="frame-gap-action"
++              className="border-border rounded-md border bg-amber-500/5 p-2 text-sm"
++            >
++              <strong>Suggested action:</strong> {action}
++            </p>
++            <div className="flex items-center gap-2">
++              <Button
++                data-testid="frame-gap-copy-button"
++                onClick={() => onCopy(action)}
++                size="sm"
++              >
++                Copy action
++              </Button>
++              {copied ? (
++                <span
++                  data-testid="frame-gap-copy-confirm"
++                  className="text-xs text-emerald-700 dark:text-emerald-300"
++                >
++                  Copied!
++                </span>
++              ) : null}
++            </div>
++          </div>
++        ) : null}
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/tests/e2e/frame_coverage_panel.spec.ts b/web/tests/e2e/frame_coverage_panel.spec.ts
+index 51954cd..c1ab4f7 100644
+--- a/web/tests/e2e/frame_coverage_panel.spec.ts
++++ b/web/tests/e2e/frame_coverage_panel.spec.ts
+@@ -17,6 +17,45 @@ test("Frame coverage panel renders above the report with gap details", async ({
+   await expect(gap).toContainText("no open-access version of Cochrane review");
+ });
+ 
++test("Click gap → detail Sheet shows entity + suggested action with substituted name", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("frame-coverage-gap-0").click();
++  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("frame-gap-detail-title")).toContainText(
++    "Pediatric population",
++  );
++  await expect(page.getByTestId("frame-gap-action")).toContainText(
++    "Pediatric population",
++  );
++});
++
++test("Click copy button → 'Copied!' confirmation flashes", async ({ page }) => {
++  // Codex iter-1 P1: stub navigator.clipboard.writeText so the test passes
++  // across chromium/firefox/webkit without browser-specific permissions.
++  await page.addInitScript(() => {
++    // Always provide a writable stub on every page in this test.
++    Object.defineProperty(navigator, "clipboard", {
++      configurable: true,
++      value: {
++        writeText: async (_text: string) => {
++          /* noop stub */
++        },
++      },
++    });
++  });
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("frame-coverage-gap-0").click();
++  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await page.getByTestId("frame-gap-copy-button").click();
++  await expect(page.getByTestId("frame-gap-copy-confirm")).toBeVisible();
++});
++
+ test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+   page,
+ }) => {
