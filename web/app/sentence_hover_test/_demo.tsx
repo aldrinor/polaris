@@ -395,6 +395,41 @@ const REPORT: VerifiedReport = {
             ],
           },
         },
+        // sec_x:30 — jurisdictional disagreement (I-f8-006). FDA vs Health Canada.
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Jurisdictional disagreement: FDA approved, Health Canada not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "jurisdictional",
+            disagreeing_source_count: 2,
+            summary: "FDA approves; Health Canada has not approved",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "us",
+                hedge_language: "high confidence",
+                claim_excerpt: "FDA: Drug X approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "canada",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Health Canada: Drug X submission under review, not yet approved.",
+              },
+            ],
+          },
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

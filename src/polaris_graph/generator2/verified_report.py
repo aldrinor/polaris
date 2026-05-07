@@ -177,6 +177,21 @@ class VerifiedSentence(BaseModel):
 # FrameCoverage (I-f7-001)
 # ---------------------------------------------------------------------------
 
+Jurisdiction = Literal[
+    "canada",
+    "us",
+    "eu",
+    "uk",
+    "who",
+    "other",
+    "unspecified",
+]
+"""I-f8-006 jurisdiction tag on a contradiction side.
+
+Surfaces regulator/jurisdiction (FDA-US vs Health-Canada vs EMA-EU vs MHRA-UK
+vs WHO) so cross-jurisdiction disagreements render explicitly."""
+
+
 ContradictionEvidenceType = Literal[
     "trial",
     "guideline",
@@ -207,6 +222,7 @@ class ContradictionSide(BaseModel):
     pt08_flag: str | None = Field(default=None, max_length=50)
     claim_excerpt: str = Field(min_length=1, max_length=500)
     evidence_type: ContradictionEvidenceType = Field(default="unspecified")
+    jurisdiction: Jurisdiction = Field(default="unspecified")
 
 
 ContradictionCategory = Literal[

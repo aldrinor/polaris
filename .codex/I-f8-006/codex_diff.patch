@@ -1,0 +1,208 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index ecfae50..06b6351 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -177,6 +177,21 @@ class VerifiedSentence(BaseModel):
+ # FrameCoverage (I-f7-001)
+ # ---------------------------------------------------------------------------
+ 
++Jurisdiction = Literal[
++    "canada",
++    "us",
++    "eu",
++    "uk",
++    "who",
++    "other",
++    "unspecified",
++]
++"""I-f8-006 jurisdiction tag on a contradiction side.
++
++Surfaces regulator/jurisdiction (FDA-US vs Health-Canada vs EMA-EU vs MHRA-UK
++vs WHO) so cross-jurisdiction disagreements render explicitly."""
++
++
+ ContradictionEvidenceType = Literal[
+     "trial",
+     "guideline",
+@@ -207,6 +222,7 @@ class ContradictionSide(BaseModel):
+     pt08_flag: str | None = Field(default=None, max_length=50)
+     claim_excerpt: str = Field(min_length=1, max_length=500)
+     evidence_type: ContradictionEvidenceType = Field(default="unspecified")
++    jurisdiction: Jurisdiction = Field(default="unspecified")
+ 
+ 
+ ContradictionCategory = Literal[
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index 05d2b1f..b0367cd 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -242,6 +242,22 @@ def test_contradiction_side_evidence_type_rejects_bogus():
+         _side(evidence_type="bogus_value")
+ 
+ 
++def test_contradiction_side_jurisdiction_default_unspecified():
++    s = _side()
++    assert s.jurisdiction == "unspecified"
++
++
++def test_contradiction_side_jurisdiction_all_seven_values():
++    for j in ("canada", "us", "eu", "uk", "who", "other", "unspecified"):
++        s = _side(jurisdiction=j)
++        assert s.jurisdiction == j
++
++
++def test_contradiction_side_jurisdiction_rejects_bogus():
++    with pytest.raises(ValidationError):
++        _side(jurisdiction="bogus_value")
++
++
+ def test_contradiction_signal_category_default_other():
+     sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+     assert sig.category == "other"
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+index 65d18ca..fba5870 100644
+--- a/web/app/generation/components/contradiction_pane.tsx
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -11,6 +11,7 @@ import type {
+   ContradictionCategory,
+   ContradictionEvidenceType,
+   ContradictionSignal,
++  Jurisdiction,
+ } from "@/lib/api";
+ 
+ const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
+@@ -23,6 +24,16 @@ const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
+   unspecified: "Unspecified",
+ };
+ 
++const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
++  canada: "Canada",
++  us: "United States",
++  eu: "European Union",
++  uk: "United Kingdom",
++  who: "WHO",
++  other: "Other",
++  unspecified: "Unspecified",
++};
++
+ const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
+   T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+   T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+@@ -105,6 +116,18 @@ export function ContradictionPane({
+                       </span>
+                     );
+                   })()}
++                  {(() => {
++                    const j = side.jurisdiction ?? "unspecified";
++                    if (j === "unspecified") return null;
++                    return (
++                      <span
++                        data-testid={`contradiction-jurisdiction-${idx}`}
++                        className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] tracking-widest text-cyan-700 uppercase dark:text-cyan-300"
++                      >
++                        {JURISDICTION_LABEL[j]}
++                      </span>
++                    );
++                  })()}
+                   <span
+                     data-testid={`contradiction-tier-${idx}`}
+                     className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 96af1db..984bcf9 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -395,6 +395,41 @@ const REPORT: VerifiedReport = {
+             ],
+           },
+         },
++        // sec_x:30 — jurisdictional disagreement (I-f8-006). FDA vs Health Canada.
++        {
++          section_id: "sec_x",
++          sentence_text:
++            "Jurisdictional disagreement: FDA approved, Health Canada not.",
++          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          contradiction: {
++            kind: "multi_source",
++            category: "jurisdictional",
++            disagreeing_source_count: 2,
++            summary: "FDA approves; Health Canada has not approved",
++            sides: [
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                evidence_type: "regulatory_label",
++                jurisdiction: "us",
++                hedge_language: "high confidence",
++                claim_excerpt: "FDA: Drug X approved for indication Y.",
++              },
++              {
++                source_id: "src-1",
++                source_tier: "T1",
++                evidence_type: "regulatory_label",
++                jurisdiction: "canada",
++                hedge_language: "high confidence",
++                claim_excerpt:
++                  "Health Canada: Drug X submission under review, not yet approved.",
++              },
++            ],
++          },
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 32790b5..492473f 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -616,6 +616,15 @@ export type ContradictionEvidenceType =
+   | "expert_opinion"
+   | "unspecified";
+ 
++export type Jurisdiction =
++  | "canada"
++  | "us"
++  | "eu"
++  | "uk"
++  | "who"
++  | "other"
++  | "unspecified";
++
+ export interface ContradictionSide {
+   source_id: string;
+   source_tier: "T1" | "T2" | "T3";
+@@ -624,6 +633,7 @@ export interface ContradictionSide {
+   pt08_flag?: string | null;
+   claim_excerpt: string;
+   evidence_type?: ContradictionEvidenceType;
++  jurisdiction?: Jurisdiction;
+ }
+ 
+ export type ContradictionKind = "multi_source" | "self_contradiction";
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index ddab7fb..ed9ee60 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -89,6 +89,20 @@ test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
+   ).toContainText("Guideline");
+ });
+ 
++test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
++  await page.goto("/sentence_hover_test");
++  await page.getByTestId("inspector-contradiction-sec_x:30").click();
++  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(
++    page.getByTestId("contradiction-jurisdiction-0"),
++  ).toContainText("United States");
++  await expect(
++    page.getByTestId("contradiction-jurisdiction-1"),
++  ).toContainText("Canada");
++});
++
+ test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+   await page.goto("/sentence_hover_test");
+   const badge = page.getByTestId("inspector-contradiction-sec_x:27");
