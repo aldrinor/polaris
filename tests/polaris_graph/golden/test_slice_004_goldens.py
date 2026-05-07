@@ -133,6 +133,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
                 full_text=spec["source_full_text"],
                 full_text_available=True,
                 source_id=spec["source_id"],
+                provenance={"legal_cleared": True},
             )
         )
     if spec.get("kept_source_id"):
@@ -146,6 +147,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
                 full_text=spec["kept_source_full_text"],
                 full_text_available=True,
                 source_id=spec["kept_source_id"],
+                provenance={"legal_cleared": True},
             )
         )
     if spec.get("dropped_source_id"):
@@ -159,6 +161,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
                 full_text=spec["dropped_source_full_text"],
                 full_text_available=True,
                 source_id=spec["dropped_source_id"],
+                provenance={"legal_cleared": True},
             )
         )
 
@@ -174,6 +177,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
                 full_text="x" * 200,
                 full_text_available=True,
                 source_id="src-placeholder",
+                provenance={"legal_cleared": True},
             )
         )
 

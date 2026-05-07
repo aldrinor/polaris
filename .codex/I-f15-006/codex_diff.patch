@@ -1,0 +1,371 @@
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index 84836df..e6e198c 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -77,6 +77,7 @@ class AuditBundleErrorResponse(BaseModel):
+     error: bool = True
+     code: str  # 'fk_chain_mismatch' | 'verdict_not_success' |
+                # 'cited_span_unreachable_after_snapshot' |
++               # 'copyrighted_span_in_bundle' |
+                # 'gpg_unavailable' | 'sign_failed'
+     message: str
+     report_id: str | None = None
+@@ -120,9 +121,11 @@ def post_audit_bundle(
+             sign_fn=sign_fn,
+         )
+     except ValueError as exc:
+-        # FK chain mismatch, verdict != success, or cited-span unreachable
++        # FK chain mismatch, verdict != success, cited-span unreachable, or copyrighted span
+         msg = str(exc)
+-        if "cited span unreachable" in msg:
++        if "copyrighted span" in msg:
++            code = "copyrighted_span_in_bundle"
++        elif "cited span unreachable" in msg:
+             code = "cited_span_unreachable_after_snapshot"
+         elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
+             code = "fk_chain_mismatch"
+@@ -191,11 +194,12 @@ def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
+         )
+     except ValueError as exc:
+         msg = str(exc)
+-        code = (
+-            "cited_span_unreachable_after_snapshot"
+-            if "cited span unreachable" in msg
+-            else "verdict_not_success"
+-        )
++        if "copyrighted span" in msg:
++            code = "copyrighted_span_in_bundle"
++        elif "cited span unreachable" in msg:
++            code = "cited_span_unreachable_after_snapshot"
++        else:
++            code = "verdict_not_success"
+         raise HTTPException(
+             status_code=400,
+             detail={
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index b8b8cfd..ebe1184 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -32,6 +32,9 @@ from polaris_graph.audit_bundle.snapshot_sources import (
+     snapshot_sources,
+     snapshot_sources_with_reachable,
+ )
++from polaris_graph.audit_bundle.sovereignty_guard import (
++    assert_all_pool_sources_legal_cleared,
++)
+ from polaris_graph.generator2.provenance import extract_tokens
+ from polaris_graph.generator2.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+@@ -156,7 +159,10 @@ def build_manifest_and_files(
+     vr_bytes = _serialize_json_canonical(report)
+     files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
+ 
+-    # 4. Per-source snapshots + cited-span reachability guard
++    # 4. Sovereignty: refuse to ship verbatim spans for non-cleared sources
++    assert_all_pool_sources_legal_cleared(pool)
++
++    # 4b. Per-source snapshots + cited-span reachability guard
+     snapshot_entries = snapshot_sources_with_reachable(report, pool)
+     _assert_cited_spans_reachable(report, snapshot_entries)
+     for source_id, entry in snapshot_entries.items():
+diff --git a/src/polaris_graph/audit_bundle/sovereignty_guard.py b/src/polaris_graph/audit_bundle/sovereignty_guard.py
+new file mode 100644
+index 0000000..221178f
+--- /dev/null
++++ b/src/polaris_graph/audit_bundle/sovereignty_guard.py
+@@ -0,0 +1,29 @@
++"""Sovereignty guard: legal-cleared spans only (I-f15-006).
++
++A bundle MUST refuse to ship verbatim source-text snapshots for sources
++whose provenance does NOT explicitly declare `legal_cleared = True`.
++The full EvidencePool (including every Source.full_text/snippet) is
++serialized into evidence_pool.json by the bundle builder, so EVERY
++source in the pool — cited or not — must be cleared.
++"""
++
++from __future__ import annotations
++
++from polaris_graph.retrieval2.evidence_pool import EvidencePool
++
++LEGAL_CLEARED_KEY = "legal_cleared"
++
++
++def assert_all_pool_sources_legal_cleared(pool: EvidencePool) -> None:
++    """Raise ValueError if any pool source lacks `provenance.legal_cleared = True`.
++
++    Walks EVERY source in the pool (not only cited ones) because the
++    full pool serializes into evidence_pool.json — uncited sources still
++    get their full_text/snippet redistributed.
++    """
++    for source in pool.sources:
++        if source.provenance.get(LEGAL_CLEARED_KEY) is not True:
++            raise ValueError(
++                f"copyrighted span: source {source.source_id!r} not legally "
++                f"cleared for audit bundle redistribution"
++            )
+diff --git a/tests/polaris_graph/api/test_audit_bundle_route.py b/tests/polaris_graph/api/test_audit_bundle_route.py
+index 7e686d0..b7315bc 100644
+--- a/tests/polaris_graph/api/test_audit_bundle_route.py
++++ b/tests/polaris_graph/api/test_audit_bundle_route.py
+@@ -71,7 +71,7 @@ def _payload(verdict: str = "success", pool_id: str = "pool-1") -> dict:
+                 "full_text_available": True,
+                 "full_text": "trial of aspirin",
+                 "fetched_at_utc": iso,
+-                "provenance": {},
++                "provenance": {"legal_cleared": True},
+             }
+         ],
+         "adequacy": {
+@@ -189,6 +189,16 @@ def test_post_non_success_verdict_returns_400(app: FastAPI):
+     assert r.status_code in (400, 422)
+ 
+ 
++def test_post_uncleared_source_returns_400_copyrighted_span_in_bundle(app: FastAPI):
++    _override_sign(app)
++    payload = _payload()
++    payload["pool"]["sources"][0]["provenance"] = {}  # strip legal_cleared
++    r = TestClient(app).post("/api/audit-bundle", json=payload)
++    assert r.status_code == 400
++    body = r.json().get("detail", r.json())
++    assert body.get("code") == "copyrighted_span_in_bundle"
++
++
+ # ---------- 502 (sign failed) ----------
+ 
+ def test_post_sign_fn_raises_returns_502(app: FastAPI):
+diff --git a/tests/polaris_graph/audit_bundle/test_bundle_builder.py b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+index 748a2e8..2448eeb 100644
+--- a/tests/polaris_graph/audit_bundle/test_bundle_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+@@ -42,6 +42,7 @@ def _src(source_id: str = "src-A", full_text: str = "trial of aspirin") -> Sourc
+         full_text=full_text,
+         full_text_available=True,
+         source_id=source_id,
++        provenance={"legal_cleared": True},
+     )
+ 
+ 
+diff --git a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+index d7867a7..d775b5b 100644
+--- a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
++++ b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+@@ -34,6 +34,7 @@ def _src(source_id: str, full_text: str | None, snippet: str = "snippet") -> Sou
+         full_text=full_text,
+         full_text_available=(full_text is not None),
+         source_id=source_id,
++        provenance={"legal_cleared": True},
+     )
+ 
+ 
+diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+index 50fe692..998d38c 100644
+--- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+@@ -50,6 +50,7 @@ def _src(source_id: str, full_text: str = "src text") -> Source:
+         full_text=full_text,
+         full_text_available=True,
+         source_id=source_id,
++        provenance={"legal_cleared": True},
+     )
+ 
+ 
+diff --git a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+index 1c08205..d304e07 100644
+--- a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
++++ b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+@@ -45,6 +45,7 @@ def _src(source_id: str = "src-A", full_text: str = "Aspirin reduces headache pa
+         full_text=full_text,
+         full_text_available=True,
+         source_id=source_id,
++        provenance={"legal_cleared": True},
+     )
+ 
+ 
+diff --git a/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+new file mode 100644
+index 0000000..eaf8cfe
+--- /dev/null
++++ b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+@@ -0,0 +1,134 @@
++"""Sovereignty CI — legal-cleared spans only (I-f15-006)."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++import pytest
++
++from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
++from polaris_graph.audit_bundle.sovereignty_guard import (
++    LEGAL_CLEARED_KEY,
++    assert_all_pool_sources_legal_cleared,
++)
++from polaris_graph.generator2.verified_report import (
++    Section,
++    VerifiedReport,
++    VerifiedSentence,
++)
++from polaris_graph.retrieval2.evidence_pool import (
++    AdequacyVerdict,
++    EvidencePool,
++    Source,
++    SourceTier,
++)
++from polaris_graph.scope.scope_decision import AmbiguityAxis, ScopeDecision
++
++
++def _src(source_id: str, provenance: dict) -> Source:
++    return Source(
++        url="https://www.cochrane.org/CD001",
++        domain="cochrane.org",
++        tier=SourceTier.T1,
++        title=f"Source {source_id}",
++        snippet="snippet",
++        full_text="trial of aspirin",
++        full_text_available=True,
++        source_id=source_id,
++        provenance=provenance,
++    )
++
++
++def _decision() -> ScopeDecision:
++    return ScopeDecision(
++        decision_id="dec-sov-1",
++        status="in_scope",
++        scope_class="clinical_efficacy",
++        ambiguity_axes=[
++            AmbiguityAxis(axis="population", plausible_interpretations=["adults"], needs_clarification=False),
++        ],
++    )
++
++
++def _pool(sources: list[Source]) -> EvidencePool:
++    return EvidencePool(
++        pool_id="pool-sov-1",
++        decision_id="dec-sov-1",
++        sources=sources,
++        adequacy=AdequacyVerdict(is_adequate=True),
++        retrieval_started_at_utc=datetime.now(timezone.utc),
++        retrieval_finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def _report(cited_source_ids: list[str]) -> VerifiedReport:
++    sentences = [
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text=f"claim [#ev:{sid}:0-3].",
++            provenance_tokens=[f"[#ev:{sid}:0-3]"],
++            verifier_pass=True,
++        )
++        for sid in cited_source_ids
++    ]
++    return VerifiedReport(
++        pool_id="pool-sov-1",
++        decision_id="dec-sov-1",
++        sections=[
++            Section(
++                section_id="sec_x",
++                section_title="X",
++                verified_sentences=sentences,
++                section_verify_pass_rate=1.0,
++                section_status="verified",
++            )
++        ],
++        overall_verify_pass_rate=1.0,
++        pipeline_verdict="success",
++        generator_model="test/model",
++        verifier_pass_threshold=0.4,
++        started_at_utc=datetime.now(timezone.utc),
++        finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def test_legal_cleared_source_passes_guard():
++    src = _src("src-A", {LEGAL_CLEARED_KEY: True})
++    assert_all_pool_sources_legal_cleared(_pool([src]))
++
++
++def test_uncleared_source_fails_guard():
++    src = _src("src-A", {})
++    with pytest.raises(ValueError, match="copyrighted span"):
++        assert_all_pool_sources_legal_cleared(_pool([src]))
++
++
++def test_explicit_false_legal_cleared_fails_guard():
++    src = _src("src-A", {LEGAL_CLEARED_KEY: False})
++    with pytest.raises(ValueError, match="copyrighted span"):
++        assert_all_pool_sources_legal_cleared(_pool([src]))
++
++
++def test_one_cleared_one_uncleared_fails_guard():
++    cleared = _src("src-A", {LEGAL_CLEARED_KEY: True})
++    bad = _src("src-B", {})
++    with pytest.raises(ValueError, match="src-B"):
++        assert_all_pool_sources_legal_cleared(_pool([cleared, bad]))
++
++
++def test_uncited_uncleared_source_still_fails_guard():
++    """Uncited sources still ship in evidence_pool.json, so they must be cleared."""
++    cleared = _src("src-A", {LEGAL_CLEARED_KEY: True})
++    bad = _src("src-B", {})
++    with pytest.raises(ValueError, match="src-B"):
++        assert_all_pool_sources_legal_cleared(_pool([cleared, bad]))
++
++
++def test_build_manifest_refuses_uncleared_source_integration():
++    bad = _src("src-A", {})
++    with pytest.raises(ValueError, match="copyrighted span"):
++        build_manifest_and_files(_decision(), _pool([bad]), _report(["src-A"]))
+diff --git a/tests/polaris_graph/golden/test_slice_004_goldens.py b/tests/polaris_graph/golden/test_slice_004_goldens.py
+index ac7e14c..37d58d6 100644
+--- a/tests/polaris_graph/golden/test_slice_004_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_004_goldens.py
+@@ -133,6 +133,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
+                 full_text=spec["source_full_text"],
+                 full_text_available=True,
+                 source_id=spec["source_id"],
++                provenance={"legal_cleared": True},
+             )
+         )
+     if spec.get("kept_source_id"):
+@@ -146,6 +147,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
+                 full_text=spec["kept_source_full_text"],
+                 full_text_available=True,
+                 source_id=spec["kept_source_id"],
++                provenance={"legal_cleared": True},
+             )
+         )
+     if spec.get("dropped_source_id"):
+@@ -159,6 +161,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
+                 full_text=spec["dropped_source_full_text"],
+                 full_text_available=True,
+                 source_id=spec["dropped_source_id"],
++                provenance={"legal_cleared": True},
+             )
+         )
+ 
+@@ -174,6 +177,7 @@ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, Ve
+                 full_text="x" * 200,
+                 full_text_available=True,
+                 source_id="src-placeholder",
++                provenance={"legal_cleared": True},
+             )
+         )
+ 
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 017cf00..001e232 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -711,6 +711,7 @@ export interface AuditBundleErrorBody {
+     | "fk_chain_mismatch"
+     | "verdict_not_success"
+     | "cited_span_unreachable_after_snapshot"
++    | "copyrighted_span_in_bundle"
+     | "gpg_unavailable"
+     | "sign_failed";
+   message: string;

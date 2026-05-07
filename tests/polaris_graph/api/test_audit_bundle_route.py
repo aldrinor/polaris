@@ -71,7 +71,7 @@ def _payload(verdict: str = "success", pool_id: str = "pool-1") -> dict:
                 "full_text_available": True,
                 "full_text": "trial of aspirin",
                 "fetched_at_utc": iso,
-                "provenance": {},
+                "provenance": {"legal_cleared": True},
             }
         ],
         "adequacy": {
@@ -187,6 +187,16 @@ def test_post_non_success_verdict_returns_400(app: FastAPI):
     )
     # Pydantic validates first; abort+verdict-mismatch may yield 422 or 400
     assert r.status_code in (400, 422)
+
+
+def test_post_uncleared_source_returns_400_copyrighted_span_in_bundle(app: FastAPI):
+    _override_sign(app)
+    payload = _payload()
+    payload["pool"]["sources"][0]["provenance"] = {}  # strip legal_cleared
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code == 400
+    body = r.json().get("detail", r.json())
+    assert body.get("code") == "copyrighted_span_in_bundle"
 
 
 # ---------- 502 (sign failed) ----------
