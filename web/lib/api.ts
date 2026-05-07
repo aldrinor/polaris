@@ -622,6 +622,17 @@ export interface VerifiedReportSection {
   section_status: SectionStatus;
 }
 
+export interface FrameGap {
+  entity_name: string;
+  reason: string;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
 export interface VerifiedReport {
   report_id: string;
   pool_id: string;
@@ -637,6 +648,7 @@ export interface VerifiedReport {
   finished_at_utc: string;
   latency_ms: number;
   cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
 }
 
 export interface GenerationSuccessResponse {

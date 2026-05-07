@@ -165,6 +165,44 @@ class VerifiedSentence(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# FrameCoverage (I-f7-001)
+# ---------------------------------------------------------------------------
+
+class FrameGap(BaseModel):
+    """A single uncovered entity in a frame coverage report."""
+
+    entity_name: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class FrameCoverage(BaseModel):
+    """Top-of-report frame coverage summary (I-f7-001).
+
+    Surfaces "X of N entities covered" with explicit gap reasons. Consumed
+    by the FrameCoveragePanel above the verified report. Optional on
+    VerifiedReport; older payloads without coverage render no panel."""
+
+    covered_entity_count: int = Field(ge=0)
+    total_entity_count: int = Field(ge=0)
+    gaps: list[FrameGap] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _counts_consistency(self) -> "FrameCoverage":
+        if self.covered_entity_count > self.total_entity_count:
+            raise ValueError(
+                "covered_entity_count cannot exceed total_entity_count"
+            )
+        if (
+            self.covered_entity_count + len(self.gaps)
+            != self.total_entity_count
+        ):
+            raise ValueError(
+                "covered_entity_count + len(gaps) must equal total_entity_count"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Section
 # ---------------------------------------------------------------------------
 
@@ -229,6 +267,15 @@ class VerifiedReport(BaseModel):
     finished_at_utc: datetime
     latency_ms: int = Field(ge=0)
     cost_usd: float = Field(ge=0.0)
+    frame_coverage: FrameCoverage | None = Field(
+        default=None,
+        description=(
+            "Optional top-of-report frame coverage summary (I-f7-001). "
+            "When present, the Inspector renders a panel above-the-fold "
+            "showing 'X of N entities covered' + each gap with reason. "
+            "Default None preserves back-compat with older payloads."
+        ),
+    )
 
     @field_validator("finished_at_utc")
     @classmethod
