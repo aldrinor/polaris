@@ -5,6 +5,16 @@ import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
 
 const ISO = new Date().toISOString();
 
+// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
 const SOURCE_FULL_TEXT_5 =
   "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
 
@@ -15,7 +25,7 @@ function _src(i: number): RetrievalSource {
     domain: "cochrane.org",
     tier: "T1",
     title: `Cochrane review ${i}`,
-    publication_date: "2024-03-15",
+    publication_date: FRESH_DATE,
     authors: ["Smith J", "Doe R", "Patel K"],
     snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
     full_text_available: true,
@@ -25,13 +35,44 @@ function _src(i: number): RetrievalSource {
   };
 }
 
+const SRC_RETRACTED: RetrievalSource = {
+  source_id: "src-retracted",
+  url: "https://www.cochrane.org/CD-retracted",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (retracted)",
+  publication_date: FRESH_DATE,
+  authors: ["Doe R"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+  retracted: true,
+};
+
+const SRC_STALE: RetrievalSource = {
+  source_id: "src-stale",
+  url: "https://www.cochrane.org/CD-stale",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (3y old)",
+  publication_date: STALE_DATE,
+  authors: ["Patel K"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
 const POOL: EvidencePool = {
   pool_id: "p-hover",
   decision_id: "d-hover",
-  sources: Array.from({ length: 10 }, (_, i) => _src(i)),
+  sources: [...Array.from({ length: 10 }, (_, i) => _src(i)), SRC_RETRACTED, SRC_STALE],
   adequacy: {
     is_adequate: true,
-    sources_per_tier: { T1: 10, T2: 0, T3: 0 },
+    sources_per_tier: { T1: 12, T2: 0, T3: 0 },
     min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
     failure_reason: null,
   },
@@ -120,6 +161,24 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
           is_synthesis_claim: true,
+        },
+        // sec_x:16 — retracted source (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Retracted-source demo sentence.",
+          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:17 — stale source >2y (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Stale-source demo sentence.",
+          provenance_tokens: [`[#ev:src-stale:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
         },
       ],
       section_verify_pass_rate: 1.0,

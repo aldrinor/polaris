@@ -30,6 +30,16 @@ const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
   T3: "Registries, clinical guidelines, government health agencies",
 };
 
+const STALE_THRESHOLD_DAYS = 730;
+
+function isStale(publication_date: string | null): boolean {
+  if (!publication_date) return false;
+  const t = new Date(publication_date).getTime();
+  if (isNaN(t)) return false;
+  const age_days = (Date.now() - t) / (24 * 3600 * 1000);
+  return age_days > STALE_THRESHOLD_DAYS;
+}
+
 const TIER_TONE: Record<RetrievalSourceTier, string> = {
   T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
@@ -155,13 +165,33 @@ function SourceCard({
         >
           {source.domain}
         </a>
-        <span
-          data-testid={`inspector-tier-${source.tier}`}
-          title={TIER_RATIONALE[source.tier]}
-          className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
-        >
-          {source.tier}
-        </span>
+        <div className="flex items-center gap-1">
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
       </div>
       <p
         data-testid={`inspector-trace-${idx}`}

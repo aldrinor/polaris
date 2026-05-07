@@ -53,6 +53,31 @@ def test_source_minimal_construction():
     assert s.authors == []
 
 
+def test_source_retracted_default_false_and_explicit_true():
+    s_default = Source(
+        url="https://www.cochrane.org/CD0001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="x",
+        snippet="x",
+    )
+    assert s_default.retracted is False
+
+    s_retracted = Source(
+        url="https://www.cochrane.org/CD0002",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="x",
+        snippet="x",
+        retracted=True,
+    )
+    assert s_retracted.retracted is True
+    payload = s_retracted.model_dump(mode="json")
+    assert payload["retracted"] is True
+    rehydrated = Source.model_validate(payload)
+    assert rehydrated.retracted is True
+
+
 def test_source_domain_lowercased():
     s = Source(
         url="https://NEJM.ORG/doi/abc",

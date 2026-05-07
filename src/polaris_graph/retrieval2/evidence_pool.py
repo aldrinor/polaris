@@ -72,6 +72,16 @@ class Source(BaseModel):
     full_text: str | None = None
     fetched_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     provenance: dict[str, Any] = Field(default_factory=dict)
+    retracted: bool = Field(
+        default=False,
+        description=(
+            "True iff source has been retracted post-publication "
+            "(I-f5-007). Default False — populated by future "
+            "CrossRef/Retraction Watch lookup. Today's retrieval "
+            "pipeline does not check; field is the surface for that "
+            "future wiring."
+        ),
+    )
 
     @field_validator("domain")
     @classmethod
