@@ -1,0 +1,1814 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0418-104a-7221-b892-eb251642a33f
+--------
+user
+# Codex Brief Review — I-f9-001 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review (separate Codex call) = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f9-001 — when `evaluator_agrees=false` (two-family LLM judge disagrees with generator), render an INLINE ROW badge "⚠ Internal evaluator flagged this" — visible WITHOUT opening the SentenceInspector. This complements I-f5-004's pane-level Disagree badge with a row-level surface so the user sees disagreement at-a-glance while scanning the report.
+- **Constraints:** No backend change — all data already on `ReportVerifiedSentence.evaluator_agrees` field from I-f5-004.
+- **Done-when:** acceptance criteria 1-5 below.
+
+## Plan
+
+### Frontend
+1. `web/app/generation/components/verified_report_view.tsx`: in `SentenceRow`, when `sentence.evaluator_agrees === false` AND `!dropped`, render `⚠ Internal evaluator flagged this` badge with testid `evaluator-flag-{sentence_id}`. Tooltip explains: "Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+2. Demo: existing sec_x:11 already has `evaluator_agrees: false` (I-f5-004 disagree case). Use it for the test.
+3. `web/tests/e2e/sentence_inspector_evaluator_flag.spec.ts` (new):
+   - Test 1: sec_x:11 row shows `evaluator-flag-sec_x:11` badge.
+   - Test 2: sec_x:5 (agree) shows NO evaluator-flag badge.
+   - Test 3: sec_x:12 (pending — null) shows NO evaluator-flag badge.
+
+## Risks for Codex Red-Team
+1. **Type:** `evaluator_agrees: boolean | null` — only render when explicitly false. null/undefined → no badge.
+2. **Existing AgreementBadge in pane:** I-f5-004 already renders inside the Sheet. This Issue adds row-LEVEL badge so user doesn't need to click open pane to see the flag.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~50 LOC. Well under 200.
+
+## Acceptance criteria
+
+1. Row badge `evaluator-flag-{sentence_id}` renders only when `evaluator_agrees === false` AND `verifier_pass === true`.
+2. Badge has tooltip explaining the two-family signal.
+3. Demo sec_x:11 (false) renders badge; sec_x:5 (true) and sec_x:12 (null) do not.
+4. Playwright covers all 3 cases.
+5. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll check the referenced component, demo data, and nearby e2e patterns so the review is about plan soundness against the actual frontend shape rather than assumptions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sec_x:11|sec_x:5|sec_x:12|evaluator_agrees" web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function SentenceRow|const SentenceRow|SentenceRow|evaluator_agrees|AgreementBadge|verifier_pass|dropped" web/app/generation/components/verified_report_view.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web/tests/e2e | rg "sentence_inspector|verified|report|evaluator|flag"' in C:\POLARIS
+ succeeded in 3110ms:
+47:  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+80:function SentenceRow({
+82:  show_dropped,
+90:  show_dropped: boolean;
+97:  const dropped = !sentence.verifier_pass;
+98:  if (dropped && !show_dropped) return null;
+105:    if (!pool || dropped) return false;
+118:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+131:        dropped
+151:        <span className={cn(dropped ? "" : "text-foreground")}>
+155:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+160:      {dropped && sentence.drop_reason ? (
+162:          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+165:      {!dropped && sentence.contradiction ? (
+216:  show_dropped,
+223:  show_dropped: boolean;
+230:  const dropped_count = section.verified_sentences.length - kept.length;
+236:        section.section_status === "dropped" && "opacity-60",
+252:        {kept.length === 0 && !show_dropped ? (
+259:              <SentenceRow
+262:                show_dropped={show_dropped}
+272:        {!show_dropped && dropped_count > 0 ? (
+274:            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+285:  show_dropped = false,
+289:  show_dropped?: boolean;
+349:                report.sections.filter((s) => s.section_status !== "dropped")
+354:                report.sections.filter((s) => s.section_status === "dropped")
+357:              dropped
+378:          show_dropped={show_dropped}
+
+ succeeded in 4837ms:
+web\lib\api.ts:604:  evaluator_agrees: boolean | null;
+web\app\generation\components\sentence_inspector.tsx:62:  evaluator_agrees,
+web\app\generation\components\sentence_inspector.tsx:64:  evaluator_agrees: boolean | null;
+web\app\generation\components\sentence_inspector.tsx:66:  if (evaluator_agrees === true) {
+web\app\generation\components\sentence_inspector.tsx:77:  if (evaluator_agrees === false) {
+web\app\generation\components\sentence_inspector.tsx:283:                    evaluator_agrees={sentence.evaluator_agrees}
+web\tests\e2e\sentence_inspector.spec.ts:9:  const target = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector.spec.ts:16:    "sec_x:5",
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:48:  const row = page.locator('[data-sentence-id="sec_x:5"]');
+web\app\sentence_hover_test\_demo_coverage.tsx:90:            evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:127:            evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:137:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:139:        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+web\app\sentence_hover_test\_demo.tsx:146:          evaluator_agrees: false,
+web\app\sentence_hover_test\_demo.tsx:148:        // sec_x:12 — pending (no LLM judge pass yet).
+web\app\sentence_hover_test\_demo.tsx:155:          evaluator_agrees: null,
+web\app\sentence_hover_test\_demo.tsx:164:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:173:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:182:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:192:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:201:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:218:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:228:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:240:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:249:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:262:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:306:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:341:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:371:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo.tsx:406:          evaluator_agrees: true,
+web\app\sentence_hover_test\_demo_stress.tsx:65:          evaluator_agrees: true,
+web\tests\e2e\sentence_inspector_agreement.spec.ts:3:test("Inspector renders Agree badge when evaluator_agrees=true", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:14:test("Inspector renders Disagree badge when evaluator_agrees=false", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:18:  await page.locator('[data-sentence-id="sec_x:11"]').click();
+web\tests\e2e\sentence_inspector_agreement.spec.ts:25:test("Inspector renders Pending badge when evaluator_agrees=null", async ({
+web\tests\e2e\sentence_inspector_agreement.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:12"]').click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:21:  const row = page.locator('[data-sentence-id="sec_x:5"]');
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:29:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_source.spec.ts:7:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:19:  await page.locator('[data-sentence-id="sec_x:5"]').click();
+
+ succeeded in 6126ms:
+web/tests/e2e\sentence_inspector.spec.ts
+web/tests/e2e\sentence_inspector_surfaces.spec.ts
+web/tests/e2e\sentence_inspector_source.spec.ts
+web/tests/e2e\sentence_inspector_retracted_stale.spec.ts
+web/tests/e2e\sentence_inspector_agreement.spec.ts
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts
+web/tests/e2e\sentence_inspector_synthesis.spec.ts
+web/tests/e2e\sentence_inspector_latency.spec.ts
+web/tests/e2e\sentence_inspector_multispan.spec.ts
+web/tests/e2e\sentence_inspector_adversarial.spec.ts
+web/tests/e2e\sentence_inspector_contradiction.spec.ts
+web/tests/e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+
+codex
+The component already computes a `dropped` row state from `!sentence.verifier_pass`, and the demo data contains the three planned evaluator cases. I’m reading the row markup and existing inspector tests now to see whether the proposed locator and tooltip plan fits local patterns.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_agreement.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_contradiction.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/sentence_inspector.tsx -TotalCount 340' in C:\POLARIS
+ succeeded in 2616ms:
+import { expect, test } from "@playwright/test";
+
+test("Sentence row with contradiction signal shows ⚠ badge", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:26"]');
+  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("3 sources disagree");
+  await expect(badge).toHaveAttribute(
+    "title",
+    /Three Cochrane reviews disagree on dose-response curve/,
+  );
+});
+
+test("Sentence row without contradiction shows NO contradiction badge", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:5"]');
+  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+    0,
+  );
+});
+
+test("Click contradiction badge → ContradictionPane shows N sides", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "3 sources disagree",
+  );
+  // 3 sides rendered.
+  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+  // Side 0 detail check (T1 + sample + hedge + PT08 + claim).
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+    "1247",
+  );
+  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+    "high confidence",
+  );
+  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+    "81mg",
+  );
+  // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+});
+
+test("Regulatory category badge in pane (I-f8-004)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("contradiction-category")).toContainText(
+    "Regulatory",
+  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+    "FDA-approved",
+  );
+  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+    "NOT FDA-approved",
+  );
+});
+
+test("Guideline-vs-trial evidence-type tags (I-f8-005)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("contradiction-evidence-type-0"),
+  ).toContainText("Trial");
+  await expect(
+    page.getByTestId("contradiction-evidence-type-1"),
+  ).toContainText("Guideline");
+});
+
+test("Jurisdictional disagreement display (I-f8-006)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(
+    page.getByTestId("contradiction-jurisdiction-0"),
+  ).toContainText("United States");
+  await expect(
+    page.getByTestId("contradiction-jurisdiction-1"),
+  ).toContainText("Canada");
+});
+
+test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Source self-contradicts");
+  await expect(badge).toContainText("2 spans");
+  await badge.click();
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "Self-contradiction",
+  );
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "2 spans",
+  );
+  // Both sides reference src-0.
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+    "dangerous",
+  );
+});
+
+ succeeded in 3851ms:
+import { expect, test } from "@playwright/test";
+
+test("Inspector renders Agree badge when evaluator_agrees=true", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:10"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-agree")).toBeVisible();
+});
+
+test("Inspector renders Disagree badge when evaluator_agrees=false", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:11"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-disagree")).toBeVisible();
+});
+
+test("Inspector renders Pending badge when evaluator_agrees=null", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.locator('[data-sentence-id="sec_x:12"]').click();
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("inspector-agree-pending")).toBeVisible();
+});
+
+test("Report header shows family-segregated badge", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("family-segregated")).toBeVisible();
+  await expect(page.getByTestId("report-evaluator")).toContainText(
+    "strict_verify_v1",
+  );
+});
+
+ succeeded in 4941ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type RetrievalSource,
+  type RetrievalSourceTier,
+} from "@/lib/api";
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Content-word overlap too low",
+  no_provenance_token: "No provenance token",
+};
+
+const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+  T1: "Regulatory & Cochrane systematic reviews — highest evidentiary weight",
+  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
+  T3: "Registries, clinical guidelines, government health agencies",
+};
+
+const STALE_THRESHOLD_DAYS = 730;
+
+function isStale(publication_date: string | null): boolean {
+  if (!publication_date) return false;
+  const t = new Date(publication_date).getTime();
+  if (isNaN(t)) return false;
+  const age_days = (Date.now() - t) / (24 * 3600 * 1000);
+  return age_days > STALE_THRESHOLD_DAYS;
+}
+
+const TIER_TONE: Record<RetrievalSourceTier, string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+function SynthesisClaimBadge() {
+  return (
+    <span
+      data-testid="inspector-synthesis-claim"
+      title="Synthesis claim — sentence summarizes across sources without quoting a specific span. No direct provenance by design."
+      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
+    >
+      Synthesis claim
+    </span>
+  );
+}
+
+function AgreementBadge({
+  evaluator_agrees,
+}: {
+  evaluator_agrees: boolean | null;
+}) {
+  if (evaluator_agrees === true) {
+    return (
+      <span
+        data-testid="inspector-agree"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+        title="Two-family evaluator agrees with generator claim"
+      >
+        Agree
+      </span>
+    );
+  }
+  if (evaluator_agrees === false) {
+    return (
+      <span
+        data-testid="inspector-disagree"
+        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        title="Two-family evaluator disagrees with generator claim"
+      >
+        Disagree
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="inspector-agree-pending"
+      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+      title="Two-family evaluator pass not yet recorded"
+    >
+      Pending
+    </span>
+  );
+}
+
+function SpanQuote({
+  token,
+  text,
+  idx,
+  spanIdx,
+}: {
+  token: ParsedToken;
+  text: string;
+  idx: number;
+  spanIdx: number;
+}) {
+  const out_of_range = token.end > text.length;
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote
+            key={j}
+            token={tok}
+            text={text}
+            idx={idx}
+            spanIdx={j}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 6163ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { ContradictionPane } from "./contradiction_pane";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  pool,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export type ReportVerifiedSentence|interface ReportVerifiedSentence|ReportVerifiedSentence" web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 7 "sec_x:5|sec_x:11|sec_x:12" web/app/sentence_hover_test/_demo.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_surfaces.spec.ts' in C:\POLARIS
+ succeeded in 4151ms:
+132-          section_id: "sec_x",
+133-          sentence_text: "Agreement-true demo sentence.",
+134-          provenance_tokens: [`[#ev:src-0:0-3]`],
+135-          verifier_pass: true,
+136-          drop_reason: null,
+137-          evaluator_agrees: true,
+138-        },
+139:        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+140-        {
+141-          section_id: "sec_x",
+142-          sentence_text: "Disagreement demo sentence.",
+143-          provenance_tokens: [`[#ev:src-1:0-3]`],
+144-          verifier_pass: true,
+145-          drop_reason: null,
+146-          evaluator_agrees: false,
+147-        },
+148:        // sec_x:12 — pending (no LLM judge pass yet).
+149-        {
+150-          section_id: "sec_x",
+151-          sentence_text: "Pending demo sentence.",
+152-          provenance_tokens: [`[#ev:src-2:0-3]`],
+153-          verifier_pass: true,
+154-          drop_reason: null,
+155-          evaluator_agrees: null,
+
+ succeeded in 5464ms:
+import { expect, test } from "@playwright/test";
+
+const SURFACES: { id: number; surface: string }[] = [
+  { id: 18, surface: "table" },
+  { id: 19, surface: "summary_bullet" },
+  { id: 20, surface: "limitation" },
+  { id: 21, surface: "caption" },
+  { id: 22, surface: "heading" },
+];
+
+test("Report header shows assertion-surface legend", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("assertion-surface-legend")).toBeVisible();
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Prose",
+  );
+  await expect(page.getByTestId("assertion-surface-legend")).toContainText(
+    "Heading",
+  );
+});
+
+for (const { id, surface } of SURFACES) {
+  test(`${surface} sentence is clickable and opens Inspector`, async ({
+    page,
+  }) => {
+    await page.goto("/sentence_hover_test");
+    const row = page.locator(`[data-sentence-id="sec_x:${id}"]`);
+    await expect(row.getByTestId(`surface-badge-${surface}`)).toBeVisible();
+    await row.click();
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+      timeout: 500,
+    });
+  });
+}
+
+ succeeded in 6685ms:
+import { expect, test } from "@playwright/test";
+
+test("clicking a sentence opens the Inspector Sheet within 500ms", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+
+  const target = page.locator('[data-sentence-id="sec_x:5"]');
+  await target.click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
+    "sec_x:5",
+  );
+  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
+    "Test sentence 5",
+  );
+});
+
+ succeeded in 8124ms:
+598:export interface ReportVerifiedSentence {
+668:  verified_sentences: ReportVerifiedSentence[];
+785:): ReportVerifiedSentence[] {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 590 -First 35' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function keptSentences|const keptSentences|export function keptSentences" web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 775 -First 35' in C:\POLARIS
+ succeeded in 2712ms:
+783:export function keptSentences(
+
+ succeeded in 4360ms:
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+
+ succeeded in 5611ms:
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx | Select-Object -Skip 216 -First 175' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo.tsx | Select-Object -First 220' in C:\POLARIS
+ succeeded in 2906ms:
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] = useState<
+    ContradictionSignal | null
+  >(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          pool={pool}
+        />
+      ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
+
+ succeeded in 3925ms:
+import { SentenceHoverHarness } from "./_demo";
+
+export default function SentenceHoverTestPage() {
+  return <SentenceHoverHarness />;
+}
+
+ succeeded in 5422ms:
+"use client";
+
+import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+
+const ISO = new Date().toISOString();
+
+// I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+// only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+// Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+const SOURCE_FULL_TEXT_5 =
+  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+
+function _src(i: number): RetrievalSource {
+  return {
+    source_id: `src-${i}`,
+    url: `https://www.cochrane.org/CD-${i}`,
+    domain: "cochrane.org",
+    tier: "T1",
+    title: `Cochrane review ${i}`,
+    publication_date: FRESH_DATE,
+    authors: ["Smith J", "Doe R", "Patel K"],
+    snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+    full_text_available: true,
+    full_text: SOURCE_FULL_TEXT_5,
+    fetched_at_utc: ISO,
+    provenance: {},
+  };
+}
+
+const SRC_RETRACTED: RetrievalSource = {
+  source_id: "src-retracted",
+  url: "https://www.cochrane.org/CD-retracted",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (retracted)",
+  publication_date: FRESH_DATE,
+  authors: ["Doe R"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+  retracted: true,
+};
+
+const SRC_PAYWALLED: RetrievalSource = {
+  source_id: "src-paywalled",
+  url: "https://nejm.org/paywalled/abc",
+  domain: "nejm.org",
+  tier: "T1",
+  title: "Paywalled NEJM article",
+  publication_date: FRESH_DATE,
+  authors: ["Jones B"],
+  snippet: "Abstract excerpt only — full text behind paywall.",
+  full_text_available: false,
+  full_text: null,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const SRC_STALE: RetrievalSource = {
+  source_id: "src-stale",
+  url: "https://www.cochrane.org/CD-stale",
+  domain: "cochrane.org",
+  tier: "T1",
+  title: "Cochrane review (3y old)",
+  publication_date: STALE_DATE,
+  authors: ["Patel K"],
+  snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  full_text_available: true,
+  full_text: SOURCE_FULL_TEXT_5,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
+const POOL: EvidencePool = {
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sources: [
+    ...Array.from({ length: 10 }, (_, i) => _src(i)),
+    SRC_RETRACTED,
+    SRC_STALE,
+    SRC_PAYWALLED,
+  ],
+  adequacy: {
+    is_adequate: true,
+    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+    failure_reason: null,
+  },
+  queries_executed: ["aspirin migraine"],
+  retrieval_started_at_utc: ISO,
+  retrieval_finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+const REPORT: VerifiedReport = {
+  report_id: "r-hover-test",
+  pool_id: "p-hover",
+  decision_id: "d-hover",
+  sections: [
+    {
+      section_id: "sec_x",
+      section_title: "Test section",
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
+          section_id: "sec_x",
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+        // sec_x:13 — multi-span same-source (I-f5-005). Two spans of src-0.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span same-source demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:14 — multi-source (I-f5-005). One span of src-1 + one of src-2.
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-source demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
+        {
+          section_id: "sec_x",
+          sentence_text: "These trials together suggest a moderate effect.",
+          provenance_tokens: [],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          is_synthesis_claim: true,
+        },
+        // sec_x:16 — retracted source (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Retracted-source demo sentence.",
+          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:17 — stale source >2y (I-f5-007).
+        {
+          section_id: "sec_x",
+          sentence_text: "Stale-source demo sentence.",
+          provenance_tokens: [`[#ev:src-stale:0-30]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+        ...(
+          [
+            "table",
+            "summary_bullet",
+            "limitation",
+            "caption",
+            "heading",
+          ] as const
+        ).map((surface, k) => ({
+          section_id: "sec_x",
+          sentence_text: `${surface} assertion demo sentence.`,
+          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          assertion_surface: surface,
+        })),
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo.tsx | Select-Object -Skip 220 -First 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx | Select-Object -Skip 390 -First 80' in C:\POLARIS
+ succeeded in 3914ms:
+        // sec_x:23 — paywalled source (I-f5-010 case 1).
+        {
+          section_id: "sec_x",
+          sentence_text: "Paywalled-source demo sentence cites NEJM.",
+          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span with bad span demo sentence.",
+          provenance_tokens: [
+            `[#ev:src-0:0-30]`,
+            `[#ev:src-0:5000-5050]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+        {
+          section_id: "sec_x",
+          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+        {
+          section_id: "sec_x",
+          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+          provenance_tokens: [
+            `[#ev:src-0:0-20]`,
+            `[#ev:src-1:0-20]`,
+            `[#ev:src-2:0-20]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "numeric",
+            disagreeing_source_count: 3,
+            summary: "Three Cochrane reviews disagree on dose-response curve",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: "PT04",
+                claim_excerpt:
+                  "Aspirin significantly reduces headache at 81mg dose.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T2",
+                sample_size: 432,
+                hedge_language: "moderate confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin shows mixed results below 162mg threshold.",
+              },
+              {
+                source_id: "src-2",
+                source_tier: "T1",
+                sample_size: 2103,
+                hedge_language: "high confidence",
+                pt08_flag: "PT08",
+                claim_excerpt:
+                  "Aspirin demonstrates dose-response saturation above 325mg.",
+              },
+            ],
+          },
+        },
+        // sec_x:27 — self-contradiction (I-f8-003).
+        {
+          section_id: "sec_x",
+          sentence_text: "Self-contradiction demo: same source on both sides.",
+          provenance_tokens: [`[#ev:src-0:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "self_contradiction",
+            category: "categorical",
+            disagreeing_source_count: 1,
+            summary: "Single source contradicts itself across two paragraphs",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt: "Aspirin is safe at chronic doses.",
+              },
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin is dangerous beyond 8 weeks of chronic use.",
+              },
+            ],
+          },
+        },
+        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Regulatory non-numeric contradiction: FDA approved vs not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "regulatory",
+            disagreeing_source_count: 2,
+            summary: "FDA-approved per source A, not approved per source B",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is FDA-approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is NOT FDA-approved for indication Y.",
+              },
+            ],
+          },
+        },
+        // sec_x:29 — guideline-vs-trial conflict (I-f8-005).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Guideline-vs-trial: trial says efficacious, guideline disagrees.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "categorical",
+            disagreeing_source_count: 2,
+            summary:
+              "RCT shows efficacy; clinical practice guideline does not endorse",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "trial",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Drug X efficacious in RCT (NEJM 2024, n=2103).",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "guideline",
+                hedge_language: "moderate confidence",
+                claim_excerpt:
+                  "Cochrane guideline: insufficient evidence to endorse Drug X.",
+              },
+            ],
+          },
+        },
+        // sec_x:30 — jurisdictional disagreement (I-f8-006). FDA vs Health Canada.
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Jurisdictional disagreement: FDA approved, Health Canada not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "jurisdictional",
+            disagreeing_source_count: 2,
+            summary: "FDA approves; Health Canada has not approved",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "us",
+                hedge_language: "high confidence",
+                claim_excerpt: "FDA: Drug X approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                evidence_type: "regulatory_label",
+                jurisdiction: "canada",
+                hedge_language: "high confidence",
+                claim_excerpt:
+                  "Health Canada: Drug X submission under review, not yet approved.",
+              },
+            ],
+          },
+        },
+      ],
+      section_verify_pass_rate: 1.0,
+      section_status: "verified",
+    },
+  ],
+  overall_verify_pass_rate: 1.0,
+  pipeline_verdict: "success",
+  generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
+  frame_coverage: {
+    covered_entity_count: 14,
+    total_entity_count: 15,
+    gaps: [
+      {
+        entity_name: "Pediatric population",
+        reason: "no_oa",
+        reason_detail: "no open-access version of Cochrane review",
+      },
+    ],
+  },
+  verifier_pass_threshold: 0.4,
+  started_at_utc: ISO,
+  finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+
+ succeeded in 4985ms:
+      />
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+codex
+criterion_1: PASS - plan gates on `evaluator_agrees === false` and non-dropped rows, equivalent to `verifier_pass === true`.
+criterion_2: PASS - planned `title` tooltip text fits existing badge pattern.
+criterion_3: PASS - demo has `sec_x:11=false`, `sec_x:5=true`, `sec_x:12=null`, all kept.
+criterion_4: PASS - planned Playwright cases cover the three requested demo states.
+criterion_5: PASS - scope is small and plausibly under 200 net LOC.
+
+files_read:
+  - `web/app/generation/components/verified_report_view.tsx`
+  - `web/app/generation/components/sentence_inspector.tsx`
+  - `web/app/sentence_hover_test/_demo.tsx`
+  - `web/app/sentence_hover_test/page.tsx`
+  - `web/lib/api.ts`
+  - `web/tests/e2e/sentence_inspector.spec.ts`
+  - `web/tests/e2e/sentence_inspector_agreement.spec.ts`
+  - `web/tests/e2e/sentence_inspector_contradiction.spec.ts`
+  - `web/tests/e2e/sentence_inspector_surfaces.spec.ts`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test plan does not include a dropped sentence with evaluator_agrees=false, so the verifier_pass half of criterion 1 is covered by implementation shape rather than an explicit regression test. This is not a blocker because SentenceRow already derives dropped from !verifier_pass and the plan explicitly gates on !dropped."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+tokens used
+35,748
+criterion_1: PASS - plan gates on `evaluator_agrees === false` and non-dropped rows, equivalent to `verifier_pass === true`.
+criterion_2: PASS - planned `title` tooltip text fits existing badge pattern.
+criterion_3: PASS - demo has `sec_x:11=false`, `sec_x:5=true`, `sec_x:12=null`, all kept.
+criterion_4: PASS - planned Playwright cases cover the three requested demo states.
+criterion_5: PASS - scope is small and plausibly under 200 net LOC.
+
+files_read:
+  - `web/app/generation/components/verified_report_view.tsx`
+  - `web/app/generation/components/sentence_inspector.tsx`
+  - `web/app/sentence_hover_test/_demo.tsx`
+  - `web/app/sentence_hover_test/page.tsx`
+  - `web/lib/api.ts`
+  - `web/tests/e2e/sentence_inspector.spec.ts`
+  - `web/tests/e2e/sentence_inspector_agreement.spec.ts`
+  - `web/tests/e2e/sentence_inspector_contradiction.spec.ts`
+  - `web/tests/e2e/sentence_inspector_surfaces.spec.ts`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test plan does not include a dropped sentence with evaluator_agrees=false, so the verifier_pass half of criterion 1 is covered by implementation shape rather than an explicit regression test. This is not a blocker because SentenceRow already derives dropped from !verifier_pass and the plan explicitly gates on !dropped."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
