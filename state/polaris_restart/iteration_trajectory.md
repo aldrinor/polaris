@@ -139,3 +139,5 @@ I-f3-002 brief iter1=REQ_CH (under-block) iter2=REQ_CH (test contradicted) iter3
 I-f3-002 diff iter1=APPROVE 0/0/2P2; tokens=66814
 I-f3-003 brief iter1=APPROVE 0/0/2P2 accept_remaining
 I-f3-003 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=16823
+I-f3-004 brief iter1=REQ_CH (artifacts not at HEAD) iter2=APPROVE 0/0/0
+I-f3-004 diff iter1=APPROVE 0/0/0

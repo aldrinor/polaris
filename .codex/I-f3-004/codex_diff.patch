@@ -1,0 +1,86 @@
+diff --git a/.github/workflows/sovereignty.yml.pending_workflow_scope b/.github/workflows/sovereignty.yml.pending_workflow_scope
+new file mode 100644
+index 0000000..3bd08a7
+--- /dev/null
++++ b/.github/workflows/sovereignty.yml.pending_workflow_scope
+@@ -0,0 +1,24 @@
++name: sovereignty
++
++on:
++  pull_request:
++  push:
++    branches: [polaris, main]
++
++jobs:
++  sovereignty-tests:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-python@v5
++        with:
++          python-version: "3.11"
++
++      - name: Install pytest
++        run: pip install pytest
++
++      - name: Run sovereignty test suite (Carney v6.2 §332 default-deny)
++        env:
++          PYTHONPATH: src
++        run: python -m pytest tests/polaris_graph/sovereignty/ -v
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index a1e1cfb..28a0a8e 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -139,3 +139,5 @@ I-f3-002 brief iter1=REQ_CH (under-block) iter2=REQ_CH (test contradicted) iter3
+ I-f3-002 diff iter1=APPROVE 0/0/2P2; tokens=66814
+ I-f3-003 brief iter1=APPROVE 0/0/2P2 accept_remaining
+ I-f3-003 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=16823
++I-f3-004 brief iter1=REQ_CH (artifacts not at HEAD) iter2=APPROVE 0/0/0
++I-f3-004 diff iter1=APPROVE 0/0/0
+diff --git a/tests/polaris_graph/sovereignty/test_red_team.py b/tests/polaris_graph/sovereignty/test_red_team.py
+new file mode 100644
+index 0000000..b2632f7
+--- /dev/null
++++ b/tests/polaris_graph/sovereignty/test_red_team.py
+@@ -0,0 +1,40 @@
++"""Red-team tests proving the sovereignty gate fires on violation (I-f3-004).
++
++If anyone weakens EXTERNAL_LEAK_FORBIDDEN or removes the assert_safe_for_external
++gate, these tests fail in CI per .github/workflows/sovereignty.yml.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import pytest
++
++from polaris_graph.sovereignty.router import (
++    SovereigntyViolationError,
++    assert_safe_for_external,
++)
++
++
++@dataclass
++class _Item:
++    text: str
++    classification: str | None
++
++
++def test_red_team_client_doc_blocked():
++    payload = [_Item("public sample", "PUBLIC_SYNTHETIC"), _Item("client trade secret", "CLIENT")]
++    with pytest.raises(SovereigntyViolationError, match="CLIENT"):
++        assert_safe_for_external(payload)
++
++
++def test_red_team_can_real_blocked():
++    payload = [_Item("Canadian PII", "CAN_REAL")]
++    with pytest.raises(SovereigntyViolationError, match="CAN_REAL"):
++        assert_safe_for_external(payload)
++
++
++def test_red_team_unknown_default_deny_blocked():
++    payload = [_Item("missing classification", None)]
++    with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
++        assert_safe_for_external(payload)
