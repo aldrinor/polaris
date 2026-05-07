@@ -32,6 +32,9 @@ from polaris_graph.audit_bundle.snapshot_sources import (
     snapshot_sources,
     snapshot_sources_with_reachable,
 )
+from polaris_graph.audit_bundle.sovereignty_guard import (
+    assert_all_pool_sources_legal_cleared,
+)
 from polaris_graph.generator2.provenance import extract_tokens
 from polaris_graph.generator2.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
@@ -156,7 +159,10 @@ def build_manifest_and_files(
     vr_bytes = _serialize_json_canonical(report)
     files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
 
-    # 4. Per-source snapshots + cited-span reachability guard
+    # 4. Sovereignty: refuse to ship verbatim spans for non-cleared sources
+    assert_all_pool_sources_legal_cleared(pool)
+
+    # 4b. Per-source snapshots + cited-span reachability guard
     snapshot_entries = snapshot_sources_with_reachable(report, pool)
     _assert_cited_spans_reachable(report, snapshot_entries)
     for source_id, entry in snapshot_entries.items():

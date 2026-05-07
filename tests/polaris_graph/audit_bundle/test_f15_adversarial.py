@@ -34,6 +34,7 @@ def _src(source_id: str, full_text: str | None, snippet: str = "snippet") -> Sou
         full_text=full_text,
         full_text_available=(full_text is not None),
         source_id=source_id,
+        provenance={"legal_cleared": True},
     )
 
 

@@ -77,6 +77,7 @@ class AuditBundleErrorResponse(BaseModel):
     error: bool = True
     code: str  # 'fk_chain_mismatch' | 'verdict_not_success' |
                # 'cited_span_unreachable_after_snapshot' |
+               # 'copyrighted_span_in_bundle' |
                # 'gpg_unavailable' | 'sign_failed'
     message: str
     report_id: str | None = None
@@ -120,9 +121,11 @@ def post_audit_bundle(
             sign_fn=sign_fn,
         )
     except ValueError as exc:
-        # FK chain mismatch, verdict != success, or cited-span unreachable
+        # FK chain mismatch, verdict != success, cited-span unreachable, or copyrighted span
         msg = str(exc)
-        if "cited span unreachable" in msg:
+        if "copyrighted span" in msg:
+            code = "copyrighted_span_in_bundle"
+        elif "cited span unreachable" in msg:
             code = "cited_span_unreachable_after_snapshot"
         elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
             code = "fk_chain_mismatch"
@@ -191,11 +194,12 @@ def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         msg = str(exc)
-        code = (
-            "cited_span_unreachable_after_snapshot"
-            if "cited span unreachable" in msg
-            else "verdict_not_success"
-        )
+        if "copyrighted span" in msg:
+            code = "copyrighted_span_in_bundle"
+        elif "cited span unreachable" in msg:
+            code = "cited_span_unreachable_after_snapshot"
+        else:
+            code = "verdict_not_success"
         raise HTTPException(
             status_code=400,
             detail={

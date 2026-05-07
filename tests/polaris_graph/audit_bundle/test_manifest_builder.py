@@ -50,6 +50,7 @@ def _src(source_id: str, full_text: str = "src text") -> Source:
         full_text=full_text,
         full_text_available=True,
         source_id=source_id,
+        provenance={"legal_cleared": True},
     )
 
 
