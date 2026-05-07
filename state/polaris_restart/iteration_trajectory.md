@@ -137,3 +137,5 @@ I-f3-001 brief iter1=REQ_CH (2P1 _UPLOAD_TABLE wrong) iter2=REQ_CH (2P1 stale+se
 I-f3-001 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=110992
 I-f3-002 brief iter1=REQ_CH (under-block) iter2=REQ_CH (test contradicted) iter3=APPROVE (0/0/2P2)
 I-f3-002 diff iter1=APPROVE 0/0/2P2; tokens=66814
+I-f3-003 brief iter1=APPROVE 0/0/2P2 accept_remaining
+I-f3-003 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=16823
