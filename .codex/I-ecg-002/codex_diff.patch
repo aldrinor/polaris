@@ -1,0 +1,546 @@
+diff --git a/src/polaris_graph/api/generation_route.py b/src/polaris_graph/api/generation_route.py
+index b97b7a6..d544ecc 100644
+--- a/src/polaris_graph/api/generation_route.py
++++ b/src/polaris_graph/api/generation_route.py
+@@ -19,6 +19,12 @@ from typing import Any
+ from fastapi import APIRouter, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
++from polaris_graph.evidence_contract import (
++    ContractRequiredError,
++    EvidenceContract,
++    assert_generation_has_contract,
++    evaluate_contract,
++)
+ from polaris_graph.generator2.generator import (
+     GeneratorCompletionFn,
+     process_generation,
+@@ -87,6 +93,16 @@ class GenerationRequest(BaseModel):
+             "rate threshold. None -> use orchestrator default (0.40)."
+         ),
+     )
++    contract: EvidenceContract | None = Field(
++        default=None,
++        description=(
++            "Pre-generation Evidence Contract (I-ecg-001). Generation "
++            "REFUSES if missing AND POLARIS_REQUIRE_CONTRACT=1 — request "
++            "returns HTTP 400 with code 'contract_required'. Default OFF "
++            "for legacy callers during migration period; set env=1 in "
++            "production once all callers thread the contract."
++        ),
++    )
+ 
+ 
+ class GenerationErrorResponse(BaseModel):
+@@ -124,6 +140,24 @@ def post_generation(
+     completion_fn: GeneratorCompletionFn | None = Depends(get_completion_fn),
+ ) -> GenerationSuccessResponse | GenerationErrorResponse:
+     """Run an EvidencePool through generator + strict-verify."""
++    import os
++
++    require_contract = os.environ.get("POLARIS_REQUIRE_CONTRACT", "0").strip() == "1"
++    if require_contract:
++        try:
++            assert_generation_has_contract(req.contract, report_id=None)
++        except ContractRequiredError as exc:
++            raise HTTPException(
++                status_code=400,
++                detail={
++                    "error": True,
++                    "code": "contract_required",
++                    "message": str(exc),
++                    "pool_id": req.pool.pool_id,
++                    "decision_id": req.pool.decision_id,
++                },
++            )
++
+     kwargs: dict[str, Any] = {"scope_class": req.scope_class}
+     if req.verifier_pass_threshold is not None:
+         kwargs["verifier_pass_threshold"] = req.verifier_pass_threshold
+@@ -144,6 +178,22 @@ def post_generation(
+         )
+ 
+     assert isinstance(result, VerifiedReport)
++    if require_contract and req.contract is not None:
++        verdict = evaluate_contract(req.contract, req.pool, result)
++        if not verdict.passed:
++            raise HTTPException(
++                status_code=400,
++                detail={
++                    "error": True,
++                    "code": "contract_unsatisfied",
++                    "message": (
++                        f"contract {req.contract.contract_id} unsatisfied: "
++                        f"{', '.join(verdict.failures)}"
++                    ),
++                    "pool_id": req.pool.pool_id,
++                    "decision_id": req.pool.decision_id,
++                },
++            )
+     return GenerationSuccessResponse(
+         report=result.model_dump(mode="json"),
+         server_time_utc=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+diff --git a/src/polaris_graph/evidence_contract/__init__.py b/src/polaris_graph/evidence_contract/__init__.py
+index d735641..5da427c 100644
+--- a/src/polaris_graph/evidence_contract/__init__.py
++++ b/src/polaris_graph/evidence_contract/__init__.py
+@@ -5,6 +5,13 @@ BEFORE generation runs. Distinct from `polaris_v6.schemas.evidence_contract`
+ which describes the post-run artifact (run output).
+ """
+ 
++from polaris_graph.evidence_contract.gate import (
++    ContractRequiredError,
++    GateVerdict,
++    JURISDICTION_DOMAINS,
++    assert_generation_has_contract,
++    evaluate_contract,
++)
+ from polaris_graph.evidence_contract.schema import (
+     EvidenceContract,
+     EvidenceContractError,
+@@ -15,10 +22,15 @@ from polaris_graph.evidence_contract.schema import (
+ )
+ 
+ __all__ = [
++    "ContractRequiredError",
+     "EvidenceContract",
+     "EvidenceContractError",
+     "ExpectedClaim",
+     "ExpectedEntity",
+     "ExpectedSourceCoverage",
++    "GateVerdict",
++    "JURISDICTION_DOMAINS",
+     "Jurisdiction",
++    "assert_generation_has_contract",
++    "evaluate_contract",
+ ]
+diff --git a/src/polaris_graph/evidence_contract/gate.py b/src/polaris_graph/evidence_contract/gate.py
+new file mode 100644
+index 0000000..027081c
+--- /dev/null
++++ b/src/polaris_graph/evidence_contract/gate.py
+@@ -0,0 +1,146 @@
++"""Evidence Contract Gate enforcement (I-ecg-002).
++
++Given a (contract, pool, report) triple, evaluate whether the report
++addresses every contract expectation. Pure function; no I/O.
++
++`assert_generation_has_contract` is the IMPORT-time guarantee: callers
++that try to run generation without a contract get a structured refusal.
++"""
++
++from __future__ import annotations
++
++from pydantic import BaseModel, Field
++
++from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
++from polaris_graph.generator2.provenance import extract_tokens
++from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source, SourceTier
++
++JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
++    Jurisdiction.CA: frozenset({"canada.ca", "gc.ca", "cochrane.org", "hc-sc.gc.ca"}),
++    Jurisdiction.US: frozenset({"fda.gov", "nih.gov", "cdc.gov", "nlm.nih.gov"}),
++    Jurisdiction.EU: frozenset({"ema.europa.eu", "efsa.europa.eu", "europa.eu"}),
++    Jurisdiction.UK: frozenset({"nice.org.uk", "gov.uk", "mhra.gov.uk"}),
++    Jurisdiction.GLOBAL: frozenset({"who.int", "cochrane.org"}),
++}
++
++
++class ContractRequiredError(Exception):
++    """Raised when generation is invoked without an EvidenceContract."""
++
++
++class GateVerdict(BaseModel):
++    passed: bool
++    failures: list[str] = Field(default_factory=list)
++    contract_id: str
++    report_id: str
++
++
++def assert_generation_has_contract(
++    contract: EvidenceContract | None, *, report_id: str | None = None
++) -> None:
++    if contract is None:
++        raise ContractRequiredError(
++            f"Evidence Contract required: generation cannot proceed without a contract"
++            f"{f' (report_id={report_id!r})' if report_id else ''}"
++        )
++
++
++def _kept_sentence_texts(report: VerifiedReport) -> list[str]:
++    out: list[str] = []
++    for section in report.sections:
++        if section.section_status == "dropped":
++            continue
++        for sentence in section.verified_sentences:
++            if sentence.verifier_pass:
++                out.append(sentence.sentence_text.lower())
++    return out
++
++
++def _sentence_cited_ids(sentence) -> set[str]:
++    ids: set[str] = set()
++    for tok in extract_tokens(sentence.sentence_text):
++        ids.add(tok.source_id)
++    for raw in sentence.provenance_tokens:
++        for tok in extract_tokens(raw):
++            ids.add(tok.source_id)
++    return ids
++
++
++def _cited_sources(report: VerifiedReport, pool: EvidencePool) -> list[Source]:
++    cited_ids: set[str] = set()
++    for section in report.sections:
++        if section.section_status == "dropped":
++            continue
++        for sentence in section.verified_sentences:
++            if not sentence.verifier_pass:
++                continue
++            cited_ids |= _sentence_cited_ids(sentence)
++    return [s for s in pool.sources if s.source_id in cited_ids]
++
++
++def _claim_covering_sources(
++    report: VerifiedReport, pool: EvidencePool, claim_statement_lower: str
++) -> list[Source]:
++    """Sources cited by sentences whose text contains the claim statement substring."""
++    cited_ids: set[str] = set()
++    for section in report.sections:
++        if section.section_status == "dropped":
++            continue
++        for sentence in section.verified_sentences:
++            if not sentence.verifier_pass:
++                continue
++            if claim_statement_lower in sentence.sentence_text.lower():
++                cited_ids |= _sentence_cited_ids(sentence)
++    return [s for s in pool.sources if s.source_id in cited_ids]
++
++
++def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> bool:
++    domain_lower = domain.lower()
++    return any(
++        domain_lower == d or domain_lower.endswith("." + d)
++        for d in JURISDICTION_DOMAINS.get(jurisdiction, frozenset())
++    )
++
++
++def evaluate_contract(
++    contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
++) -> GateVerdict:
++    failures: list[str] = []
++    sentence_texts = _kept_sentence_texts(report)
++    blob = " ".join(sentence_texts)
++    cited = _cited_sources(report, pool)
++
++    for entity in contract.expected_entities:
++        names = [entity.name.lower()] + [a.lower() for a in entity.aliases if a.strip()]
++        if not any(n in blob for n in names if n):
++            failures.append(f"entity_not_covered:{entity.name}")
++
++    for claim in contract.expected_claims:
++        statement_lower = claim.statement.lower()
++        if not any(statement_lower in t for t in sentence_texts):
++            failures.append(f"claim_not_covered:{claim.claim_id}")
++        claim_sources = _claim_covering_sources(report, pool, statement_lower)
++        for jurisdiction in claim.required_jurisdictions:
++            if not any(_domain_matches_jurisdiction(s.domain, jurisdiction) for s in claim_sources):
++                failures.append(
++                    f"jurisdiction_not_covered:{claim.claim_id}:{jurisdiction.value}"
++                )
++
++    cov = contract.expected_source_coverage
++    counts = {SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0}
++    for s in cited:
++        counts[s.tier] += 1
++    if counts[SourceTier.T1] < cov.tier_t1_min:
++        failures.append(f"insufficient_t1_sources:{counts[SourceTier.T1]}<{cov.tier_t1_min}")
++    if counts[SourceTier.T2] < cov.tier_t2_min:
++        failures.append(f"insufficient_t2_sources:{counts[SourceTier.T2]}<{cov.tier_t2_min}")
++    if counts[SourceTier.T3] < cov.tier_t3_min:
++        failures.append(f"insufficient_t3_sources:{counts[SourceTier.T3]}<{cov.tier_t3_min}")
++
++    return GateVerdict(
++        passed=not failures,
++        failures=failures,
++        contract_id=contract.contract_id,
++        report_id=report.report_id,
++    )
+diff --git a/tests/polaris_graph/api/test_generation_route.py b/tests/polaris_graph/api/test_generation_route.py
+index d754a79..3daf4a6 100644
+--- a/tests/polaris_graph/api/test_generation_route.py
++++ b/tests/polaris_graph/api/test_generation_route.py
+@@ -228,6 +228,74 @@ def test_safety_scope_class_uses_safety_blueprint(app: FastAPI):
+     assert "sec_adverse_events" in section_ids
+ 
+ 
++def test_post_refuses_without_contract_when_required(app: FastAPI, monkeypatch):
++    """POLARIS_REQUIRE_CONTRACT=1 + missing contract => 400 contract_required (I-ecg-002)."""
++    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
++    payload = _adequate_pool_payload()
++    r = TestClient(app).post(
++        "/api/generation", json={"pool": payload, "scope_class": "clinical_efficacy"}
++    )
++    assert r.status_code == 400
++    assert r.json()["detail"]["code"] == "contract_required"
++
++
++def test_post_rejects_unsatisfied_contract_when_required(app: FastAPI, monkeypatch):
++    """POLARIS_REQUIRE_CONTRACT=1 + present-but-unsatisfied contract => 400 contract_unsatisfied."""
++    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
++    full = "aspirin reduces headache pain in adults"
++    payload = _adequate_pool_payload(full_text=full)
++    _override_completion_fn(app, [_good_efficacy_text(full)])
++    contract = {
++        "research_question": "Does ibuprofen cure cancer?",
++        "expected_entities": [{"name": "ibuprofen", "entity_type": "drug", "aliases": []}],
++        "expected_claims": [{
++            "claim_id": "c1",
++            "statement": "ibuprofen cures cancer",
++            "expected_entities": ["ibuprofen"],
++            "required_jurisdictions": ["CA"],
++        }],
++        "expected_source_coverage": {"tier_t1_min": 99, "tier_t2_min": 0, "tier_t3_min": 0},
++        "jurisdictions": ["CA"],
++        "created_by": "operator-1",
++    }
++    r = TestClient(app).post(
++        "/api/generation",
++        json={"pool": payload, "scope_class": "clinical_efficacy", "contract": contract},
++    )
++    assert r.status_code == 400
++    assert r.json()["detail"]["code"] == "contract_unsatisfied"
++
++
++def test_post_accepts_contract_when_required(app: FastAPI, monkeypatch):
++    """POLARIS_REQUIRE_CONTRACT=1 + valid contract => bypasses gate refusal (I-ecg-002)."""
++    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
++    full = (
++        "The randomized trial enrolled 1247 adults with chronic migraines. "
++        "Aspirin 325mg demonstrated significant headache reduction at "
++        "outcomes assessment."
++    )
++    payload = _adequate_pool_payload(full_text=full)
++    _override_completion_fn(app, [_good_efficacy_text(full)])
++    contract = {
++        "research_question": "Does aspirin reduce headache in adults?",
++        "expected_entities": [{"name": "aspirin", "entity_type": "drug", "aliases": []}],
++        "expected_claims": [{
++            "claim_id": "c1",
++            "statement": "aspirin headache reduction",
++            "expected_entities": ["aspirin"],
++            "required_jurisdictions": ["CA"],
++        }],
++        "expected_source_coverage": {"tier_t1_min": 0, "tier_t2_min": 0, "tier_t3_min": 0},
++        "jurisdictions": ["CA"],
++        "created_by": "operator-1",
++    }
++    r = TestClient(app).post(
++        "/api/generation",
++        json={"pool": payload, "scope_class": "clinical_efficacy", "contract": contract},
++    )
++    assert r.status_code == 200, r.json()
++
++
+ # ---------- 422 validation ----------
+ 
+ def test_post_missing_pool_returns_422(app: FastAPI):
+diff --git a/tests/polaris_graph/evidence_contract/test_gate.py b/tests/polaris_graph/evidence_contract/test_gate.py
+new file mode 100644
+index 0000000..280081c
+--- /dev/null
++++ b/tests/polaris_graph/evidence_contract/test_gate.py
+@@ -0,0 +1,193 @@
++"""Tests for the Evidence Contract gate (I-ecg-002)."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++import pytest
++
++from polaris_graph.evidence_contract import (
++    ContractRequiredError,
++    EvidenceContract,
++    ExpectedClaim,
++    ExpectedEntity,
++    ExpectedSourceCoverage,
++    Jurisdiction,
++    assert_generation_has_contract,
++    evaluate_contract,
++)
++from polaris_graph.generator2.verified_report import (
++    Section,
++    VerifiedReport,
++    VerifiedSentence,
++)
++from polaris_graph.retrieval2.evidence_pool import (
++    AdequacyVerdict,
++    EvidencePool,
++    Source,
++    SourceTier,
++)
++
++
++def _src(source_id: str, tier: SourceTier, domain: str = "cochrane.org") -> Source:
++    return Source(
++        url=f"https://{domain}/x",
++        domain=domain,
++        tier=tier,
++        title="t",
++        snippet="s",
++        full_text="ft",
++        full_text_available=True,
++        source_id=source_id,
++        provenance={"legal_cleared": True},
++    )
++
++
++def _pool(sources: list[Source]) -> EvidencePool:
++    return EvidencePool(
++        pool_id="p1",
++        decision_id="d1",
++        sources=sources,
++        adequacy=AdequacyVerdict(is_adequate=True),
++        retrieval_started_at_utc=datetime.now(timezone.utc),
++        retrieval_finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def _report(sentence_text: str = "aspirin reduces headache pain in adults",
++            cited_source_id: str = "a") -> VerifiedReport:
++    return VerifiedReport(
++        report_id="r1",
++        pool_id="p1",
++        decision_id="d1",
++        sections=[
++            Section(
++                section_id="s1",
++                section_title="X",
++                verified_sentences=[
++                    VerifiedSentence(
++                        section_id="s1",
++                        sentence_text=sentence_text,
++                        provenance_tokens=[f"[#ev:{cited_source_id}:0-3]"],
++                        verifier_pass=True,
++                    )
++                ],
++                section_verify_pass_rate=1.0,
++                section_status="verified",
++            )
++        ],
++        overall_verify_pass_rate=1.0,
++        pipeline_verdict="success",
++        generator_model="m",
++        verifier_pass_threshold=0.4,
++        started_at_utc=datetime.now(timezone.utc),
++        finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def _contract(
++    entity_name: str = "aspirin",
++    statement: str = "aspirin reduces headache pain",
++    jurs: list[Jurisdiction] | None = None,
++    coverage: ExpectedSourceCoverage | None = None,
++) -> EvidenceContract:
++    jurs = jurs or [Jurisdiction.CA]
++    return EvidenceContract(
++        research_question="q",
++        expected_entities=[ExpectedEntity(name=entity_name, entity_type="drug")],
++        expected_claims=[
++            ExpectedClaim(
++                claim_id="c1",
++                statement=statement,
++                expected_entities=[entity_name],
++                required_jurisdictions=jurs,
++            )
++        ],
++        expected_source_coverage=coverage or ExpectedSourceCoverage(
++            tier_t1_min=1, tier_t2_min=0, tier_t3_min=0
++        ),
++        jurisdictions=jurs,
++        created_by="op",
++    )
++
++
++def test_assert_generation_has_contract_passes_with_contract():
++    assert_generation_has_contract(_contract())
++
++
++def test_assert_generation_has_contract_raises_without_contract():
++    with pytest.raises(ContractRequiredError, match="Evidence Contract required"):
++        assert_generation_has_contract(None)
++
++
++def test_evaluate_contract_passes_when_report_covers_everything():
++    v = evaluate_contract(_contract(), _pool([_src("a", SourceTier.T1)]), _report())
++    assert v.passed
++    assert v.failures == []
++
++
++def test_evaluate_contract_fails_on_missing_entity_coverage():
++    v = evaluate_contract(
++        _contract(entity_name="ibuprofen", statement="ibuprofen reduces fever"),
++        _pool([_src("a", SourceTier.T1)]),
++        _report(),
++    )
++    assert not v.passed
++    assert any(f.startswith("entity_not_covered:ibuprofen") for f in v.failures)
++
++
++def test_evaluate_contract_fails_on_missing_claim_coverage():
++    v = evaluate_contract(
++        _contract(statement="aspirin cures cancer"),
++        _pool([_src("a", SourceTier.T1)]),
++        _report(),
++    )
++    assert not v.passed
++    assert any(f.startswith("claim_not_covered:c1") for f in v.failures)
++
++
++def test_evaluate_contract_fails_on_insufficient_t1_sources():
++    v = evaluate_contract(
++        _contract(coverage=ExpectedSourceCoverage(tier_t1_min=3, tier_t2_min=0, tier_t3_min=0)),
++        _pool([_src("a", SourceTier.T1)]),
++        _report(),
++    )
++    assert not v.passed
++    assert any(f.startswith("insufficient_t1_sources:1<3") for f in v.failures)
++
++
++def test_evaluate_contract_aggregates_multiple_failures():
++    v = evaluate_contract(
++        _contract(
++            entity_name="ibuprofen",
++            statement="ibuprofen cures cancer",
++            coverage=ExpectedSourceCoverage(tier_t1_min=5, tier_t2_min=0, tier_t3_min=0),
++        ),
++        _pool([_src("a", SourceTier.T1)]),
++        _report(),
++    )
++    assert not v.passed
++    assert len(v.failures) >= 3
++
++
++def test_evaluate_contract_fails_on_jurisdiction_not_covered():
++    v = evaluate_contract(
++        _contract(jurs=[Jurisdiction.US]),
++        _pool([_src("a", SourceTier.T1, domain="cochrane.org")]),
++        _report(),
++    )
++    assert not v.passed
++    assert any(f.startswith("jurisdiction_not_covered:c1:US") for f in v.failures)
++
++
++def test_evaluate_contract_passes_with_zero_min_coverage():
++    v = evaluate_contract(
++        _contract(coverage=ExpectedSourceCoverage(tier_t1_min=0, tier_t2_min=0, tier_t3_min=0)),
++        _pool([_src("a", SourceTier.T1)]),
++        _report(),
++    )
++    assert v.passed

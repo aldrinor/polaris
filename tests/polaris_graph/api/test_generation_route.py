@@ -228,6 +228,74 @@ def test_safety_scope_class_uses_safety_blueprint(app: FastAPI):
     assert "sec_adverse_events" in section_ids
 
 
+def test_post_refuses_without_contract_when_required(app: FastAPI, monkeypatch):
+    """POLARIS_REQUIRE_CONTRACT=1 + missing contract => 400 contract_required (I-ecg-002)."""
+    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
+    payload = _adequate_pool_payload()
+    r = TestClient(app).post(
+        "/api/generation", json={"pool": payload, "scope_class": "clinical_efficacy"}
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "contract_required"
+
+
+def test_post_rejects_unsatisfied_contract_when_required(app: FastAPI, monkeypatch):
+    """POLARIS_REQUIRE_CONTRACT=1 + present-but-unsatisfied contract => 400 contract_unsatisfied."""
+    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
+    full = "aspirin reduces headache pain in adults"
+    payload = _adequate_pool_payload(full_text=full)
+    _override_completion_fn(app, [_good_efficacy_text(full)])
+    contract = {
+        "research_question": "Does ibuprofen cure cancer?",
+        "expected_entities": [{"name": "ibuprofen", "entity_type": "drug", "aliases": []}],
+        "expected_claims": [{
+            "claim_id": "c1",
+            "statement": "ibuprofen cures cancer",
+            "expected_entities": ["ibuprofen"],
+            "required_jurisdictions": ["CA"],
+        }],
+        "expected_source_coverage": {"tier_t1_min": 99, "tier_t2_min": 0, "tier_t3_min": 0},
+        "jurisdictions": ["CA"],
+        "created_by": "operator-1",
+    }
+    r = TestClient(app).post(
+        "/api/generation",
+        json={"pool": payload, "scope_class": "clinical_efficacy", "contract": contract},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "contract_unsatisfied"
+
+
+def test_post_accepts_contract_when_required(app: FastAPI, monkeypatch):
+    """POLARIS_REQUIRE_CONTRACT=1 + valid contract => bypasses gate refusal (I-ecg-002)."""
+    monkeypatch.setenv("POLARIS_REQUIRE_CONTRACT", "1")
+    full = (
+        "The randomized trial enrolled 1247 adults with chronic migraines. "
+        "Aspirin 325mg demonstrated significant headache reduction at "
+        "outcomes assessment."
+    )
+    payload = _adequate_pool_payload(full_text=full)
+    _override_completion_fn(app, [_good_efficacy_text(full)])
+    contract = {
+        "research_question": "Does aspirin reduce headache in adults?",
+        "expected_entities": [{"name": "aspirin", "entity_type": "drug", "aliases": []}],
+        "expected_claims": [{
+            "claim_id": "c1",
+            "statement": "aspirin headache reduction",
+            "expected_entities": ["aspirin"],
+            "required_jurisdictions": ["CA"],
+        }],
+        "expected_source_coverage": {"tier_t1_min": 0, "tier_t2_min": 0, "tier_t3_min": 0},
+        "jurisdictions": ["CA"],
+        "created_by": "operator-1",
+    }
+    r = TestClient(app).post(
+        "/api/generation",
+        json={"pool": payload, "scope_class": "clinical_efficacy", "contract": contract},
+    )
+    assert r.status_code == 200, r.json()
+
+
 # ---------- 422 validation ----------
 
 def test_post_missing_pool_returns_422(app: FastAPI):
