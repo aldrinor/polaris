@@ -74,7 +74,7 @@ export default function BenchmarkPage() {
             </code>
             . The scoreboard.json artifact is canonical (sort_keys=True),
             so two runs against the same inputs produce identical scores.
-            Carney's office can re-run the benchmark and compare bytewise.
+            Carney&rsquo;s office can re-run the benchmark and compare bytewise.
           </p>
         </section>
       </main>

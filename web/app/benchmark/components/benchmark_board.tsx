@@ -104,7 +104,7 @@ export function BenchmarkBoard() {
       >
         <CardContent className="text-amber-700 dark:text-amber-300">
           <strong className="block">Benchmark results not configured</strong>
-          POLARIS_BENCHMARK_RESULTS_DIR is not set in the live server's
+          POLARIS_BENCHMARK_RESULTS_DIR is not set in the live server&rsquo;s
           environment. Run{" "}
           <code className="bg-muted rounded px-1">
             scripts/run_benchmark.py

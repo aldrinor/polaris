@@ -32,7 +32,7 @@ export function PdfDropBanner() {
     };
     window.addEventListener("dragover", handleDragOver);
     window.addEventListener("drop", handleDrop);
-    setReady(true);
+    queueMicrotask(() => setReady(true));
     return () => {
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);

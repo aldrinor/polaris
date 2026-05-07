@@ -31,7 +31,7 @@ export function EvaluatorPane({
             Generator vs Evaluator readings
           </SheetTitle>
           <SheetDescription>
-            Two-family evaluator disagrees with generator's claim. Compare both
+            Two-family evaluator disagrees with generator&rsquo;s claim. Compare both
             readings against the same cited evidence.
           </SheetDescription>
         </SheetHeader>
