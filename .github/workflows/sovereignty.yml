@@ -1,0 +1,24 @@
+name: sovereignty
+
+on:
+  pull_request:
+  push:
+    branches: [polaris, main]
+
+jobs:
+  sovereignty-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run sovereignty test suite (Carney v6.2 §332 default-deny)
+        env:
+          PYTHONPATH: src
+        run: python -m pytest tests/polaris_graph/sovereignty/ -v
