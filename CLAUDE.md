@@ -551,6 +551,29 @@ Loose verdict prose is rejected — resubmit asking for the schema.
 
 ---
 
+## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+
+User directive 2026-05-07 (reflagged after I-f5-007 merged with closure prose "stopping here for natural cadence"): **"the checkpoint is by codex, not by me, why you still fuck it up."**
+
+**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
+- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+- Codex saying "stop paper, build harness" (§8.3.6).
+- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+- The user explicitly typing a stop instruction in this conversation turn.
+
+**Forbidden self-initiated stops:**
+- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.
+- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
+- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+- "Halfway through the slice; quality-gate stretch warrants a check-in" — NOT a halt condition. Slice/feature boundaries are internal milestones.
+- "Resource state is clean; appropriate stopping point" — NOT a halt condition. Clean resource state is the precondition for continuing, not the trigger for stopping.
+
+**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+
+**Application:** when an Issue merges, the IMMEDIATE next action is `git checkout polaris && git pull && git checkout -b bot/<next-issue>` — no prose between the merge response and the branch creation.
+
+---
+
 ## §8.4 Computer-resource discipline (CPU / GPU / RAM management) — added 2026-05-06
 
 User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill them when the task completes.**
