@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from polaris_graph.generator2.verified_report import (
     ContradictionSide,
     ContradictionSignal,
+    EvaluatorDisagreement,
     FrameCoverage,
     FrameGap,
     GenerationError,
@@ -240,6 +241,46 @@ def test_contradiction_side_evidence_type_all_seven_values():
 def test_contradiction_side_evidence_type_rejects_bogus():
     with pytest.raises(ValidationError):
         _side(evidence_type="bogus_value")
+
+
+def test_evaluator_disagreement_minimal():
+    d = EvaluatorDisagreement(
+        generator_reading="Drug X reduces mortality 30%.",
+        evaluator_reading="Drug X reduces mortality 22% (CI overlap suggests 30% overstated).",
+        cited_sources=["src-0", "src-1"],
+        evaluator_model="qwen-3.5-plus",
+    )
+    assert len(d.cited_sources) == 2
+
+
+def test_evaluator_disagreement_cited_sources_min_one():
+    with pytest.raises(ValidationError):
+        EvaluatorDisagreement(
+            generator_reading="x",
+            evaluator_reading="y",
+            cited_sources=[],
+            evaluator_model="m",
+        )
+
+
+def test_verified_sentence_with_evaluator_disagreement_field():
+    # Codex iter-1 P2: cover the actual VerifiedSentence integration path,
+    # not only standalone EvaluatorDisagreement.
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=False,
+        evaluator_disagreement=EvaluatorDisagreement(
+            generator_reading="reading A",
+            evaluator_reading="reading B",
+            cited_sources=["src-0"],
+            evaluator_model="qwen-3.5-plus",
+        ),
+    )
+    assert s.evaluator_disagreement is not None
+    assert s.evaluator_disagreement.evaluator_model == "qwen-3.5-plus"
 
 
 def test_contradiction_side_jurisdiction_default_unspecified():

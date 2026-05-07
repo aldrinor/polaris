@@ -605,6 +605,14 @@ export interface ReportVerifiedSentence {
   is_synthesis_claim?: boolean;
   assertion_surface?: AssertionSurface;
   contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
 }
 
 export type ContradictionEvidenceType =

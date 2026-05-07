@@ -103,6 +103,14 @@ class VerifiedSentence(BaseModel):
             "all six surfaces equally."
         ),
     )
+    evaluator_disagreement: "EvaluatorDisagreement | None" = Field(
+        default=None,
+        description=(
+            "Optional detail when evaluator_agrees=False (I-f9-002). "
+            "Carries the evaluator's competing reading of the same evidence "
+            "so the EvaluatorPane can render generator-vs-evaluator side-by-side."
+        ),
+    )
     contradiction: "ContradictionSignal | None" = Field(
         default=None,
         description=(
@@ -205,6 +213,18 @@ ContradictionEvidenceType = Literal[
 
 Distinguishes guideline-vs-trial, regulatory-vs-trial, etc. — common
 sources of "the trial says X but the guideline says Y" contradictions."""
+
+
+class EvaluatorDisagreement(BaseModel):
+    """Two-family evaluator disagreement detail (I-f9-002).
+
+    Carries both readings of the same evidence so the user can compare
+    the generator's claim against the evaluator's competing reading."""
+
+    generator_reading: str = Field(min_length=1, max_length=1000)
+    evaluator_reading: str = Field(min_length=1, max_length=1000)
+    cited_sources: list[str] = Field(min_length=1)
+    evaluator_model: str = Field(min_length=1, max_length=200)
 
 
 class ContradictionSide(BaseModel):
