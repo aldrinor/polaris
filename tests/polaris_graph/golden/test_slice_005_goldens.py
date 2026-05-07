@@ -127,6 +127,7 @@ def _polaris_from_spec(qid: str, spec: dict) -> PolarisRunResult:
             "overall_verify_pass_rate": 1.0,
             "pipeline_verdict": "success",
             "generator_model": "test/m",
+            "evaluator_model": "strict_verify_v1",
             "verifier_pass_threshold": 0.4,
             "started_at_utc": iso.isoformat(),
             "finished_at_utc": iso.isoformat(),

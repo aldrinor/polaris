@@ -89,6 +89,7 @@ def _report(sentence: VerifiedSentence) -> VerifiedReport:
         overall_verify_pass_rate=1.0,
         pipeline_verdict="success",
         generator_model="test/model",
+        evaluator_model="strict_verify_v1",
         verifier_pass_threshold=0.4,
         started_at_utc=datetime.now(timezone.utc),
         finished_at_utc=datetime.now(timezone.utc),

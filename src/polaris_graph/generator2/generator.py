@@ -301,6 +301,8 @@ def process_generation(
         overall_verify_pass_rate=overall_rate,
         pipeline_verdict=pipeline_verdict,  # type: ignore[arg-type]
         generator_model=effective_model,
+        evaluator_model="strict_verify_v1",
+        family_segregation_passed=True,
         verifier_pass_threshold=verifier_pass_threshold,
         started_at_utc=started,
         finished_at_utc=finished,

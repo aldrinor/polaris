@@ -50,21 +50,50 @@ const REPORT: VerifiedReport = {
     {
       section_id: "sec_x",
       section_title: "Test section",
-      verified_sentences: Array.from({ length: 10 }, (_, i) => {
-        // Sentence 5 has a valid token referencing src-5 with span 0-50.
-        // Sentence 9 has a token referencing src-ghost (not in pool) for missing-source path.
-        const token =
-          i === 9
-            ? `[#ev:src-ghost:0-3]`
-            : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
-        return {
+      verified_sentences: [
+        ...Array.from({ length: 10 }, (_, i) => {
+          // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+          const token =
+            i === 9
+              ? `[#ev:src-ghost:0-3]`
+              : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+          return {
+            section_id: "sec_x",
+            sentence_text: `Test sentence ${i} about aspirin.`,
+            provenance_tokens: [token],
+            verifier_pass: true,
+            drop_reason: null,
+            evaluator_agrees: true,
+          };
+        }),
+        // sec_x:10 — agree state (explicit for I-f5-004).
+        {
           section_id: "sec_x",
-          sentence_text: `Test sentence ${i} about aspirin.`,
-          provenance_tokens: [token],
+          sentence_text: "Agreement-true demo sentence.",
+          provenance_tokens: [`[#ev:src-0:0-3]`],
           verifier_pass: true,
           drop_reason: null,
-        };
-      }),
+          evaluator_agrees: true,
+        },
+        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+        {
+          section_id: "sec_x",
+          sentence_text: "Disagreement demo sentence.",
+          provenance_tokens: [`[#ev:src-1:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: false,
+        },
+        // sec_x:12 — pending (no LLM judge pass yet).
+        {
+          section_id: "sec_x",
+          sentence_text: "Pending demo sentence.",
+          provenance_tokens: [`[#ev:src-2:0-3]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: null,
+        },
+      ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",
     },
@@ -72,6 +101,8 @@ const REPORT: VerifiedReport = {
   overall_verify_pass_rate: 1.0,
   pipeline_verdict: "success",
   generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
   verifier_pass_threshold: 0.4,
   started_at_utc: ISO,
   finished_at_utc: ISO,

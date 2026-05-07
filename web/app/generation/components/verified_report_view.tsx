@@ -202,6 +202,30 @@ export function VerifiedReportView({
             <dd className="text-foreground font-medium">
               {report.generator_model}
             </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
             <dt className="text-muted-foreground">Pass rate</dt>
             <dd className="text-foreground font-medium">
               {Math.round(report.overall_verify_pass_rate * 100)}%
