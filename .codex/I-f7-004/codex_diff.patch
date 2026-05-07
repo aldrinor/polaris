@@ -1,0 +1,196 @@
+diff --git a/web/app/sentence_hover_test/_demo_coverage.tsx b/web/app/sentence_hover_test/_demo_coverage.tsx
+new file mode 100644
+index 0000000..1eb7bb5
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_coverage.tsx
+@@ -0,0 +1,121 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type {
++  EvidencePool,
++  FrameGap,
++  GapReason,
++  RetrievalSource,
++  VerifiedReport,
++} from "@/lib/api";
++
++const ISO = new Date().toISOString();
++const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++
++// Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
++// per Codex iter-1 P2 — explicit typed array).
++const GAP_REASONS: GapReason[] = [
++  "paywalled",
++  "no_oa",
++  "source_tier_ineligible",
++  "language_unavailable",
++  "retracted_only",
++  "jurisdiction_outside",
++  "not_indexed",
++  "embargoed",
++  "other",
++];
++
++const SRC: RetrievalSource = {
++  source_id: "src-cov-0",
++  url: "https://www.cochrane.org/CD-cov-0",
++  domain: "cochrane.org",
++  tier: "T1",
++  title: "Coverage harness source",
++  publication_date: FRESH_DATE,
++  authors: ["Smith J"],
++  snippet: "Coverage demo source snippet text used by the harness.",
++  full_text_available: true,
++  full_text: "Coverage demo source snippet text used by the harness.",
++  fetched_at_utc: ISO,
++  provenance: {},
++};
++
++export function CoverageHarness({
++  covered,
++  gap_count,
++}: {
++  covered: number;
++  gap_count: number;
++}) {
++  const total = covered + gap_count;
++  const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
++    entity_name: `Entity ${i + 1}`,
++    reason: GAP_REASONS[i % GAP_REASONS.length],
++    reason_detail: `synthetic detail ${i + 1}`,
++  }));
++  const pool: EvidencePool = {
++    pool_id: "p-cov",
++    decision_id: "d-cov",
++    sources: [SRC],
++    adequacy: {
++      is_adequate: true,
++      sources_per_tier: { T1: 1, T2: 0, T3: 0 },
++      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
++      failure_reason: null,
++    },
++    queries_executed: ["coverage"],
++    retrieval_started_at_utc: ISO,
++    retrieval_finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++  const report: VerifiedReport = {
++    report_id: "r-cov",
++    pool_id: "p-cov",
++    decision_id: "d-cov",
++    sections: [
++      {
++        section_id: "sec_cov",
++        section_title: `Coverage harness (${covered}/${total})`,
++        verified_sentences: [
++          {
++            section_id: "sec_cov",
++            sentence_text: "Coverage harness sentinel sentence.",
++            provenance_tokens: ["[#ev:src-cov-0:0-20]"],
++            verifier_pass: true,
++            drop_reason: null,
++            evaluator_agrees: true,
++          },
++        ],
++        section_verify_pass_rate: 1.0,
++        section_status: "verified",
++      },
++    ],
++    overall_verify_pass_rate: 1.0,
++    pipeline_verdict: "success",
++    generator_model: "test/cov",
++    evaluator_model: "strict_verify_v1",
++    family_segregation_passed: true,
++    frame_coverage: {
++      covered_entity_count: covered,
++      total_entity_count: total,
++      gaps,
++    },
++    verifier_pass_threshold: 0.4,
++    started_at_utc: ISO,
++    finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++  return (
++    <div
++      data-testid={`coverage-harness-${covered}-${gap_count}`}
++      className="mx-auto max-w-4xl p-6"
++    >
++      <VerifiedReportView report={report} pool={pool} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/coverage/page.tsx b/web/app/sentence_hover_test/coverage/page.tsx
+new file mode 100644
+index 0000000..5b44b37
+--- /dev/null
++++ b/web/app/sentence_hover_test/coverage/page.tsx
+@@ -0,0 +1,19 @@
++import { CoverageHarness } from "../_demo_coverage";
++
++function clamp_non_negative_int(raw: string | undefined, dflt: number): number {
++  if (raw === undefined) return dflt;
++  const n = Number.parseInt(raw, 10);
++  if (!Number.isFinite(n) || n < 0) return dflt;
++  return Math.min(n, 100);
++}
++
++export default async function CoveragePage({
++  searchParams,
++}: {
++  searchParams: Promise<{ covered?: string; gap_count?: string }>;
++}) {
++  const params = await searchParams;
++  const covered = clamp_non_negative_int(params.covered, 14);
++  const gap_count = clamp_non_negative_int(params.gap_count, 1);
++  return <CoverageHarness covered={covered} gap_count={gap_count} />;
++}
+diff --git a/web/tests/e2e/frame_coverage_adversarial.spec.ts b/web/tests/e2e/frame_coverage_adversarial.spec.ts
+new file mode 100644
+index 0000000..872d3a9
+--- /dev/null
++++ b/web/tests/e2e/frame_coverage_adversarial.spec.ts
+@@ -0,0 +1,38 @@
++import { expect, test } from "@playwright/test";
++
++test("0/15 — all gaps, no coverage; gap-14 visible + 15 gaps text", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
++  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
++    "15 gaps",
++  );
++  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
++});
++
++test("15/15 — all covered, no gaps; complete state", async ({ page }) => {
++  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
++  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
++  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
++    "15/15",
++  );
++});
++
++test("1/15 — single covered, 14 gaps; gap-13 visible + 14 gaps text", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
++  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
++  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
++    "14 gaps",
++  );
++  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
++});
