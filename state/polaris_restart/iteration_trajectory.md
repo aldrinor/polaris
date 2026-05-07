@@ -151,3 +151,5 @@ I-f3-008 brief iter1=REQ_CH (server/client boundary) iter2=APPROVE 0/0/1P2
 I-f3-008 diff iter1=APPROVE 0/0/1P2; tokens=28641
 I-f3-009 brief iter1=APPROVE 0/0/1P2
 I-f3-009 diff iter1=APPROVE 0/0/2P2; tokens=54450
+I-f3-010 brief iter1=REQ_CH (artifacts not at HEAD) iter2=REQ_CH (file:line refs) iter3=APPROVE 0/0/0
+I-f3-010 diff iter1=APPROVE 0/0/0
