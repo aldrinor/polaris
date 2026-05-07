@@ -1,0 +1,242 @@
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index b9b8a70..1a53578 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -166,6 +166,15 @@ function SourceCard({
+           {source.domain}
+         </a>
+         <div className="flex items-center gap-1">
++          {source.full_text_available === false ? (
++            <span
++              data-testid={`inspector-paywalled-${idx}`}
++              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
++              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
++            >
++              Paywalled
++            </span>
++          ) : null}
+           {source.retracted ? (
+             <span
+               data-testid={`inspector-retracted-${idx}`}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 6e4865e..f2a32be 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -79,16 +79,34 @@ function SentenceRow({
+   sentence_id,
+   hovered_id,
+   onSelect,
++  pool,
+ }: {
+   sentence: ReportVerifiedSentence;
+   show_dropped: boolean;
+   sentence_id: string;
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
++  pool: EvidencePool | null;
+ }) {
+   const dropped = !sentence.verifier_pass;
+   if (dropped && !show_dropped) return null;
+ 
++  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
++  // for one sentence, surface a "may conflict — review Inspector" caption.
++  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
++  // detector; it's a flag prompting human review.
++  const t1_conflict = (() => {
++    if (!pool || dropped) return false;
++    const cited_t1 = new Set<string>();
++    for (const tok of sentence.provenance_tokens) {
++      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
++      if (!m) continue;
++      const src = pool.sources.find((s) => s.source_id === m[1]);
++      if (src && src.tier === "T1") cited_t1.add(m[1]);
++    }
++    return cited_t1.size >= 2;
++  })();
++
+   return (
+     <li
+       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+@@ -138,6 +156,15 @@ function SentenceRow({
+           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+         </span>
+       ) : null}
++      {t1_conflict ? (
++        <span
++          data-testid="inspector-t1-conflict"
++          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
++          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
++        >
++          ⚠ T1 sources may conflict — review Inspector
++        </span>
++      ) : null}
+     </li>
+   );
+ }
+@@ -147,11 +174,13 @@ function SectionCard({
+   show_dropped,
+   hovered_id,
+   onSelect,
++  pool,
+ }: {
+   section: VerifiedReportSection;
+   show_dropped: boolean;
+   hovered_id: string | null;
+   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
++  pool: EvidencePool | null;
+ }) {
+   const kept = keptSentences(section);
+   const dropped_count = section.verified_sentences.length - kept.length;
+@@ -190,6 +219,7 @@ function SectionCard({
+                 sentence_id={`${section.section_id}:${idx}`}
+                 hovered_id={hovered_id}
+                 onSelect={onSelect}
++                pool={pool}
+               />
+             ))}
+           </ul>
+@@ -299,6 +329,7 @@ export function VerifiedReportView({
+           show_dropped={show_dropped}
+           hovered_id={hovered_id}
+           onSelect={(id, sentence) => setInspector({ id, sentence })}
++          pool={pool}
+         />
+       ))}
+       <SentenceInspector
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index cc9c6d4..f4ab071 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -51,6 +51,21 @@ const SRC_RETRACTED: RetrievalSource = {
+   retracted: true,
+ };
+ 
++const SRC_PAYWALLED: RetrievalSource = {
++  source_id: "src-paywalled",
++  url: "https://nejm.org/paywalled/abc",
++  domain: "nejm.org",
++  tier: "T1",
++  title: "Paywalled NEJM article",
++  publication_date: FRESH_DATE,
++  authors: ["Jones B"],
++  snippet: "Abstract excerpt only — full text behind paywall.",
++  full_text_available: false,
++  full_text: null,
++  fetched_at_utc: ISO,
++  provenance: {},
++};
++
+ const SRC_STALE: RetrievalSource = {
+   source_id: "src-stale",
+   url: "https://www.cochrane.org/CD-stale",
+@@ -69,10 +84,15 @@ const SRC_STALE: RetrievalSource = {
+ const POOL: EvidencePool = {
+   pool_id: "p-hover",
+   decision_id: "d-hover",
+-  sources: [...Array.from({ length: 10 }, (_, i) => _src(i)), SRC_RETRACTED, SRC_STALE],
++  sources: [
++    ...Array.from({ length: 10 }, (_, i) => _src(i)),
++    SRC_RETRACTED,
++    SRC_STALE,
++    SRC_PAYWALLED,
++  ],
+   adequacy: {
+     is_adequate: true,
+-    sources_per_tier: { T1: 12, T2: 0, T3: 0 },
++    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+     min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+     failure_reason: null,
+   },
+@@ -198,6 +218,36 @@ const REPORT: VerifiedReport = {
+           evaluator_agrees: true,
+           assertion_surface: surface,
+         })),
++        // sec_x:23 — paywalled source (I-f5-010 case 1).
++        {
++          section_id: "sec_x",
++          sentence_text: "Paywalled-source demo sentence cites NEJM.",
++          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
++        {
++          section_id: "sec_x",
++          sentence_text: "Multi-span with bad span demo sentence.",
++          provenance_tokens: [
++            `[#ev:src-0:0-30]`,
++            `[#ev:src-0:5000-5050]`,
++          ],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
++        {
++          section_id: "sec_x",
++          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
++          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/tests/e2e/sentence_inspector_adversarial.spec.ts b/web/tests/e2e/sentence_inspector_adversarial.spec.ts
+new file mode 100644
+index 0000000..4573219
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_adversarial.spec.ts
+@@ -0,0 +1,50 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector renders paywalled badge when source.full_text_available=false", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:23"]').click();
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-paywalled-0")).toBeVisible();
++  // URL still actionable.
++  await expect(page.getByTestId("inspector-source-url-0")).toHaveAttribute(
++    "href",
++    /nejm\.org/,
++  );
++});
++
++test("Inspector flags out-of-range second span in multi-span case", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:24"]').click();
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  // First span valid (0-30 within full_text length).
++  await expect(page.getByTestId("inspector-span-0-0")).toBeVisible();
++  // Second span out-of-range (5000-5050 beyond full_text length).
++  await expect(
++    page.getByTestId("inspector-span-out-of-range-0-1"),
++  ).toBeVisible();
++});
++
++test("Row shows T1-conflict heuristic when ≥2 T1 sources cited", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  const row = page.locator('[data-sentence-id="sec_x:25"]');
++  await expect(row).toBeVisible();
++  await expect(row.getByTestId("inspector-t1-conflict")).toBeVisible();
++});
++
++test("Row does NOT show T1-conflict for single-T1-source sentence", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  const row = page.locator('[data-sentence-id="sec_x:5"]');
++  await expect(row.getByTestId("inspector-t1-conflict")).toHaveCount(0);
++});
