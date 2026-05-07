@@ -1,0 +1,1510 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e03c0-83d0-7782-adc6-e828eebc0194
+--------
+user
+# Codex Brief Review — I-f7-003 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review (separate Codex call) = code-matches-plan.
+
+## Pre-flight
+
+- **Context:** I-f7-003 — each gap row is clickable. Click opens a detail panel showing:
+  - The gap entity_name + reason label + reason_detail.
+  - A documented "unblock action" — a per-reason-enum copy-to-clipboard suggestion (e.g. for `paywalled`: "Search PMC OA mirror for `<entity_name>`"; for `no_oa`: "Email author for preprint of `<entity_name>` Cochrane review").
+  - Copy-to-clipboard button with confirmation.
+- **Constraints:** No backend change — UI-only addition consuming I-f7-002's frozen enum.
+- **Done-when:** acceptance criteria 1-7 below.
+
+## Plan
+
+### Frontend
+1. `web/app/generation/components/frame_coverage_panel.tsx`:
+   - Add `UNBLOCK_ACTION: Record<GapReason, string>` mapping each reason to a per-entity actionable suggestion template (use `${entity_name}` placeholder).
+   - Wrap each gap `<li>` as a clickable row (role="button", tabIndex, onClick, Enter/Space keyboard support).
+   - Add local state `selectedGap: number | null`. On click, set selectedGap to that gap's index.
+   - Render a detail Sheet (reuse existing @base-ui/react Sheet from sentence_inspector) when `selectedGap !== null`, containing:
+     - Heading: entity_name + GAP_REASON_LABEL[reason].
+     - Detail paragraph: reason_detail (or "No additional detail provided.").
+     - Action text: substituted UNBLOCK_ACTION[reason] template.
+     - Copy-to-clipboard button using `navigator.clipboard.writeText`. Testid `frame-gap-copy-button`.
+     - "Copied!" confirmation that flashes for 2s after click.
+2. `web/tests/e2e/frame_coverage_panel.spec.ts`: add 2 new tests:
+   - Click gap → detail Sheet visible with `frame-gap-detail-sheet` testid + UNBLOCK_ACTION text containing entity_name.
+   - Click copy button → "Copied!" badge flashes (`frame-gap-copy-confirm`).
+
+## Risks for Codex Red-Team
+1. **navigator.clipboard requires HTTPS or localhost:** Playwright tests use http://127.0.0.1 — works. Production deploys must be HTTPS — already required for SSE per F4.
+2. **Sheet re-use:** import the same Sheet primitive used by sentence_inspector to avoid divergent patterns.
+3. **Keyboard a11y:** role="button" + tabIndex={0} + Enter/Space handler per existing SentenceRow pattern (I-f5-002).
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** estimated ~130 LOC. Under 200.
+
+## Acceptance criteria
+
+1. Each gap row is clickable + keyboard-activatable.
+2. Detail Sheet renders with entity_name + reason label + detail.
+3. UNBLOCK_ACTION mapping covers all 9 GapReason enum values.
+4. Action text substitutes `${entity_name}` placeholder.
+5. Copy-to-clipboard button with confirmation badge.
+6. 2 new Playwright tests cover open + copy.
+7. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-7.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll check the existing panel, enum/type definitions, Sheet usage, and current e2e patterns so the review is grounded in the repo rather than just the prose.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "frame_coverage_panel|sentence_inspector|coverage|e2e|playwright"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "type GapReason|GapReason|gap_reason|reason_detail|frame_coverage" web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"Sheet|@base-ui/react|sentence_inspector|SentenceRow|role=\\\"button\\\"|tabIndex\" web -S" in C:\POLARIS
+ succeeded in 3319ms:
+web\playwright.config.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\visual.spec.ts
+web\app\generation\components\frame_coverage_panel.tsx
+web\app\generation\components\sentence_inspector.tsx
+web\tests\e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-executive-summary-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-error-state-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\dashboard-initial-chromium-win32.png
+
+2026-05-07T18:43:46.445498Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.4 seconds
+Output:
+rg: regex parse error:
+    (?:Sheet|@base-ui/react|sentence_inspector|SentenceRow|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 4411ms:
+rg: regex parse error:
+    (?:Sheet|@base-ui/react|sentence_inspector|SentenceRow|role=\)
+    ^
+error: unclosed group
+
+ succeeded in 5436ms:
+web\lib\api.ts:232:  frame_coverage: {
+web\lib\api.ts:625:export type GapReason =
+web\lib\api.ts:638:  reason: GapReason;
+web\lib\api.ts:639:  reason_detail?: string | null;
+web\lib\api.ts:663:  frame_coverage?: FrameCoverage | null;
+web\app\generation\components\verified_report_view.tsx:36:import { FrameCoveragePanel } from "./frame_coverage_panel";
+web\app\generation\components\verified_report_view.tsx:259:      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+web\app\generation\components\frame_coverage_panel.tsx:5:import type { FrameCoverage, GapReason } from "@/lib/api";
+web\app\generation\components\frame_coverage_panel.tsx:7:const GAP_REASON_LABEL: Record<GapReason, string> = {
+web\app\generation\components\frame_coverage_panel.tsx:87:                {g.reason_detail ? `: ${g.reason_detail}` : ""}
+web\app\sentence_hover_test\_demo.tsx:261:  frame_coverage: {
+web\app\sentence_hover_test\_demo.tsx:268:        reason_detail: "no open-access version of Cochrane review",
+web\app\inspector\[runId]\page.tsx:74:          count: bundle.frame_coverage.length,
+web\app\inspector\[runId]\page.tsx:359:  if (bundle.frame_coverage.length === 0) {
+web\app\inspector\[runId]\page.tsx:364:      {bundle.frame_coverage.map((f) => (
+
+codex
+I found the target component, API types, and existing e2e file. The initial Sheet search had a quoting issue, so I’m rerunning that narrowly and reading the files that determine whether the plan is implementable.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"Sheet|@base-ui/react|role=\\\"button\\\"|tabIndex|clipboard|writeText|Copied\" web\\app web\\tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 610 -First 65" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\frame_coverage_panel.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\sentence_inspector.tsx | Select-Object -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\frame_coverage_panel.tsx" in C:\POLARIS
+ succeeded in 3589ms:
+import { expect, test } from "@playwright/test";
+
+test("Frame coverage panel renders above the report with gap details", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+  await expect(page.getByTestId("frame-coverage-progress")).toBeVisible();
+  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+    "1 gap",
+  );
+  // Gap entry with entity_name + reason.
+  const gap = page.getByTestId("frame-coverage-gap-0");
+  await expect(gap).toBeVisible();
+  await expect(gap).toContainText("Pediatric population");
+  await expect(gap).toContainText("No OA");
+  await expect(gap).toContainText("no open-access version of Cochrane review");
+});
+
+test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  // Codex iter-1 P1: Node.DOCUMENT_POSITION_* constants only exist inside
+  // the browser context; do the check inside page.evaluate.
+  // Codex iter-1 P2: assert first-child of verified-report-view — the
+  // explicit above-the-fold semantics, not just "not after."
+  const is_first_child = await page.evaluate(() => {
+    const rv = document.querySelector('[data-testid="verified-report-view"]');
+    if (!rv) return false;
+    const first = rv.firstElementChild;
+    return first?.getAttribute("data-testid") === "frame-coverage-gaps";
+  });
+  expect(is_first_child).toBe(true);
+});
+
+ succeeded in 4192ms:
+"use client";
+
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import type { FrameCoverage, GapReason } from "@/lib/api";
+
+const GAP_REASON_LABEL: Record<GapReason, string> = {
+  paywalled: "Paywalled",
+  no_oa: "No OA",
+  source_tier_ineligible: "Source-tier ineligible",
+  language_unavailable: "Language unavailable",
+  retracted_only: "Only retracted sources",
+  jurisdiction_outside: "Jurisdiction outside scope",
+  not_indexed: "Not indexed",
+  embargoed: "Embargoed",
+  other: "Other",
+};
+
+export function FrameCoveragePanel({
+  coverage,
+}: {
+  coverage: FrameCoverage | null | undefined;
+}) {
+  if (!coverage) return null;
+  const { covered_entity_count, total_entity_count, gaps } = coverage;
+  // Codex iter-1 P2: degenerate empty 0/0/[] coverage is not informative;
+  // render nothing rather than misleading amber gaps panel.
+  if (total_entity_count === 0) return null;
+  // total>0 from here, so progress_pct is well-defined.
+  const progress_pct = Math.round(
+    (covered_entity_count / total_entity_count) * 100,
+  );
+  const all_covered = gaps.length === 0;
+  const has_gaps = gaps.length > 0;
+  return (
+    <Card
+      data-testid={
+        all_covered ? "frame-coverage-complete" : "frame-coverage-gaps"
+      }
+      className={cn(
+        "border",
+        all_covered
+          ? "border-emerald-500/40 bg-emerald-500/5"
+          : "border-amber-500/40 bg-amber-500/5",
+      )}
+    >
+      <CardContent className="flex flex-col gap-2 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <span
+            className={cn(
+              "text-sm font-medium",
+              all_covered ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300",
+            )}
+          >
+            {covered_entity_count}/{total_entity_count} entities covered
+          </span>
+          {has_gaps ? (
+            <span
+              data-testid="frame-coverage-gap-count"
+              className="text-xs text-amber-700 dark:text-amber-300"
+            >
+              {gaps.length} gap{gaps.length > 1 ? "s" : ""}
+            </span>
+          ) : null}
+        </div>
+        <div
+          data-testid="frame-coverage-progress"
+          className="bg-muted h-2 w-full overflow-hidden rounded-full"
+        >
+          <div
+            className={cn(
+              "h-full transition-all",
+              all_covered ? "bg-emerald-500" : "bg-amber-500",
+            )}
+            style={{ width: `${progress_pct}%` }}
+          />
+        </div>
+        {has_gaps ? (
+          <ul className="flex flex-col gap-1 text-xs">
+            {gaps.map((g, idx) => (
+              <li
+                key={idx}
+                data-testid={`frame-coverage-gap-${idx}`}
+                className="text-amber-800 dark:text-amber-200"
+              >
+                <strong>{g.entity_name}</strong> — {GAP_REASON_LABEL[g.reason]}
+                {g.reason_detail ? `: ${g.reason_detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+2026-05-07T18:44:01.680974Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.9 seconds
+Output:
+rg: regex parse error:
+    (?:Sheet|@base-ui/react|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 4900ms:
+rg: regex parse error:
+    (?:Sheet|@base-ui/react|role=\)
+    ^
+error: unclosed group
+
+ succeeded in 5549ms:
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+
+ succeeded in 6086ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type RetrievalSource,
+  type RetrievalSourceTier,
+} from "@/lib/api";
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Content-word overlap too low",
+  no_provenance_token: "No provenance token",
+};
+
+const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+  T1: "Regulatory & Cochrane systematic reviews — highest evidentiary weight",
+  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
+  T3: "Registries, clinical guidelines, government health agencies",
+};
+
+const STALE_THRESHOLD_DAYS = 730;
+
+function isStale(publication_date: string | null): boolean {
+  if (!publication_date) return false;
+  const t = new Date(publication_date).getTime();
+  if (isNaN(t)) return false;
+  const age_days = (Date.now() - t) / (24 * 3600 * 1000);
+  return age_days > STALE_THRESHOLD_DAYS;
+}
+
+const TIER_TONE: Record<RetrievalSourceTier, string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+function SynthesisClaimBadge() {
+  return (
+    <span
+      data-testid="inspector-synthesis-claim"
+      title="Synthesis claim — sentence summarizes across sources without quoting a specific span. No direct provenance by design."
+      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
+    >
+      Synthesis claim
+    </span>
+  );
+}
+
+function AgreementBadge({
+  evaluator_agrees,
+}: {
+  evaluator_agrees: boolean | null;
+}) {
+  if (evaluator_agrees === true) {
+    return (
+      <span
+        data-testid="inspector-agree"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+        title="Two-family evaluator agrees with generator claim"
+      >
+        Agree
+      </span>
+    );
+  }
+  if (evaluator_agrees === false) {
+    return (
+      <span
+        data-testid="inspector-disagree"
+        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        title="Two-family evaluator disagrees with generator claim"
+      >
+        Disagree
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="inspector-agree-pending"
+      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+      title="Two-family evaluator pass not yet recorded"
+    >
+      Pending
+    </span>
+  );
+}
+
+function SpanQuote({
+  token,
+  text,
+  idx,
+  spanIdx,
+}: {
+  token: ParsedToken;
+  text: string;
+  idx: number;
+  spanIdx: number;
+}) {
+  const out_of_range = token.end > text.length;
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+
+codex
+The current component already has the full 9-value `GapReason` label map, and the existing Sheet pattern is imported from the local `@/components/ui/sheet` wrapper, not directly from Base UI in the portion I read. I’m checking the exact dialog markup and keyboard/click idioms before deciding if that import detail is a blocker or just wording drift.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'Sheet|@base-ui/react|role=\"button\"|tabIndex|clipboard|writeText|Copied' web\\app web\\tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sentence_hover_test\\_demo.tsx | Select-Object -Skip 240 -First 50" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\sentence_inspector.tsx | Select-Object -Skip 220 -First 320" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\ui\\sheet.tsx" in C:\POLARIS
+ succeeded in 1727ms:
+web\tests\e2e\accessibility.spec.ts:152:  // P1.4 surfaced multiple <button>/<label>/<a role="button"> surfaces
+web\tests\e2e\accessibility.spec.ts:170:        'button, label:not([for]), [role="button"], [role="radio"], a[href]';
+web\tests\e2e\accessibility.spec.ts:213:      const sel = 'button, label, [role="button"], a[href]';
+web\app\page.tsx:198:                      tabIndex={-1}
+web\app\generation\components\sentence_inspector.tsx:4:  Sheet,
+web\app\generation\components\sentence_inspector.tsx:5:  SheetContent,
+web\app\generation\components\sentence_inspector.tsx:6:  SheetDescription,
+web\app\generation\components\sentence_inspector.tsx:7:  SheetHeader,
+web\app\generation\components\sentence_inspector.tsx:8:  SheetTitle,
+web\app\generation\components\sentence_inspector.tsx:257:    <Sheet open={open} onOpenChange={onOpenChange}>
+web\app\generation\components\sentence_inspector.tsx:258:      <SheetContent
+web\app\generation\components\sentence_inspector.tsx:263:        <SheetHeader>
+web\app\generation\components\sentence_inspector.tsx:264:          <SheetTitle data-testid="sentence-inspector-id">
+web\app\generation\components\sentence_inspector.tsx:266:          </SheetTitle>
+web\app\generation\components\sentence_inspector.tsx:267:          <SheetDescription>
+web\app\generation\components\sentence_inspector.tsx:269:          </SheetDescription>
+web\app\generation\components\sentence_inspector.tsx:270:        </SheetHeader>
+web\app\generation\components\sentence_inspector.tsx:319:      </SheetContent>
+web\app\generation\components\sentence_inspector.tsx:320:    </Sheet>
+web\app\generation\components\verified_report_view.tsx:115:      role="button"
+web\app\generation\components\verified_report_view.tsx:116:      tabIndex={0}
+web\app\components\command_palette.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web\app\upload\components\upload_drop_zone.tsx:150:        role="button"
+web\app\upload\components\upload_drop_zone.tsx:151:        tabIndex={0}
+web\app\intake\components\disambiguation_modal.tsx:4:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web\app\intake\components\ambiguity_modal.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web\tests\e2e\sentence_inspector.spec.ts:3:test("clicking a sentence opens the Inspector Sheet within 500ms", async ({
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:89:    expect(elapsed_ms, `iter ${i}: click → Sheet`).toBeLessThan(1000);
+web\tests\e2e\sentence_inspector_latency.spec.ts:21:      // Wait for the Sheet to attach to the DOM.
+
+ succeeded in 2229ms:
+        },
+        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+        {
+          section_id: "sec_x",
+          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+      ],
+      section_verify_pass_rate: 1.0,
+      section_status: "verified",
+    },
+  ],
+  overall_verify_pass_rate: 1.0,
+  pipeline_verdict: "success",
+  generator_model: "test/model",
+  evaluator_model: "strict_verify_v1",
+  family_segregation_passed: true,
+  frame_coverage: {
+    covered_entity_count: 14,
+    total_entity_count: 15,
+    gaps: [
+      {
+        entity_name: "Pediatric population",
+        reason: "no_oa",
+        reason_detail: "no open-access version of Cochrane review",
+      },
+    ],
+  },
+  verifier_pass_threshold: 0.4,
+  started_at_utc: ISO,
+  finished_at_utc: ISO,
+  latency_ms: 0,
+  cost_usd: 0,
+};
+
+export function SentenceHoverHarness() {
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <VerifiedReportView report={REPORT} pool={POOL} />
+    </div>
+  );
+}
+
+ succeeded in 3204ms:
+          <SpanQuote
+            key={j}
+            token={tok}
+            text={text}
+            idx={idx}
+            spanIdx={j}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 3849ms:
+"use client";
+
+import * as React from "react";
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
+
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { XIcon } from "lucide-react";
+
+function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />;
+}
+
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
+}
+
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
+}
+
+function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+}
+
+function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+  return (
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetContent({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  ...props
+}: SheetPrimitive.Popup.Props & {
+  side?: "top" | "right" | "bottom" | "left";
+  showCloseButton?: boolean;
+}) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
+        className={cn(
+          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            data-slot="sheet-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-3 right-3"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
+      </SheetPrimitive.Popup>
+    </SheetPortal>
+  );
+}
+
+function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-header"
+      className={cn("flex flex-col gap-0.5 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-footer"
+      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+  return (
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
+      className={cn(
+        "font-heading text-foreground text-base font-medium",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetDescription({
+  className,
+  ...props
+}: SheetPrimitive.Description.Props) {
+  return (
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+};
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx | Select-Object -Skip 80 -First 70" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\upload\\components\\upload_drop_zone.tsx | Select-Object -Skip 130 -First 55" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\sentence_inspector.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 1675ms:
+              ),
+            );
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "upload failed";
+        setFiles((p) =>
+          p.map((e) =>
+            e.id === id ? { ...e, status: "error", error: msg } : e,
+          ),
+        );
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        data-testid="upload-dropzone"
+        role="button"
+        tabIndex={0}
+        aria-label="Drop files here or click to browse"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer?.files) handleFiles(e.dataTransfer.files);
+        }}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+        }}
+        className="border-border bg-muted/10 flex min-h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center"
+      >
+        <p className="text-foreground text-sm font-medium">Drop files here</p>
+        <p className="text-muted-foreground text-xs">
+          or click to browse · PDF, DOCX, MD, TXT · max 50MB
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.md,.txt"
+          onChange={(e) => e.target.files && handleFiles(e.target.files)}
+          className="sr-only"
+        />
+      </div>
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {files.map((f) => (
+            <li
+              key={f.id}
+              data-testid={`upload-file-${f.id}`}
+              data-status={f.status}
+              className="border-border bg-muted/20 flex items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+            >
+
+ succeeded in 2126ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 2818ms:
+import { expect, test } from "@playwright/test";
+
+test("clicking a sentence opens the Inspector Sheet within 500ms", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+
+  const target = page.locator('[data-sentence-id="sec_x:5"]');
+  await target.click();
+
+  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("sentence-inspector-id")).toContainText(
+    "sec_x:5",
+  );
+  await expect(page.getByTestId("sentence-inspector-text")).toContainText(
+    "Test sentence 5",
+  );
+});
+
+ succeeded in 3685ms:
+  hovered_id,
+  onSelect,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'clipboard|grantPermissions|permissions' web\\tests web\\playwright.config.ts -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'useState|useEffect' web\\app\\generation\\components\\frame_coverage_panel.tsx web\\app\\generation\\components\\verified_report_view.tsx -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+2026-05-07T18:44:56.502347Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+
+ exited 1 in 2631ms:
+ succeeded in 3448ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 4418ms:
+web\app\generation\components\verified_report_view.tsx:3:import { useState } from "react";
+web\app\generation\components\verified_report_view.tsx:249:  const [inspector, setInspector] = useState<{
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'noUnusedLocals|strict' web\\tsconfig.json web -S" in C:\POLARIS
+ succeeded in 1679ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 2200ms:
+web\tsconfig.json:7:    "strict": true,
+web\tsconfig.json:7:    "strict": true,
+web\package-lock.json:1698:        "strict-event-emitter": "^0.5.1"
+web\package-lock.json:7406:        "strict-event-emitter": "^0.5.1",
+web\package-lock.json:9205:    "node_modules/strict-event-emitter": {
+web\package-lock.json:9207:      "resolved": "https://registry.npmjs.org/strict-event-emitter/-/strict-event-emitter-0.5.1.tgz",
+web\THIRD_PARTY_LICENSES.md:22:in the Software without restriction, including without limitation the rights
+web\app\sentence_hover_test\_demo_stress.tsx:74:    evaluator_model: "strict_verify_v1",
+web\app\retrieval\page.tsx:70:            Slice 003 (generation with strict-verify) runs against the
+web\lib\api.ts:582:// Slice 003 — Generator with strict-verify
+web\lib\api.ts:734:/** Filter sentences to those that passed strict_verify. */
+web\tests\e2e\bundle_preview.spec.ts:35:  evaluator_model: "strict_verify_v1",
+web\tests\e2e\accessibility.spec.ts:153:  // that pass axe but fail strict WCAG 2.2 SC 2.5.8 AA (24x24 minimum).
+web\app\sentence_hover_test\_demo.tsx:259:  evaluator_model: "strict_verify_v1",
+web\app\generation\page.tsx:10:    "End-to-end clinical research: intake → retrieval → generation with strict-verify. Every sentence carries a provenance token tied to a primary source.",
+web\app\generation\page.tsx:63:            generation with strict-verify (slice 003). Every shipped sentence
+web\app\generation\page.tsx:91:          <span>POLARIS v6.2 — Slice 003 (BPEI generator + strict-verify)</span>
+web\tests\e2e\generation.spec.ts:4: * Slice 003 — Generator + strict-verify e2e.
+web\app\generation\components\verified_report_view.tsx:231:            strict-verify (toggle below to inspect).
+web\tests\e2e\sentence_inspector_agreement.spec.ts:40:    "strict_verify_v1",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\app\\generation\\components\\frame_coverage_panel.tsx -Pattern 'GAP_REASON_LABEL|data-testid|<li|reason_detail|use client' -Context 0,0" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\app\\generation\\components\\sentence_inspector.tsx -Pattern 'components/ui/sheet|<Sheet open|SheetContent|onOpenChange' -Context 0,0" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\components\\ui\\sheet.tsx -Pattern '@base-ui/react/dialog|function Sheet|function SheetContent|SheetPrimitive.Close' -Context 0,0" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\tests\\e2e\\frame_coverage_panel.spec.ts -Pattern 'test\\(|frame-coverage-gap-0|sentence_hover_test' -Context 0,0" in C:\POLARIS
+ succeeded in 1714ms:
+
+web\app\generation\components\frame_coverage_panel.tsx:1:"use client";
+web\app\generation\components\frame_coverage_panel.tsx:7:const GAP_REASON_LABEL: Record<GapReason, string> = {
+web\app\generation\components\frame_coverage_panel.tsx:37:      data-testid={
+web\app\generation\components\frame_coverage_panel.tsx:59:              data-testid="frame-coverage-gap-count"
+web\app\generation\components\frame_coverage_panel.tsx:67:          data-testid="frame-coverage-progress"
+web\app\generation\components\frame_coverage_panel.tsx:81:              <li
+web\app\generation\components\frame_coverage_panel.tsx:83:                data-testid={`frame-coverage-gap-${idx}`}
+web\app\generation\components\frame_coverage_panel.tsx:86:                <strong>{g.entity_name}</strong> — 
+{GAP_REASON_LABEL[g.reason]}
+web\app\generation\components\frame_coverage_panel.tsx:87:                {g.reason_detail ? `: ${g.reason_detail}` : 
+""}
+
+
+ succeeded in 2464ms:
+
+web\app\generation\components\sentence_inspector.tsx:5:  SheetContent,
+web\app\generation\components\sentence_inspector.tsx:9:} from "@/components/ui/sheet";
+web\app\generation\components\sentence_inspector.tsx:236:  onOpenChange,
+web\app\generation\components\sentence_inspector.tsx:242:  onOpenChange: (next: boolean) => void;
+web\app\generation\components\sentence_inspector.tsx:257:    <Sheet open={open} onOpenChange={onOpenChange}>
+web\app\generation\components\sentence_inspector.tsx:258:      <SheetContent
+web\app\generation\components\sentence_inspector.tsx:319:      </SheetContent>
+
+
+ succeeded in 3097ms:
+
+web\components\ui\sheet.tsx:4:import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
+web\components\ui\sheet.tsx:10:function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+web\components\ui\sheet.tsx:14:function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+web\components\ui\sheet.tsx:18:function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+web\components\ui\sheet.tsx:19:  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
+web\components\ui\sheet.tsx:22:function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+web\components\ui\sheet.tsx:26:function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+web\components\ui\sheet.tsx:39:function SheetContent({
+web\components\ui\sheet.tsx:63:          <SheetPrimitive.Close
+web\components\ui\sheet.tsx:75:          </SheetPrimitive.Close>
+web\components\ui\sheet.tsx:82:function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+web\components\ui\sheet.tsx:92:function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+web\components\ui\sheet.tsx:102:function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+web\components\ui\sheet.tsx:115:function SheetDescription({
+
+
+ succeeded in 3706ms:
+
+web\tests\e2e\frame_coverage_panel.spec.ts:3:test("Frame coverage panel renders above the report with gap details", 
+async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web\tests\e2e\frame_coverage_panel.spec.ts:13:  const gap = page.getByTestId("frame-coverage-gap-0");
+web\tests\e2e\frame_coverage_panel.spec.ts:20:test("Frame coverage panel is the first child of verified-report-view 
+(above-the-fold)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\playwright.config.ts -Pattern 'baseURL|projects|chromium|firefox|webkit' -Context 0,2" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\lib\\api.ts -Pattern 'export type GapReason|export interface FrameGap|export interface FrameCoverage' -Context 0,12" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\app\\sentence_hover_test\\_demo.tsx -Pattern 'frame_coverage|entity_name|reason_detail' -Context 0,6" in C:\POLARIS
+ succeeded in 1747ms:
+
+> web\playwright.config.ts:19:  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+> web\playwright.config.ts:20:  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  web\playwright.config.ts:21:  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  web\playwright.config.ts:22:  // Linux baselines are generated.
+> web\playwright.config.ts:30:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+  web\playwright.config.ts:31:    trace: "retain-on-failure",
+  web\playwright.config.ts:32:    screenshot: "only-on-failure",
+> web\playwright.config.ts:37:  projects: [
+  web\playwright.config.ts:38:    {
+> web\playwright.config.ts:39:      name: "chromium",
+  web\playwright.config.ts:40:      use: { ...devices["Desktop Chrome"] },
+  web\playwright.config.ts:41:    },
+> web\playwright.config.ts:43:      name: "firefox",
+> web\playwright.config.ts:44:      use: { ...devices["Desktop Firefox"] },
+  web\playwright.config.ts:45:    },
+  web\playwright.config.ts:46:    {
+> web\playwright.config.ts:47:      name: "webkit",
+  web\playwright.config.ts:48:      use: { ...devices["Desktop Safari"] },
+  web\playwright.config.ts:49:    },
+
+
+ succeeded in 2470ms:
+
+> web\lib\api.ts:625:export type GapReason =
+  web\lib\api.ts:626:  | "paywalled"
+  web\lib\api.ts:627:  | "no_oa"
+  web\lib\api.ts:628:  | "source_tier_ineligible"
+  web\lib\api.ts:629:  | "language_unavailable"
+  web\lib\api.ts:630:  | "retracted_only"
+  web\lib\api.ts:631:  | "jurisdiction_outside"
+  web\lib\api.ts:632:  | "not_indexed"
+  web\lib\api.ts:633:  | "embargoed"
+  web\lib\api.ts:634:  | "other";
+  web\lib\api.ts:635:
+> web\lib\api.ts:636:export interface FrameGap {
+  web\lib\api.ts:637:  entity_name: string;
+  web\lib\api.ts:638:  reason: GapReason;
+  web\lib\api.ts:639:  reason_detail?: string | null;
+  web\lib\api.ts:640:}
+  web\lib\api.ts:641:
+> web\lib\api.ts:642:export interface FrameCoverage {
+  web\lib\api.ts:643:  covered_entity_count: number;
+  web\lib\api.ts:644:  total_entity_count: number;
+  web\lib\api.ts:645:  gaps: FrameGap[];
+  web\lib\api.ts:646:}
+  web\lib\api.ts:647:
+  web\lib\api.ts:648:export interface VerifiedReport {
+  web\lib\api.ts:649:  report_id: string;
+  web\lib\api.ts:650:  pool_id: string;
+  web\lib\api.ts:651:  decision_id: string;
+  web\lib\api.ts:652:  sections: VerifiedReportSection[];
+  web\lib\api.ts:653:  overall_verify_pass_rate: number;
+  web\lib\api.ts:654:  pipeline_verdict: PipelineVerdict;
+
+
+ succeeded in 3159ms:
+
+> web\app\sentence_hover_test\_demo.tsx:261:  frame_coverage: {
+  web\app\sentence_hover_test\_demo.tsx:262:    covered_entity_count: 14,
+  web\app\sentence_hover_test\_demo.tsx:263:    total_entity_count: 15,
+  web\app\sentence_hover_test\_demo.tsx:264:    gaps: [
+  web\app\sentence_hover_test\_demo.tsx:265:      {
+> web\app\sentence_hover_test\_demo.tsx:266:        entity_name: "Pediatric population",
+  web\app\sentence_hover_test\_demo.tsx:267:        reason: "no_oa",
+> web\app\sentence_hover_test\_demo.tsx:268:        reason_detail: "no open-access version of Cochrane review",
+  web\app\sentence_hover_test\_demo.tsx:269:      },
+  web\app\sentence_hover_test\_demo.tsx:270:    ],
+  web\app\sentence_hover_test\_demo.tsx:271:  },
+  web\app\sentence_hover_test\_demo.tsx:272:  verifier_pass_threshold: 0.4,
+  web\app\sentence_hover_test\_demo.tsx:273:  started_at_utc: ISO,
+  web\app\sentence_hover_test\_demo.tsx:274:  finished_at_utc: ISO,
+
+
+codex
+```yaml
+criterion_1: "PASS - Plan makes each gap row clickable and keyboard-activatable with role, tabIndex, click, Enter, and Space handling."
+criterion_2: "PASS - Plan renders a Sheet with entity_name, reason label, reason_detail, and fallback text."
+criterion_3: "PASS - Current GapReason union has 9 values; Record<GapReason, string> enforces full coverage."
+criterion_4: "PASS - Plan explicitly substitutes the ${entity_name} placeholder."
+criterion_5: "PASS - Plan includes clipboard write plus a 2s Copied confirmation."
+criterion_6: "PASS - Plan adds the requested open-detail and copy-confirm Playwright tests."
+criterion_7: "PASS - Estimated net LOC is plausible under the 200-line cap; verify in diff review."
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Import wording should be tightened: sentence_inspector imports Sheet from '@/components/ui/sheet', not directly from '@base-ui/react'. The wrapper uses '@base-ui/react/dialog' internally."
+  - "Implementation should wire Sheet onOpenChange to clear selectedGap on dismiss; otherwise a controlled Sheet can open but not close cleanly. This is not in the acceptance criteria, so P2."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+files_read:
+  - "web/app/generation/components/frame_coverage_panel.tsx"
+  - "web/lib/api.ts"
+  - "web/app/generation/components/sentence_inspector.tsx"
+  - "web/components/ui/sheet.tsx"
+  - "web/tests/e2e/frame_coverage_panel.spec.ts"
+  - "web/app/sentence_hover_test/_demo.tsx"
+  - "web/app/generation/components/verified_report_view.tsx"
+  - "web/app/upload/components/upload_drop_zone.tsx"
+  - "web/tests/e2e/sentence_inspector.spec.ts"
+  - "web/package.json"
+  - "web/playwright.config.ts"
+  - "web/tsconfig.json"
+```
+tokens used
+32,367
+```yaml
+criterion_1: "PASS - Plan makes each gap row clickable and keyboard-activatable with role, tabIndex, click, Enter, and Space handling."
+criterion_2: "PASS - Plan renders a Sheet with entity_name, reason label, reason_detail, and fallback text."
+criterion_3: "PASS - Current GapReason union has 9 values; Record<GapReason, string> enforces full coverage."
+criterion_4: "PASS - Plan explicitly substitutes the ${entity_name} placeholder."
+criterion_5: "PASS - Plan includes clipboard write plus a 2s Copied confirmation."
+criterion_6: "PASS - Plan adds the requested open-detail and copy-confirm Playwright tests."
+criterion_7: "PASS - Estimated net LOC is plausible under the 200-line cap; verify in diff review."
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Import wording should be tightened: sentence_inspector imports Sheet from '@/components/ui/sheet', not directly from '@base-ui/react'. The wrapper uses '@base-ui/react/dialog' internally."
+  - "Implementation should wire Sheet onOpenChange to clear selectedGap on dismiss; otherwise a controlled Sheet can open but not close cleanly. This is not in the acceptance criteria, so P2."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+files_read:
+  - "web/app/generation/components/frame_coverage_panel.tsx"
+  - "web/lib/api.ts"
+  - "web/app/generation/components/sentence_inspector.tsx"
+  - "web/components/ui/sheet.tsx"
+  - "web/tests/e2e/frame_coverage_panel.spec.ts"
+  - "web/app/sentence_hover_test/_demo.tsx"
+  - "web/app/generation/components/verified_report_view.tsx"
+  - "web/app/upload/components/upload_drop_zone.tsx"
+  - "web/tests/e2e/sentence_inspector.spec.ts"
+  - "web/package.json"
+  - "web/playwright.config.ts"
+  - "web/tsconfig.json"
+```
