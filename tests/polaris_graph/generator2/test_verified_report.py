@@ -218,6 +218,37 @@ def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
         )
 
 
+def test_contradiction_signal_category_default_other():
+    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+    assert sig.category == "other"
+
+
+def test_contradiction_signal_category_accepts_six_values():
+    for c in (
+        "numeric",
+        "categorical",
+        "regulatory",
+        "temporal",
+        "jurisdictional",
+        "other",
+    ):
+        sig = ContradictionSignal(
+            disagreeing_source_count=2,
+            summary="x",
+            category=c,
+        )
+        assert sig.category == c
+
+
+def test_contradiction_signal_category_rejects_bogus():
+    with pytest.raises(ValidationError):
+        ContradictionSignal(
+            disagreeing_source_count=2,
+            summary="x",
+            category="bogus_value",  # type: ignore[arg-type]
+        )
+
+
 def test_contradiction_signal_self_contradiction_rejects_different_sources():
     with pytest.raises(ValidationError, match="same source_id"):
         ContradictionSignal(

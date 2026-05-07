@@ -192,6 +192,21 @@ class ContradictionSide(BaseModel):
     claim_excerpt: str = Field(min_length=1, max_length=500)
 
 
+ContradictionCategory = Literal[
+    "numeric",
+    "categorical",
+    "regulatory",
+    "temporal",
+    "jurisdictional",
+    "other",
+]
+"""I-f8-004 contradiction-category enum.
+
+Distinguishes the kind of disagreement: numeric (dose/CI), categorical
+(approved/not approved), regulatory (FDA vs EMA), temporal (pre-2020 vs
+post-2020 evidence shift), jurisdictional (Canada vs US), other."""
+
+
 ContradictionKind = Literal["multi_source", "self_contradiction"]
 """I-f8-003 contradiction-kind discriminator.
 
@@ -211,6 +226,7 @@ class ContradictionSignal(BaseModel):
     summary: str = Field(min_length=1, max_length=500)
     sides: list[ContradictionSide] = Field(default_factory=list)
     kind: ContradictionKind = Field(default="multi_source")
+    category: ContradictionCategory = Field(default="other")
 
     @model_validator(mode="after")
     def _kind_count_consistency(self) -> "ContradictionSignal":

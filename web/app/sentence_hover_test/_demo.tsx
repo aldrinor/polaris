@@ -262,6 +262,7 @@ const REPORT: VerifiedReport = {
           evaluator_agrees: true,
           contradiction: {
             kind: "multi_source",
+            category: "numeric",
             disagreeing_source_count: 3,
             summary: "Three Cochrane reviews disagree on dose-response curve",
             sides: [
@@ -305,6 +306,7 @@ const REPORT: VerifiedReport = {
           evaluator_agrees: true,
           contradiction: {
             kind: "self_contradiction",
+            category: "categorical",
             disagreeing_source_count: 1,
             summary: "Single source contradicts itself across two paragraphs",
             sides: [
@@ -324,6 +326,36 @@ const REPORT: VerifiedReport = {
                 pt08_flag: null,
                 claim_excerpt:
                   "Aspirin is dangerous beyond 8 weeks of chronic use.",
+              },
+            ],
+          },
+        },
+        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Regulatory non-numeric contradiction: FDA approved vs not.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "multi_source",
+            category: "regulatory",
+            disagreeing_source_count: 2,
+            summary: "FDA-approved per source A, not approved per source B",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is FDA-approved for indication Y.",
+              },
+              {
+                source_id: "src-1",
+                source_tier: "T1",
+                hedge_language: "high confidence",
+                claim_excerpt: "Drug X is NOT FDA-approved for indication Y.",
               },
             ],
           },
