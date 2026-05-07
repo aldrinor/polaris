@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSentenceHover } from "@/lib/sentence_highlight";
 import { cn } from "@/lib/utils";
@@ -10,6 +12,8 @@ import {
   type VerifiedReport,
   type VerifiedReportSection,
 } from "@/lib/api";
+
+import { SentenceInspector } from "./sentence_inspector";
 
 const STATUS_TONE: Record<string, string> = {
   verified:
@@ -54,11 +58,13 @@ function SentenceRow({
   show_dropped,
   sentence_id,
   hovered_id,
+  onSelect,
 }: {
   sentence: ReportVerifiedSentence;
   show_dropped: boolean;
   sentence_id: string;
   hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
 }) {
   const dropped = !sentence.verifier_pass;
   if (dropped && !show_dropped) return null;
@@ -67,8 +73,17 @@ function SentenceRow({
     <li
       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
       data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
       className={cn(
-        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
         dropped
           ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
           : "border-border bg-background",
@@ -96,10 +111,12 @@ function SectionCard({
   section,
   show_dropped,
   hovered_id,
+  onSelect,
 }: {
   section: VerifiedReportSection;
   show_dropped: boolean;
   hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
 }) {
   const kept = keptSentences(section);
   const dropped_count = section.verified_sentences.length - kept.length;
@@ -137,6 +154,7 @@ function SectionCard({
                 show_dropped={show_dropped}
                 sentence_id={`${section.section_id}:${idx}`}
                 hovered_id={hovered_id}
+                onSelect={onSelect}
               />
             ))}
           </ul>
@@ -160,6 +178,10 @@ export function VerifiedReportView({
   show_dropped?: boolean;
 }) {
   const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
   return (
     <div
       ref={root_ref}
@@ -208,8 +230,17 @@ export function VerifiedReportView({
           section={section}
           show_dropped={show_dropped}
           hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
         />
       ))}
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+      />
     </div>
   );
 }
