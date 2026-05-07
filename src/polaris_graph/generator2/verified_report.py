@@ -77,6 +77,17 @@ class VerifiedSentence(BaseModel):
             "real two-family LLM judge to populate this independently."
         ),
     )
+    is_synthesis_claim: bool = Field(
+        default=False,
+        description=(
+            "True iff sentence is a synthesis claim (e.g., a discussion "
+            "paragraph summarizing across sources without quoting any one). "
+            "Synthesis claims have no provenance_tokens by definition; "
+            "non-synthesis kept sentences MUST have ≥1 provenance token. "
+            "Today's generator defaults to False; future Issue may wire the "
+            "prompt template to label synthesis sentences explicitly."
+        ),
+    )
 
     @model_validator(mode="after")
     def _drop_reason_consistency(self) -> "VerifiedSentence":
@@ -97,6 +108,32 @@ class VerifiedSentence(BaseModel):
                 "evaluator_agrees=True is forbidden when verifier_pass=False "
                 "(rule-based dropped the sentence; evaluator cannot pass it "
                 "without contradicting strict-verify)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
+        if self.is_synthesis_claim and self.verifier_pass is False:
+            raise ValueError(
+                "is_synthesis_claim=True requires verifier_pass=True "
+                "(synthesis claims either ship or are dropped before reaching "
+                "this record)"
+            )
+        if self.is_synthesis_claim and len(self.provenance_tokens) > 0:
+            raise ValueError(
+                "is_synthesis_claim=True requires provenance_tokens=[] "
+                "(synthesis claims have no specific provenance — that's the "
+                "definition)"
+            )
+        if (
+            not self.is_synthesis_claim
+            and self.verifier_pass is True
+            and len(self.provenance_tokens) == 0
+        ):
+            raise ValueError(
+                "kept non-synthesis sentence requires ≥1 provenance token; "
+                "set is_synthesis_claim=True for prose without specific "
+                "provenance"
             )
         return self
 

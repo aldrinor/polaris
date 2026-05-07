@@ -1,0 +1,311 @@
+diff --git a/src/polaris_graph/generator2/strict_verify.py b/src/polaris_graph/generator2/strict_verify.py
+index 15ed977..b75b9f7 100644
+--- a/src/polaris_graph/generator2/strict_verify.py
++++ b/src/polaris_graph/generator2/strict_verify.py
+@@ -90,6 +90,7 @@ def verify_sentence(
+     sentence_text: str,
+     pool: EvidencePool,
+     min_content_overlap: int | None = None,
++    is_synthesis_claim: bool = False,
+ ) -> tuple[bool, DropReason | None]:
+     """Return (verifier_pass, drop_reason) for `sentence_text` against `pool`.
+ 
+@@ -102,6 +103,11 @@ def verify_sentence(
+       3. spans within source bounds            → span_out_of_range
+       4. every decimal in sentence in spans    → numeric_mismatch
+       5. >=N shared content words              → overlap_too_low
++
++    If `is_synthesis_claim=True` AND the sentence has no tokens, return
++    (True, None) — synthesis claims pass without provenance by definition
++    (I-f5-006). If a synthesis claim DOES carry tokens, that's a generator
++    bug; we still run token checks so the underlying invariant holds.
+     """
+     threshold = (
+         min_content_overlap
+@@ -111,6 +117,8 @@ def verify_sentence(
+ 
+     tokens = extract_tokens(sentence_text)
+     if not tokens:
++        if is_synthesis_claim:
++            return True, None
+         return False, "no_provenance_token"
+ 
+     # Validate each token against the pool. Collect span texts for
+@@ -155,13 +163,17 @@ def verify_sentence_to_record(
+     section_id: str,
+     pool: EvidencePool,
+     min_content_overlap: int | None = None,
++    is_synthesis_claim: bool = False,
+ ) -> VerifiedSentence:
+     """Convenience: wrap verify_sentence into a VerifiedSentence record.
+ 
+     Used by the generator orchestrator to build Section.verified_sentences.
+     """
+     passed, reason = verify_sentence(
+-        sentence_text, pool, min_content_overlap=min_content_overlap
++        sentence_text,
++        pool,
++        min_content_overlap=min_content_overlap,
++        is_synthesis_claim=is_synthesis_claim,
+     )
+     tokens = [t.raw for t in extract_tokens(sentence_text)]
+     return VerifiedSentence(
+@@ -171,6 +183,7 @@ def verify_sentence_to_record(
+         verifier_pass=passed,
+         drop_reason=reason,
+         evaluator_agrees=passed,
++        is_synthesis_claim=is_synthesis_claim,
+     )
+ 
+ 
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index 5e13e74..ca051ce 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -77,6 +77,17 @@ class VerifiedSentence(BaseModel):
+             "real two-family LLM judge to populate this independently."
+         ),
+     )
++    is_synthesis_claim: bool = Field(
++        default=False,
++        description=(
++            "True iff sentence is a synthesis claim (e.g., a discussion "
++            "paragraph summarizing across sources without quoting any one). "
++            "Synthesis claims have no provenance_tokens by definition; "
++            "non-synthesis kept sentences MUST have ≥1 provenance token. "
++            "Today's generator defaults to False; future Issue may wire the "
++            "prompt template to label synthesis sentences explicitly."
++        ),
++    )
+ 
+     @model_validator(mode="after")
+     def _drop_reason_consistency(self) -> "VerifiedSentence":
+@@ -100,6 +111,32 @@ class VerifiedSentence(BaseModel):
+             )
+         return self
+ 
++    @model_validator(mode="after")
++    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
++        if self.is_synthesis_claim and self.verifier_pass is False:
++            raise ValueError(
++                "is_synthesis_claim=True requires verifier_pass=True "
++                "(synthesis claims either ship or are dropped before reaching "
++                "this record)"
++            )
++        if self.is_synthesis_claim and len(self.provenance_tokens) > 0:
++            raise ValueError(
++                "is_synthesis_claim=True requires provenance_tokens=[] "
++                "(synthesis claims have no specific provenance — that's the "
++                "definition)"
++            )
++        if (
++            not self.is_synthesis_claim
++            and self.verifier_pass is True
++            and len(self.provenance_tokens) == 0
++        ):
++            raise ValueError(
++                "kept non-synthesis sentence requires ≥1 provenance token; "
++                "set is_synthesis_claim=True for prose without specific "
++                "provenance"
++            )
++        return self
++
+ 
+ # ---------------------------------------------------------------------------
+ # Section
+diff --git a/tests/polaris_graph/generator2/test_strict_verify.py b/tests/polaris_graph/generator2/test_strict_verify.py
+index dc67180..11d0c17 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify.py
++++ b/tests/polaris_graph/generator2/test_strict_verify.py
+@@ -76,6 +76,31 @@ def test_sentence_with_only_malformed_token_fails():
+     assert reason == "no_provenance_token"
+ 
+ 
++def test_synthesis_claim_without_token_passes():
++    pool = _pool(_src(full_text="Aspirin reduced cardiovascular events."))
++    passed, reason = verify_sentence(
++        "These trials together suggest moderate effect.",
++        pool,
++        is_synthesis_claim=True,
++    )
++    assert passed is True
++    assert reason is None
++
++
++def test_synthesis_claim_record_constructed_with_flag():
++    pool = _pool(_src(full_text="Aspirin reduced cardiovascular events."))
++    record = verify_sentence_to_record(
++        "These trials together suggest moderate effect.",
++        section_id="sec_x",
++        pool=pool,
++        is_synthesis_claim=True,
++    )
++    assert record.is_synthesis_claim is True
++    assert record.verifier_pass is True
++    assert record.provenance_tokens == []
++    assert record.evaluator_agrees is True
++
++
+ # ---------- invalid_token ----------
+ 
+ def test_unknown_source_id_fails():
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index b6669bc..469195c 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -105,6 +105,52 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+         )
+ 
+ 
++def test_verified_sentence_synthesis_claim_allows_empty_tokens():
++    s = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="These trials together suggest moderate effect.",
++        provenance_tokens=[],
++        verifier_pass=True,
++        is_synthesis_claim=True,
++    )
++    assert s.is_synthesis_claim is True
++    assert s.provenance_tokens == []
++
++
++def test_verified_sentence_synthesis_claim_with_tokens_forbidden():
++    with pytest.raises(ValidationError, match="provenance_tokens=\\[\\]"):
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text="Synthesis with token.",
++            provenance_tokens=["[#ev:e:0-3]"],
++            verifier_pass=True,
++            is_synthesis_claim=True,
++        )
++
++
++def test_verified_sentence_synthesis_claim_with_pass_false_forbidden():
++    with pytest.raises(ValidationError, match="verifier_pass=True"):
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text="Bad synthesis.",
++            provenance_tokens=[],
++            verifier_pass=False,
++            drop_reason="no_provenance_token",
++            is_synthesis_claim=True,
++        )
++
++
++def test_verified_sentence_kept_non_synthesis_must_have_tokens():
++    with pytest.raises(ValidationError, match="≥1 provenance token"):
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text="Kept claim with no tokens.",
++            provenance_tokens=[],
++            verifier_pass=True,
++            is_synthesis_claim=False,
++        )
++
++
+ def test_verified_sentence_invalid_drop_reason():
+     with pytest.raises(ValidationError):
+         VerifiedSentence(
+diff --git a/web/app/generation/components/sentence_inspector.tsx b/web/app/generation/components/sentence_inspector.tsx
+index db1f13b..4c9cc85 100644
+--- a/web/app/generation/components/sentence_inspector.tsx
++++ b/web/app/generation/components/sentence_inspector.tsx
+@@ -36,6 +36,18 @@ const TIER_TONE: Record<RetrievalSourceTier, string> = {
+   T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+ };
+ 
++function SynthesisClaimBadge() {
++  return (
++    <span
++      data-testid="inspector-synthesis-claim"
++      title="Synthesis claim — sentence summarizes across sources without quoting a specific span. No direct provenance by design."
++      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
++    >
++      Synthesis claim
++    </span>
++  );
++}
++
+ function AgreementBadge({
+   evaluator_agrees,
+ }: {
+@@ -227,9 +239,12 @@ export function SentenceInspector({
+                 >
+                   {sentence.sentence_text}
+                 </p>
+-                <AgreementBadge
+-                  evaluator_agrees={sentence.evaluator_agrees}
+-                />
++                <div className="flex flex-col items-end gap-1">
++                  <AgreementBadge
++                    evaluator_agrees={sentence.evaluator_agrees}
++                  />
++                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
++                </div>
+               </div>
+               {tokens.length === 0 ? (
+                 <p className="text-muted-foreground text-xs italic">
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index f5cee51..a7350c1 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -111,6 +111,16 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+         },
++        // sec_x:15 — synthesis claim (I-f5-006). No tokens; flagged as synthesis.
++        {
++          section_id: "sec_x",
++          sentence_text: "These trials together suggest a moderate effect.",
++          provenance_tokens: [],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          is_synthesis_claim: true,
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 87a9a67..beab94a 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -601,6 +601,7 @@ export interface ReportVerifiedSentence {
+   verifier_pass: boolean;
+   drop_reason: DropReason | null;
+   evaluator_agrees: boolean | null;
++  is_synthesis_claim?: boolean;
+ }
+ 
+ export interface VerifiedReportSection {
+diff --git a/web/tests/e2e/sentence_inspector_synthesis.spec.ts b/web/tests/e2e/sentence_inspector_synthesis.spec.ts
+new file mode 100644
+index 0000000..ecf5710
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_synthesis.spec.ts
+@@ -0,0 +1,25 @@
++import { expect, test } from "@playwright/test";
++
++test("Inspector renders synthesis-claim badge for is_synthesis_claim=true", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:15"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-synthesis-claim")).toBeVisible();
++});
++
++test("Inspector does NOT render synthesis-claim badge for non-synthesis sentence", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  await page.locator('[data-sentence-id="sec_x:5"]').click();
++
++  await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible({
++    timeout: 500,
++  });
++  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
++});

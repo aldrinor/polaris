@@ -76,6 +76,31 @@ def test_sentence_with_only_malformed_token_fails():
     assert reason == "no_provenance_token"
 
 
+def test_synthesis_claim_without_token_passes():
+    pool = _pool(_src(full_text="Aspirin reduced cardiovascular events."))
+    passed, reason = verify_sentence(
+        "These trials together suggest moderate effect.",
+        pool,
+        is_synthesis_claim=True,
+    )
+    assert passed is True
+    assert reason is None
+
+
+def test_synthesis_claim_record_constructed_with_flag():
+    pool = _pool(_src(full_text="Aspirin reduced cardiovascular events."))
+    record = verify_sentence_to_record(
+        "These trials together suggest moderate effect.",
+        section_id="sec_x",
+        pool=pool,
+        is_synthesis_claim=True,
+    )
+    assert record.is_synthesis_claim is True
+    assert record.verifier_pass is True
+    assert record.provenance_tokens == []
+    assert record.evaluator_agrees is True
+
+
 # ---------- invalid_token ----------
 
 def test_unknown_source_id_fails():

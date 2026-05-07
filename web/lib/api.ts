@@ -601,6 +601,7 @@ export interface ReportVerifiedSentence {
   verifier_pass: boolean;
   drop_reason: DropReason | null;
   evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
 }
 
 export interface VerifiedReportSection {
