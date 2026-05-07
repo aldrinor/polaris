@@ -4,6 +4,8 @@ import { useId, useRef, useState } from "react";
 
 import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
 
+import { DocumentPreview } from "./document_preview";
+
 const MAX_BYTES = 50 * 1024 * 1024;
 const ALLOWED_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
 
@@ -46,6 +48,7 @@ const extOf = (n: string) => {
 export function UploadDropZone() {
   const baseId = useId();
   const [files, setFiles] = useState<FileEntry[]>([]);
+  const [openPreviewDocId, setOpenPreviewDocId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   let counter = 0;
 
@@ -174,6 +177,25 @@ export function UploadDropZone() {
                         `completed · ${f.chunk_preview_count ?? 0} chunks`}
                       {f.parse_status === "failed" && "parse failed"}
                     </span>
+                    {f.parse_status === "completed" &&
+                      (f.chunk_preview_count ?? 0) > 0 && (
+                        <button
+                          type="button"
+                          data-testid={`open-preview-${f.id}`}
+                          onClick={() =>
+                            setOpenPreviewDocId(
+                              openPreviewDocId === f.response!.document_id
+                                ? null
+                                : f.response!.document_id,
+                            )
+                          }
+                          className="text-xs underline"
+                        >
+                          {openPreviewDocId === f.response.document_id
+                            ? "Close preview"
+                            : "Open preview"}
+                        </button>
+                      )}
                   </span>
                 )}
                 {f.status === "error" && (
@@ -184,6 +206,7 @@ export function UploadDropZone() {
           ))}
         </ul>
       )}
+      {openPreviewDocId && <DocumentPreview documentId={openPreviewDocId} />}
     </div>
   );
 }

@@ -1,0 +1,319 @@
+diff --git a/src/polaris_v6/api/upload.py b/src/polaris_v6/api/upload.py
+index 8ed5393..2c1b065 100644
+--- a/src/polaris_v6/api/upload.py
++++ b/src/polaris_v6/api/upload.py
+@@ -14,6 +14,7 @@ the caller; default is UNKNOWN and triggers conservative routing.
+ from __future__ import annotations
+ 
+ import hashlib
++import html as _html
+ import uuid
+ from typing import Literal
+ 
+@@ -42,6 +43,8 @@ class UploadResponse(BaseModel):
+     classification: DataClassification
+     parse_status: Literal["queued", "completed", "failed"]
+     chunk_preview: list[str]
++    content: str = ""
++    html: str = ""
+ 
+ 
+ _UPLOAD_TABLE: dict[str, UploadResponse] = {}
+@@ -80,8 +83,12 @@ async def upload_document(
+         except Exception:
+             text = ""
+         chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
++        preview_text = text
++        preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
+     else:
+         chunks = []
++        preview_text = ""
++        preview_html = ""
+ 
+     response = UploadResponse(
+         document_id=document_id,
+@@ -91,6 +98,8 @@ async def upload_document(
+         classification=classification,
+         parse_status="completed" if chunks else "queued",
+         chunk_preview=chunks[:3],
++        content=preview_text,
++        html=preview_html,
+     )
+     _UPLOAD_TABLE[document_id] = response
+     return response
+diff --git a/web/app/upload/components/document_preview.tsx b/web/app/upload/components/document_preview.tsx
+new file mode 100644
+index 0000000..098fdaf
+--- /dev/null
++++ b/web/app/upload/components/document_preview.tsx
+@@ -0,0 +1,112 @@
++"use client";
++
++import { useEffect, useRef, useState } from "react";
++
++import { getUpload, type UploadResponse } from "@/lib/api";
++
++type Props = { documentId: string };
++
++function clearMarks(doc: Document) {
++  const marks = doc.querySelectorAll("mark[data-polaris-mark]");
++  marks.forEach((m) => {
++    const text = doc.createTextNode(m.textContent ?? "");
++    m.replaceWith(text);
++    m.parentNode?.normalize();
++  });
++}
++
++function highlightFirstMatch(
++  doc: Document,
++  snippet: string,
++): HTMLElement | null {
++  if (!snippet) return null;
++  clearMarks(doc);
++  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
++  let node: Node | null = walker.nextNode();
++  while (node) {
++    const text = node.textContent ?? "";
++    const idx = text.indexOf(snippet);
++    if (idx !== -1) {
++      const before = text.slice(0, idx);
++      const matched = text.slice(idx, idx + snippet.length);
++      const after = text.slice(idx + snippet.length);
++      const parent = node.parentNode;
++      if (!parent) return null;
++      const beforeNode = doc.createTextNode(before);
++      const mark = doc.createElement("mark");
++      mark.setAttribute("data-polaris-mark", "1");
++      mark.textContent = matched;
++      const afterNode = doc.createTextNode(after);
++      parent.insertBefore(beforeNode, node);
++      parent.insertBefore(mark, node);
++      parent.insertBefore(afterNode, node);
++      parent.removeChild(node);
++      return mark;
++    }
++    node = walker.nextNode();
++  }
++  return null;
++}
++
++export function DocumentPreview({ documentId }: Props) {
++  const [response, setResponse] = useState<UploadResponse | null>(null);
++  const [loading, setLoading] = useState(true);
++  const iframeRef = useRef<HTMLIFrameElement>(null);
++
++  useEffect(() => {
++    let cancelled = false;
++    getUpload(documentId)
++      .then((r) => {
++        if (!cancelled) {
++          setResponse(r);
++          setLoading(false);
++        }
++      })
++      .catch(() => {
++        if (!cancelled) setLoading(false);
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [documentId]);
++
++  const handleChunkClick = (snippet: string) => {
++    const doc = iframeRef.current?.contentDocument;
++    if (!doc) return;
++    const mark = highlightFirstMatch(doc, snippet);
++    if (mark) mark.scrollIntoView({ block: "center" });
++  };
++
++  if (loading) return <div data-testid="preview-loading">Loading…</div>;
++  if (!response) return <div data-testid="preview-error">Failed to load</div>;
++
++  return (
++    <div
++      className="border-border flex h-96 gap-2 rounded-lg border p-2"
++      data-testid="document-preview"
++    >
++      <iframe
++        ref={iframeRef}
++        sandbox="allow-same-origin"
++        srcDoc={response.html ?? ""}
++        title={`preview-${documentId}`}
++        className="border-border bg-background flex-1 rounded border"
++        data-testid="preview-iframe"
++      />
++      <ul className="border-border flex w-64 flex-col gap-1 overflow-y-auto rounded border p-2">
++        {response.chunk_preview.map((c, i) => (
++          <li key={i}>
++            <button
++              type="button"
++              data-testid={`chunk-${i}`}
++              onClick={() => handleChunkClick(c)}
++              className="hover:bg-muted/40 w-full truncate rounded p-1 text-left text-xs"
++            >
++              {c.slice(0, 80)}
++            </button>
++          </li>
++        ))}
++      </ul>
++    </div>
++  );
++}
+diff --git a/web/app/upload/components/upload_drop_zone.tsx b/web/app/upload/components/upload_drop_zone.tsx
+index 13e9356..a0cd71e 100644
+--- a/web/app/upload/components/upload_drop_zone.tsx
++++ b/web/app/upload/components/upload_drop_zone.tsx
+@@ -4,6 +4,8 @@ import { useId, useRef, useState } from "react";
+ 
+ import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
+ 
++import { DocumentPreview } from "./document_preview";
++
+ const MAX_BYTES = 50 * 1024 * 1024;
+ const ALLOWED_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
+ 
+@@ -46,6 +48,7 @@ const extOf = (n: string) => {
+ export function UploadDropZone() {
+   const baseId = useId();
+   const [files, setFiles] = useState<FileEntry[]>([]);
++  const [openPreviewDocId, setOpenPreviewDocId] = useState<string | null>(null);
+   const inputRef = useRef<HTMLInputElement>(null);
+   let counter = 0;
+ 
+@@ -174,6 +177,25 @@ export function UploadDropZone() {
+                         `completed · ${f.chunk_preview_count ?? 0} chunks`}
+                       {f.parse_status === "failed" && "parse failed"}
+                     </span>
++                    {f.parse_status === "completed" &&
++                      (f.chunk_preview_count ?? 0) > 0 && (
++                        <button
++                          type="button"
++                          data-testid={`open-preview-${f.id}`}
++                          onClick={() =>
++                            setOpenPreviewDocId(
++                              openPreviewDocId === f.response!.document_id
++                                ? null
++                                : f.response!.document_id,
++                            )
++                          }
++                          className="text-xs underline"
++                        >
++                          {openPreviewDocId === f.response.document_id
++                            ? "Close preview"
++                            : "Open preview"}
++                        </button>
++                      )}
+                   </span>
+                 )}
+                 {f.status === "error" && (
+@@ -184,6 +206,7 @@ export function UploadDropZone() {
+           ))}
+         </ul>
+       )}
++      {openPreviewDocId && <DocumentPreview documentId={openPreviewDocId} />}
+     </div>
+   );
+ }
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index f64ebac..49c0fd7 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -95,6 +95,8 @@ export interface UploadResponse {
+   classification: DataClassification;
+   parse_status: "queued" | "completed" | "failed";
+   chunk_preview: string[];
++  content?: string;
++  html?: string;
+ }
+ 
+ export async function getUpload(document_id: string): Promise<UploadResponse> {
+diff --git a/web/tests/e2e/upload_doc_preview.spec.ts b/web/tests/e2e/upload_doc_preview.spec.ts
+new file mode 100644
+index 0000000..5423a06
+--- /dev/null
++++ b/web/tests/e2e/upload_doc_preview.spec.ts
+@@ -0,0 +1,84 @@
++import { expect, test } from "@playwright/test";
++
++const DOC_ID = "doc-preview-id-0001";
++
++test("open preview → click chunk → mark wraps text in iframe", async ({
++  page,
++}) => {
++  await page.route("**/upload", async (route) => {
++    if (route.request().method() !== "POST") return route.continue();
++    await route.fulfill({
++      status: 201,
++      contentType: "application/json",
++      body: JSON.stringify({
++        document_id: DOC_ID,
++        filename: "doc.md",
++        bytes: 100,
++        sha256: "stub",
++        classification: "UNKNOWN",
++        parse_status: "completed",
++        chunk_preview: ["alpha sentence here", "beta sentence here"],
++        content: "alpha sentence here\nbeta sentence here",
++        html: "<p>alpha sentence here</p><p>beta sentence here</p>",
++      }),
++    });
++  });
++  await page.route(`**/upload/${DOC_ID}`, async (route) => {
++    if (route.request().method() !== "GET") return route.continue();
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        document_id: DOC_ID,
++        filename: "doc.md",
++        bytes: 100,
++        sha256: "stub",
++        classification: "UNKNOWN",
++        parse_status: "completed",
++        chunk_preview: ["alpha sentence here", "beta sentence here"],
++        content: "alpha sentence here\nbeta sentence here",
++        html: "<p>alpha sentence here</p><p>beta sentence here</p>",
++      }),
++    });
++  });
++
++  await page.goto("/upload");
++  await page.evaluate(() => {
++    const dt = new DataTransfer();
++    dt.items.add(
++      new File([new Uint8Array(100)], "doc.md", { type: "text/markdown" }),
++    );
++    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
++      new DragEvent("drop", {
++        dataTransfer: dt,
++        bubbles: true,
++        cancelable: true,
++      }),
++    );
++  });
++
++  // Open preview button visible
++  const openBtn = page.locator('[data-testid^="open-preview-"]').first();
++  await expect(openBtn).toBeVisible();
++  await openBtn.click();
++
++  // Preview iframe rendered
++  const iframe = page.locator('[data-testid="preview-iframe"]');
++  await expect(iframe).toBeVisible();
++
++  // Click chunk-1 (the "beta" chunk)
++  await page.getByTestId("chunk-1").click();
++
++  // Inspect iframe contentDocument for the <mark> element
++  const markText = await page.evaluate(() => {
++    const iframe = document.querySelector(
++      '[data-testid="preview-iframe"]',
++    ) as HTMLIFrameElement | null;
++    const mark = iframe?.contentDocument?.querySelector(
++      "mark[data-polaris-mark]",
++    );
++    return mark?.textContent ?? null;
++  });
++
++  expect(markText).toBe("beta sentence here");
++});

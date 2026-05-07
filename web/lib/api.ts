@@ -95,6 +95,8 @@ export interface UploadResponse {
   classification: DataClassification;
   parse_status: "queued" | "completed" | "failed";
   chunk_preview: string[];
+  content?: string;
+  html?: string;
 }
 
 export async function getUpload(document_id: string): Promise<UploadResponse> {

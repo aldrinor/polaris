@@ -145,3 +145,5 @@ I-f3-005 brief iter1=REQ_CH (50MB backend mismatch) iter2=APPROVE 0/0/1P2
 I-f3-005 diff iter1=APPROVE 0/0/2P2 (LOC exemption granted); tokens=90577
 I-f3-006 brief iter1=APPROVE 0/0/3P2
 I-f3-006 diff iter1=APPROVE 0/0/1P2; tokens=32798
+I-f3-007 brief iter1=REQ_CH (sandbox+backend) iter2=REQ_CH (sandbox dup) iter3=REQ_CH (AC sandbox dup) iter4=APPROVE 0/0/1P2
+I-f3-007 diff iter1=APPROVE 0/0/3P2 (LOC exemption granted); tokens=26212
