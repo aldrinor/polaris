@@ -622,9 +622,21 @@ export interface VerifiedReportSection {
   section_status: SectionStatus;
 }
 
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
 export interface FrameGap {
   entity_name: string;
-  reason: string;
+  reason: GapReason;
+  reason_detail?: string | null;
 }
 
 export interface FrameCoverage {

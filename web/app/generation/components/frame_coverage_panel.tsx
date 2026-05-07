@@ -2,7 +2,19 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { FrameCoverage } from "@/lib/api";
+import type { FrameCoverage, GapReason } from "@/lib/api";
+
+const GAP_REASON_LABEL: Record<GapReason, string> = {
+  paywalled: "Paywalled",
+  no_oa: "No OA",
+  source_tier_ineligible: "Source-tier ineligible",
+  language_unavailable: "Language unavailable",
+  retracted_only: "Only retracted sources",
+  jurisdiction_outside: "Jurisdiction outside scope",
+  not_indexed: "Not indexed",
+  embargoed: "Embargoed",
+  other: "Other",
+};
 
 export function FrameCoveragePanel({
   coverage,
@@ -71,7 +83,8 @@ export function FrameCoveragePanel({
                 data-testid={`frame-coverage-gap-${idx}`}
                 className="text-amber-800 dark:text-amber-200"
               >
-                <strong>{g.entity_name}</strong> — {g.reason}
+                <strong>{g.entity_name}</strong> — {GAP_REASON_LABEL[g.reason]}
+                {g.reason_detail ? `: ${g.reason_detail}` : ""}
               </li>
             ))}
           </ul>
