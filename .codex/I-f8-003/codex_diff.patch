@@ -1,0 +1,284 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index e2a37e1..04b4a6b 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -192,24 +192,60 @@ class ContradictionSide(BaseModel):
+     claim_excerpt: str = Field(min_length=1, max_length=500)
+ 
+ 
++ContradictionKind = Literal["multi_source", "self_contradiction"]
++"""I-f8-003 contradiction-kind discriminator.
++
++`multi_source`: ≥2 distinct sources disagree (I-f8-001/002 case).
++`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
++
++
+ class ContradictionSignal(BaseModel):
+     """Inline contradiction annotation per sentence (I-f8-001).
+ 
+     Indicates ≥2 cited sources disagree on the claim in the sentence.
+     `sides` (added I-f8-002) carries the per-source detail consumed by
+-    the ContradictionPane; empty preserves I-f8-001 back-compat."""
++    the ContradictionPane; empty preserves I-f8-001 back-compat.
++    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+ 
+-    disagreeing_source_count: int = Field(ge=2, le=20)
++    disagreeing_source_count: int = Field(ge=1, le=20)
+     summary: str = Field(min_length=1, max_length=500)
+     sides: list[ContradictionSide] = Field(default_factory=list)
++    kind: ContradictionKind = Field(default="multi_source")
+ 
+     @model_validator(mode="after")
+-    def _sides_count_consistency(self) -> "ContradictionSignal":
+-        if self.sides and len(self.sides) != self.disagreeing_source_count:
+-            raise ValueError(
+-                "len(sides) must equal disagreeing_source_count when sides "
+-                "is non-empty"
+-            )
++    def _kind_count_consistency(self) -> "ContradictionSignal":
++        if self.kind == "multi_source":
++            if self.disagreeing_source_count < 2:
++                raise ValueError(
++                    "kind='multi_source' requires "
++                    "disagreeing_source_count >= 2"
++                )
++            if (
++                self.sides
++                and len(self.sides) != self.disagreeing_source_count
++            ):
++                raise ValueError(
++                    "len(sides) must equal disagreeing_source_count for "
++                    "multi_source when sides is non-empty"
++                )
++        else:  # self_contradiction
++            if self.disagreeing_source_count != 1:
++                raise ValueError(
++                    "kind='self_contradiction' requires "
++                    "disagreeing_source_count == 1"
++                )
++            if len(self.sides) < 2:
++                raise ValueError(
++                    "kind='self_contradiction' requires sides with ≥2 "
++                    "entries representing distinct contradicting spans "
++                    "from the same source"
++                )
++            distinct_source_ids = {s.source_id for s in self.sides}
++            if len(distinct_source_ids) != 1:
++                raise ValueError(
++                    "kind='self_contradiction' requires all sides to "
++                    "reference the same source_id"
++                )
+         return self
+ 
+ 
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index ebd7510..8d04f7b 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -175,6 +175,59 @@ def test_contradiction_signal_sides_count_mismatch_rejected():
+         )
+ 
+ 
++def test_contradiction_signal_kind_default_multi_source():
++    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
++    assert sig.kind == "multi_source"
++
++
++def test_contradiction_signal_self_contradiction_valid():
++    sig = ContradictionSignal(
++        disagreeing_source_count=1,
++        summary="self contradicts",
++        kind="self_contradiction",
++        sides=[_side("src-A", claim_excerpt="X is safe"), _side("src-A", claim_excerpt="X is dangerous")],
++    )
++    assert sig.kind == "self_contradiction"
++    assert len(sig.sides) == 2
++
++
++def test_contradiction_signal_self_contradiction_rejects_count_not_one():
++    with pytest.raises(ValidationError, match="disagreeing_source_count == 1"):
++        ContradictionSignal(
++            disagreeing_source_count=2,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A"), _side("src-A")],
++        )
++
++
++def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
++    with pytest.raises(ValidationError, match="≥2 entries"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A")],
++        )
++    with pytest.raises(ValidationError, match="≥2 entries"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[],
++        )
++
++
++def test_contradiction_signal_self_contradiction_rejects_different_sources():
++    with pytest.raises(ValidationError, match="same source_id"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A"), _side("src-B")],
++        )
++
++
+ def test_frame_coverage_minimal_no_gaps():
+     fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+     assert fc.gaps == []
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+index fae327a..b62eafb 100644
+--- a/web/app/generation/components/contradiction_pane.tsx
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -35,8 +35,14 @@ export function ContradictionPane({
+       >
+         <SheetHeader>
+           <SheetTitle data-testid="contradiction-pane-title">
+-            Contradiction:{" "}
+-            {signal ? `${signal.disagreeing_source_count} sources disagree` : ""}
++            {(() => {
++              if (!signal) return "";
++              const kind = signal.kind ?? "multi_source";
++              if (kind === "self_contradiction") {
++                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
++              }
++              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
++            })()}
+           </SheetTitle>
+           <SheetDescription>
+             {signal?.summary ?? ""}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 477921d..7a52c90 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -186,7 +186,16 @@ function SentenceRow({
+           }}
+           className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+         >
+-          ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
++          {(() => {
++            const kind = sentence.contradiction.kind ?? "multi_source";
++            if (kind === "self_contradiction") {
++              // Codex iter-1 P2: self-contradiction span count comes from
++              // sides.length, NOT disagreeing_source_count (which is 1).
++              const span_n = sentence.contradiction.sides?.length ?? 0;
++              return `⚠ Source self-contradicts (${span_n} spans)`;
++            }
++            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
++          })()}
+         </button>
+       ) : null}
+       {t1_conflict ? (
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 79b91d3..22486b5 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -261,6 +261,7 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+           contradiction: {
++            kind: "multi_source",
+             disagreeing_source_count: 3,
+             summary: "Three Cochrane reviews disagree on dose-response curve",
+             sides: [
+@@ -294,6 +295,39 @@ const REPORT: VerifiedReport = {
+             ],
+           },
+         },
++        // sec_x:27 — self-contradiction (I-f8-003).
++        {
++          section_id: "sec_x",
++          sentence_text: "Self-contradiction demo: same source on both sides.",
++          provenance_tokens: [`[#ev:src-0:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          contradiction: {
++            kind: "self_contradiction",
++            disagreeing_source_count: 1,
++            summary: "Single source contradicts itself across two paragraphs",
++            sides: [
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                sample_size: 1247,
++                hedge_language: "high confidence",
++                pt08_flag: null,
++                claim_excerpt: "Aspirin is safe at chronic doses.",
++              },
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                sample_size: 1247,
++                hedge_language: "high confidence",
++                pt08_flag: null,
++                claim_excerpt:
++                  "Aspirin is dangerous beyond 8 weeks of chronic use.",
++              },
++            ],
++          },
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 9d47459..be8d12d 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -616,10 +616,13 @@ export interface ContradictionSide {
+   claim_excerpt: string;
+ }
+ 
++export type ContradictionKind = "multi_source" | "self_contradiction";
++
+ export interface ContradictionSignal {
+   disagreeing_source_count: number;
+   summary: string;
+   sides?: ContradictionSide[];
++  kind?: ContradictionKind;
+ }
+ 
+ export type AssertionSurface =
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index 28f0dbd..b049ebf 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -57,3 +57,29 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
+   // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+ });
++
++test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
++  await page.goto("/sentence_hover_test");
++  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
++  await expect(badge).toBeVisible();
++  await expect(badge).toContainText("Source self-contradicts");
++  await expect(badge).toContainText("2 spans");
++  await badge.click();
++  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
++    "Self-contradiction",
++  );
++  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
++    "2 spans",
++  );
++  // Both sides reference src-0.
++  await expect(page.getByTestId("contradiction-source-0")).toContainText(
++    "src-0",
++  );
++  await expect(page.getByTestId("contradiction-source-1")).toContainText(
++    "src-0",
++  );
++  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
++  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
++    "dangerous",
++  );
++});

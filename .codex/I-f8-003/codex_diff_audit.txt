@@ -1,0 +1,4028 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e03f9-002a-7c10-a4d4-d1641a13fac1
+--------
+user
+# Codex Diff Review — I-f8-003 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only.
+
+**Issue:** I-f8-003 — F8 adversarial: same-source self-contradiction
+**Brief:** APPROVED iter 1
+**Canonical-diff-sha256:** `9861fbaf7d5544b00724c8885d5b27dc19060b9fc690a05a230ee6642df772ae`
+**LOC:** 167 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+src/polaris_graph/generator2/verified_report.py            +37 (ContradictionKind + kind field + multi-clause validator)
+tests/polaris_graph/generator2/test_verified_report.py     +56 (5 new tests; covers Codex iter-1 P2 zero/one-side gap)
+web/lib/api.ts                                              +3 (ContradictionKind + kind?: field)
+web/app/generation/components/verified_report_view.tsx     +13 (kind-discriminated badge text per Codex iter-1 P2 — sides.length not count)
+web/app/generation/components/contradiction_pane.tsx       +9 (kind-discriminated pane title)
+web/app/sentence_hover_test/_demo.tsx                      +35 (sec_x:27 self-contradiction)
+web/tests/e2e/sentence_inspector_contradiction.spec.ts     +27 (badge + pane assertion for sec_x:27)
+```
+
+## What changed
+
+### Backend
+- `ContradictionKind` Literal: `multi_source` (default) | `self_contradiction`.
+- `kind: ContradictionKind = "multi_source"` field added.
+- Validator replaces simple `len(sides) == count` with kind-discriminated rules:
+  - `multi_source`: count≥2, sides-length matches when non-empty.
+  - `self_contradiction`: count==1, sides≥2, all sides reference same source_id.
+- `disagreeing_source_count` lower-bound relaxed from 2→1 to allow self-contradiction.
+- 5 new tests: default kind, valid self-contradiction, count-not-1 rejected, sides-too-few rejected (Codex iter-1 P2 gap), different-sources rejected.
+- 54 generator2/test_verified_report.py tests pass.
+
+### Frontend
+- `ContradictionKind` type + optional `kind?: ContradictionKind`.
+- Badge text: self-contradiction shows "Source self-contradicts (N spans)" using `sides.length` (Codex iter-1 P2: NOT `disagreeing_source_count` which is 1 for self-contradiction).
+- Pane title: "Self-contradiction: source contradicts itself across N spans" vs "Contradiction: N sources disagree".
+- Demo sec_x:27 with self-contradiction case (src-0 says safe AND dangerous).
+- New Playwright test asserts badge text + pane title + both sides reference src-0 + claim text "safe"/"dangerous".
+
+## Verification
+- `PYTHONPATH=src pytest tests/polaris_graph/generator2/test_verified_report.py`: 54 passed.
+- `npx tsc --noEmit` (web/): exit 0.
+
+## Risks for Codex Red-Team
+
+1. **Validator scope:** kind-discriminated rules; existing I-f8-001/002 fixtures use multi_source → unaffected.
+2. **Backward compat:** `kind` defaults to `multi_source` in Pydantic AND TS `?:`; older payloads behave as before.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 167 net. Under 200.
+5. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll do a static pass over the changed files and diff only, focusing on execution blockers and regression risks against the stated schema.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_graph/generator2/verified_report.py tests/polaris_graph/generator2/test_verified_report.py web/lib/api.ts web/app/generation/components/verified_report_view.tsx web/app/generation/components/contradiction_pane.tsx web/app/sentence_hover_test/_demo.tsx web/tests/e2e/sentence_inspector_contradiction.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+ succeeded in 1837ms:
+M  src/polaris_graph/generator2/verified_report.py
+M  tests/polaris_graph/generator2/test_verified_report.py
+M  web/app/generation/components/contradiction_pane.tsx
+M  web/app/generation/components/verified_report_view.tsx
+M  web/app/sentence_hover_test/_demo.tsx
+M  web/lib/api.ts
+M  web/tests/e2e/sentence_inspector_contradiction.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f8-003/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 2418ms:
+ succeeded in 2964ms:
+codex
+The changed files are staged, so the regular worktree diff is empty. I’m switching to the staged diff and reading the relevant implementation/context around the model and UI rendering.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/generator2/verified_report.py tests/polaris_graph/generator2/test_verified_report.py web/lib/api.ts web/app/generation/components/verified_report_view.tsx web/app/generation/components/contradiction_pane.tsx web/app/sentence_hover_test/_demo.tsx web/tests/e2e/sentence_inspector_contradiction.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "disagreeing_source_count|Contradiction" src/polaris_graph/generator2 web/app web/lib web/tests -n' in C:\POLARIS
+ succeeded in 1744ms:
+ src/polaris_graph/generator2/verified_report.py    | 52 +++++++++++++++++----
+ .../generator2/test_verified_report.py             | 53 ++++++++++++++++++++++
+ .../generation/components/contradiction_pane.tsx   | 10 +++-
+ .../generation/components/verified_report_view.tsx | 11 ++++-
+ web/app/sentence_hover_test/_demo.tsx              | 34 ++++++++++++++
+ web/lib/api.ts                                     |  3 ++
+ .../e2e/sentence_inspector_contradiction.spec.ts   | 26 +++++++++++
+ 7 files changed, 178 insertions(+), 11 deletions(-)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2546ms:
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index e2a37e1..04b4a6b 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -192,24 +192,60 @@ class ContradictionSide(BaseModel):
+     claim_excerpt: str = Field(min_length=1, max_length=500)
+ 
+ 
++ContradictionKind = Literal["multi_source", "self_contradiction"]
++"""I-f8-003 contradiction-kind discriminator.
++
++`multi_source`: ≥2 distinct sources disagree (I-f8-001/002 case).
++`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
++
++
+ class ContradictionSignal(BaseModel):
+     """Inline contradiction annotation per sentence (I-f8-001).
+ 
+     Indicates ≥2 cited sources disagree on the claim in the sentence.
+     `sides` (added I-f8-002) carries the per-source detail consumed by
+-    the ContradictionPane; empty preserves I-f8-001 back-compat."""
++    the ContradictionPane; empty preserves I-f8-001 back-compat.
++    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+ 
+-    disagreeing_source_count: int = Field(ge=2, le=20)
++    disagreeing_source_count: int = Field(ge=1, le=20)
+     summary: str = Field(min_length=1, max_length=500)
+     sides: list[ContradictionSide] = Field(default_factory=list)
++    kind: ContradictionKind = Field(default="multi_source")
+ 
+     @model_validator(mode="after")
+-    def _sides_count_consistency(self) -> "ContradictionSignal":
+-        if self.sides and len(self.sides) != self.disagreeing_source_count:
+-            raise ValueError(
+-                "len(sides) must equal disagreeing_source_count when sides "
+-                "is non-empty"
+-            )
++    def _kind_count_consistency(self) -> "ContradictionSignal":
++        if self.kind == "multi_source":
++            if self.disagreeing_source_count < 2:
++                raise ValueError(
++                    "kind='multi_source' requires "
++                    "disagreeing_source_count >= 2"
++                )
++            if (
++                self.sides
++                and len(self.sides) != self.disagreeing_source_count
++            ):
++                raise ValueError(
++                    "len(sides) must equal disagreeing_source_count for "
++                    "multi_source when sides is non-empty"
++                )
++        else:  # self_contradiction
++            if self.disagreeing_source_count != 1:
++                raise ValueError(
++                    "kind='self_contradiction' requires "
++                    "disagreeing_source_count == 1"
++                )
++            if len(self.sides) < 2:
++                raise ValueError(
++                    "kind='self_contradiction' requires sides with ≥2 "
++                    "entries representing distinct contradicting spans "
++                    "from the same source"
++                )
++            distinct_source_ids = {s.source_id for s in self.sides}
++            if len(distinct_source_ids) != 1:
++                raise ValueError(
++                    "kind='self_contradiction' requires all sides to "
++                    "reference the same source_id"
++                )
+         return self
+ 
+ 
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index ebd7510..8d04f7b 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -175,6 +175,59 @@ def test_contradiction_signal_sides_count_mismatch_rejected():
+         )
+ 
+ 
++def test_contradiction_signal_kind_default_multi_source():
++    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
++    assert sig.kind == "multi_source"
++
++
++def test_contradiction_signal_self_contradiction_valid():
++    sig = ContradictionSignal(
++        disagreeing_source_count=1,
++        summary="self contradicts",
++        kind="self_contradiction",
++        sides=[_side("src-A", claim_excerpt="X is safe"), _side("src-A", claim_excerpt="X is dangerous")],
++    )
++    assert sig.kind == "self_contradiction"
++    assert len(sig.sides) == 2
++
++
++def test_contradiction_signal_self_contradiction_rejects_count_not_one():
++    with pytest.raises(ValidationError, match="disagreeing_source_count == 1"):
++        ContradictionSignal(
++            disagreeing_source_count=2,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A"), _side("src-A")],
++        )
++
++
++def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
++    with pytest.raises(ValidationError, match="≥2 entries"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A")],
++        )
++    with pytest.raises(ValidationError, match="≥2 entries"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[],
++        )
++
++
++def test_contradiction_signal_self_contradiction_rejects_different_sources():
++    with pytest.raises(ValidationError, match="same source_id"):
++        ContradictionSignal(
++            disagreeing_source_count=1,
++            summary="x",
++            kind="self_contradiction",
++            sides=[_side("src-A"), _side("src-B")],
++        )
++
++
+ def test_frame_coverage_minimal_no_gaps():
+     fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+     assert fc.gaps == []
+diff --git a/web/app/generation/components/contradiction_pane.tsx b/web/app/generation/components/contradiction_pane.tsx
+index fae327a..b62eafb 100644
+--- a/web/app/generation/components/contradiction_pane.tsx
++++ b/web/app/generation/components/contradiction_pane.tsx
+@@ -35,8 +35,14 @@ export function ContradictionPane({
+       >
+         <SheetHeader>
+           <SheetTitle data-testid="contradiction-pane-title">
+-            Contradiction:{" "}
+-            {signal ? `${signal.disagreeing_source_count} sources disagree` : ""}
++            {(() => {
++              if (!signal) return "";
++              const kind = signal.kind ?? "multi_source";
++              if (kind === "self_contradiction") {
++                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
++              }
++              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
++            })()}
+           </SheetTitle>
+           <SheetDescription>
+             {signal?.summary ?? ""}
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 477921d..7a52c90 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -186,7 +186,16 @@ function SentenceRow({
+           }}
+           className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+         >
+-          ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
++          {(() => {
++            const kind = sentence.contradiction.kind ?? "multi_source";
++            if (kind === "self_contradiction") {
++              // Codex iter-1 P2: self-contradiction span count comes from
++              // sides.length, NOT disagreeing_source_count (which is 1).
++              const span_n = sentence.contradiction.sides?.length ?? 0;
++              return `⚠ Source self-contradicts (${span_n} spans)`;
++            }
++            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
++          })()}
+         </button>
+       ) : null}
+       {t1_conflict ? (
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index 79b91d3..22486b5 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -261,6 +261,7 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+           contradiction: {
++            kind: "multi_source",
+             disagreeing_source_count: 3,
+             summary: "Three Cochrane reviews disagree on dose-response curve",
+             sides: [
+@@ -294,6 +295,39 @@ const REPORT: VerifiedReport = {
+             ],
+           },
+         },
++        // sec_x:27 — self-contradiction (I-f8-003).
++        {
++          section_id: "sec_x",
++          sentence_text: "Self-contradiction demo: same source on both sides.",
++          provenance_tokens: [`[#ev:src-0:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          contradiction: {
++            kind: "self_contradiction",
++            disagreeing_source_count: 1,
++            summary: "Single source contradicts itself across two paragraphs",
++            sides: [
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                sample_size: 1247,
++                hedge_language: "high confidence",
++                pt08_flag: null,
++                claim_excerpt: "Aspirin is safe at chronic doses.",
++              },
++              {
++                source_id: "src-0",
++                source_tier: "T1",
++                sample_size: 1247,
++                hedge_language: "high confidence",
++                pt08_flag: null,
++                claim_excerpt:
++                  "Aspirin is dangerous beyond 8 weeks of chronic use.",
++              },
++            ],
++          },
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 9d47459..be8d12d 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -616,10 +616,13 @@ export interface ContradictionSide {
+   claim_excerpt: string;
+ }
+ 
++export type ContradictionKind = "multi_source" | "self_contradiction";
++
+ export interface ContradictionSignal {
+   disagreeing_source_count: number;
+   summary: string;
+   sides?: ContradictionSide[];
++  kind?: ContradictionKind;
+ }
+ 
+ export type AssertionSurface =
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+index 28f0dbd..b049ebf 100644
+--- a/web/tests/e2e/sentence_inspector_contradiction.spec.ts
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -57,3 +57,29 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
+   // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+ });
++
++test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
++  await page.goto("/sentence_hover_test");
++  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
++  await expect(badge).toBeVisible();
++  await expect(badge).toContainText("Source self-contradicts");
++  await expect(badge).toContainText("2 spans");
++  await badge.click();
++  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
++    "Self-contradiction",
++  );
++  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
++    "2 spans",
++  );
++  // Both sides reference src-0.
++  await expect(page.getByTestId("contradiction-source-0")).toContainText(
++    "src-0",
++  );
++  await expect(page.getByTestId("contradiction-source-1")).toContainText(
++    "src-0",
++  );
++  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
++  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
++    "dangerous",
++  );
++});
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3360ms:
+web/lib\api.ts:607:  contradiction?: ContradictionSignal | null;
+web/lib\api.ts:610:export interface ContradictionSide {
+web/lib\api.ts:619:export type ContradictionKind = "multi_source" | "self_contradiction";
+web/lib\api.ts:621:export interface ContradictionSignal {
+web/lib\api.ts:622:  disagreeing_source_count: number;
+web/lib\api.ts:624:  sides?: ContradictionSide[];
+web/lib\api.ts:625:  kind?: ContradictionKind;
+web/tests\e2e\accessibility.spec.ts:88:  test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
+web/tests\e2e\accessibility.spec.ts:92:    await page.getByRole("button", { name: /Contradictions/ }).first().click();
+src/polaris_graph/generator2\verified_report.py:106:    contradiction: "ContradictionSignal | None" = Field(
+src/polaris_graph/generator2\verified_report.py:180:class ContradictionSide(BaseModel):
+src/polaris_graph/generator2\verified_report.py:195:ContradictionKind = Literal["multi_source", "self_contradiction"]
+src/polaris_graph/generator2\verified_report.py:202:class ContradictionSignal(BaseModel):
+src/polaris_graph/generator2\verified_report.py:207:    the ContradictionPane; empty preserves I-f8-001 back-compat.
+src/polaris_graph/generator2\verified_report.py:210:    disagreeing_source_count: int = Field(ge=1, le=20)
+src/polaris_graph/generator2\verified_report.py:212:    sides: list[ContradictionSide] = Field(default_factory=list)
+src/polaris_graph/generator2\verified_report.py:213:    kind: ContradictionKind = Field(default="multi_source")
+src/polaris_graph/generator2\verified_report.py:216:    def _kind_count_consistency(self) -> "ContradictionSignal":
+src/polaris_graph/generator2\verified_report.py:218:            if self.disagreeing_source_count < 2:
+src/polaris_graph/generator2\verified_report.py:221:                    "disagreeing_source_count >= 2"
+src/polaris_graph/generator2\verified_report.py:225:                and len(self.sides) != self.disagreeing_source_count
+src/polaris_graph/generator2\verified_report.py:228:                    "len(sides) must equal disagreeing_source_count for "
+src/polaris_graph/generator2\verified_report.py:232:            if self.disagreeing_source_count != 1:
+src/polaris_graph/generator2\verified_report.py:235:                    "disagreeing_source_count == 1"
+web/app\inspector\[runId]\page.tsx:78:          label: "Contradictions",
+web/app\inspector\[runId]\page.tsx:225:                    onJumpToContradictions={() =>
+web/app\inspector\[runId]\page.tsx:232:                  <ContradictionsTab
+web/app\inspector\[runId]\page.tsx:268:  onJumpToContradictions,
+web/app\inspector\[runId]\page.tsx:273:  onJumpToContradictions: () => void;
+web/app\inspector\[runId]\page.tsx:283:  const sectionsWithContradictions = new Set(
+web/app\inspector\[runId]\page.tsx:295:                {sectionsWithContradictions.has(s.section_id) && (
+web/app\inspector\[runId]\page.tsx:298:                    onClick={onJumpToContradictions}
+web/app\inspector\[runId]\page.tsx:392:function ContradictionsTab({
+web/app\inspector\[runId]\page.tsx:550:                Contradictions
+web/app\generation\components\verified_report_view.tsx:11:  type ContradictionSignal,
+web/app\generation\components\verified_report_view.tsx:19:import { ContradictionPane } from "./contradiction_pane";
+web/app\generation\components\verified_report_view.tsx:86:  onSelectContradiction,
+web/app\generation\components\verified_report_view.tsx:94:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web/app\generation\components\verified_report_view.tsx:175:              onSelectContradiction(sentence.contradiction);
+web/app\generation\components\verified_report_view.tsx:184:                onSelectContradiction(sentence.contradiction);
+web/app\generation\components\verified_report_view.tsx:193:              // sides.length, NOT disagreeing_source_count (which is 1).
+web/app\generation\components\verified_report_view.tsx:197:            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+web/app\generation\components\verified_report_view.tsx:219:  onSelectContradiction,
+web/app\generation\components\verified_report_view.tsx:226:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web/app\generation\components\verified_report_view.tsx:266:                onSelectContradiction={onSelectContradiction}
+web/app\generation\components\verified_report_view.tsx:298:    ContradictionSignal | null
+web/app\generation\components\verified_report_view.tsx:381:          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+web/app\generation\components\verified_report_view.tsx:385:      <ContradictionPane
+web/app\generation\components\contradiction_pane.tsx:10:import type { ContradictionSignal } from "@/lib/api";
+web/app\generation\components\contradiction_pane.tsx:18:export function ContradictionPane({
+web/app\generation\components\contradiction_pane.tsx:24:  signal: ContradictionSignal | null;
+web/app\generation\components\contradiction_pane.tsx:44:              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
+web/app\sentence_hover_test\_demo.tsx:254:          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+web/app\sentence_hover_test\_demo.tsx:265:            disagreeing_source_count: 3,
+web/app\sentence_hover_test\_demo.tsx:308:            disagreeing_source_count: 1,
+web/lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web/tests\e2e\inspector.spec.ts:60:      .getByRole("button", { name: /Contradictions/ })
+web/tests\e2e\performance.spec.ts:61:  test("Contradictions tab switch < 250ms", async ({ page }) => {
+web/tests\e2e\performance.spec.ts:65:    const tab = page.getByRole("button", { name: /Contradictions/ }).first();
+web/tests\e2e\sentence_inspector_contradiction.spec.ts:27:test("Click contradiction badge → ContradictionPane shows N sides", async ({
+
+codex
+The backend model change is small and staged as described. I’m checking adjacent type imports and every frontend consumer of `ContradictionSignal` so the optional `kind` path does not break older payloads or alternate views.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator2/verified_report.py -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/verified_report_view.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/generation/components/contradiction_pane.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/inspector/[runId]/page.tsx' in C:\POLARIS
+ succeeded in 1803ms:
+"""VerifiedReport schema for slice 003 (generator + strict-verify).
+
+Per `.codex/slices/slice_003/architecture_proposal.md` §"verified_report.py".
+
+Pure-types module. No I/O, no LLM, no network. Slice 003's
+process_generation() consumes an EvidencePool (slice 002 output) and
+produces a VerifiedReport, which slice 004 will export as an audit
+bundle.
+
+Lives in `polaris_graph.generator2` (note the `2`) to keep separation
+from heritage `polaris_graph.generator` (multi_section, live_deepseek)
+which serves the legacy honest-rebuild pipeline. Coexistence by design
+per PLAN.md §4 Heritage Import.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Type literals
+# ---------------------------------------------------------------------------
+
+SectionStatus = Literal["verified", "regenerated", "dropped"]
+"""Per-section outcome from strict_verify:
+
+- "verified": original generation passed >=verifier_pass_threshold of
+  sentences strict-verified
+- "regenerated": original failed; regeneration attempt passed
+- "dropped": both attempts failed; section excluded from final report
+"""
+
+PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+"""Top-level verdict per CLAUDE.md §9.1 invariant 4."""
+
+AssertionSurface = Literal[
+    "prose",
+    "table",
+    "summary_bullet",
+    "limitation",
+    "caption",
+    "heading",
+]
+"""Render-surface kind of a verified assertion (I-f5-009).
+
+Per Carney plan §F: every assertion-bearing surface in a verified report
+must be gated-and-clickable through the Inspector OR explicitly marked
+ungated. Today's generator emits only "prose"; future Issues populate
+the other 5 surfaces as the generator learns to label table cells,
+summary bullets, etc."""
+
+DropReason = Literal[
+    "invalid_token",       # token doesn't reference a known source_id
+    "span_out_of_range",   # span_start > span_end or > len(full_text)
+    "numeric_mismatch",    # decimal in sentence not present in cited span
+    "overlap_too_low",     # < min_content_overlap shared content words
+    "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
+]
+
+
+# ---------------------------------------------------------------------------
+# VerifiedSentence — atomic verified unit
+# ---------------------------------------------------------------------------
+
+class VerifiedSentence(BaseModel):
+    """A single sentence emitted by the generator after strict-verify.
+
+    Sentences that fail strict_verify are still represented here with
+    `verifier_pass=False` and a `drop_reason`, so the audit bundle can
+    surface "what got proposed and dropped" alongside "what shipped."
+    """
+
+    section_id: str = Field(min_length=1)
+    sentence_text: str = Field(min_length=1)
+    provenance_tokens: list[str] = Field(
+        default_factory=list,
+        description="Token strings of form '[#ev:<source_id>:<start>-<end>]'",
+    )
+    verifier_pass: bool
+    drop_reason: DropReason | None = None
+    evaluator_agrees: bool | None = Field(
+        default=None,
+        description=(
+            "Two-family evaluator agreement per CLAUDE.md §9.1 invariant 1. "
+            "True = evaluator confirms generator claim; False = evaluator "
+            "disagrees; None = pending (no evaluator pass yet). At rule-based "
+            "stage this mirrors verifier_pass; future Issue plugs in the "
+            "real two-family LLM judge to populate this independently."
+        ),
+    )
+    assertion_surface: AssertionSurface = Field(
+        default="prose",
+        description=(
+            "Render-surface kind per I-f5-009. Default 'prose' preserves "
+            "back-compat with all existing fixtures. Non-prose values are "
+            "populated by future generator wiring (table cells, summary "
+            "bullets, limitations, captions, headings); the Inspector gates "
+            "all six surfaces equally."
+        ),
+    )
+    contradiction: "ContradictionSignal | None" = Field(
+        default=None,
+        description=(
+            "Optional contradiction signal (I-f8-001). When present, "
+            "≥2 sources cited for this sentence disagree on the claim. "
+            "Default None preserves back-compat. Future Issue (F8-002+) "
+            "wires real detection into the generator."
+        ),
+    )
+    is_synthesis_claim: bool = Field(
+        default=False,
+        description=(
+            "True iff sentence is a synthesis claim (e.g., a discussion "
+            "paragraph summarizing across sources without quoting any one). "
+            "Synthesis claims have no provenance_tokens by definition; "
+            "non-synthesis kept sentences MUST have ≥1 provenance token. "
+            "Today's generator defaults to False; future Issue may wire the "
+            "prompt template to label synthesis sentences explicitly."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _drop_reason_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.drop_reason is None:
+            raise ValueError(
+                "drop_reason is required when verifier_pass=False"
+            )
+        if self.verifier_pass is True and self.drop_reason is not None:
+            raise ValueError(
+                "drop_reason must be None when verifier_pass=True"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _evaluator_agreement_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.evaluator_agrees is True:
+            raise ValueError(
+                "evaluator_agrees=True is forbidden when verifier_pass=False "
+                "(rule-based dropped the sentence; evaluator cannot pass it "
+                "without contradicting strict-verify)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
+        if self.is_synthesis_claim and self.verifier_pass is False:
+            raise ValueError(
+                "is_synthesis_claim=True requires verifier_pass=True "
+                "(synthesis claims either ship or are dropped before reaching "
+                "this record)"
+            )
+        if self.is_synthesis_claim and len(self.provenance_tokens) > 0:
+            raise ValueError(
+                "is_synthesis_claim=True requires provenance_tokens=[] "
+                "(synthesis claims have no specific provenance — that's the "
+                "definition)"
+            )
+        if (
+            not self.is_synthesis_claim
+            and self.verifier_pass is True
+            and len(self.provenance_tokens) == 0
+        ):
+            raise ValueError(
+                "kept non-synthesis sentence requires ≥1 provenance token; "
+                "set is_synthesis_claim=True for prose without specific "
+                "provenance"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# FrameCoverage (I-f7-001)
+# ---------------------------------------------------------------------------
+
+class ContradictionSide(BaseModel):
+    """One side of a contradiction (I-f8-002).
+
+    Each side is a distinct cited source's position on the claim. Tier
+    + sample size + hedge language + PT08 flag inform reviewer judgment
+    of which side has the stronger evidentiary backing."""
+
+    source_id: str = Field(min_length=1, max_length=200)
+    source_tier: Literal["T1", "T2", "T3"]
+    sample_size: int | None = Field(default=None, ge=0)
+    hedge_language: str = Field(min_length=1, max_length=200)
+    pt08_flag: str | None = Field(default=None, max_length=50)
+    claim_excerpt: str = Field(min_length=1, max_length=500)
+
+
+ContradictionKind = Literal["multi_source", "self_contradiction"]
+"""I-f8-003 contradiction-kind discriminator.
+
+`multi_source`: ≥2 distinct sources disagree (I-f8-001/002 case).
+`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+
+
+class ContradictionSignal(BaseModel):
+    """Inline contradiction annotation per sentence (I-f8-001).
+
+    Indicates ≥2 cited sources disagree on the claim in the sentence.
+    `sides` (added I-f8-002) carries the per-source detail consumed by
+    the ContradictionPane; empty preserves I-f8-001 back-compat.
+    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+
+    disagreeing_source_count: int = Field(ge=1, le=20)
+    summary: str = Field(min_length=1, max_length=500)
+    sides: list[ContradictionSide] = Field(default_factory=list)
+    kind: ContradictionKind = Field(default="multi_source")
+
+    @model_validator(mode="after")
+    def _kind_count_consistency(self) -> "ContradictionSignal":
+        if self.kind == "multi_source":
+            if self.disagreeing_source_count < 2:
+                raise ValueError(
+                    "kind='multi_source' requires "
+                    "disagreeing_source_count >= 2"
+                )
+            if (
+                self.sides
+                and len(self.sides) != self.disagreeing_source_count
+            ):
+                raise ValueError(
+                    "len(sides) must equal disagreeing_source_count for "
+                    "multi_source when sides is non-empty"
+                )
+        else:  # self_contradiction
+            if self.disagreeing_source_count != 1:
+                raise ValueError(
+                    "kind='self_contradiction' requires "
+                    "disagreeing_source_count == 1"
+                )
+            if len(self.sides) < 2:
+                raise ValueError(
+                    "kind='self_contradiction' requires sides with ≥2 "
+                    "entries representing distinct contradicting spans "
+                    "from the same source"
+                )
+            distinct_source_ids = {s.source_id for s in self.sides}
+            if len(distinct_source_ids) != 1:
+                raise ValueError(
+                    "kind='self_contradiction' requires all sides to "
+                    "reference the same source_id"
+                )
+        return self
+
+
+GapReason = Literal[
+    "paywalled",
+    "no_oa",
+    "source_tier_ineligible",
+    "language_unavailable",
+    "retracted_only",
+    "jurisdiction_outside",
+    "not_indexed",
+    "embargoed",
+
+ succeeded in 2225ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { ContradictionPane } from "./contradiction_pane";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] = useState<
+    ContradictionSignal | null
+  >(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          pool={pool}
+        />
+      ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+2026-05-07T19:45:46.498357Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3 seconds
+Output:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path web/app/inspector/[runId]/page.tsx
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | An object at the specified path web/app/inspector/[runId]/page.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.
+
+ exited 1 in 2964ms:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path web/app/inspector/[runId]/page.tsx
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | An object at the specified path web/app/inspector/[runId]/page.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.
+
+ succeeded in 3558ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type { ContradictionSignal } from "@/lib/api";
+
+const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+export function ContradictionPane({
+  open,
+  signal,
+  onOpenChange,
+}: {
+  open: boolean;
+  signal: ContradictionSignal | null;
+  onOpenChange: (next: boolean) => void;
+}) {
+  // Codex iter-1 P2: tolerate signal.sides being absent at runtime.
+  const sides = signal?.sides ?? [];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="contradiction-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="contradiction-pane-title">
+            {(() => {
+              if (!signal) return "";
+              const kind = signal.kind ?? "multi_source";
+              if (kind === "self_contradiction") {
+                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+              }
+              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
+            })()}
+          </SheetTitle>
+          <SheetDescription>
+            {signal?.summary ?? ""}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sides.map((side, idx) => (
+            <div
+              key={idx}
+              data-testid={`contradiction-side-${idx}`}
+              className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <code data-testid={`contradiction-source-${idx}`}>
+                  {side.source_id}
+                </code>
+                <span
+                  data-testid={`contradiction-tier-${idx}`}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+                >
+                  {side.source_tier}
+                </span>
+              </div>
+              <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+                {side.sample_size !== null &&
+                side.sample_size !== undefined ? (
+                  <span data-testid={`contradiction-sample-${idx}`}>
+                    n = {side.sample_size}
+                  </span>
+                ) : null}
+                <span data-testid={`contradiction-hedge-${idx}`}>
+                  {side.hedge_language}
+                </span>
+                {side.pt08_flag ? (
+                  <span data-testid={`contradiction-pt08-${idx}`}>
+                    PT08: {side.pt08_flag}
+                  </span>
+                ) : null}
+              </div>
+              <blockquote
+                data-testid={`contradiction-claim-${idx}`}
+                className="border-l-2 border-amber-400 bg-amber-50 px-2 py-1 italic dark:bg-amber-900/20"
+              >
+                {side.claim_excerpt}
+              </blockquote>
+            </div>
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+codex
+The main changed UI route is using `sides.length` for the self-contradiction label and keeps the pane rendering generic, which matches the stated payload. I’m checking the inspector tab route separately because it has another contradiction summary surface that may need kind-aware wording.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_contradiction.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/inspector/[runId]/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts -TotalCount 660' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/generator2/test_verified_report.py -TotalCount 240' in C:\POLARIS
+ succeeded in 1629ms:
+import { expect, test } from "@playwright/test";
+
+test("Sentence row with contradiction signal shows ⚠ badge", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:26"]');
+  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("3 sources disagree");
+  await expect(badge).toHaveAttribute(
+    "title",
+    /Three Cochrane reviews disagree on dose-response curve/,
+  );
+});
+
+test("Sentence row without contradiction shows NO contradiction badge", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  const row = page.locator('[data-sentence-id="sec_x:5"]');
+  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+    0,
+  );
+});
+
+test("Click contradiction badge → ContradictionPane shows N sides", async ({
+  page,
+}) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "3 sources disagree",
+  );
+  // 3 sides rendered.
+  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+  // Side 0 detail check (T1 + sample + hedge + PT08 + claim).
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+    "1247",
+  );
+  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+    "high confidence",
+  );
+  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+    "81mg",
+  );
+  // SentenceInspector did NOT also open (Codex iter-1 P2 click propagation guard).
+  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+});
+
+test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Source self-contradicts");
+  await expect(badge).toContainText("2 spans");
+  await badge.click();
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "Self-contradiction",
+  );
+  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+    "2 spans",
+  );
+  // Both sides reference src-0.
+  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+    "src-0",
+  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+    "dangerous",
+  );
+});
+
+ succeeded in 2329ms:
+"use client";
+
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+import { VegaChart } from "@/components/ui/vega-chart";
+import {
+  downloadBundleAsJson,
+  getBundle,
+  getChart,
+  type ChartType,
+  type EvidenceContract,
+  type SourceSpan,
+  type VegaLiteSpec,
+} from "@/lib/api";
+
+interface InspectorPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default function InspectorPage({ params }: InspectorPageProps) {
+  const { runId } = use(params);
+  const [bundle, setBundle] = useState<EvidenceContract | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
+    null,
+  );
+  const [activeTab, setActiveTab] = useState<
+    "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
+  >("summary");
+
+  useEffect(() => {
+    let cancelled = false;
+    getBundle(runId)
+      .then((b) => {
+        if (!cancelled) setBundle(b);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Bundle load failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  const evidenceById = (id: string) =>
+    bundle?.evidence_pool.find((s) => s.evidence_id === id) ?? null;
+
+  const tabs: { id: typeof activeTab; label: string; count: number }[] = bundle
+    ? [
+        {
+          id: "summary",
+          label: "Executive summary",
+          count: 3,
+        },
+        {
+          id: "sentences",
+          label: "Verified sentences",
+          count: bundle.verified_sentences.length,
+        },
+        {
+          id: "frames",
+          label: "Frame coverage",
+          count: bundle.frame_coverage.length,
+        },
+        {
+          id: "contradictions",
+          label: "Contradictions",
+          count: bundle.contradictions.length,
+        },
+        {
+          id: "pool",
+          label: "Evidence pool",
+          count: bundle.evidence_pool.length,
+        },
+        {
+          id: "charts",
+          label: "Charts",
+          count: 3,
+        },
+      ]
+    : [];
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Inspector
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Run {runId}
+            </span>
+          </Link>
+          {bundle && (
+            <Button
+              variant="outline"
+              onClick={() => downloadBundleAsJson(bundle)}
+            >
+              Export bundle JSON
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-8">
+        {error && (
+          <section role="alert" aria-labelledby="inspector-error-heading">
+            <h1
+              id="inspector-error-heading"
+              className="text-foreground text-2xl font-semibold tracking-tight"
+            >
+              Bundle load failed
+            </h1>
+            <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
+              {error}
+            </p>
+          </section>
+        )}
+
+        {bundle && (
+          <>
+            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Card>
+                <CardHeader>
+                  <CardDescription className="text-xs tracking-widest uppercase">
+                    Pipeline status
+                  </CardDescription>
+                  <CardTitle className="font-mono text-sm">
+                    {bundle.pipeline_status}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+              <Card
+                className={
+                  bundle.family_segregation_passed
+                    ? "border-emerald-500/40 bg-emerald-50/30"
+                    : "border-destructive/60"
+                }
+              >
+                <CardHeader>
+                  <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                    Two-family invariant
+                  </CardDescription>
+                  <CardTitle className="text-sm">
+                    {bundle.family_segregation_passed ? "PASS" : "FAIL"} ·{" "}
+                    {bundle.generator_model} → {bundle.verifier_model}
+                  </CardTitle>
+                </CardHeader>
+                {!bundle.family_segregation_passed && (
+                  <CardContent className="text-foreground text-sm font-medium">
+                    CLAUDE.md §9.1 invariant violated. Run output is suspect:
+                    generator and verifier share lineage. Re-run with
+                    family-segregated models before trusting verdicts.
+                  </CardContent>
+                )}
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription className="text-xs tracking-widest uppercase">
+                    Cost
+                  </CardDescription>
+                  <CardTitle className="text-sm">
+                    USD {bundle.cost_usd.toFixed(2)}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+                {bundle.question}
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                Template:{" "}
+                <span className="text-foreground">{bundle.template}</span>
+                {" · "}Queued <time>{bundle.queued_at}</time>
+                {" · "}Finished <time>{bundle.finished_at}</time>
+              </p>
+            </section>
+
+            <nav className="border-border flex gap-2 border-b">
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  className={`border-b-2 px-3 py-2.5 min-h-[44px] text-sm transition ${
+                    activeTab === t.id
+                      ? "border-foreground text-foreground"
+                      : "text-muted-foreground hover:text-foreground border-transparent"
+                  }`}
+                >
+                  {t.label}{" "}
+                  <span className="font-mono text-xs">({t.count})</span>
+                </button>
+              ))}
+            </nav>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="flex flex-col gap-3 lg:col-span-2">
+                {activeTab === "summary" && (
+                  <ExecutiveSummaryTab
+                    runId={runId}
+                    bundle={bundle}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
+                {activeTab === "sentences" && (
+                  <SentencesTab
+                    bundle={bundle}
+                    evidenceById={evidenceById}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    onJumpToContradictions={() =>
+                      setActiveTab("contradictions")
+                    }
+                  />
+                )}
+                {activeTab === "frames" && <FramesTab bundle={bundle} />}
+                {activeTab === "contradictions" && (
+                  <ContradictionsTab
+                    bundle={bundle}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
+                {activeTab === "pool" && (
+                  <PoolTab
+                    bundle={bundle}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
+                {activeTab === "charts" && (
+                  <ChartsTab
+                    runId={runId}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
+              </div>
+              <aside className="lg:col-span-1">
+                <EvidencePane
+                  span={selectedEvidence}
+                  onClose={() => setSelectedEvidence(null)}
+                />
+              </aside>
+            </div>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function SentencesTab({
+  bundle,
+  evidenceById,
+  onSelect,
+  onJumpToContradictions,
+}: {
+  bundle: EvidenceContract;
+  evidenceById: (id: string) => SourceSpan | null;
+  onSelect: (id: string) => void;
+  onJumpToContradictions: () => void;
+}) {
+  if (bundle.verified_sentences.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No verified sentences. Pipeline status:{" "}
+        <span className="font-mono">{bundle.pipeline_status}</span>.
+      </p>
+    );
+  }
+  const sectionsWithContradictions = new Set(
+    bundle.contradictions.map((c) => c.section_id),
+  );
+  return (
+    <ul className="flex flex-col gap-3">
+      {bundle.verified_sentences.map((s, idx) => (
+        <li key={idx}>
+          <Card>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {s.section_id} · {s.verifier_local_pass ? "local✓" : "local✗"} ·{" "}
+                {s.verifier_global_pass ? "global✓" : "global✗"}
+                {sectionsWithContradictions.has(s.section_id) && (
+                  <button
+                    type="button"
+                    onClick={onJumpToContradictions}
+                    className="ml-2 inline-flex min-h-[24px] items-center rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
+                  >
+                    contradiction in section →
+                  </button>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">
+                {renderSentenceWithTokens(
+                  s.sentence_text,
+                  onSelect,
+                  evidenceById,
+                )}
+              </p>
+              {s.drop_reason && (
+                <p className="text-foreground mt-2 text-xs font-medium">
+                  Dropped: {s.drop_reason}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function renderSentenceWithTokens(
+  text: string,
+  onSelect: (id: string) => void,
+  evidenceById?: (id: string) => SourceSpan | null,
+): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const re = /\[#ev:([^:\]]+):\d+-\d+\]/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const evidenceId = match[1];
+    const span = evidenceById?.(evidenceId);
+    parts.push(
+      <EvidenceTooltip
+        key={`${match.index}-${evidenceId}`}
+        evidenceId={evidenceId}
+        sourceUrl={span?.source_url}
+        spanText={span?.span_text}
+        sourceTier={span?.source_tier}
+        onClickToInspect={() => onSelect(evidenceId)}
+      >
+        {match[0]}
+      </EvidenceTooltip>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+function FramesTab({ bundle }: { bundle: EvidenceContract }) {
+  if (bundle.frame_coverage.length === 0) {
+    return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {bundle.frame_coverage.map((f) => (
+        <li key={f.frame_id}>
+          <Card>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {f.frame_id}
+              </CardDescription>
+              <CardTitle className="text-base">{f.frame_name}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-muted h-2 w-full overflow-hidden rounded">
+                <div
+                  className="bg-foreground h-full"
+                  style={{ width: `${f.coverage_percent}%` }}
+                />
+              </div>
+              <p className="text-muted-foreground mt-2 text-xs">
+                {f.sources_assigned} sources · {f.coverage_percent.toFixed(1)}%
+                coverage
+              </p>
+            </CardContent>
+          </Card>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ContradictionsTab({
+  bundle,
+  onSelect,
+}: {
+  bundle: EvidenceContract;
+  onSelect: (id: string) => void;
+}) {
+  if (bundle.contradictions.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No contradictions detected.
+      </p>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-3">
+      {bundle.contradictions.map((c) => (
+        <li key={c.contradiction_id}>
+          <Card>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {c.contradiction_id} · {c.section_id} · {c.resolution}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="border-border rounded-md border p-2">
+                  <p className="text-foreground text-sm font-medium">A</p>
+                  <p className="text-sm">{c.claim_a}</p>
+                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                    {c.evidence_a.map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => onSelect(id)}
+                        className="bg-muted rounded px-1 font-mono"
+                      >
+                        {id}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="border-border rounded-md border p-2">
+                  <p className="text-foreground text-sm font-medium">B</p>
+                  <p className="text-sm">{c.claim_b}</p>
+                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                    {c.evidence_b.map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => onSelect(id)}
+                        className="bg-muted rounded px-1 font-mono"
+                      >
+                        {id}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ExecutiveSummaryTab({
+  runId,
+  bundle,
+  onSelect,
+}: {
+  runId: string;
+  bundle: EvidenceContract;
+  onSelect: (id: string) => void;
+}) {
+  /**
+   * F10c executive-summary infographic — composes all 3 chart types
+   * (forest_plot + comparison_table + timeline) into a single page-
+   * level briefing view, anchored by the run question + key counts.
+   */
+  const chartTypes: ChartType[] = [
+    "forest_plot",
+    "comparison_table",
+    "timeline",
+  ];
+  const [specs, setSpecs] = useState<Record<ChartType, VegaLiteSpec | null>>({
+    forest_plot: null,
+    comparison_table: null,
+    timeline: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(chartTypes.map((t) => getChart(runId, t).catch(() => null)))
+      .then((results) => {
+        if (cancelled) return;
+        setSpecs({
+          forest_plot: results[0],
+          comparison_table: results[1],
+          timeline: results[2],
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSpecs({
+            forest_plot: null,
+            comparison_table: null,
+            timeline: null,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  const verifiedCount = bundle.verified_sentences.length;
+  const droppedCount = bundle.verified_sentences.filter(
+    (s) => s.drop_reason,
+  ).length;
+  const contradictionCount = bundle.contradictions.length;
+  const tierCounts = bundle.evidence_pool.reduce<Record<string, number>>(
+    (acc, span) => {
+      acc[span.source_tier] = (acc[span.source_tier] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="border-foreground/30 bg-muted/20">
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            Executive briefing — at a glance
+          </CardDescription>
+          <CardTitle className="text-base">{bundle.template} run</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-foreground text-sm">{bundle.question}</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">
+                Verified
+              </p>
+              <p className="text-foreground text-xl font-semibold">
+                {verifiedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">Dropped</p>
+              <p className="text-foreground text-xl font-semibold">
+                {droppedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">
+                Contradictions
+              </p>
+              <p className="text-foreground text-xl font-semibold">
+                {contradictionCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">Sources</p>
+              <p className="text-foreground text-xl font-semibold">
+                {bundle.evidence_pool.length}
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
+                  {tierCounts.T3 ?? 0}
+                </span>
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartTypes.map((t) => {
+        const spec = specs[t];
+        if (!spec) {
+          return (
+            <Card key={t}>
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  {t.replace("_", " ")}
+                </CardDescription>
+                <CardTitle className="text-sm">Loading…</CardTitle>
+              </CardHeader>
+            </Card>
+          );
+        }
+        return (
+          <Card key={t}>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {t.replace("_", " ")} ·{" "}
+                {spec.polaris_provenance.evidence_ids.length} evidence ids
+              </CardDescription>
+              <CardTitle className="text-sm">
+                {(spec.title as string) ?? "Chart"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <VegaChart
+                spec={spec}
+                onPointClick={(datum) => {
+                  const evidenceId = datum.evidence_id;
+                  if (typeof evidenceId === "string") onSelect(evidenceId);
+                }}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartsTab({
+  runId,
+  onSelect,
+}: {
+  runId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [chartType, setChartType] = useState<ChartType>("forest_plot");
+  const [spec, setSpec] = useState<VegaLiteSpec | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getChart(runId, chartType)
+      .then((s) => {
+        if (!cancelled) {
+          setSpec(s);
+          setChartError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSpec(null);
+          setChartError(
+            err instanceof Error ? err.message : "Chart load failed",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, chartType]);
+
+  const types: ChartType[] = ["forest_plot", "comparison_table", "timeline"];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
+        {types.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setChartType(t)}
+            className={`rounded-md border px-3 py-2 min-h-[28px] text-xs transition ${
+              chartType === t
+                ? "border-foreground bg-foreground text-background"
+                : "border-border hover:border-foreground"
+            }`}
+          >
+            {t.replace("_", " ")}
+          </button>
+        ))}
+      </div>
+      {chartError && (
+        <p
+          role="alert"
+          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+        >
+          {chartError}
+        </p>
+      )}
+      {spec && (
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              {spec.polaris_provenance.chart_type} ·{" "}
+              {spec.polaris_provenance.evidence_ids.length} evidence ids
+            </CardDescription>
+            <CardTitle className="text-base">
+              {(spec.title as string) ?? "Chart"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <VegaChart
+              spec={spec}
+              onPointClick={(datum) => {
+                const evidenceId = datum.evidence_id;
+                if (typeof evidenceId === "string") onSelect(evidenceId);
+              }}
+            />
+            <details className="mt-4">
+              <summary className="text-muted-foreground cursor-pointer text-xs">
+                View raw Vega-Lite spec (
+                {spec.polaris_provenance.evidence_ids.length} evidence ids)
+              </summary>
+              <div className="mt-2 mb-3 flex flex-wrap gap-1">
+                {spec.polaris_provenance.evidence_ids
+                  .slice(0, 12)
+                  .map((eid) => (
+                    <button
+                      key={eid}
+                      type="button"
+                      onClick={() => onSelect(eid)}
+                      className="bg-muted hover:bg-foreground hover:text-background rounded px-1.5 py-0.5 font-mono text-[11px]"
+                    >
+                      {eid}
+                    </button>
+                  ))}
+              </div>
+              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+                {JSON.stringify(spec, null, 2)}
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function PoolTab({
+  bundle,
+  onSelect,
+}: {
+  bundle: EvidenceContract;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {bundle.evidence_pool.map((s) => (
+        <li key={s.evidence_id}>
+          <button
+            type="button"
+            onClick={() => onSelect(s.evidence_id)}
+            className="border-border hover:border-foreground w-full rounded-md border p-3 text-left text-sm transition"
+          >
+            <p className="text-muted-foreground font-mono text-xs">
+              {s.evidence_id} · tier {s.source_tier}
+            </p>
+            <p className="text-foreground mt-1">
+              {s.span_text.slice(0, 120)}
+              {s.span_text.length > 120 ? "…" : ""}
+            </p>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function EvidencePane({
+  span,
+  onClose,
+}: {
+  span: SourceSpan | null;
+  onClose: () => void;
+}) {
+  if (!span) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            Evidence
+          </CardDescription>
+          <CardTitle className="text-sm">Click a token to inspect</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription className="text-xs tracking-widest uppercase">
+          {span.evidence_id} · tier {span.source_tier}
+        </CardDescription>
+        <CardTitle className="text-sm break-all">
+          <a
+            href={span.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-4 hover:underline"
+          >
+            {span.source_url}
+          </a>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground text-xs">
+          chars {span.span_start}–{span.span_end}
+        </p>
+        <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+          {span.span_text}
+        </pre>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onClose}
+          className="mt-3"
+        >
+          Close
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+ succeeded in 2846ms:
+"""Tests for polaris_graph.generator2.verified_report schemas."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from pydantic import ValidationError
+
+from polaris_graph.generator2.verified_report import (
+    ContradictionSide,
+    ContradictionSignal,
+    FrameCoverage,
+    FrameGap,
+    GenerationError,
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+
+
+def _side(source_id: str = "src-x", **overrides) -> ContradictionSide:
+    base = dict(
+        source_id=source_id,
+        source_tier="T1",
+        hedge_language="moderate confidence",
+        claim_excerpt="example excerpt",
+    )
+    base.update(overrides)
+    return ContradictionSide(**base)  # type: ignore[arg-type]
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ---------- VerifiedSentence ----------
+
+def test_verified_sentence_pass_minimal():
+    s = VerifiedSentence(
+        section_id="sec_population",
+        sentence_text="Adults aged 65+ were enrolled.",
+        provenance_tokens=["[#ev:abc-123:100-150]"],
+        verifier_pass=True,
+    )
+    assert s.verifier_pass
+    assert s.drop_reason is None
+
+
+def test_verified_sentence_fail_requires_drop_reason():
+    with pytest.raises(ValidationError, match="drop_reason is required"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Bogus sentence.",
+            verifier_pass=False,
+        )
+
+
+def test_verified_sentence_pass_rejects_drop_reason():
+    with pytest.raises(ValidationError, match="must be None when verifier_pass=True"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="Good sentence.",
+            verifier_pass=True,
+            drop_reason="numeric_mismatch",
+        )
+
+
+def test_verified_sentence_drop_with_reason():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="Numeric claim 23%.",
+        provenance_tokens=["[#ev:abc:0-100]"],
+        verifier_pass=False,
+        drop_reason="numeric_mismatch",
+    )
+    assert s.drop_reason == "numeric_mismatch"
+
+
+def test_verified_sentence_evaluator_agrees_default_none():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.evaluator_agrees is None
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=True,
+    )
+    assert s.evaluator_agrees is True
+
+
+def test_verified_sentence_evaluator_agrees_false_with_pass_true_ok():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        evaluator_agrees=False,
+    )
+    assert s.evaluator_agrees is False
+
+
+def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+    with pytest.raises(ValidationError, match="evaluator_agrees=True is forbidden"):
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text="x.",
+            verifier_pass=False,
+            drop_reason="numeric_mismatch",
+            evaluator_agrees=True,
+        )
+
+
+def test_verified_sentence_contradiction_default_none():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.contradiction is None
+
+
+def test_verified_sentence_with_contradiction_signal():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        contradiction=ContradictionSignal(
+            disagreeing_source_count=3,
+            summary="three sources disagree on dose",
+        ),
+    )
+    assert s.contradiction is not None
+    assert s.contradiction.disagreeing_source_count == 3
+
+
+def test_contradiction_signal_count_must_be_at_least_two():
+    with pytest.raises(ValidationError):
+        ContradictionSignal(disagreeing_source_count=1, summary="x")
+
+
+def test_contradiction_side_minimal():
+    s = _side()
+    assert s.source_tier == "T1"
+    assert s.sample_size is None
+    assert s.pt08_flag is None
+
+
+def test_contradiction_signal_with_sides_matching_count():
+    sig = ContradictionSignal(
+        disagreeing_source_count=3,
+        summary="three disagree",
+        sides=[_side("src-1"), _side("src-2"), _side("src-3")],
+    )
+    assert len(sig.sides) == 3
+
+
+def test_contradiction_signal_sides_count_mismatch_rejected():
+    with pytest.raises(ValidationError, match="len\\(sides\\)"):
+        ContradictionSignal(
+            disagreeing_source_count=3,
+            summary="x",
+            sides=[_side("src-1"), _side("src-2")],  # only 2 vs count=3
+        )
+
+
+def test_contradiction_signal_kind_default_multi_source():
+    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+    assert sig.kind == "multi_source"
+
+
+def test_contradiction_signal_self_contradiction_valid():
+    sig = ContradictionSignal(
+        disagreeing_source_count=1,
+        summary="self contradicts",
+        kind="self_contradiction",
+        sides=[_side("src-A", claim_excerpt="X is safe"), _side("src-A", claim_excerpt="X is dangerous")],
+    )
+    assert sig.kind == "self_contradiction"
+    assert len(sig.sides) == 2
+
+
+def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+    with pytest.raises(ValidationError, match="disagreeing_source_count == 1"):
+        ContradictionSignal(
+            disagreeing_source_count=2,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A"), _side("src-A")],
+        )
+
+
+def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+    with pytest.raises(ValidationError, match="≥2 entries"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A")],
+        )
+    with pytest.raises(ValidationError, match="≥2 entries"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[],
+        )
+
+
+def test_contradiction_signal_self_contradiction_rejects_different_sources():
+    with pytest.raises(ValidationError, match="same source_id"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A"), _side("src-B")],
+        )
+
+
+def test_frame_coverage_minimal_no_gaps():
+    fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+    assert fc.gaps == []
+
+
+def test_frame_coverage_with_gaps_passes():
+    fc = FrameCoverage(
+        covered_entity_count=14,
+        total_entity_count=15,
+        gaps=[
+
+ succeeded in 3623ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+ * http://127.0.0.1:8000 for local development).
+ */
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
+
+export type TemplateId =
+  | "clinical"
+  | "trade"
+  | "housing"
+  | "defense"
+  | "climate"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await fetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await fetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+}
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+
+codex
+The separate inspector bundle page uses a different `contradictions` contract, so it is not directly in scope for this staged diff. I’m doing one last pass over source mentions and the staged hash before deciding whether any issue rises above P2.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "I-f8-003|self_contradiction|self-contradiction|ContradictionKind" -n .codex src tests web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/generator2/verified_report.py tests/polaris_graph/generator2/test_verified_report.py web/lib/api.ts web/app/generation/components/verified_report_view.tsx web/app/generation/components/contradiction_pane.tsx web/app/sentence_hover_test/_demo.tsx web/tests/e2e/sentence_inspector_contradiction.spec.ts | git hash-object --stdin' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"ContradictionSignal\\(|contradiction:\" src tests web -n" in C:\POLARIS
+ succeeded in 1850ms:
+web\lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web\app\generation\components\contradiction_pane.tsx:42:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\sentence_hover_test\_demo.tsx:263:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:306:          contradiction: {
+src\polaris_graph\generator2\verified_report.py:106:    contradiction: "ContradictionSignal | None" = Field(
+src\polaris_graph\generator2\verified_report.py:202:class ContradictionSignal(BaseModel):
+src\polaris_graph\synthesis\cross_section_reflector.py:323:                f"- RESOLVE contradiction: '{c.get('claim', '')[:100]}' "
+src\orchestration\dynamic_replanner.py:145:        if contradiction:
+src\orchestration\dynamic_replanner.py:411:        contradiction: ContradictionInfo,
+src\agents\verifier_agent.py:595:- contradiction: premise contradicts hypothesis
+src\polaris_graph\audit_ir\slide_deck.py:406:                    claim_id=f"contradiction:{cluster.cluster_id}",
+src\polaris_graph\agents\verifier.py:1846:        if is_contradiction:
+src\polaris_graph\retrieval\section_blueprint.py:73:        Prevents the target-word contradiction: if the blueprint routes only
+tests\polaris_graph\generator2\test_verified_report.py:139:        contradiction=ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:150:        ContradictionSignal(disagreeing_source_count=1, summary="x")
+tests\polaris_graph\generator2\test_verified_report.py:161:    sig = ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:171:        ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:179:    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+tests\polaris_graph\generator2\test_verified_report.py:184:    sig = ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:196:        ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:206:        ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:213:        ContradictionSignal(
+tests\polaris_graph\generator2\test_verified_report.py:223:        ContradictionSignal(
+tests\polaris_graph\test_r5_fix_b_subject.py:107:    assert len(records) == 0, f"Unexpected contradiction: {records}"
+
+ succeeded in 2438ms:
+4876344f1e10256597363f1c390e6712640b5d3a
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3207ms:
+web\lib\api.ts:619:export type ContradictionKind = "multi_source" | "self_contradiction";
+web\lib\api.ts:625:  kind?: ContradictionKind;
+web\app\sentence_hover_test\_demo.tsx:298:        // sec_x:27 — self-contradiction (I-f8-003).
+web\app\sentence_hover_test\_demo.tsx:307:            kind: "self_contradiction",
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:61:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+web\app\generation\components\verified_report_view.tsx:191:            if (kind === "self_contradiction") {
+web\app\generation\components\verified_report_view.tsx:192:              // Codex iter-1 P2: self-contradiction span count comes from
+web\app\generation\components\contradiction_pane.tsx:41:              if (kind === "self_contradiction") {
+tests\polaris_graph\generator2\test_verified_report.py:183:def test_contradiction_signal_self_contradiction_valid():
+tests\polaris_graph\generator2\test_verified_report.py:187:        kind="self_contradiction",
+tests\polaris_graph\generator2\test_verified_report.py:190:    assert sig.kind == "self_contradiction"
+tests\polaris_graph\generator2\test_verified_report.py:194:def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+tests\polaris_graph\generator2\test_verified_report.py:199:            kind="self_contradiction",
+tests\polaris_graph\generator2\test_verified_report.py:204:def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+tests\polaris_graph\generator2\test_verified_report.py:209:            kind="self_contradiction",
+tests\polaris_graph\generator2\test_verified_report.py:216:            kind="self_contradiction",
+tests\polaris_graph\generator2\test_verified_report.py:221:def test_contradiction_signal_self_contradiction_rejects_different_sources():
+tests\polaris_graph\generator2\test_verified_report.py:226:            kind="self_contradiction",
+src\polaris_graph\generator2\verified_report.py:195:ContradictionKind = Literal["multi_source", "self_contradiction"]
+src\polaris_graph\generator2\verified_report.py:196:"""I-f8-003 contradiction-kind discriminator.
+src\polaris_graph\generator2\verified_report.py:199:`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+src\polaris_graph\generator2\verified_report.py:208:    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+src\polaris_graph\generator2\verified_report.py:213:    kind: ContradictionKind = Field(default="multi_source")
+src\polaris_graph\generator2\verified_report.py:231:        else:  # self_contradiction
+src\polaris_graph\generator2\verified_report.py:234:                    "kind='self_contradiction' requires "
+src\polaris_graph\generator2\verified_report.py:239:                    "kind='self_contradiction' requires sides with ≥2 "
+src\polaris_graph\generator2\verified_report.py:246:                    "kind='self_contradiction' requires all sides to "
+.codex\g2_acknowledgement_review_verdict_iter_1.txt:2644: 708: - **Blocked by:** I-f8-003
+.codex\I-f15-003\codex_brief_verdict.txt:7208:.codex\I-policy-001\codex_diff_audit.txt:1047:.codex/I-policy-001/codex_brief_verdict.txt:1573:.codex\I-phase0-005\codex_diff_audit_iter2.txt:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f15-003\codex_brief_verdict.txt:7357:.codex\I-policy-001\codex_diff_audit.txt:1507:.codex/I-policy-001/codex_brief_verdict.txt:2033:.codex\I-phase0-005\codex_diff_audit.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f15-003\codex_brief_verdict.txt:7508:.codex\I-policy-001\codex_diff_audit.txt:1693:.codex/I-policy-001/codex_brief_verdict.txt:2219:.codex\I-phase0-005\codex_diff_audit.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f15-003\codex_brief_verdict.txt:7657:.codex\I-policy-001\codex_diff_audit.txt:2125:.codex/I-policy-001/codex_brief_verdict.txt:2651:.codex\I-phase0-005\codex_diff_audit_iter3.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f15-003\codex_brief_verdict.txt:7808:.codex\I-policy-001\codex_diff_audit.txt:2311:.codex/I-policy-001/codex_brief_verdict.txt:2837:.codex\I-phase0-005\codex_diff_audit_iter3.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f15-003\codex_brief_verdict.txt:8709:.codex\I-policy-001\codex_brief_verdict.txt:1573:.codex\I-phase0-005\codex_diff_audit_iter2.txt:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-f1-004\codex_brief_verdict.txt:2192:- **Blocks:** I-f8-003
+.codex\I-f1-004\codex_brief_verdict.txt:2194:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\I-f1-004\codex_brief_verdict.txt:2205:- **Blocked by:** I-f8-003
+.codex\I-f1-004\codex_brief_verdict.txt:5833:- **Blocks:** I-f8-003
+.codex\I-f1-004\codex_brief_verdict.txt:5835:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\I-f1-004\codex_brief_verdict.txt:5846:- **Blocked by:** I-f8-003
+.codex\I-f2-001\codex_brief_verdict.txt:1474:  state\polaris_restart\issue_breakdown.md:698:- **Blocks:** I-f8-003
+.codex\I-f2-001\codex_brief_verdict.txt:1476:  state\polaris_restart\issue_breakdown.md:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\I-policy-001\codex_diff_audit.txt:1047:.codex/I-policy-001/codex_brief_verdict.txt:1573:.codex\I-phase0-005\codex_diff_audit_iter2.txt:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_diff_audit.txt:1507:.codex/I-policy-001/codex_brief_verdict.txt:2033:.codex\I-phase0-005\codex_diff_audit.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_diff_audit.txt:1693:.codex/I-policy-001/codex_brief_verdict.txt:2219:.codex\I-phase0-005\codex_diff_audit.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_diff_audit.txt:2125:.codex/I-policy-001/codex_brief_verdict.txt:2651:.codex\I-phase0-005\codex_diff_audit_iter3.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_diff_audit.txt:2311:.codex/I-policy-001/codex_brief_verdict.txt:2837:.codex\I-phase0-005\codex_diff_audit_iter3.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:1573:.codex\I-phase0-005\codex_diff_audit_iter2.txt:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:2033:.codex\I-phase0-005\codex_diff_audit.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:2219:.codex\I-phase0-005\codex_diff_audit.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:2651:.codex\I-phase0-005\codex_diff_audit_iter3.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:2837:.codex\I-phase0-005\codex_diff_audit_iter3.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:3191:.codex\pr_e_open_issues_review_verdict_iter_2.txt:2044:4040:_This Issue is one of 130 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:3373:.codex\pr_e_open_issues_review_verdict_iter_2.txt:3522:state/polaris_restart/pr_e_issues_dryrun.txt:4040:_This Issue is one of 130 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-policy-001\codex_brief_verdict.txt:3820:.codex\pr_e_open_issues_review_verdict_iter_3.txt:1037:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_diff_audit_iter3.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_diff_audit_iter3.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_diff_audit_iter2.txt:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_diff_audit.txt:5913:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_diff_audit.txt:9451:4556:state\polaris_restart\pr_e_issues_dryrun.txt:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\I-phase0-005\codex_brief_verdict.txt:1193:  "I-f8-003": 150,
+.codex\I-f8-003\codex_brief_verdict.txt:13:# Codex Brief Review — I-f8-003 (ITER 1 of 5)
+.codex\I-f8-003\codex_brief_verdict.txt:30:- **Context:** I-f8-003 — adversarial: SAME source asserts "X is safe" in one paragraph and "X is dangerous" in another. The contradiction signal must flag this even though there's only ONE source. Today's `ContradictionSignal.disagreeing_source_count: int (ge=2)` rejects single-source-self-contradiction; we need to distinguish:
+.codex\I-f8-003\codex_brief_verdict.txt:32:  - **Self-contradiction (I-f8-003):** 1 source contradicts itself across spans/paragraphs.
+.codex\I-f8-003\codex_brief_verdict.txt:33:- **Constraints:** Add `kind: ContradictionKind` discriminator. When `kind="self_contradiction"`, allow disagreeing_source_count=1 BUT sides MUST have ≥2 entries from the same source_id.
+.codex\I-f8-003\codex_brief_verdict.txt:40:   - Add `ContradictionKind` Literal: `"multi_source"` (default) | `"self_contradiction"`.
+.codex\I-f8-003\codex_brief_verdict.txt:41:   - Add `kind: ContradictionKind = "multi_source"` field to `ContradictionSignal`.
+.codex\I-f8-003\codex_brief_verdict.txt:44:     - `kind="self_contradiction"` → `disagreeing_source_count == 1` AND sides MUST have ≥2 entries with the same source_id.
+.codex\I-f8-003\codex_brief_verdict.txt:52:3. `web/lib/api.ts`: add `ContradictionKind` type + `kind?: ContradictionKind` (optional with default "multi_source") on `ContradictionSignal`.
+.codex\I-f8-003\codex_brief_verdict.txt:55:   - "self_contradiction": ⚠ Source self-contradicts ({N} spans).
+.codex\I-f8-003\codex_brief_verdict.txt:58:6. `web/app/sentence_hover_test/_demo.tsx`: APPEND sec_x:27 with `kind: "self_contradiction"`, count=1, 2 sides both src-0 with opposing claim_excerpts.
+.codex\I-f8-003\codex_brief_verdict.txt:69:1. `ContradictionKind` Literal added with 2 values.
+.codex\I-f8-003\codex_brief_verdict.txt:70:2. `kind: ContradictionKind = "multi_source"` field added.
+.codex\I-f8-003\codex_brief_verdict.txt:71:3. Validator: multi_source requires count≥2; self_contradiction requires count==1 AND sides≥2 same source_id.
+.codex\I-f8-003\codex_brief_verdict.txt:72:4. 4 backend tests cover default + self-contradiction valid + invalid count + invalid same-source.
+.codex\I-f8-003\codex_brief_verdict.txt:74:6. Demo + Playwright cover self-contradiction case.
+.codex\I-f8-003\codex_brief_verdict.txt:103:?? .codex/I-f8-003/
+.codex\I-f8-003\codex_brief_verdict.txt:5540:.codex\I-f8-003\brief.md:4. **CHARTER §1 LOC cap:** estimated ~140 LOC. Under 200.
+.codex\I-f8-003\codex_brief_verdict.txt:5541:.codex\I-f8-003\brief.md:7. CHARTER §1 LOC cap respected (≤200 net).
+.codex\I-f8-003\codex_brief_verdict.txt:6352:Criterion 1: PASS - `ContradictionKind` with both values is planned.
+.codex\I-f8-003\codex_brief_verdict.txt:6354:Criterion 3: PASS with implementation caution - the validator must replace the old `len(sides) == disagreeing_source_count` rule for self-contradictions.
+.codex\I-f8-003\codex_brief_verdict.txt:6355:Criterion 4: PASS with P2 test gap - planned tests cover most cases, but not empty/one-side self-contradictions.
+.codex\I-f8-003\codex_brief_verdict.txt:6368:  - "Backend tests should add one direct rejection for kind='self_contradiction', disagreeing_source_count=1, and sides=[] or one side. The validator requirement is in the plan, but the planned 4 tests would not catch that exact invariant regression."
+.codex\I-f8-003\codex_brief_verdict.txt:6369:  - "For the self-contradiction badge, '{N} spans' must use the number of side/span entries, not disagreeing_source_count, because self_contradiction requires disagreeing_source_count == 1."
+.codex\I-f8-003\codex_brief_verdict.txt:6375:Criterion 1: PASS - `ContradictionKind` with both values is planned.
+.codex\I-f8-003\codex_brief_verdict.txt:6377:Criterion 3: PASS with implementation caution - the validator must replace the old `len(sides) == disagreeing_source_count` rule for self-contradictions.
+.codex\I-f8-003\codex_brief_verdict.txt:6378:Criterion 4: PASS with P2 test gap - planned tests cover most cases, but not empty/one-side self-contradictions.
+.codex\I-f8-003\codex_brief_verdict.txt:6391:  - "Backend tests should add one direct rejection for kind='self_contradiction', disagreeing_source_count=1, and sides=[] or one side. The validator requirement is in the plan, but the planned 4 tests would not catch that exact invariant regression."
+.codex\I-f8-003\codex_brief_verdict.txt:6392:  - "For the self-contradiction badge, '{N} spans' must use the number of side/span entries, not disagreeing_source_count, because self_contradiction requires disagreeing_source_count == 1."
+.codex\I-f8-003\codex_diff.patch:9:+ContradictionKind = Literal["multi_source", "self_contradiction"]
+.codex\I-f8-003\codex_diff.patch:10:+"""I-f8-003 contradiction-kind discriminator.
+.codex\I-f8-003\codex_diff.patch:13:+`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+.codex\I-f8-003\codex_diff.patch:23:+    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+.codex\I-f8-003\codex_diff.patch:29:+    kind: ContradictionKind = Field(default="multi_source")
+.codex\I-f8-003\codex_diff.patch:53:+        else:  # self_contradiction
+.codex\I-f8-003\codex_diff.patch:56:+                    "kind='self_contradiction' requires "
+.codex\I-f8-003\codex_diff.patch:61:+                    "kind='self_contradiction' requires sides with ≥2 "
+.codex\I-f8-003\codex_diff.patch:68:+                    "kind='self_contradiction' requires all sides to "
+.codex\I-f8-003\codex_diff.patch:87:+def test_contradiction_signal_self_contradiction_valid():
+.codex\I-f8-003\codex_diff.patch:91:+        kind="self_contradiction",
+.codex\I-f8-003\codex_diff.patch:94:+    assert sig.kind == "self_contradiction"
+.codex\I-f8-003\codex_diff.patch:98:+def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+.codex\I-f8-003\codex_diff.patch:103:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff.patch:108:+def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+.codex\I-f8-003\codex_diff.patch:113:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff.patch:120:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff.patch:125:+def test_contradiction_signal_self_contradiction_rejects_different_sources():
+.codex\I-f8-003\codex_diff.patch:130:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff.patch:151:+              if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff.patch:170:+            if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff.patch:171:+              // Codex iter-1 P2: self-contradiction span count comes from
+.codex\I-f8-003\codex_diff.patch:197:+        // sec_x:27 — self-contradiction (I-f8-003).
+.codex\I-f8-003\codex_diff.patch:206:+            kind: "self_contradiction",
+.codex\I-f8-003\codex_diff.patch:241:+export type ContradictionKind = "multi_source" | "self_contradiction";
+.codex\I-f8-003\codex_diff.patch:247:+  kind?: ContradictionKind;
+.codex\I-f8-003\codex_diff.patch:260:+test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+.codex\I-f8-001\brief.md:18:- **Context:** I-f8-001 — when a sentence has a contradiction signal (≥2 sources disagree on the cited claim), render an inline `⚠ N sources disagree` badge on that sentence row. Subsequent F8 issues build on this surface (I-f8-002 side pane with all sides, I-f8-003 adversarial cases, etc.).
+.codex\I-f8-003\brief.md:1:# Codex Brief Review — I-f8-003 (ITER 1 of 5)
+.codex\I-f8-003\brief.md:18:- **Context:** I-f8-003 — adversarial: SAME source asserts "X is safe" in one paragraph and "X is dangerous" in another. The contradiction signal must flag this even though there's only ONE source. Today's `ContradictionSignal.disagreeing_source_count: int (ge=2)` rejects single-source-self-contradiction; we need to distinguish:
+.codex\I-f8-003\brief.md:20:  - **Self-contradiction (I-f8-003):** 1 source contradicts itself across spans/paragraphs.
+.codex\I-f8-003\brief.md:21:- **Constraints:** Add `kind: ContradictionKind` discriminator. When `kind="self_contradiction"`, allow disagreeing_source_count=1 BUT sides MUST have ≥2 entries from the same source_id.
+.codex\I-f8-003\brief.md:28:   - Add `ContradictionKind` Literal: `"multi_source"` (default) | `"self_contradiction"`.
+.codex\I-f8-003\brief.md:29:   - Add `kind: ContradictionKind = "multi_source"` field to `ContradictionSignal`.
+.codex\I-f8-003\brief.md:32:     - `kind="self_contradiction"` → `disagreeing_source_count == 1` AND sides MUST have ≥2 entries with the same source_id.
+.codex\I-f8-003\brief.md:40:3. `web/lib/api.ts`: add `ContradictionKind` type + `kind?: ContradictionKind` (optional with default "multi_source") on `ContradictionSignal`.
+.codex\I-f8-003\brief.md:43:   - "self_contradiction": ⚠ Source self-contradicts ({N} spans).
+.codex\I-f8-003\brief.md:46:6. `web/app/sentence_hover_test/_demo.tsx`: APPEND sec_x:27 with `kind: "self_contradiction"`, count=1, 2 sides both src-0 with opposing claim_excerpts.
+.codex\I-f8-003\brief.md:57:1. `ContradictionKind` Literal added with 2 values.
+.codex\I-f8-003\brief.md:58:2. `kind: ContradictionKind = "multi_source"` field added.
+.codex\I-f8-003\brief.md:59:3. Validator: multi_source requires count≥2; self_contradiction requires count==1 AND sides≥2 same source_id.
+.codex\I-f8-003\brief.md:60:4. 4 backend tests cover default + self-contradiction valid + invalid count + invalid same-source.
+.codex\I-f8-003\brief.md:62:6. Demo + Playwright cover self-contradiction case.
+.codex\I-f8-001\codex_brief_verdict.txt:30:- **Context:** I-f8-001 — when a sentence has a contradiction signal (≥2 sources disagree on the cited claim), render an inline `⚠ N sources disagree` badge on that sentence row. Subsequent F8 issues build on this surface (I-f8-002 side pane with all sides, I-f8-003 adversarial cases, etc.).
+.codex\I-f8-001\codex_diff_audit.txt:5097:outputs\audits\codex_consultation_2026-05-03_round5.md:100:This resolves the round-4 self-contradiction: file records actual hash; canonicalization
+.codex\I-f8-001\codex_diff_audit.txt:5098:outputs\audits\codex_consultation_2026-05-03_round5.md:303:   a clean resolution to round-4 self-contradiction? Or is there a still cleaner approach
+.codex\I-f8-001\codex_diff_audit.txt:5260:outputs\audits\codex_consultation_2026-05-03_round5.md:100:This resolves the round-4 self-contradiction: file records actual hash; canonicalization
+.codex\I-f8-001\codex_diff_audit.txt:5261:outputs\audits\codex_consultation_2026-05-03_round5.md:303:   a clean resolution to round-4 self-contradiction? Or is there a still cleaner approach
+.codex\pr_d_mechanical_gates_review_verdict_iter_7.txt:2004:I-f8-003
+.codex\pr_b_dna_doc_updates_review_verdict_iter_8.txt:982:+- **Blocks:** I-f8-003
+.codex\pr_b_dna_doc_updates_review_verdict_iter_8.txt:984:+### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_b_dna_doc_updates_review_verdict_iter_8.txt:995:+- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_6.txt:1870:698:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_6.txt:1871:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_6.txt:1875:711:- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_5.txt:1734:698:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_5.txt:1735:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_5.txt:1739:711:- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_5.txt:2524:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:1791:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:1793:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:1804:- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:2717:698:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:2718:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:2722:711:- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_4.txt:5131:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\I-f8-003\diff_review_brief.md:1:# Codex Diff Review — I-f8-003 (ITER 1 of 5)
+.codex\I-f8-003\diff_review_brief.md:14:**Issue:** I-f8-003 — F8 adversarial: same-source self-contradiction
+.codex\I-f8-003\diff_review_brief.md:22:src/polaris_graph/generator2/verified_report.py            +37 (ContradictionKind + kind field + multi-clause validator)
+.codex\I-f8-003\diff_review_brief.md:24:web/lib/api.ts                                              +3 (ContradictionKind + kind?: field)
+.codex\I-f8-003\diff_review_brief.md:27:web/app/sentence_hover_test/_demo.tsx                      +35 (sec_x:27 self-contradiction)
+.codex\I-f8-003\diff_review_brief.md:34:- `ContradictionKind` Literal: `multi_source` (default) | `self_contradiction`.
+.codex\I-f8-003\diff_review_brief.md:35:- `kind: ContradictionKind = "multi_source"` field added.
+.codex\I-f8-003\diff_review_brief.md:38:  - `self_contradiction`: count==1, sides≥2, all sides reference same source_id.
+.codex\I-f8-003\diff_review_brief.md:39:- `disagreeing_source_count` lower-bound relaxed from 2→1 to allow self-contradiction.
+.codex\I-f8-003\diff_review_brief.md:40:- 5 new tests: default kind, valid self-contradiction, count-not-1 rejected, sides-too-few rejected (Codex iter-1 P2 gap), different-sources rejected.
+.codex\I-f8-003\diff_review_brief.md:44:- `ContradictionKind` type + optional `kind?: ContradictionKind`.
+.codex\I-f8-003\diff_review_brief.md:45:- Badge text: self-contradiction shows "Source self-contradicts (N spans)" using `sides.length` (Codex iter-1 P2: NOT `disagreeing_source_count` which is 1 for self-contradiction).
+.codex\I-f8-003\diff_review_brief.md:47:- Demo sec_x:27 with self-contradiction case (src-0 says safe AND dangerous).
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:1949:state\polaris_restart\issue_breakdown.md:695:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:1950:state\polaris_restart\issue_breakdown.md:697:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:1954:state\polaris_restart\issue_breakdown.md:708:- **Blocked by:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:2382:state\polaris_restart\issue_breakdown.md:695:- **Blocks:** I-f8-003
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:2383:state\polaris_restart\issue_breakdown.md:697:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_d_mechanical_gates_review_verdict_iter_3.txt:2387:state\polaris_restart\issue_breakdown.md:708:- **Blocked by:** I-f8-003
+.codex\I-f8-003\codex_diff_audit.txt:13:# Codex Diff Review — I-f8-003 (ITER 1 of 5)
+.codex\I-f8-003\codex_diff_audit.txt:26:**Issue:** I-f8-003 — F8 adversarial: same-source self-contradiction
+.codex\I-f8-003\codex_diff_audit.txt:34:src/polaris_graph/generator2/verified_report.py            +37 (ContradictionKind + kind field + multi-clause validator)
+.codex\I-f8-003\codex_diff_audit.txt:36:web/lib/api.ts                                              +3 (ContradictionKind + kind?: field)
+.codex\I-f8-003\codex_diff_audit.txt:39:web/app/sentence_hover_test/_demo.tsx                      +35 (sec_x:27 self-contradiction)
+.codex\I-f8-003\codex_diff_audit.txt:46:- `ContradictionKind` Literal: `multi_source` (default) | `self_contradiction`.
+.codex\I-f8-003\codex_diff_audit.txt:47:- `kind: ContradictionKind = "multi_source"` field added.
+.codex\I-f8-003\codex_diff_audit.txt:50:  - `self_contradiction`: count==1, sides≥2, all sides reference same source_id.
+.codex\I-f8-003\codex_diff_audit.txt:51:- `disagreeing_source_count` lower-bound relaxed from 2→1 to allow self-contradiction.
+.codex\I-f8-003\codex_diff_audit.txt:52:- 5 new tests: default kind, valid self-contradiction, count-not-1 rejected, sides-too-few rejected (Codex iter-1 P2 gap), different-sources rejected.
+.codex\I-f8-003\codex_diff_audit.txt:56:- `ContradictionKind` type + optional `kind?: ContradictionKind`.
+.codex\I-f8-003\codex_diff_audit.txt:57:- Badge text: self-contradiction shows "Source self-contradicts (N spans)" using `sides.length` (Codex iter-1 P2: NOT `disagreeing_source_count` which is 1 for self-contradiction).
+.codex\I-f8-003\codex_diff_audit.txt:59:- Demo sec_x:27 with self-contradiction case (src-0 says safe AND dangerous).
+.codex\I-f8-003\codex_diff_audit.txt:105:?? .codex/I-f8-003/
+.codex\I-f8-003\codex_diff_audit.txt:770:+ContradictionKind = Literal["multi_source", "self_contradiction"]
+.codex\I-f8-003\codex_diff_audit.txt:771:+"""I-f8-003 contradiction-kind discriminator.
+.codex\I-f8-003\codex_diff_audit.txt:774:+`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+.codex\I-f8-003\codex_diff_audit.txt:784:+    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+.codex\I-f8-003\codex_diff_audit.txt:790:+    kind: ContradictionKind = Field(default="multi_source")
+.codex\I-f8-003\codex_diff_audit.txt:814:+        else:  # self_contradiction
+.codex\I-f8-003\codex_diff_audit.txt:817:+                    "kind='self_contradiction' requires "
+.codex\I-f8-003\codex_diff_audit.txt:822:+                    "kind='self_contradiction' requires sides with ≥2 "
+.codex\I-f8-003\codex_diff_audit.txt:829:+                    "kind='self_contradiction' requires all sides to "
+.codex\I-f8-003\codex_diff_audit.txt:848:+def test_contradiction_signal_self_contradiction_valid():
+.codex\I-f8-003\codex_diff_audit.txt:852:+        kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:855:+    assert sig.kind == "self_contradiction"
+.codex\I-f8-003\codex_diff_audit.txt:859:+def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+.codex\I-f8-003\codex_diff_audit.txt:864:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:869:+def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+.codex\I-f8-003\codex_diff_audit.txt:874:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:881:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:886:+def test_contradiction_signal_self_contradiction_rejects_different_sources():
+.codex\I-f8-003\codex_diff_audit.txt:891:+            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:912:+              if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff_audit.txt:931:+            if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff_audit.txt:932:+              // Codex iter-1 P2: self-contradiction span count comes from
+.codex\I-f8-003\codex_diff_audit.txt:958:+        // sec_x:27 — self-contradiction (I-f8-003).
+.codex\I-f8-003\codex_diff_audit.txt:967:+            kind: "self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:1002:+export type ContradictionKind = "multi_source" | "self_contradiction";
+.codex\I-f8-003\codex_diff_audit.txt:1008:+  kind?: ContradictionKind;
+.codex\I-f8-003\codex_diff_audit.txt:1021:+test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+.codex\I-f8-003\codex_diff_audit.txt:1051:web/lib\api.ts:619:export type ContradictionKind = "multi_source" | "self_contradiction";
+.codex\I-f8-003\codex_diff_audit.txt:1055:web/lib\api.ts:625:  kind?: ContradictionKind;
+.codex\I-f8-003\codex_diff_audit.txt:1060:src/polaris_graph/generator2\verified_report.py:195:ContradictionKind = Literal["multi_source", "self_contradiction"]
+.codex\I-f8-003\codex_diff_audit.txt:1065:src/polaris_graph/generator2\verified_report.py:213:    kind: ContradictionKind = Field(default="multi_source")
+.codex\I-f8-003\codex_diff_audit.txt:1315:ContradictionKind = Literal["multi_source", "self_contradiction"]
+.codex\I-f8-003\codex_diff_audit.txt:1316:"""I-f8-003 contradiction-kind discriminator.
+.codex\I-f8-003\codex_diff_audit.txt:1319:`self_contradiction`: 1 source contradicts itself across spans/paragraphs."""
+.codex\I-f8-003\codex_diff_audit.txt:1328:    `kind` (added I-f8-003) discriminates multi-source vs self-contradiction."""
+.codex\I-f8-003\codex_diff_audit.txt:1333:    kind: ContradictionKind = Field(default="multi_source")
+.codex\I-f8-003\codex_diff_audit.txt:1351:        else:  # self_contradiction
+.codex\I-f8-003\codex_diff_audit.txt:1354:                    "kind='self_contradiction' requires "
+.codex\I-f8-003\codex_diff_audit.txt:1359:                    "kind='self_contradiction' requires sides with ≥2 "
+.codex\I-f8-003\codex_diff_audit.txt:1366:                    "kind='self_contradiction' requires all sides to "
+.codex\I-f8-003\codex_diff_audit.txt:1573:            if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff_audit.txt:1574:              // Codex iter-1 P2: self-contradiction span count comes from
+.codex\I-f8-003\codex_diff_audit.txt:1844:              if (kind === "self_contradiction") {
+.codex\I-f8-003\codex_diff_audit.txt:1903:The main changed UI route is using `sides.length` for the self-contradiction label and keeps the pane rendering generic, which matches the stated payload. I’m checking the inspector tab route separately because it has another contradiction summary surface that may need kind-aware wording.
+.codex\I-f8-003\codex_diff_audit.txt:1973:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+.codex\I-f8-003\codex_diff_audit.txt:2989:def test_contradiction_signal_self_contradiction_valid():
+.codex\I-f8-003\codex_diff_audit.txt:2993:        kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:2996:    assert sig.kind == "self_contradiction"
+.codex\I-f8-003\codex_diff_audit.txt:3000:def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+.codex\I-f8-003\codex_diff_audit.txt:3005:            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:3010:def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+.codex\I-f8-003\codex_diff_audit.txt:3015:            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:3022:            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:3027:def test_contradiction_signal_self_contradiction_rejects_different_sources():
+.codex\I-f8-003\codex_diff_audit.txt:3032:            kind="self_contradiction",
+.codex\I-f8-003\codex_diff_audit.txt:3667:export type ContradictionKind = "multi_source" | "self_contradiction";
+.codex\I-f8-003\codex_diff_audit.txt:3673:  kind?: ContradictionKind;
+.codex\I-f8-003\codex_diff_audit.txt:3713:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "I-f8-003|self_contradiction|self-contradiction|ContradictionKind" -n .codex src tests web' in C:\POLARIS
+.codex\pr_b_dna_doc_updates_review_verdict_iter_7.txt:5397:+- **Blocks:** I-f8-003
+.codex\pr_b_dna_doc_updates_review_verdict_iter_7.txt:5399:+### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_b_dna_doc_updates_review_verdict_iter_7.txt:5410:+- **Blocked by:** I-f8-003
+.codex\pr_e_open_issues_review_verdict_iter_1.txt:2062:state/polaris_restart/pr_e_issues_dryrun.txt:3852:- **Blocks:** I-f8-003
+.codex\pr_e_open_issues_review_verdict_iter_1.txt:2073:state/polaris_restart/pr_e_issues_dryrun.txt:3906:- `.codex/I-f8-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\pr_e_open_issues_review_verdict_iter_1.txt:2089:state/polaris_restart/pr_e_issues_dryrun.txt:3973:- **Blocked by:** I-f8-003
+.codex\pr_e_open_issues_review_verdict_iter_1.txt:3845:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_e_open_issues_review_verdict_iter_3.txt:1037:4044:_This Issue is one of 133 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\pr_e_open_issues_review_verdict_iter_2.txt:254:state/polaris_restart/issue_breakdown.md:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_e_open_issues_review_verdict_iter_2.txt:1626:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+.codex\pr_e_open_issues_review_verdict_iter_2.txt:2044:4040:_This Issue is one of 130 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+.codex\pr_e_open_issues_review_verdict_iter_2.txt:3522:state/polaris_restart/pr_e_issues_dryrun.txt:4040:_This Issue is one of 130 opened by PR-E from `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4). Branch convention: `bot/I-f8-003`. The codex-required.yml workflow (PR-D Codex APPROVE iter 7) gates merge on §3.0 5-artifact triple._
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+100,813
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

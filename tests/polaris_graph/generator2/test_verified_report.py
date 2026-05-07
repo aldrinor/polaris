@@ -175,6 +175,59 @@ def test_contradiction_signal_sides_count_mismatch_rejected():
         )
 
 
+def test_contradiction_signal_kind_default_multi_source():
+    sig = ContradictionSignal(disagreeing_source_count=2, summary="x")
+    assert sig.kind == "multi_source"
+
+
+def test_contradiction_signal_self_contradiction_valid():
+    sig = ContradictionSignal(
+        disagreeing_source_count=1,
+        summary="self contradicts",
+        kind="self_contradiction",
+        sides=[_side("src-A", claim_excerpt="X is safe"), _side("src-A", claim_excerpt="X is dangerous")],
+    )
+    assert sig.kind == "self_contradiction"
+    assert len(sig.sides) == 2
+
+
+def test_contradiction_signal_self_contradiction_rejects_count_not_one():
+    with pytest.raises(ValidationError, match="disagreeing_source_count == 1"):
+        ContradictionSignal(
+            disagreeing_source_count=2,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A"), _side("src-A")],
+        )
+
+
+def test_contradiction_signal_self_contradiction_rejects_one_or_zero_sides():
+    with pytest.raises(ValidationError, match="≥2 entries"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A")],
+        )
+    with pytest.raises(ValidationError, match="≥2 entries"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[],
+        )
+
+
+def test_contradiction_signal_self_contradiction_rejects_different_sources():
+    with pytest.raises(ValidationError, match="same source_id"):
+        ContradictionSignal(
+            disagreeing_source_count=1,
+            summary="x",
+            kind="self_contradiction",
+            sides=[_side("src-A"), _side("src-B")],
+        )
+
+
 def test_frame_coverage_minimal_no_gaps():
     fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
     assert fc.gaps == []

@@ -35,8 +35,14 @@ export function ContradictionPane({
       >
         <SheetHeader>
           <SheetTitle data-testid="contradiction-pane-title">
-            Contradiction:{" "}
-            {signal ? `${signal.disagreeing_source_count} sources disagree` : ""}
+            {(() => {
+              if (!signal) return "";
+              const kind = signal.kind ?? "multi_source";
+              if (kind === "self_contradiction") {
+                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+              }
+              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
+            })()}
           </SheetTitle>
           <SheetDescription>
             {signal?.summary ?? ""}

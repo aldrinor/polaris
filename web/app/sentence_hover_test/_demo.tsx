@@ -261,6 +261,7 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
           contradiction: {
+            kind: "multi_source",
             disagreeing_source_count: 3,
             summary: "Three Cochrane reviews disagree on dose-response curve",
             sides: [
@@ -290,6 +291,39 @@ const REPORT: VerifiedReport = {
                 pt08_flag: "PT08",
                 claim_excerpt:
                   "Aspirin demonstrates dose-response saturation above 325mg.",
+              },
+            ],
+          },
+        },
+        // sec_x:27 — self-contradiction (I-f8-003).
+        {
+          section_id: "sec_x",
+          sentence_text: "Self-contradiction demo: same source on both sides.",
+          provenance_tokens: [`[#ev:src-0:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            kind: "self_contradiction",
+            disagreeing_source_count: 1,
+            summary: "Single source contradicts itself across two paragraphs",
+            sides: [
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt: "Aspirin is safe at chronic doses.",
+              },
+              {
+                source_id: "src-0",
+                source_tier: "T1",
+                sample_size: 1247,
+                hedge_language: "high confidence",
+                pt08_flag: null,
+                claim_excerpt:
+                  "Aspirin is dangerous beyond 8 weeks of chronic use.",
               },
             ],
           },
