@@ -236,13 +236,13 @@ export default function DashboardPage() {
                     role="radio"
                     aria-checked={selected}
                     onClick={() => setTemplate(t.id)}
-                    className={`text-left rounded-lg border bg-card p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
                       selected
                         ? "border-foreground"
                         : "border-border hover:border-muted-foreground"
                     }`}
                   >
-                    <span className="block text-card-foreground text-xs font-medium tracking-widest uppercase">
+                    <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
                       {t.domain}
                     </span>
                     <span className="text-card-foreground mt-1 block text-base font-semibold">

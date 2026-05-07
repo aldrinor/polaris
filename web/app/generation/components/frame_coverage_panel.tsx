@@ -14,15 +14,24 @@ import { cn } from "@/lib/utils";
 import type { FrameCoverage, FrameGap, GapReason } from "@/lib/api";
 
 const UNBLOCK_ACTION: Record<GapReason, string> = {
-  paywalled: "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
-  no_oa: "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
-  source_tier_ineligible: "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
-  language_unavailable: "Request translation of ${entity_name} via institutional library translation service.",
-  retracted_only: "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
-  jurisdiction_outside: "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
-  not_indexed: "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
-  embargoed: "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
-  other: "Manually triage ${entity_name}; document resolution in operator notes.",
+  paywalled:
+    "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
+  no_oa:
+    "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
+  source_tier_ineligible:
+    "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
+  language_unavailable:
+    "Request translation of ${entity_name} via institutional library translation service.",
+  retracted_only:
+    "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
+  jurisdiction_outside:
+    "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
+  not_indexed:
+    "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
+  embargoed:
+    "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
+  other:
+    "Manually triage ${entity_name}; document resolution in operator notes.",
 };
 
 const GAP_REASON_LABEL: Record<GapReason, string> = {
@@ -74,7 +83,9 @@ export function FrameCoveragePanel({
           <span
             className={cn(
               "text-sm font-medium",
-              all_covered ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300",
+              all_covered
+                ? "text-emerald-700 dark:text-emerald-300"
+                : "text-amber-700 dark:text-amber-300",
             )}
           >
             {covered_entity_count}/{total_entity_count} entities covered
@@ -125,7 +136,9 @@ export function FrameCoveragePanel({
         ) : null}
       </CardContent>
       <FrameGapDetailSheet
-        gap={selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null}
+        gap={
+          selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null
+        }
         copied={copied}
         onClose={() => {
           set_selected_gap_idx(null);

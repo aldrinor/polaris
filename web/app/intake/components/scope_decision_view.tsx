@@ -22,8 +22,7 @@ const STATUS_TONE: Record<IntakeStatus, string> = {
     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   out_of_scope:
     "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300",
-  refused:
-    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  refused: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
 };
 
 function StatusBadge({ status }: { status: IntakeStatus }) {
@@ -119,9 +118,7 @@ export function ScopeDecisionView({
 
         {decision.ambiguity_axes.length ? (
           <section className="flex flex-col gap-2">
-            <h3 className="text-foreground text-sm font-medium">
-              PICO axes
-            </h3>
+            <h3 className="text-foreground text-sm font-medium">PICO axes</h3>
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {decision.ambiguity_axes.map((axis) => (
                 <AxisRow key={axis.axis} axis={axis} />

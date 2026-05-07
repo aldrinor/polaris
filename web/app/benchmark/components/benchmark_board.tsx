@@ -27,10 +27,7 @@ function format_pct(v: number | null | undefined): string {
   return `${Math.round(v * 100)}%`;
 }
 
-function tone_class(
-  score: number | null,
-  peers: (number | null)[],
-): string {
+function tone_class(score: number | null, peers: (number | null)[]): string {
   if (score === null) return "text-muted-foreground italic";
   const populated = peers.filter((p): p is number => p !== null);
   if (populated.length === 0) return "";
@@ -123,9 +120,8 @@ export function BenchmarkBoard() {
       >
         <CardContent className="text-amber-700 dark:text-amber-300">
           <strong className="block">No benchmark results yet</strong>
-          The results directory is configured (
-          <code>{state.results_root}</code>) but no benchmark subdirs
-          contain a scoreboard.json. Run{" "}
+          The results directory is configured (<code>{state.results_root}</code>
+          ) but no benchmark subdirs contain a scoreboard.json. Run{" "}
           <code className="bg-muted rounded px-1">
             scripts/run_benchmark.py
           </code>
@@ -189,17 +185,18 @@ export function BenchmarkBoard() {
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-lg">{sb.benchmark_id}</CardTitle>
           <span className="text-muted-foreground text-xs">
-            {sb.aggregate.n_questions} questions · {ALL_BENCHMARK_DIMENSIONS.length} dimensions
+            {sb.aggregate.n_questions} questions ·{" "}
+            {ALL_BENCHMARK_DIMENSIONS.length} dimensions
           </span>
         </CardHeader>
         <CardContent>
           <p className="text-sm" data-testid="benchmark-tally">
             POLARIS won{" "}
-            <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
+            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
               {sb.polaris_wins}
             </span>{" "}
-            per-question per-dimension comparisons; commercial DR products
-            won {sb.external_wins}; {sb.ties} ties.
+            per-question per-dimension comparisons; commercial DR products won{" "}
+            {sb.external_wins}; {sb.ties} ties.
           </p>
         </CardContent>
       </Card>
@@ -230,13 +227,28 @@ export function BenchmarkBoard() {
                     className="border-border border-b"
                   >
                     <td className="py-2">{BENCHMARK_DIMENSION_LABELS[dim]}</td>
-                    <td className={cn("py-2 text-right font-mono", tone_class(p, [c, g]))}>
+                    <td
+                      className={cn(
+                        "py-2 text-right font-mono",
+                        tone_class(p, [c, g]),
+                      )}
+                    >
                       {format_pct(p)}
                     </td>
-                    <td className={cn("py-2 text-right font-mono", tone_class(c, [p, g]))}>
+                    <td
+                      className={cn(
+                        "py-2 text-right font-mono",
+                        tone_class(c, [p, g]),
+                      )}
+                    >
                       {format_pct(c)}
                     </td>
-                    <td className={cn("py-2 text-right font-mono", tone_class(g, [p, c]))}>
+                    <td
+                      className={cn(
+                        "py-2 text-right font-mono",
+                        tone_class(g, [p, c]),
+                      )}
+                    >
                       {format_pct(g)}
                     </td>
                   </tr>

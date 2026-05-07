@@ -30,7 +30,13 @@ async function expectNoA11yViolations(page: import("@playwright/test").Page) {
       .map(
         (v) =>
           `\n  - [${v.impact}] ${v.id}: ${v.description}\n    nodes: ${v.nodes
-            .map((n) => n.target.join(" ") + (n.failureSummary ? ` — ${n.failureSummary.replace(/\n/g, " ")}` : ""))
+            .map(
+              (n) =>
+                n.target.join(" ") +
+                (n.failureSummary
+                  ? ` — ${n.failureSummary.replace(/\n/g, " ")}`
+                  : ""),
+            )
             .join("\n           ")}`,
       )
       .join("");
@@ -46,7 +52,9 @@ test.describe("WCAG-AA — research dashboard", () => {
     await expectNoA11yViolations(page);
   });
 
-  test("/dashboard after scope rejection is WCAG-AA clean", async ({ page }) => {
+  test("/dashboard after scope rejection is WCAG-AA clean", async ({
+    page,
+  }) => {
     await page.goto("/dashboard", { waitUntil: "networkidle" });
     await page.fill("#question", "Should I take ozempic for my diabetes?");
     await page.getByRole("button", { name: /Check scope/ }).click();
@@ -78,7 +86,10 @@ test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
     await page.goto("/inspector/golden_climate_005", {
       waitUntil: "networkidle",
     });
-    await page.getByRole("button", { name: /^Charts/ }).first().click();
+    await page
+      .getByRole("button", { name: /^Charts/ })
+      .first()
+      .click();
     await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
     await expectNoA11yViolations(page);
   });
@@ -89,13 +100,16 @@ test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () =>
     await page.goto("/inspector/golden_housing_002", {
       waitUntil: "networkidle",
     });
-    await page.getByRole("button", { name: /Contradictions/ }).first().click();
+    await page
+      .getByRole("button", { name: /Contradictions/ })
+      .first()
+      .click();
     await expectNoA11yViolations(page);
   });
 });
 
 test.describe("WCAG-AA — dashboard upload list with files", () => {
-  test("Upload list \"remove\" button is WCAG-AA clean (real upload)", async ({
+  test('Upload list "remove" button is WCAG-AA clean (real upload)', async ({
     page,
   }) => {
     // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
@@ -116,12 +130,10 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
     // Wait for the upload-list item to appear with our filename + the
     // \"remove\" button. The list rendering depends on POST /api/upload
     // returning successfully.
-    await expect(
-      page.getByText("polaris_a11y_probe.txt"),
-    ).toBeVisible({ timeout: 8_000 });
-    await expect(
-      page.getByRole("button", { name: /^remove$/ }),
-    ).toBeVisible();
+    await expect(page.getByText("polaris_a11y_probe.txt")).toBeVisible({
+      timeout: 8_000,
+    });
+    await expect(page.getByRole("button", { name: /^remove$/ })).toBeVisible();
 
     await expectNoA11yViolations(page);
   });

@@ -78,10 +78,10 @@ export default function GenerationPage() {
         >
           <p>
             <strong className="text-foreground">Slice progression.</strong>{" "}
-            Slice 004 (audit bundle export, GPG-signed) packages this
-            verified report into a portable evidence bundle. Slice 005
-            (BEAT-BOTH benchmark) compares POLARIS&rsquo;s output head-to-head
-            against ChatGPT Deep Research and Gemini DR on 7 dimensions.
+            Slice 004 (audit bundle export, GPG-signed) packages this verified
+            report into a portable evidence bundle. Slice 005 (BEAT-BOTH
+            benchmark) compares POLARIS&rsquo;s output head-to-head against
+            ChatGPT Deep Research and Gemini DR on 7 dimensions.
           </p>
         </section>
       </main>

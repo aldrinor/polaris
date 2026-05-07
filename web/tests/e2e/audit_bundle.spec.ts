@@ -40,7 +40,9 @@ test.describe("Slice 004 — audit-bundle download from /generation", () => {
     }
   });
 
-  test("download click yields .tar.gz or structured error", async ({ page }) => {
+  test("download click yields .tar.gz or structured error", async ({
+    page,
+  }) => {
     await page
       .getByTestId("generation-question-input")
       .fill("Is aspirin effective for headache in adults?");

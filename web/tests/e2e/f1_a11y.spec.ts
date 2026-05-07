@@ -25,7 +25,9 @@ test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
     await page.keyboard.press("Control+k");
     await expect(page.getByTestId("command-palette")).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
     expect(results.violations.filter(critical_or_serious)).toEqual([]);
   });
 
@@ -38,7 +40,9 @@ test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
     });
     await expect(page.getByTestId("intake-page")).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
     expect(results.violations.filter(critical_or_serious)).toEqual([]);
   });
 });

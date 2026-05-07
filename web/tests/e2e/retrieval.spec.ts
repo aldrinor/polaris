@@ -75,12 +75,8 @@ test.describe("Slice 002 — /retrieval", () => {
         .waitFor({ state: "visible", timeout: 30_000 }),
     ]);
 
-    const error_visible = await page
-      .getByTestId("retrieval-error")
-      .isVisible();
-    const corpus_visible = await page
-      .getByTestId("corpus-brief")
-      .isVisible();
+    const error_visible = await page.getByTestId("retrieval-error").isVisible();
+    const corpus_visible = await page.getByTestId("corpus-brief").isVisible();
 
     expect(error_visible || corpus_visible).toBe(true);
 

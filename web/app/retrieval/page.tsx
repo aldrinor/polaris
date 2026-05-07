@@ -51,11 +51,11 @@ export default function RetrievalPage() {
             Clinical evidence retrieval
           </h1>
           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-            Submit a clinical question. POLARIS runs the slice 001 scope
-            gate first; if the question is in-scope clinical, the slice
-            002 retriever fans out queries across regulatory (T1),
-            peer-reviewed (T2), and registry (T3) sources, deduplicates,
-            and assembles a corpus brief with adequacy verdict.
+            Submit a clinical question. POLARIS runs the slice 001 scope gate
+            first; if the question is in-scope clinical, the slice 002 retriever
+            fans out queries across regulatory (T1), peer-reviewed (T2), and
+            registry (T3) sources, deduplicates, and assembles a corpus brief
+            with adequacy verdict.
           </p>
         </section>
 
@@ -68,8 +68,8 @@ export default function RetrievalPage() {
           <p>
             <strong className="text-foreground">Slice progression.</strong>{" "}
             Slice 003 (generation with strict-verify) runs against the
-            EvidencePool returned here. An inadequate corpus aborts the
-            pipeline before any generator token is billed.
+            EvidencePool returned here. An inadequate corpus aborts the pipeline
+            before any generator token is billed.
           </p>
         </section>
       </main>

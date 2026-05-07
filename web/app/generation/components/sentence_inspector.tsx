@@ -218,13 +218,7 @@ function SourceCard({
       </p>
       <div className="flex flex-col gap-1">
         {tokens.map((tok, j) => (
-          <SpanQuote
-            key={j}
-            token={tok}
-            text={text}
-            idx={idx}
-            spanIdx={j}
-          />
+          <SpanQuote key={j} token={tok} text={text} idx={idx} spanIdx={j} />
         ))}
       </div>
     </div>

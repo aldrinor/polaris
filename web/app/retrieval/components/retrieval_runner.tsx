@@ -105,9 +105,7 @@ export function RetrievalRunner() {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">
-            Retrieve clinical evidence
-          </CardTitle>
+          <CardTitle className="text-xl">Retrieve clinical evidence</CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -134,12 +132,12 @@ export function RetrievalRunner() {
                 state.kind === "scope_loading" ||
                 state.kind === "retrieval_loading"
               }
-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm outline-none transition-colors focus-visible:ring-3 disabled:opacity-50"
+              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
             />
             <p className="text-muted-foreground text-xs">
-              Slice 002 only retrieves for in-scope clinical questions.
-              The intake gate runs first; ambiguous, out-of-scope, or
-              refused questions short-circuit before any retrieval is attempted.
+              Slice 002 only retrieves for in-scope clinical questions. The
+              intake gate runs first; ambiguous, out-of-scope, or refused
+              questions short-circuit before any retrieval is attempted.
             </p>
             <Button
               type="submit"
