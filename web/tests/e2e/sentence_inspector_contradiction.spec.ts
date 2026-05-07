@@ -58,6 +58,23 @@ test("Click contradiction badge → ContradictionPane shows N sides", async ({
   await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
 });
 
+test("Regulatory category badge in pane (I-f8-004)", async ({ page }) => {
+  await page.goto("/sentence_hover_test");
+  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+    timeout: 500,
+  });
+  await expect(page.getByTestId("contradiction-category")).toContainText(
+    "Regulatory",
+  );
+  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+    "FDA-approved",
+  );
+  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+    "NOT FDA-approved",
+  );
+});
+
 test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
   await page.goto("/sentence_hover_test");
   const badge = page.getByTestId("inspector-contradiction-sec_x:27");

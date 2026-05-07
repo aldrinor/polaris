@@ -618,11 +618,20 @@ export interface ContradictionSide {
 
 export type ContradictionKind = "multi_source" | "self_contradiction";
 
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
 export interface ContradictionSignal {
   disagreeing_source_count: number;
   summary: string;
   sides?: ContradictionSide[];
   kind?: ContradictionKind;
+  category?: ContradictionCategory;
 }
 
 export type AssertionSurface =
