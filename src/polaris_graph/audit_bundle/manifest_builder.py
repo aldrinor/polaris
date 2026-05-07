@@ -26,7 +26,13 @@ from polaris_graph.audit_bundle.bundle_schema import (
     BundleManifest,
     FileEntry,
 )
-from polaris_graph.audit_bundle.snapshot_sources import snapshot_sources
+from pathlib import Path
+
+from polaris_graph.audit_bundle.snapshot_sources import (
+    snapshot_sources,
+    snapshot_sources_with_reachable,
+)
+from polaris_graph.generator2.provenance import extract_tokens
 from polaris_graph.generator2.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
 from polaris_graph.scope.scope_decision import ScopeDecision
@@ -40,6 +46,7 @@ FILE_SCOPE_DECISION = "scope_decision.json"
 FILE_EVIDENCE_POOL = "evidence_pool.json"
 FILE_VERIFIED_REPORT = "verified_report.json"
 FILE_METADATA = "metadata.json"
+FILE_REVIEWER_README = "REVIEWER_README.md"
 SOURCES_DIR = "sources"
 
 
@@ -64,6 +71,41 @@ def _serialize_json_canonical(model: Any) -> bytes:
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def _assert_cited_spans_reachable(report: VerifiedReport, snapshots: dict) -> None:
+    """Raise ValueError if any cited span exceeds its snapshot's reachable_chars.
+
+    Validates the UNION of tokens parsed from `sentence.sentence_text` and
+    `sentence.provenance_tokens`, deduped by `token.raw`. Missing source_id =>
+    unreachable. Span end > reachable_chars => unreachable.
+    """
+    seen: set[str] = set()
+    for section in report.sections:
+        if section.section_status == "dropped":
+            continue
+        for sentence in section.verified_sentences:
+            if not sentence.verifier_pass:
+                continue
+            tokens = list(extract_tokens(sentence.sentence_text))
+            for raw in sentence.provenance_tokens:
+                tokens.extend(extract_tokens(raw))
+            for tok in tokens:
+                if tok.raw in seen:
+                    continue
+                seen.add(tok.raw)
+                entry = snapshots.get(tok.source_id)
+                if entry is None:
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} not in snapshots (token={tok.raw!r})"
+                    )
+                if not (0 <= tok.span_start < tok.span_end <= entry.reachable_chars):
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} token={tok.raw!r} span="
+                        f"{tok.span_start}-{tok.span_end} reachable={entry.reachable_chars}"
+                    )
 
 
 def _safe_source_filename(source_id: str) -> str:
@@ -114,10 +156,16 @@ def build_manifest_and_files(
     vr_bytes = _serialize_json_canonical(report)
     files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
 
-    # 4. Per-source snapshots
-    snapshots = snapshot_sources(report, pool)
-    for source_id, text in snapshots.items():
-        files_bytes[_safe_source_filename(source_id)] = text.encode("utf-8")
+    # 4. Per-source snapshots + cited-span reachability guard
+    snapshot_entries = snapshot_sources_with_reachable(report, pool)
+    _assert_cited_spans_reachable(report, snapshot_entries)
+    for source_id, entry in snapshot_entries.items():
+        files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
+    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
+
+    # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
+    readme_path = Path(__file__).parent / "REVIEWER_README.md"
+    files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
 
     # 5. Bundle metadata (versions + creation timestamp)
     metadata = {

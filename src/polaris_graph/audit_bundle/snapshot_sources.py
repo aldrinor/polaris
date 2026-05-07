@@ -15,9 +15,18 @@ have changed since retrieval).
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from polaris_graph.generator2.provenance import extract_tokens
 from polaris_graph.generator2.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+
+
+class SnapshotEntry(NamedTuple):
+    """Snapshot text plus the reachable character count (excludes appended truncation note)."""
+
+    text: str
+    reachable_chars: int
 
 
 # Cap each source's text to keep the bundle bounded. 200KB per source
@@ -111,3 +120,36 @@ def snapshot_sources(
 def snapshot_size_bytes(snapshots: dict[str, str]) -> int:
     """Total bytes across all snapshots — useful for bundle-size checks."""
     return sum(len(text.encode("utf-8")) for text in snapshots.values())
+
+
+def _snapshot_entry(source: Source) -> SnapshotEntry:
+    """Snapshot one source returning text + reachable_chars (excl. truncation note)."""
+    text = source.full_text if source.full_text is not None else source.snippet
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= MAX_SOURCE_TEXT_BYTES:
+        return SnapshotEntry(text=text, reachable_chars=len(text))
+    truncated = text_bytes[:MAX_SOURCE_TEXT_BYTES]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    if truncated and (truncated[-1] & 0x80) and (truncated[-1] & 0x40):
+        truncated = truncated[:-1]
+    body = truncated.decode("utf-8")
+    note = SOURCE_TRUNCATION_NOTE_TEMPLATE.format(
+        original_size=len(text_bytes), truncated_size=len(truncated)
+    )
+    return SnapshotEntry(text=body + note, reachable_chars=len(body))
+
+
+def snapshot_sources_with_reachable(
+    report: VerifiedReport, pool: EvidencePool
+) -> dict[str, SnapshotEntry]:
+    """Like snapshot_sources but returns SnapshotEntry tuples (text + reachable_chars)."""
+    needed = _cited_source_ids(report)
+    pool_index: dict[str, Source] = {s.source_id: s for s in pool.sources}
+    out: dict[str, SnapshotEntry] = {}
+    for source_id in needed:
+        source = pool_index.get(source_id)
+        if source is None:
+            continue
+        out[source_id] = _snapshot_entry(source)
+    return out

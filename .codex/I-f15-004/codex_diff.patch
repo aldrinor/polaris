@@ -1,0 +1,434 @@
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index 0e192fd..84836df 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -76,6 +76,7 @@ class AuditBundleErrorResponse(BaseModel):
+ 
+     error: bool = True
+     code: str  # 'fk_chain_mismatch' | 'verdict_not_success' |
++               # 'cited_span_unreachable_after_snapshot' |
+                # 'gpg_unavailable' | 'sign_failed'
+     message: str
+     report_id: str | None = None
+@@ -119,13 +120,14 @@ def post_audit_bundle(
+             sign_fn=sign_fn,
+         )
+     except ValueError as exc:
+-        # FK chain mismatch or verdict != success
++        # FK chain mismatch, verdict != success, or cited-span unreachable
+         msg = str(exc)
+-        code = (
+-            "fk_chain_mismatch"
+-            if "FK chain" in msg or "pool_id" in msg or "decision_id" in msg
+-            else "verdict_not_success"
+-        )
++        if "cited span unreachable" in msg:
++            code = "cited_span_unreachable_after_snapshot"
++        elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
++            code = "fk_chain_mismatch"
++        else:
++            code = "verdict_not_success"
+         raise HTTPException(
+             status_code=400,
+             detail={
+@@ -188,12 +190,18 @@ def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
+             req.decision, req.pool, req.report
+         )
+     except ValueError as exc:
++        msg = str(exc)
++        code = (
++            "cited_span_unreachable_after_snapshot"
++            if "cited span unreachable" in msg
++            else "verdict_not_success"
++        )
+         raise HTTPException(
+             status_code=400,
+             detail={
+                 "error": True,
+-                "code": "verdict_not_success",
+-                "message": str(exc),
++                "code": code,
++                "message": msg,
+                 "report_id": req.report.report_id,
+             },
+         )
+diff --git a/src/polaris_graph/audit_bundle/REVIEWER_README.md b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+new file mode 100644
+index 0000000..4ba642d
+--- /dev/null
++++ b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+@@ -0,0 +1,42 @@
++# POLARIS audit bundle — reviewer guide
++
++This `.tar.gz` archive is a self-contained record of one POLARIS clinical-research run. A third party can verify any cited claim in the report against its underlying source without re-fetching from the open web.
++
++## Files
++
++- `manifest.yaml` — bundle inventory (file paths + SHA256 + content_type for each file).
++- `manifest.yaml.asc` — GPG signature over `manifest.yaml`.
++- `scope_decision.json` — slice 001: the scope-gate verdict for the user's question.
++- `evidence_pool.json` — slice 002: the corpus retrieved for the question.
++- `verified_report.json` — slice 003: the generated report after strict-verify.
++- `metadata.json` — bundle-level metadata (versions, timestamps).
++- `REVIEWER_README.md` — this file.
++- `sources/<source_id>.txt` — full-text snapshot of every cited source (one file per source).
++
++## Step 1 — verify the GPG signature
++
++```
++gpg --verify manifest.yaml.asc manifest.yaml
++```
++
++If this fails, the bundle has been tampered with and you should not trust the report.
++
++## Step 2 — verify every file's SHA256
++
++For each `path` listed in `manifest.yaml`'s `files[]` array, compute its SHA256 and compare against the `sha256` field. Any mismatch means the file has been altered after signing.
++
++## Step 3 — random-claim audit (the <5min walkthrough)
++
++1. Open `verified_report.json`.
++2. Pick any verified sentence at random (`sections[*].verified_sentences[*]` with `verifier_pass = true`).
++3. Read its `provenance_tokens` array. Each token has the form `[#ev:<source_id>:<start>-<end>]` where `start`/`end` are **CHARACTER offsets** into the snapshotted source text.
++4. Open `sources/<source_id>.txt` (filename matches the token's `source_id`).
++5. Take `text[start:end]` from that file (Python slice semantics — character offsets, not bytes). Confirm the substring relates to the sentence's claim.
++
++## Truncation note
++
++For very large sources (>200 KB), POLARIS truncates the snapshot at a UTF-8 codepoint boundary and appends a notice line: `[POLARIS audit-bundle truncation notice: source text truncated from N to M bytes per MAX_SOURCE_TEXT_BYTES policy.]`. Bundles are guaranteed to NOT ship cited spans that fall past the reachable body — the bundler refuses to build such a bundle (`cited_span_unreachable_after_snapshot`).
++
++## Sovereignty note
++
++POLARIS classifies every source by data-sovereignty tier. Bundles for runs whose corpus contained CLIENT / CAN_REAL / PRIVATE / UNKNOWN classifications were processed only on Canadian-sovereign infrastructure (no external LLM API calls).
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index 0e25b23..b8b8cfd 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -26,7 +26,13 @@ from polaris_graph.audit_bundle.bundle_schema import (
+     BundleManifest,
+     FileEntry,
+ )
+-from polaris_graph.audit_bundle.snapshot_sources import snapshot_sources
++from pathlib import Path
++
++from polaris_graph.audit_bundle.snapshot_sources import (
++    snapshot_sources,
++    snapshot_sources_with_reachable,
++)
++from polaris_graph.generator2.provenance import extract_tokens
+ from polaris_graph.generator2.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+@@ -40,6 +46,7 @@ FILE_SCOPE_DECISION = "scope_decision.json"
+ FILE_EVIDENCE_POOL = "evidence_pool.json"
+ FILE_VERIFIED_REPORT = "verified_report.json"
+ FILE_METADATA = "metadata.json"
++FILE_REVIEWER_README = "REVIEWER_README.md"
+ SOURCES_DIR = "sources"
+ 
+ 
+@@ -66,6 +73,41 @@ def _serialize_json_canonical(model: Any) -> bytes:
+     ).encode("utf-8")
+ 
+ 
++def _assert_cited_spans_reachable(report: VerifiedReport, snapshots: dict) -> None:
++    """Raise ValueError if any cited span exceeds its snapshot's reachable_chars.
++
++    Validates the UNION of tokens parsed from `sentence.sentence_text` and
++    `sentence.provenance_tokens`, deduped by `token.raw`. Missing source_id =>
++    unreachable. Span end > reachable_chars => unreachable.
++    """
++    seen: set[str] = set()
++    for section in report.sections:
++        if section.section_status == "dropped":
++            continue
++        for sentence in section.verified_sentences:
++            if not sentence.verifier_pass:
++                continue
++            tokens = list(extract_tokens(sentence.sentence_text))
++            for raw in sentence.provenance_tokens:
++                tokens.extend(extract_tokens(raw))
++            for tok in tokens:
++                if tok.raw in seen:
++                    continue
++                seen.add(tok.raw)
++                entry = snapshots.get(tok.source_id)
++                if entry is None:
++                    raise ValueError(
++                        f"cited span unreachable after snapshot: source "
++                        f"{tok.source_id!r} not in snapshots (token={tok.raw!r})"
++                    )
++                if not (0 <= tok.span_start < tok.span_end <= entry.reachable_chars):
++                    raise ValueError(
++                        f"cited span unreachable after snapshot: source "
++                        f"{tok.source_id!r} token={tok.raw!r} span="
++                        f"{tok.span_start}-{tok.span_end} reachable={entry.reachable_chars}"
++                    )
++
++
+ def _safe_source_filename(source_id: str) -> str:
+     """Build a tar-safe filename from a source_id.
+ 
+@@ -114,10 +156,16 @@ def build_manifest_and_files(
+     vr_bytes = _serialize_json_canonical(report)
+     files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
+ 
+-    # 4. Per-source snapshots
+-    snapshots = snapshot_sources(report, pool)
+-    for source_id, text in snapshots.items():
+-        files_bytes[_safe_source_filename(source_id)] = text.encode("utf-8")
++    # 4. Per-source snapshots + cited-span reachability guard
++    snapshot_entries = snapshot_sources_with_reachable(report, pool)
++    _assert_cited_spans_reachable(report, snapshot_entries)
++    for source_id, entry in snapshot_entries.items():
++        files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
++    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
++
++    # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
++    readme_path = Path(__file__).parent / "REVIEWER_README.md"
++    files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
+ 
+     # 5. Bundle metadata (versions + creation timestamp)
+     metadata = {
+diff --git a/src/polaris_graph/audit_bundle/snapshot_sources.py b/src/polaris_graph/audit_bundle/snapshot_sources.py
+index 81c033c..d953fbd 100644
+--- a/src/polaris_graph/audit_bundle/snapshot_sources.py
++++ b/src/polaris_graph/audit_bundle/snapshot_sources.py
+@@ -15,11 +15,20 @@ have changed since retrieval).
+ 
+ from __future__ import annotations
+ 
++from typing import NamedTuple
++
+ from polaris_graph.generator2.provenance import extract_tokens
+ from polaris_graph.generator2.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+ 
+ 
++class SnapshotEntry(NamedTuple):
++    """Snapshot text plus the reachable character count (excludes appended truncation note)."""
++
++    text: str
++    reachable_chars: int
++
++
+ # Cap each source's text to keep the bundle bounded. 200KB per source
+ # is enough for a typical full-text article; a Cochrane systematic
+ # review with all appendices may need more — adjust if production
+@@ -111,3 +120,36 @@ def snapshot_sources(
+ def snapshot_size_bytes(snapshots: dict[str, str]) -> int:
+     """Total bytes across all snapshots — useful for bundle-size checks."""
+     return sum(len(text.encode("utf-8")) for text in snapshots.values())
++
++
++def _snapshot_entry(source: Source) -> SnapshotEntry:
++    """Snapshot one source returning text + reachable_chars (excl. truncation note)."""
++    text = source.full_text if source.full_text is not None else source.snippet
++    text_bytes = text.encode("utf-8")
++    if len(text_bytes) <= MAX_SOURCE_TEXT_BYTES:
++        return SnapshotEntry(text=text, reachable_chars=len(text))
++    truncated = text_bytes[:MAX_SOURCE_TEXT_BYTES]
++    while truncated and (truncated[-1] & 0xC0) == 0x80:
++        truncated = truncated[:-1]
++    if truncated and (truncated[-1] & 0x80) and (truncated[-1] & 0x40):
++        truncated = truncated[:-1]
++    body = truncated.decode("utf-8")
++    note = SOURCE_TRUNCATION_NOTE_TEMPLATE.format(
++        original_size=len(text_bytes), truncated_size=len(truncated)
++    )
++    return SnapshotEntry(text=body + note, reachable_chars=len(body))
++
++
++def snapshot_sources_with_reachable(
++    report: VerifiedReport, pool: EvidencePool
++) -> dict[str, SnapshotEntry]:
++    """Like snapshot_sources but returns SnapshotEntry tuples (text + reachable_chars)."""
++    needed = _cited_source_ids(report)
++    pool_index: dict[str, Source] = {s.source_id: s for s in pool.sources}
++    out: dict[str, SnapshotEntry] = {}
++    for source_id in needed:
++        source = pool_index.get(source_id)
++        if source is None:
++            continue
++        out[source_id] = _snapshot_entry(source)
++    return out
+diff --git a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+new file mode 100644
+index 0000000..1c08205
+--- /dev/null
++++ b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+@@ -0,0 +1,162 @@
++"""Reviewer-blind walkthrough test (I-f15-004).
++
++Verifies a third party can locate the cited span in the bundle and that
++the bundle build refuses to ship unreachable spans.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from pathlib import Path
++
++import pytest
++
++from polaris_graph.audit_bundle.manifest_builder import (
++    FILE_EVIDENCE_POOL,
++    FILE_METADATA,
++    FILE_REVIEWER_README,
++    FILE_SCOPE_DECISION,
++    FILE_VERIFIED_REPORT,
++    build_manifest_and_files,
++)
++from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
++from polaris_graph.generator2.provenance import extract_tokens
++from polaris_graph.generator2.verified_report import (
++    Section,
++    VerifiedReport,
++    VerifiedSentence,
++)
++from polaris_graph.retrieval2.evidence_pool import (
++    AdequacyVerdict,
++    EvidencePool,
++    Source,
++    SourceTier,
++)
++from polaris_graph.scope.scope_decision import AmbiguityAxis, ScopeDecision
++
++
++def _src(source_id: str = "src-A", full_text: str = "Aspirin reduces headache pain.") -> Source:
++    return Source(
++        url="https://www.cochrane.org/CD001",
++        domain="cochrane.org",
++        tier=SourceTier.T1,
++        title="Source",
++        snippet="snippet",
++        full_text=full_text,
++        full_text_available=True,
++        source_id=source_id,
++    )
++
++
++def _pool(sources: list[Source]) -> EvidencePool:
++    return EvidencePool(
++        pool_id="pool-walk-1",
++        decision_id="dec-walk-1",
++        sources=sources,
++        adequacy=AdequacyVerdict(is_adequate=True),
++        retrieval_started_at_utc=datetime.now(timezone.utc),
++        retrieval_finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def _decision() -> ScopeDecision:
++    return ScopeDecision(
++        decision_id="dec-walk-1",
++        status="in_scope",
++        scope_class="clinical_efficacy",
++        ambiguity_axes=[
++            AmbiguityAxis(axis="population", plausible_interpretations=["adults"], needs_clarification=False),
++        ],
++    )
++
++
++def _report(sentence: VerifiedSentence) -> VerifiedReport:
++    return VerifiedReport(
++        pool_id="pool-walk-1",
++        decision_id="dec-walk-1",
++        sections=[
++            Section(
++                section_id="sec_x",
++                section_title="X",
++                verified_sentences=[sentence],
++                section_verify_pass_rate=1.0,
++                section_status="verified",
++            )
++        ],
++        overall_verify_pass_rate=1.0,
++        pipeline_verdict="success",
++        generator_model="test/model",
++        verifier_pass_threshold=0.4,
++        started_at_utc=datetime.now(timezone.utc),
++        finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def test_happy_path_reviewer_blind_walkthrough():
++    sentence = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="Aspirin reduces headache [#ev:src-A:0-29].",
++        provenance_tokens=["[#ev:src-A:0-29]"],
++        verifier_pass=True,
++    )
++    manifest, files = build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
++
++    for required in (
++        FILE_SCOPE_DECISION,
++        FILE_EVIDENCE_POOL,
++        FILE_VERIFIED_REPORT,
++        FILE_METADATA,
++        FILE_REVIEWER_README,
++        "sources/src-A.txt",
++    ):
++        assert required in files, f"missing {required}"
++
++    readme_disk = (Path(__file__).resolve().parents[3] / "src/polaris_graph/audit_bundle/REVIEWER_README.md").read_bytes()
++    assert files[FILE_REVIEWER_README] == readme_disk
++
++    tokens = extract_tokens(sentence.sentence_text)
++    assert tokens, "test fixture must produce at least one token"
++    tok = tokens[0]
++    source_text = files[f"sources/{tok.source_id}.txt"].decode("utf-8")
++    span = source_text[tok.span_start : tok.span_end]
++    assert span == "Aspirin reduces headache pain"
++    assert manifest.file_by_content_type("source_snapshot")
++
++
++def test_fail_path_truncation_boundary():
++    big_source = _src(full_text="x" * 250_000)
++    span_end = MAX_SOURCE_TEXT_BYTES + 100
++    sentence = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text=f"claim [#ev:src-A:0-{span_end}].",
++        provenance_tokens=[f"[#ev:src-A:0-{span_end}]"],
++        verifier_pass=True,
++    )
++    with pytest.raises(ValueError, match="cited span unreachable"):
++        build_manifest_and_files(_decision(), _pool([big_source]), _report(sentence))
++
++
++def test_fail_path_token_only_in_sentence_text():
++    sentence = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="claim [#ev:src-A:0-1000000] words.",
++        provenance_tokens=["[#ev:src-A:0-5]"],
++        verifier_pass=True,
++    )
++    with pytest.raises(ValueError, match="cited span unreachable"):
++        build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
++
++
++def test_fail_path_missing_source():
++    sentence = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="claim [#ev:ghost:0-3].",
++        provenance_tokens=["[#ev:ghost:0-3]"],
++        verifier_pass=True,
++    )
++    with pytest.raises(ValueError, match="cited span unreachable"):
++        build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index b5963cb..017cf00 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -710,6 +710,7 @@ export interface AuditBundleErrorBody {
+   code:
+     | "fk_chain_mismatch"
+     | "verdict_not_success"
++    | "cited_span_unreachable_after_snapshot"
+     | "gpg_unavailable"
+     | "sign_failed";
+   message: string;
