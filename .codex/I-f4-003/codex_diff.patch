@@ -1,0 +1,189 @@
+diff --git a/web/app/audit_live/_panels.tsx b/web/app/audit_live/_panels.tsx
+index 6dc2148..39a31bb 100644
+--- a/web/app/audit_live/_panels.tsx
++++ b/web/app/audit_live/_panels.tsx
+@@ -1,8 +1,9 @@
+ "use client";
+ 
+-import { useEffect, useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ import { useSearchParams } from "next/navigation";
+ 
++import { RunBroadcast } from "@/lib/run_broadcast";
+ import { SSEClient } from "@/lib/sse_client";
+ import {
+   EVENT_LABELS,
+@@ -16,14 +17,19 @@ const MAX_EVENTS = 50;
+ export function LiveAuditPanels() {
+   const sp = useSearchParams();
+   const url = sp.get("url") ?? "/api/audit/stream";
++  const run_id = sp.get("run_id") ?? "";
+   const [events, setEvents] = useState<Record<SSEEventName, LoggedEvent[]>>(
+     () =>
+       Object.fromEntries(
+         EVENT_NAMES.map((n) => [n, [] as LoggedEvent[]]),
+       ) as Record<SSEEventName, LoggedEvent[]>,
+   );
++  const [cancelled, setCancelled] = useState(false);
++  const broadcast_ref = useRef<RunBroadcast | null>(null);
++  const sse_ref = useRef<SSEClient | null>(null);
+ 
+   useEffect(() => {
++    if (cancelled) return;
+     const c = new SSEClient(url, {
+       eventNames: [...EVENT_NAMES],
+       onEvent: (name, data) => {
+@@ -39,13 +45,59 @@ export function LiveAuditPanels() {
+         });
+       },
+     });
++    sse_ref.current = c;
+     c.connect();
+-    return () => c.close();
+-  }, [url]);
++    let bc: RunBroadcast | null = null;
++    if (run_id) {
++      bc = new RunBroadcast(run_id, {
++        onCancel: () => {
++          c.close();
++          setCancelled(true);
++        },
++      });
++      bc.subscribe();
++      broadcast_ref.current = bc;
++    }
++    return () => {
++      c.close();
++      bc?.close();
++      sse_ref.current = null;
++      broadcast_ref.current = null;
++    };
++  }, [url, run_id, cancelled]);
++
++  function on_cancel_click() {
++    sse_ref.current?.close();
++    broadcast_ref.current?.broadcastCancel();
++    setCancelled(true);
++  }
++
++  if (cancelled) {
++    return (
++      <div
++        data-testid="run-cancelled"
++        className="mx-auto max-w-5xl p-6 text-sm"
++      >
++        Run cancelled.
++      </div>
++    );
++  }
+ 
+   return (
+     <div className="mx-auto max-w-5xl space-y-3 p-6 text-sm">
+-      <h1 className="text-xl font-semibold">Live audit run</h1>
++      <header className="flex items-center justify-between">
++        <h1 className="text-xl font-semibold">Live audit run</h1>
++        {run_id && (
++          <button
++            type="button"
++            data-testid="run-cancel-btn"
++            onClick={on_cancel_click}
++            className="border-border rounded border px-3 py-1 text-xs hover:bg-rose-50"
++          >
++            Cancel run
++          </button>
++        )}
++      </header>
+       {EVENT_NAMES.map((name) => (
+         <section
+           key={name}
+diff --git a/web/lib/run_broadcast.ts b/web/lib/run_broadcast.ts
+new file mode 100644
+index 0000000..0aff274
+--- /dev/null
++++ b/web/lib/run_broadcast.ts
+@@ -0,0 +1,33 @@
++// I-f4-003 — Same-origin multi-tab cancel propagation via BroadcastChannel.
++
++export interface RunBroadcastOpts {
++  onCancel?: () => void;
++}
++
++export class RunBroadcast {
++  private _channel: BroadcastChannel | null = null;
++
++  constructor(
++    private run_id: string,
++    private opts: RunBroadcastOpts = {},
++  ) {}
++
++  subscribe(): void {
++    if (typeof BroadcastChannel === "undefined") return;
++    this._channel = new BroadcastChannel(`polaris-run-${this.run_id}`);
++    this._channel.onmessage = (ev: MessageEvent) => {
++      if (ev.data?.type === "cancel") {
++        this.opts.onCancel?.();
++      }
++    };
++  }
++
++  broadcastCancel(): void {
++    this._channel?.postMessage({ type: "cancel" });
++  }
++
++  close(): void {
++    this._channel?.close();
++    this._channel = null;
++  }
++}
+diff --git a/web/tests/e2e/audit_live_multitab.spec.ts b/web/tests/e2e/audit_live_multitab.spec.ts
+new file mode 100644
+index 0000000..5cad739
+--- /dev/null
++++ b/web/tests/e2e/audit_live_multitab.spec.ts
+@@ -0,0 +1,46 @@
++import { expect, test } from "@playwright/test";
++
++import { EVENT_NAMES } from "../../lib/sse_events";
++
++test("cancel in tab A propagates to tab B via BroadcastChannel", async ({
++  browser,
++}) => {
++  const context = await browser.newContext();
++  const body = EVENT_NAMES.map(
++    (n, i) => `event: ${n}\ndata: {"i":${i}}\n\n`,
++  ).join("");
++  for (const route_setup of [context]) {
++    await route_setup.route("**/mock/sse", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "text/event-stream",
++        headers: { "cache-control": "no-cache" },
++        body,
++      });
++    });
++  }
++
++  const pageA = await context.newPage();
++  const pageB = await context.newPage();
++  const url = "/audit_live?url=/mock/sse&run_id=test-run-mt";
++  await pageA.goto(url);
++  await pageB.goto(url);
++
++  await expect(pageA.getByTestId("run-cancel-btn")).toBeVisible({
++    timeout: 5000,
++  });
++  await expect(pageB.getByTestId("run-cancel-btn")).toBeVisible({
++    timeout: 5000,
++  });
++
++  await pageA.getByTestId("run-cancel-btn").click();
++
++  await expect(pageA.getByTestId("run-cancelled")).toBeVisible({
++    timeout: 1000,
++  });
++  await expect(pageB.getByTestId("run-cancelled")).toBeVisible({
++    timeout: 2000,
++  });
++
++  await context.close();
++});

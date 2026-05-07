@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { RunBroadcast } from "@/lib/run_broadcast";
 import { SSEClient } from "@/lib/sse_client";
 import {
   EVENT_LABELS,
@@ -16,14 +17,19 @@ const MAX_EVENTS = 50;
 export function LiveAuditPanels() {
   const sp = useSearchParams();
   const url = sp.get("url") ?? "/api/audit/stream";
+  const run_id = sp.get("run_id") ?? "";
   const [events, setEvents] = useState<Record<SSEEventName, LoggedEvent[]>>(
     () =>
       Object.fromEntries(
         EVENT_NAMES.map((n) => [n, [] as LoggedEvent[]]),
       ) as Record<SSEEventName, LoggedEvent[]>,
   );
+  const [cancelled, setCancelled] = useState(false);
+  const broadcast_ref = useRef<RunBroadcast | null>(null);
+  const sse_ref = useRef<SSEClient | null>(null);
 
   useEffect(() => {
+    if (cancelled) return;
     const c = new SSEClient(url, {
       eventNames: [...EVENT_NAMES],
       onEvent: (name, data) => {
@@ -39,13 +45,59 @@ export function LiveAuditPanels() {
         });
       },
     });
+    sse_ref.current = c;
     c.connect();
-    return () => c.close();
-  }, [url]);
+    let bc: RunBroadcast | null = null;
+    if (run_id) {
+      bc = new RunBroadcast(run_id, {
+        onCancel: () => {
+          c.close();
+          setCancelled(true);
+        },
+      });
+      bc.subscribe();
+      broadcast_ref.current = bc;
+    }
+    return () => {
+      c.close();
+      bc?.close();
+      sse_ref.current = null;
+      broadcast_ref.current = null;
+    };
+  }, [url, run_id, cancelled]);
+
+  function on_cancel_click() {
+    sse_ref.current?.close();
+    broadcast_ref.current?.broadcastCancel();
+    setCancelled(true);
+  }
+
+  if (cancelled) {
+    return (
+      <div
+        data-testid="run-cancelled"
+        className="mx-auto max-w-5xl p-6 text-sm"
+      >
+        Run cancelled.
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-3 p-6 text-sm">
-      <h1 className="text-xl font-semibold">Live audit run</h1>
+      <header className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Live audit run</h1>
+        {run_id && (
+          <button
+            type="button"
+            data-testid="run-cancel-btn"
+            onClick={on_cancel_click}
+            className="border-border rounded border px-3 py-1 text-xs hover:bg-rose-50"
+          >
+            Cancel run
+          </button>
+        )}
+      </header>
       {EVENT_NAMES.map((name) => (
         <section
           key={name}
