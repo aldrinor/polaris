@@ -1,0 +1,2696 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e03d5-0412-7503-8f80-ee93ae4dff2e
+--------
+user
+# Codex Diff Review — I-f7-004 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only.
+
+**Issue:** I-f7-004 — F7 adversarial 0/15, 15/15, 1/15 edge variants
+**Brief:** APPROVED iter 3
+**Canonical-diff-sha256:** `523c873815733c0ccd0973fe57872e78ce12cabfeb9cfa2a2263904ae9d96194`
+**LOC:** 178 net (under CHARTER §1 200-cap)
+
+## Files
+
+```
+web/app/sentence_hover_test/_demo_coverage.tsx           NEW +109 (CoverageHarness with cycled GAP_REASONS)
+web/app/sentence_hover_test/coverage/page.tsx            NEW +21 (Next route + clamp_non_negative_int helper)
+web/tests/e2e/frame_coverage_adversarial.spec.ts         NEW +43 (3 edge tests, ratio text + count assertions)
+```
+
+## What changed
+
+- `CoverageHarness({covered, gap_count})` builds a synthetic VerifiedReport with `total_entity_count = covered + gap_count` and `gaps` of length `gap_count` cycled through `GAP_REASONS` literal array (Codex iter-1 P2 fix — TS union, not enum).
+- `coverage/page.tsx`: `clamp_non_negative_int` allows ZERO (Codex iter-1 P1 fix), clamps to [0, 100], parses search params.
+- 3 Playwright tests covering 0/15, 15/15, 1/15 — each asserts ratio text (`covered/total`) per Codex iter-2 P2 + gap-count + last-index visibility.
+
+## Verification
+- `npx tsc --noEmit` (web/): exit 0.
+
+## Risks for Codex Red-Team
+
+1. **Search-param clamping:** zero allowed; max 100. Defaults 14/1 mirror existing demo.
+2. **GAP_REASONS array:** explicit typed `GapReason[]` literal — no enum import attempt.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** 178 net. Under 200.
+5. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the listed files and the surrounding component contracts statically, then return only the requested YAML verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/sentence_hover_test/_demo_coverage.tsx web/app/sentence_hover_test/coverage/page.tsx web/tests/e2e/frame_coverage_adversarial.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/sentence_hover_test -Force' in C:\POLARIS
+ succeeded in 4388ms:
+ succeeded in 5181ms:
+
+    Directory: C:\POLARIS\web\app\sentence_hover_test
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-07 12:04 PM                coverage
+d----          2026-05-07 10:43 AM                stress
+-a---          2026-05-07 12:04 PM           3181 _demo_coverage.tsx
+-a---          2026-05-07 10:43 AM           2743 _demo_stress.tsx
+-a---          2026-05-07 11:42 AM           9249 _demo.tsx
+-a---          2026-05-07  2:20 AM            141 page.tsx
+
+
+ succeeded in 5974ms:
+A  web/app/sentence_hover_test/_demo_coverage.tsx
+A  web/app/sentence_hover_test/coverage/page.tsx
+A  web/tests/e2e/frame_coverage_adversarial.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f7-004/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+The three target files are staged as new additions, so I’m switching to the staged diff and then checking the component/type definitions they exercise.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "type VerifiedReport|interface VerifiedReport|VerifiedReport|GapReason|coverage|gap" web/app web/components web/lib web/tests -g "*.ts" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/sentence_hover_test/_demo_coverage.tsx web/app/sentence_hover_test/coverage/page.tsx web/tests/e2e/frame_coverage_adversarial.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/tests/e2e/frame_coverage_adversarial.spec.ts | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/sentence_hover_test/_demo_coverage.tsx | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/sentence_hover_test/coverage/page.tsx | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+ succeeded in 2880ms:
+   1: "use client";
+   2: 
+   3: import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+   4: import type {
+   5:   EvidencePool,
+   6:   FrameGap,
+   7:   GapReason,
+   8:   RetrievalSource,
+   9:   VerifiedReport,
+  10: } from "@/lib/api";
+  11: 
+  12: const ISO = new Date().toISOString();
+  13: const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  14:   .toISOString()
+  15:   .slice(0, 10);
+  16: 
+  17: // Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
+  18: // per Codex iter-1 P2 — explicit typed array).
+  19: const GAP_REASONS: GapReason[] = [
+  20:   "paywalled",
+  21:   "no_oa",
+  22:   "source_tier_ineligible",
+  23:   "language_unavailable",
+  24:   "retracted_only",
+  25:   "jurisdiction_outside",
+  26:   "not_indexed",
+  27:   "embargoed",
+  28:   "other",
+  29: ];
+  30: 
+  31: const SRC: RetrievalSource = {
+  32:   source_id: "src-cov-0",
+  33:   url: "https://www.cochrane.org/CD-cov-0",
+  34:   domain: "cochrane.org",
+  35:   tier: "T1",
+  36:   title: "Coverage harness source",
+  37:   publication_date: FRESH_DATE,
+  38:   authors: ["Smith J"],
+  39:   snippet: "Coverage demo source snippet text used by the harness.",
+  40:   full_text_available: true,
+  41:   full_text: "Coverage demo source snippet text used by the harness.",
+  42:   fetched_at_utc: ISO,
+  43:   provenance: {},
+  44: };
+  45: 
+  46: export function CoverageHarness({
+  47:   covered,
+  48:   gap_count,
+  49: }: {
+  50:   covered: number;
+  51:   gap_count: number;
+  52: }) {
+  53:   const total = covered + gap_count;
+  54:   const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
+  55:     entity_name: `Entity ${i + 1}`,
+  56:     reason: GAP_REASONS[i % GAP_REASONS.length],
+  57:     reason_detail: `synthetic detail ${i + 1}`,
+  58:   }));
+  59:   const pool: EvidencePool = {
+  60:     pool_id: "p-cov",
+  61:     decision_id: "d-cov",
+  62:     sources: [SRC],
+  63:     adequacy: {
+  64:       is_adequate: true,
+  65:       sources_per_tier: { T1: 1, T2: 0, T3: 0 },
+  66:       min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+  67:       failure_reason: null,
+  68:     },
+  69:     queries_executed: ["coverage"],
+  70:     retrieval_started_at_utc: ISO,
+  71:     retrieval_finished_at_utc: ISO,
+  72:     latency_ms: 0,
+  73:     cost_usd: 0,
+  74:   };
+  75:   const report: VerifiedReport = {
+  76:     report_id: "r-cov",
+  77:     pool_id: "p-cov",
+  78:     decision_id: "d-cov",
+  79:     sections: [
+  80:       {
+  81:         section_id: "sec_cov",
+  82:         section_title: `Coverage harness (${covered}/${total})`,
+  83:         verified_sentences: [
+  84:           {
+  85:             section_id: "sec_cov",
+  86:             sentence_text: "Coverage harness sentinel sentence.",
+  87:             provenance_tokens: ["[#ev:src-cov-0:0-20]"],
+  88:             verifier_pass: true,
+  89:             drop_reason: null,
+  90:             evaluator_agrees: true,
+  91:           },
+  92:         ],
+  93:         section_verify_pass_rate: 1.0,
+  94:         section_status: "verified",
+  95:       },
+  96:     ],
+  97:     overall_verify_pass_rate: 1.0,
+  98:     pipeline_verdict: "success",
+  99:     generator_model: "test/cov",
+ 100:     evaluator_model: "strict_verify_v1",
+ 101:     family_segregation_passed: true,
+ 102:     frame_coverage: {
+ 103:       covered_entity_count: covered,
+ 104:       total_entity_count: total,
+ 105:       gaps,
+ 106:     },
+ 107:     verifier_pass_threshold: 0.4,
+ 108:     started_at_utc: ISO,
+ 109:     finished_at_utc: ISO,
+ 110:     latency_ms: 0,
+ 111:     cost_usd: 0,
+ 112:   };
+ 113:   return (
+ 114:     <div
+ 115:       data-testid={`coverage-harness-${covered}-${gap_count}`}
+ 116:       className="mx-auto max-w-4xl p-6"
+ 117:     >
+ 118:       <VerifiedReportView report={report} pool={pool} />
+ 119:     </div>
+ 120:   );
+ 121: }
+
+ succeeded in 4523ms:
+   1: import { CoverageHarness } from "../_demo_coverage";
+   2: 
+   3: function clamp_non_negative_int(raw: string | undefined, dflt: number): number {
+   4:   if (raw === undefined) return dflt;
+   5:   const n = Number.parseInt(raw, 10);
+   6:   if (!Number.isFinite(n) || n < 0) return dflt;
+   7:   return Math.min(n, 100);
+   8: }
+   9: 
+  10: export default async function CoveragePage({
+  11:   searchParams,
+  12: }: {
+  13:   searchParams: Promise<{ covered?: string; gap_count?: string }>;
+  14: }) {
+  15:   const params = await searchParams;
+  16:   const covered = clamp_non_negative_int(params.covered, 14);
+  17:   const gap_count = clamp_non_negative_int(params.gap_count, 1);
+  18:   return <CoverageHarness covered={covered} gap_count={gap_count} />;
+  19: }
+
+ succeeded in 6437ms:
+   1: import { expect, test } from "@playwright/test";
+   2: 
+   3: test("0/15 — all gaps, no coverage; gap-14 visible + 15 gaps text", async ({
+   4:   page,
+   5: }) => {
+   6:   await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+   7:   await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
+   8:   await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+   9:   await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
+  10:   await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+  11:     "15 gaps",
+  12:   );
+  13:   await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
+  14: });
+  15: 
+  16: test("15/15 — all covered, no gaps; complete state", async ({ page }) => {
+  17:   await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+  18:   await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
+  19:   await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
+  20:   await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
+  21:   await expect(page.getByTestId("frame-coverage-complete")).toContainText(
+  22:     "15/15",
+  23:   );
+  24: });
+  25: 
+  26: test("1/15 — single covered, 14 gaps; gap-13 visible + 14 gaps text", async ({
+  27:   page,
+  28: }) => {
+  29:   await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+  30:   await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
+  31:   await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+  32:   await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
+  33:   await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
+  34:   await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+  35:     "14 gaps",
+  36:   );
+  37:   await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
+  38: });
+
+ succeeded in 7847ms:
+web/tests\e2e\audit_bundle.spec.ts:7: * produces a VerifiedReport, the "Download audit bundle" button is
+web/app\upload\page.tsx:13:      className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+web/app\upload\page.tsx:15:      <section className="flex flex-col gap-2">
+web/components\ui\sheet.tsx:56:          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+web/components\ui\sheet.tsx:86:      className={cn("flex flex-col gap-0.5 p-4", className)}
+web/components\ui\sheet.tsx:96:      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+web/components\ui\button.tsx:29:          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+web/components\ui\button.tsx:30:        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+web/components\ui\button.tsx:31:        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+web/components\ui\button.tsx:32:        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+web/lib\contracts.ts:42:  expected_source_coverage: ExpectedSourceCoverage;
+web/lib\contracts.ts:79:  const cov = c.expected_source_coverage;
+web/lib\api.ts:232:  frame_coverage: {
+web/lib\api.ts:236:    coverage_percent: number;
+web/lib\api.ts:617:export interface VerifiedReportSection {
+web/lib\api.ts:625:export type GapReason =
+web/lib\api.ts:638:  reason: GapReason;
+web/lib\api.ts:645:  gaps: FrameGap[];
+web/lib\api.ts:648:export interface VerifiedReport {
+web/lib\api.ts:652:  sections: VerifiedReportSection[];
+web/lib\api.ts:663:  frame_coverage?: FrameCoverage | null;
+web/lib\api.ts:668:  report: VerifiedReport;
+web/lib\api.ts:730:export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+web/lib\api.ts:736:  section: VerifiedReportSection,
+web/lib\api.ts:781:  report: VerifiedReport,
+web/lib\api.ts:816:  report: VerifiedReport,
+web/lib\api.ts:857:  | "coverage_completeness"
+web/lib\api.ts:905:  coverage_completeness: "Coverage completeness",
+web/lib\api.ts:915:  "coverage_completeness",
+web/lib\sentence_highlight.ts:1:// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
+web/app\upload\components\upload_workspace.tsx:11:    <div className="flex flex-col gap-4">
+web/app\upload\components\upload_drop_zone.tsx:147:    <div className="flex flex-col gap-4">
+web/app\upload\components\upload_drop_zone.tsx:178:        <ul className="flex flex-col gap-2">
+web/app\upload\components\upload_drop_zone.tsx:184:              className="border-border bg-muted/20 flex items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+web/app\upload\components\upload_drop_zone.tsx:186:              <span className="flex items-center gap-2">
+web/app\upload\components\upload_drop_zone.tsx:201:                  <span className="flex flex-col items-end gap-0.5">
+web/app\upload\components\selected_docs_indicator.tsx:7:    <div className="border-border bg-muted/10 flex flex-col gap-1 rounded-lg border p-3 text-sm">
+web/app\upload\components\document_preview.tsx:85:      className="border-border flex h-96 gap-2 rounded-lg border p-2"
+web/app\upload\components\document_preview.tsx:96:      <ul className="border-border flex w-64 flex-col gap-1 overflow-y-auto rounded border p-2">
+web/app\intake\page.tsx:39:        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+web/app\intake\page.tsx:41:        <section className="flex flex-col gap-2">
+web/app\intake\components\scope_decision_view.tsx:34:        "inline-flex items-center gap-2 rounded-full border px-3 py-1",
+web/app\intake\components\scope_decision_view.tsx:49:      className="border-border flex flex-col gap-1.5 rounded-md border p-3"
+web/app\intake\components\scope_decision_view.tsx:66:      <ul className="text-muted-foreground flex flex-wrap gap-1.5 text-xs">
+web/app\intake\components\scope_decision_view.tsx:86:    <Card data-testid="scope-decision-view" className="flex flex-col gap-3">
+web/app\intake\components\scope_decision_view.tsx:87:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\intake\components\scope_decision_view.tsx:91:      <CardContent className="flex flex-col gap-4">
+web/app\intake\components\scope_decision_view.tsx:92:        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+web/app\intake\components\scope_decision_view.tsx:121:          <section className="flex flex-col gap-2">
+web/app\intake\components\scope_decision_view.tsx:125:            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+web/app\intake\components\scope_decision_view.tsx:134:          <section className="flex flex-col gap-1">
+web/tests\e2e\frame_coverage_adversarial.spec.ts:3:test("0/15 — all gaps, no coverage; gap-14 visible + 15 gaps text", async ({
+web/tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:7:  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:8:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:10:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:11:    "15 gaps",
+web/tests\e2e\frame_coverage_adversarial.spec.ts:13:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:16:test("15/15 — all covered, no gaps; complete state", async ({ page }) => {
+web/tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:18:  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:19:  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:20:  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
+web/tests\e2e\frame_coverage_adversarial.spec.ts:21:  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:26:test("1/15 — single covered, 14 gaps; gap-13 visible + 14 gaps text", async ({
+web/tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:30:  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:31:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:32:  await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:33:  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
+web/tests\e2e\frame_coverage_adversarial.spec.ts:34:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:35:    "14 gaps",
+web/tests\e2e\frame_coverage_adversarial.spec.ts:37:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
+web/app\intake\components\pdf_drop_banner.tsx:54:      className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
+web/app\benchmark\page.tsx:26:          <div className="flex gap-2">
+web/app\benchmark\page.tsx:47:        className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10"
+web/app\benchmark\page.tsx:49:        <section className="flex flex-col gap-2">
+web/app\benchmark\page.tsx:56:            provenance density, refusal correctness, coverage completeness,
+web/components\ui\card.tsx:15:        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web/components\ui\card.tsx:28:        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+web/app\components\command_palette.tsx:101:          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+web/app\generation\page.tsx:26:          <div className="flex gap-2">
+web/app\generation\page.tsx:54:        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+web/app\generation\page.tsx:56:        <section className="flex flex-col gap-2">
+web/app\contracts\_editor.tsx:55:      expected_source_coverage: {
+web/app\contracts\_editor.tsx:107:          <label key={j} className="mr-3 inline-flex items-center gap-1">
+web/app\contracts\_editor.tsx:125:        <legend>Source coverage (min)</legend>
+web/app\contracts\_editor.tsx:163:          <div key={i} className="mb-2 flex gap-2">
+web/app\contracts\_editor.tsx:220:          <div key={i} className="mb-2 flex flex-col gap-1">
+web/app\contracts\_editor.tsx:262:              className="flex flex-wrap gap-2 text-xs"
+web/app\contracts\_editor.tsx:265:                <label key={j} className="inline-flex items-center gap-1">
+web/app\intake\components\ambiguity_modal.tsx:45:            "flex flex-col gap-4 rounded-xl border p-6 shadow-lg",
+web/app\intake\components\ambiguity_modal.tsx:51:          <div className="flex flex-col gap-1">
+web/app\intake\components\ambiguity_modal.tsx:62:          <ul className="flex flex-col gap-3">
+web/app\intake\components\ambiguity_modal.tsx:66:                className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3"
+web/app\intake\components\ambiguity_modal.tsx:71:                <ul className="text-foreground flex flex-wrap gap-2 text-sm">
+web/app\intake\components\ambiguity_modal.tsx:93:          <div className="flex justify-end gap-2 pt-2">
+web/app\benchmark\components\benchmark_board.tsx:157:        <CardContent className="flex flex-col gap-2">
+web/app\benchmark\components\benchmark_board.tsx:187:    <div data-testid="benchmark-board" className="flex flex-col gap-4">
+web/app\benchmark\components\benchmark_board.tsx:189:        <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\contracts\page.tsx:6:    "Declare expected entities, claims, jurisdictions, and source coverage before generation runs.",
+web/tests\e2e\frame_coverage_panel.spec.ts:3:test("Frame coverage panel renders above the report with gap details", async ({
+web/tests\e2e\frame_coverage_panel.spec.ts:7:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:8:  await expect(page.getByTestId("frame-coverage-progress")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_panel.spec.ts:10:    "1 gap",
+web/tests\e2e\frame_coverage_panel.spec.ts:13:  const gap = page.getByTestId("frame-coverage-gap-0");
+web/tests\e2e\frame_coverage_panel.spec.ts:14:  await expect(gap).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:15:  await expect(gap).toContainText("Pediatric population");
+web/tests\e2e\frame_coverage_panel.spec.ts:16:  await expect(gap).toContainText("No OA");
+web/tests\e2e\frame_coverage_panel.spec.ts:17:  await expect(gap).toContainText("no open-access version of Cochrane review");
+web/tests\e2e\frame_coverage_panel.spec.ts:20:test("Click gap → detail Sheet shows entity + suggested action with substituted name", async ({
+web/tests\e2e\frame_coverage_panel.spec.ts:24:  await page.getByTestId("frame-coverage-gap-0").click();
+web/tests\e2e\frame_coverage_panel.spec.ts:25:  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
+web/tests\e2e\frame_coverage_panel.spec.ts:28:  await expect(page.getByTestId("frame-gap-detail-title")).toContainText(
+web/tests\e2e\frame_coverage_panel.spec.ts:31:  await expect(page.getByTestId("frame-gap-action")).toContainText(
+web/tests\e2e\frame_coverage_panel.spec.ts:51:  await page.getByTestId("frame-coverage-gap-0").click();
+web/tests\e2e\frame_coverage_panel.spec.ts:52:  await expect(page.getByTestId("frame-gap-detail-sheet")).toBeVisible({
+web/tests\e2e\frame_coverage_panel.spec.ts:55:  await page.getByTestId("frame-gap-copy-button").click();
+web/tests\e2e\frame_coverage_panel.spec.ts:56:  await expect(page.getByTestId("frame-gap-copy-confirm")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web/tests\e2e\frame_coverage_panel.spec.ts:71:    return first?.getAttribute("data-testid") === "frame-coverage-gaps";
+web/app\generation\components\BundlePreview.tsx:10:  type VerifiedReport,
+web/app\generation\components\BundlePreview.tsx:41:  report: VerifiedReport;
+web/app\generation\components\BundlePreview.tsx:90:      <header className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
+web/app\dashboard\page.tsx:204:      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+web/app\dashboard\page.tsx:205:        <section className="flex flex-col gap-2">
+web/app\dashboard\page.tsx:215:        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+web/app\dashboard\page.tsx:216:          <fieldset className="flex flex-col gap-3">
+web/app\dashboard\page.tsx:223:              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+web/app\dashboard\page.tsx:257:          <div className="flex flex-col gap-2">
+web/app\dashboard\page.tsx:277:          <div className="flex flex-col gap-2">
+web/app\dashboard\page.tsx:288:              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+web/app\dashboard\page.tsx:316:              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+web/app\dashboard\page.tsx:406:                <ul className="mt-3 flex flex-col gap-2 text-sm">
+web/app\dashboard\page.tsx:421:                <div className="mt-3 flex gap-2">
+web/app\dashboard\page.tsx:445:          <div className="flex items-center justify-end gap-3">
+web/app\page.tsx:37:      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
+web/app\page.tsx:110:      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+web/app\page.tsx:111:        <section className="flex flex-col gap-3">
+web/app\page.tsx:124:          className="flex flex-col gap-5"
+web/app\page.tsx:138:          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+web/app\page.tsx:151:                  <div className="flex items-start justify-between gap-2">
+web/app\page.tsx:166:                <CardContent className="flex flex-1 flex-col justify-between gap-4">
+web/app\page.tsx:167:                  <div className="flex flex-col gap-2 text-sm">
+web/app\intake\components\disambiguation_modal.tsx:51:          className="bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border p-6 shadow-lg transition duration-200 ease-in-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+web/app\intake\components\disambiguation_modal.tsx:53:          <div className="flex flex-col gap-1">
+web/app\intake\components\disambiguation_modal.tsx:62:            <ul className="flex flex-col gap-3">
+web/app\intake\components\disambiguation_modal.tsx:70:                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+web/app\intake\components\disambiguation_modal.tsx:83:          <div className="flex justify-end gap-2 pt-2">
+web/app\runs\[runId]\page.tsx:74:          <div className="flex items-center gap-2">
+web/app\runs\[runId]\page.tsx:103:      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
+web/app\runs\[runId]\page.tsx:104:        <section className="flex flex-col gap-2">
+web/app\runs\[runId]\page.tsx:132:        <section className="border-border flex flex-col gap-2 rounded-md border p-4">
+web/app\runs\[runId]\page.tsx:139:          <div className="flex flex-wrap gap-2">
+web/app\runs\[runId]\page.tsx:193:        <section className="flex flex-col gap-3">
+web/app\runs\[runId]\page.tsx:197:          <div className="flex flex-col gap-2">
+web/app\sign-in\page.tsx:17:      <div className="flex w-full max-w-sm flex-col gap-6">
+web/app\sign-in\page.tsx:18:        <div className="flex flex-col gap-1 text-center">
+web/app\sign-in\page.tsx:35:          <CardContent className="flex flex-col gap-4">
+web/app\sign-in\page.tsx:36:            <div className="flex flex-col gap-2">
+web/app\sign-in\page.tsx:51:            <div className="flex flex-col gap-2">
+web/app\sign-in\page.tsx:67:          <CardFooter className="flex flex-col gap-3">
+web/app\retrieval\page.tsx:26:          <div className="flex gap-2">
+web/app\retrieval\page.tsx:47:        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+web/app\retrieval\page.tsx:49:        <section className="flex flex-col gap-2">
+web/app\intake\components\intake_form.tsx:101:    <div className="flex flex-col gap-6">
+web/app\intake\components\intake_form.tsx:111:            className="flex flex-col gap-3"
+web/app\intake\components\intake_form.tsx:136:            <div className="flex flex-wrap items-center gap-2">
+web/app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web/app\sentence_hover_test\_demo_coverage.tsx:7:  GapReason,
+web/app\sentence_hover_test\_demo_coverage.tsx:9:  VerifiedReport,
+web/app\sentence_hover_test\_demo_coverage.tsx:17:// Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
+web/app\sentence_hover_test\_demo_coverage.tsx:19:const GAP_REASONS: GapReason[] = [
+web/app\sentence_hover_test\_demo_coverage.tsx:48:  gap_count,
+web/app\sentence_hover_test\_demo_coverage.tsx:51:  gap_count: number;
+web/app\sentence_hover_test\_demo_coverage.tsx:53:  const total = covered + gap_count;
+web/app\sentence_hover_test\_demo_coverage.tsx:54:  const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
+web/app\sentence_hover_test\_demo_coverage.tsx:69:    queries_executed: ["coverage"],
+web/app\sentence_hover_test\_demo_coverage.tsx:75:  const report: VerifiedReport = {
+web/app\sentence_hover_test\_demo_coverage.tsx:102:    frame_coverage: {
+web/app\sentence_hover_test\_demo_coverage.tsx:105:      gaps,
+web/app\sentence_hover_test\_demo_coverage.tsx:115:      data-testid={`coverage-harness-${covered}-${gap_count}`}
+web/app\sentence_hover_test\_demo_coverage.tsx:118:      <VerifiedReportView report={report} pool={pool} />
+web/app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web/app\sentence_hover_test\_demo_stress.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web/app\sentence_hover_test\_demo_stress.tsx:49:  const report: VerifiedReport = {
+web/app\sentence_hover_test\_demo_stress.tsx:88:      <VerifiedReportView report={report} pool={pool} />
+web/app\sentence_hover_test\coverage\page.tsx:1:import { CoverageHarness } from "../_demo_coverage";
+web/app\sentence_hover_test\coverage\page.tsx:13:  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+web/app\sentence_hover_test\coverage\page.tsx:17:  const gap_count = clamp_non_negative_int(params.gap_count, 1);
+web/app\sentence_hover_test\coverage\page.tsx:18:  return <CoverageHarness covered={covered} gap_count={gap_count} />;
+web/app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web/app\sentence_hover_test\_demo.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web/app\sentence_hover_test\_demo.tsx:106:const REPORT: VerifiedReport = {
+web/app\sentence_hover_test\_demo.tsx:261:  frame_coverage: {
+web/app\sentence_hover_test\_demo.tsx:264:    gaps: [
+web/app\sentence_hover_test\_demo.tsx:282:      <VerifiedReportView report={REPORT} pool={POOL} />
+web/app\retrieval\components\corpus_brief.tsx:38:        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+web/app\retrieval\components\corpus_brief.tsx:56:    <Card data-testid="corpus-brief" className="flex flex-col gap-3">
+web/app\retrieval\components\corpus_brief.tsx:57:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\retrieval\components\corpus_brief.tsx:72:      <CardContent className="flex flex-col gap-4">
+web/app\retrieval\components\corpus_brief.tsx:73:        <div className="flex flex-wrap gap-2">
+web/app\retrieval\components\corpus_brief.tsx:93:        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+web/app\retrieval\components\corpus_brief.tsx:110:        <section className="flex flex-col gap-2">
+web/app\retrieval\components\corpus_brief.tsx:114:          <ul className="flex flex-col gap-2">
+web/app\retrieval\components\corpus_brief.tsx:119:                className="border-border flex flex-col gap-1 rounded-md border p-3"
+web/app\retrieval\components\corpus_brief.tsx:121:                <div className="flex items-center justify-between gap-3">
+web/app\retrieval\components\retrieval_runner.tsx:105:    <div className="flex flex-col gap-6">
+web/app\retrieval\components\retrieval_runner.tsx:115:            className="flex flex-col gap-3"
+web/app\generation\components\frame_coverage_panel.tsx:14:import type { FrameCoverage, FrameGap, GapReason } from "@/lib/api";
+web/app\generation\components\frame_coverage_panel.tsx:16:const UNBLOCK_ACTION: Record<GapReason, string> = {
+web/app\generation\components\frame_coverage_panel.tsx:28:const GAP_REASON_LABEL: Record<GapReason, string> = {
+web/app\generation\components\frame_coverage_panel.tsx:41:  coverage,
+web/app\generation\components\frame_coverage_panel.tsx:43:  coverage: FrameCoverage | null | undefined;
+web/app\generation\components\frame_coverage_panel.tsx:45:  const [selected_gap_idx, set_selected_gap_idx] = useState<number | null>(
+web/app\generation\components\frame_coverage_panel.tsx:49:  if (!coverage) return null;
+web/app\generation\components\frame_coverage_panel.tsx:50:  const { covered_entity_count, total_entity_count, gaps } = coverage;
+web/app\generation\components\frame_coverage_panel.tsx:51:  // Codex iter-1 P2: degenerate empty 0/0/[] coverage is not informative;
+web/app\generation\components\frame_coverage_panel.tsx:52:  // render nothing rather than misleading amber gaps panel.
+web/app\generation\components\frame_coverage_panel.tsx:58:  const all_covered = gaps.length === 0;
+web/app\generation\components\frame_coverage_panel.tsx:59:  const has_gaps = gaps.length > 0;
+web/app\generation\components\frame_coverage_panel.tsx:63:        all_covered ? "frame-coverage-complete" : "frame-coverage-gaps"
+web/app\generation\components\frame_coverage_panel.tsx:72:      <CardContent className="flex flex-col gap-2 py-3">
+web/app\generation\components\frame_coverage_panel.tsx:73:        <div className="flex items-center justify-between gap-3">
+web/app\generation\components\frame_coverage_panel.tsx:82:          {has_gaps ? (
+web/app\generation\components\frame_coverage_panel.tsx:84:              data-testid="frame-coverage-gap-count"
+web/app\generation\components\frame_coverage_panel.tsx:87:              {gaps.length} gap{gaps.length > 1 ? "s" : ""}
+web/app\generation\components\frame_coverage_panel.tsx:92:          data-testid="frame-coverage-progress"
+web/app\generation\components\frame_coverage_panel.tsx:103:        {has_gaps ? (
+web/app\generation\components\frame_coverage_panel.tsx:104:          <ul className="flex flex-col gap-1 text-xs">
+web/app\generation\components\frame_coverage_panel.tsx:105:            {gaps.map((g, idx) => (
+web/app\generation\components\frame_coverage_panel.tsx:108:                data-testid={`frame-coverage-gap-${idx}`}
+web/app\generation\components\frame_coverage_panel.tsx:111:                onClick={() => set_selected_gap_idx(idx)}
+web/app\generation\components\frame_coverage_panel.tsx:115:                    set_selected_gap_idx(idx);
+web/app\generation\components\frame_coverage_panel.tsx:128:        gap={selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null}
+web/app\generation\components\frame_coverage_panel.tsx:131:          set_selected_gap_idx(null);
+web/app\generation\components\frame_coverage_panel.tsx:149:  gap,
+web/app\generation\components\frame_coverage_panel.tsx:154:  gap: FrameGap | null;
+web/app\generation\components\frame_coverage_panel.tsx:159:  const action = gap
+web/app\generation\components\frame_coverage_panel.tsx:160:    ? UNBLOCK_ACTION[gap.reason].replace(/\$\{entity_name\}/g, gap.entity_name)
+web/app\generation\components\frame_coverage_panel.tsx:164:      open={gap !== null}
+web/app\generation\components\frame_coverage_panel.tsx:170:        data-testid="frame-gap-detail-sheet"
+web/app\generation\components\frame_coverage_panel.tsx:175:          <SheetTitle data-testid="frame-gap-detail-title">
+web/app\generation\components\frame_coverage_panel.tsx:176:            {gap ? `${gap.entity_name} — ${GAP_REASON_LABEL[gap.reason]}` : ""}
+web/app\generation\components\frame_coverage_panel.tsx:179:            Documented unblock action for this frame coverage gap.
+web/app\generation\components\frame_coverage_panel.tsx:182:        {gap ? (
+web/app\generation\components\frame_coverage_panel.tsx:183:          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+web/app\generation\components\frame_coverage_panel.tsx:184:            <p data-testid="frame-gap-detail-body" className="text-foreground">
+web/app\generation\components\frame_coverage_panel.tsx:185:              {gap.reason_detail ?? "No additional detail provided."}
+web/app\generation\components\frame_coverage_panel.tsx:188:              data-testid="frame-gap-action"
+web/app\generation\components\frame_coverage_panel.tsx:193:            <div className="flex items-center gap-2">
+web/app\generation\components\frame_coverage_panel.tsx:195:                data-testid="frame-gap-copy-button"
+web/app\generation\components\frame_coverage_panel.tsx:203:                  data-testid="frame-gap-copy-confirm"
+web/app\generation\components\sentence_inspector.tsx:54:      className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-violet-700 uppercase dark:text-violet-300"
+web/app\generation\components\sentence_inspector.tsx:70:        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+web/app\generation\components\sentence_inspector.tsx:81:        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+web/app\generation\components\sentence_inspector.tsx:91:      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web/app\generation\components\sentence_inspector.tsx:156:      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+web/app\generation\components\sentence_inspector.tsx:158:      <div className="flex items-center justify-between gap-2">
+web/app\generation\components\sentence_inspector.tsx:168:        <div className="flex items-center gap-1">
+web/app\generation\components\sentence_inspector.tsx:219:      <div className="flex flex-col gap-1">
+web/app\generation\components\sentence_inspector.tsx:271:        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+web/app\generation\components\sentence_inspector.tsx:274:              <div className="flex items-start justify-between gap-2">
+web/app\generation\components\sentence_inspector.tsx:281:                <div className="flex flex-col items-end gap-1">
+web/app\generation\components\sentence_inspector.tsx:295:                  className="flex flex-col gap-2"
+web/app\generation\components\generation_runner.tsx:18:  type VerifiedReport,
+web/app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web/app\generation\components\generation_runner.tsx:40:      report: VerifiedReport;
+web/app\generation\components\generation_runner.tsx:119:    <div className="flex flex-col gap-6">
+web/app\generation\components\generation_runner.tsx:127:            className="flex flex-col gap-3"
+web/app\generation\components\generation_runner.tsx:201:          <div className="flex items-center justify-end gap-2">
+web/app\generation\components\generation_runner.tsx:216:          <VerifiedReportView
+web/app\generation\components\generation_runner.tsx:240:  report: VerifiedReport;
+web/app\generation\components\verified_report_view.tsx:14:  type VerifiedReport,
+web/app\generation\components\verified_report_view.tsx:15:  type VerifiedReportSection,
+web/app\generation\components\verified_report_view.tsx:36:import { FrameCoveragePanel } from "./frame_coverage_panel";
+web/app\generation\components\verified_report_view.tsx:65:        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+web/app\generation\components\verified_report_view.tsx:125:        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+web/app\generation\components\verified_report_view.tsx:132:      <div className="flex items-start gap-2">
+web/app\generation\components\verified_report_view.tsx:164:          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+web/app\generation\components\verified_report_view.tsx:180:  section: VerifiedReportSection;
+web/app\generation\components\verified_report_view.tsx:196:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\generation\components\verified_report_view.tsx:208:      <CardContent className="flex flex-col gap-2">
+web/app\generation\components\verified_report_view.tsx:214:          <ul className="flex flex-col gap-1.5">
+web/app\generation\components\verified_report_view.tsx:239:export function VerifiedReportView({
+web/app\generation\components\verified_report_view.tsx:244:  report: VerifiedReport;
+web/app\generation\components\verified_report_view.tsx:257:      className="flex flex-col gap-4"
+web/app\generation\components\verified_report_view.tsx:259:      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+web/app\generation\components\verified_report_view.tsx:261:        <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\generation\components\verified_report_view.tsx:266:          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+web/app\generation\components\verified_report_view.tsx:273:              className="text-foreground flex items-center gap-2 font-medium"
+web/tests\e2e\visual.spec.ts:7: * the committed baseline on every CI run. Diff threshold and mask coverage
+web/app\inspector\[runId]\page.tsx:73:          label: "Frame coverage",
+web/app\inspector\[runId]\page.tsx:74:          count: bundle.frame_coverage.length,
+web/app\inspector\[runId]\page.tsx:117:      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-8">
+web/app\inspector\[runId]\page.tsx:134:            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+web/app\inspector\[runId]\page.tsx:181:            <section className="flex flex-col gap-2">
+web/app\inspector\[runId]\page.tsx:193:            <nav className="border-border flex gap-2 border-b">
+web/app\inspector\[runId]\page.tsx:211:            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+web/app\inspector\[runId]\page.tsx:212:              <div className="flex flex-col gap-3 lg:col-span-2">
+web/app\inspector\[runId]\page.tsx:287:    <ul className="flex flex-col gap-3">
+web/app\inspector\[runId]\page.tsx:359:  if (bundle.frame_coverage.length === 0) {
+web/app\inspector\[runId]\page.tsx:360:    return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
+web/app\inspector\[runId]\page.tsx:363:    <ul className="flex flex-col gap-2">
+web/app\inspector\[runId]\page.tsx:364:      {bundle.frame_coverage.map((f) => (
+web/app\inspector\[runId]\page.tsx:377:                  style={{ width: `${f.coverage_percent}%` }}
+web/app\inspector\[runId]\page.tsx:381:                {f.sources_assigned} sources · {f.coverage_percent.toFixed(1)}%
+web/app\inspector\[runId]\page.tsx:382:                coverage
+web/app\inspector\[runId]\page.tsx:407:    <ul className="flex flex-col gap-3">
+web/app\inspector\[runId]\page.tsx:417:              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+web/app\inspector\[runId]\page.tsx:421:                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+web/app\inspector\[runId]\page.tsx:437:                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+web/app\inspector\[runId]\page.tsx:523:    <div className="flex flex-col gap-4">
+web/app\inspector\[runId]\page.tsx:533:          <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+web/app\inspector\[runId]\page.tsx:647:    <div className="flex flex-col gap-3">
+web/app\inspector\[runId]\page.tsx:648:      <div className="flex gap-2">
+web/app\inspector\[runId]\page.tsx:696:              <div className="mt-2 mb-3 flex flex-wrap gap-1">
+web/app\inspector\[runId]\page.tsx:729:    <ul className="flex flex-col gap-2">
+
+ succeeded in 9006ms:
+diff --git a/web/app/sentence_hover_test/_demo_coverage.tsx b/web/app/sentence_hover_test/_demo_coverage.tsx
+new file mode 100644
+index 0000000..1eb7bb5
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_coverage.tsx
+@@ -0,0 +1,121 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type {
++  EvidencePool,
++  FrameGap,
++  GapReason,
++  RetrievalSource,
++  VerifiedReport,
++} from "@/lib/api";
++
++const ISO = new Date().toISOString();
++const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++
++// Cycle synthetic gaps through GapReason union literals (NOT a runtime enum
++// per Codex iter-1 P2 — explicit typed array).
++const GAP_REASONS: GapReason[] = [
++  "paywalled",
++  "no_oa",
++  "source_tier_ineligible",
++  "language_unavailable",
++  "retracted_only",
++  "jurisdiction_outside",
++  "not_indexed",
++  "embargoed",
++  "other",
++];
++
++const SRC: RetrievalSource = {
++  source_id: "src-cov-0",
++  url: "https://www.cochrane.org/CD-cov-0",
++  domain: "cochrane.org",
++  tier: "T1",
++  title: "Coverage harness source",
++  publication_date: FRESH_DATE,
++  authors: ["Smith J"],
++  snippet: "Coverage demo source snippet text used by the harness.",
++  full_text_available: true,
++  full_text: "Coverage demo source snippet text used by the harness.",
++  fetched_at_utc: ISO,
++  provenance: {},
++};
++
++export function CoverageHarness({
++  covered,
++  gap_count,
++}: {
++  covered: number;
++  gap_count: number;
++}) {
++  const total = covered + gap_count;
++  const gaps: FrameGap[] = Array.from({ length: gap_count }, (_, i) => ({
++    entity_name: `Entity ${i + 1}`,
++    reason: GAP_REASONS[i % GAP_REASONS.length],
++    reason_detail: `synthetic detail ${i + 1}`,
++  }));
++  const pool: EvidencePool = {
++    pool_id: "p-cov",
++    decision_id: "d-cov",
++    sources: [SRC],
++    adequacy: {
++      is_adequate: true,
++      sources_per_tier: { T1: 1, T2: 0, T3: 0 },
++      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
++      failure_reason: null,
++    },
++    queries_executed: ["coverage"],
++    retrieval_started_at_utc: ISO,
++    retrieval_finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++  const report: VerifiedReport = {
++    report_id: "r-cov",
++    pool_id: "p-cov",
++    decision_id: "d-cov",
++    sections: [
++      {
++        section_id: "sec_cov",
++        section_title: `Coverage harness (${covered}/${total})`,
++        verified_sentences: [
++          {
++            section_id: "sec_cov",
++            sentence_text: "Coverage harness sentinel sentence.",
++            provenance_tokens: ["[#ev:src-cov-0:0-20]"],
++            verifier_pass: true,
++            drop_reason: null,
++            evaluator_agrees: true,
++          },
++        ],
++        section_verify_pass_rate: 1.0,
++        section_status: "verified",
++      },
++    ],
++    overall_verify_pass_rate: 1.0,
++    pipeline_verdict: "success",
++    generator_model: "test/cov",
++    evaluator_model: "strict_verify_v1",
++    family_segregation_passed: true,
++    frame_coverage: {
++      covered_entity_count: covered,
++      total_entity_count: total,
++      gaps,
++    },
++    verifier_pass_threshold: 0.4,
++    started_at_utc: ISO,
++    finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++  return (
++    <div
++      data-testid={`coverage-harness-${covered}-${gap_count}`}
++      className="mx-auto max-w-4xl p-6"
++    >
++      <VerifiedReportView report={report} pool={pool} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/coverage/page.tsx b/web/app/sentence_hover_test/coverage/page.tsx
+new file mode 100644
+index 0000000..5b44b37
+--- /dev/null
++++ b/web/app/sentence_hover_test/coverage/page.tsx
+@@ -0,0 +1,19 @@
++import { CoverageHarness } from "../_demo_coverage";
++
++function clamp_non_negative_int(raw: string | undefined, dflt: number): number {
++  if (raw === undefined) return dflt;
++  const n = Number.parseInt(raw, 10);
++  if (!Number.isFinite(n) || n < 0) return dflt;
++  return Math.min(n, 100);
++}
++
++export default async function CoveragePage({
++  searchParams,
++}: {
++  searchParams: Promise<{ covered?: string; gap_count?: string }>;
++}) {
++  const params = await searchParams;
++  const covered = clamp_non_negative_int(params.covered, 14);
++  const gap_count = clamp_non_negative_int(params.gap_count, 1);
++  return <CoverageHarness covered={covered} gap_count={gap_count} />;
++}
+diff --git a/web/tests/e2e/frame_coverage_adversarial.spec.ts b/web/tests/e2e/frame_coverage_adversarial.spec.ts
+new file mode 100644
+index 0000000..872d3a9
+--- /dev/null
++++ b/web/tests/e2e/frame_coverage_adversarial.spec.ts
+@@ -0,0 +1,38 @@
++import { expect, test } from "@playwright/test";
++
++test("0/15 — all gaps, no coverage; gap-14 visible + 15 gaps text", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
++  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
++    "15 gaps",
++  );
++  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
++});
++
++test("15/15 — all covered, no gaps; complete state", async ({ page }) => {
++  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
++  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
++  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
++    "15/15",
++  );
++});
++
++test("1/15 — single covered, 14 gaps; gap-13 visible + 14 gaps text", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
++  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
++  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
++  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
++    "14 gaps",
++  );
++  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
++});
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+The staged additions match the brief at a high level. I’m now checking the display logic and API interfaces for any mismatch that would make the harness or assertions ineffective.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/generation/components/frame_coverage_panel.tsx | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/lib/api.ts | Select-Object -Skip 600 -First 80 | ForEach-Object { $i++; "{0,4}: {1}" -f ($i+600), $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/generation/components/verified_report_view.tsx | ForEach-Object { $i++; if ($i -ge 1 -and $i -le 320) { "{0,4}: {1}" -f $i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/sentence_hover_test/_demo.tsx | ForEach-Object { $i++; if (($i -ge 1 -and $i -le 130) -or ($i -ge 240 -and $i -le 290)) { "{0,4}: {1}" -f $i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/sentence_hover_test/page.tsx | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+ succeeded in 2705ms:
+   1: "use client";
+   2: 
+   3: import { useState } from "react";
+   4: import { Card, CardContent } from "@/components/ui/card";
+   5: import {
+   6:   Sheet,
+   7:   SheetContent,
+   8:   SheetDescription,
+   9:   SheetHeader,
+  10:   SheetTitle,
+  11: } from "@/components/ui/sheet";
+  12: import { Button } from "@/components/ui/button";
+  13: import { cn } from "@/lib/utils";
+  14: import type { FrameCoverage, FrameGap, GapReason } from "@/lib/api";
+  15: 
+  16: const UNBLOCK_ACTION: Record<GapReason, string> = {
+  17:   paywalled: "Search PMC OA mirror or Sci-Hub for ${entity_name}, or email author for postprint.",
+  18:   no_oa: "Email Cochrane corresponding author for OA preprint of ${entity_name}.",
+  19:   source_tier_ineligible: "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
+  20:   language_unavailable: "Request translation of ${entity_name} via institutional library translation service.",
+  21:   retracted_only: "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
+  22:   jurisdiction_outside: "Note ${entity_name} is outside scope jurisdiction; flag for explicit jurisdictional caveat in report.",
+  23:   not_indexed: "Try Google Scholar + author homepages for ${entity_name}; check institutional preprint repositories.",
+  24:   embargoed: "Note embargo expiry date for ${entity_name}; schedule report regeneration after release.",
+  25:   other: "Manually triage ${entity_name}; document resolution in operator notes.",
+  26: };
+  27: 
+  28: const GAP_REASON_LABEL: Record<GapReason, string> = {
+  29:   paywalled: "Paywalled",
+  30:   no_oa: "No OA",
+  31:   source_tier_ineligible: "Source-tier ineligible",
+  32:   language_unavailable: "Language unavailable",
+  33:   retracted_only: "Only retracted sources",
+  34:   jurisdiction_outside: "Jurisdiction outside scope",
+  35:   not_indexed: "Not indexed",
+  36:   embargoed: "Embargoed",
+  37:   other: "Other",
+  38: };
+  39: 
+  40: export function FrameCoveragePanel({
+  41:   coverage,
+  42: }: {
+  43:   coverage: FrameCoverage | null | undefined;
+  44: }) {
+  45:   const [selected_gap_idx, set_selected_gap_idx] = useState<number | null>(
+  46:     null,
+  47:   );
+  48:   const [copied, set_copied] = useState(false);
+  49:   if (!coverage) return null;
+  50:   const { covered_entity_count, total_entity_count, gaps } = coverage;
+  51:   // Codex iter-1 P2: degenerate empty 0/0/[] coverage is not informative;
+  52:   // render nothing rather than misleading amber gaps panel.
+  53:   if (total_entity_count === 0) return null;
+  54:   // total>0 from here, so progress_pct is well-defined.
+  55:   const progress_pct = Math.round(
+  56:     (covered_entity_count / total_entity_count) * 100,
+  57:   );
+  58:   const all_covered = gaps.length === 0;
+  59:   const has_gaps = gaps.length > 0;
+  60:   return (
+  61:     <Card
+  62:       data-testid={
+  63:         all_covered ? "frame-coverage-complete" : "frame-coverage-gaps"
+  64:       }
+  65:       className={cn(
+  66:         "border",
+  67:         all_covered
+  68:           ? "border-emerald-500/40 bg-emerald-500/5"
+  69:           : "border-amber-500/40 bg-amber-500/5",
+  70:       )}
+  71:     >
+  72:       <CardContent className="flex flex-col gap-2 py-3">
+  73:         <div className="flex items-center justify-between gap-3">
+  74:           <span
+  75:             className={cn(
+  76:               "text-sm font-medium",
+  77:               all_covered ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300",
+  78:             )}
+  79:           >
+  80:             {covered_entity_count}/{total_entity_count} entities covered
+  81:           </span>
+  82:           {has_gaps ? (
+  83:             <span
+  84:               data-testid="frame-coverage-gap-count"
+  85:               className="text-xs text-amber-700 dark:text-amber-300"
+  86:             >
+  87:               {gaps.length} gap{gaps.length > 1 ? "s" : ""}
+  88:             </span>
+  89:           ) : null}
+  90:         </div>
+  91:         <div
+  92:           data-testid="frame-coverage-progress"
+  93:           className="bg-muted h-2 w-full overflow-hidden rounded-full"
+  94:         >
+  95:           <div
+  96:             className={cn(
+  97:               "h-full transition-all",
+  98:               all_covered ? "bg-emerald-500" : "bg-amber-500",
+  99:             )}
+ 100:             style={{ width: `${progress_pct}%` }}
+ 101:           />
+ 102:         </div>
+ 103:         {has_gaps ? (
+ 104:           <ul className="flex flex-col gap-1 text-xs">
+ 105:             {gaps.map((g, idx) => (
+ 106:               <li
+ 107:                 key={idx}
+ 108:                 data-testid={`frame-coverage-gap-${idx}`}
+ 109:                 role="button"
+ 110:                 tabIndex={0}
+ 111:                 onClick={() => set_selected_gap_idx(idx)}
+ 112:                 onKeyDown={(e) => {
+ 113:                   if (e.key === "Enter" || e.key === " ") {
+ 114:                     e.preventDefault();
+ 115:                     set_selected_gap_idx(idx);
+ 116:                   }
+ 117:                 }}
+ 118:                 className="min-h-6 cursor-pointer rounded-md px-2 py-1 text-amber-800 hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-200"
+ 119:               >
+ 120:                 <strong>{g.entity_name}</strong> — {GAP_REASON_LABEL[g.reason]}
+ 121:                 {g.reason_detail ? `: ${g.reason_detail}` : ""}
+ 122:               </li>
+ 123:             ))}
+ 124:           </ul>
+ 125:         ) : null}
+ 126:       </CardContent>
+ 127:       <FrameGapDetailSheet
+ 128:         gap={selected_gap_idx !== null ? (gaps[selected_gap_idx] ?? null) : null}
+ 129:         copied={copied}
+ 130:         onClose={() => {
+ 131:           set_selected_gap_idx(null);
+ 132:           set_copied(false);
+ 133:         }}
+ 134:         onCopy={async (text) => {
+ 135:           try {
+ 136:             await navigator.clipboard.writeText(text);
+ 137:             set_copied(true);
+ 138:             setTimeout(() => set_copied(false), 2000);
+ 139:           } catch {
+ 140:             // clipboard write rejected (sandbox / no perm) — UI just doesn't flash.
+ 141:           }
+ 142:         }}
+ 143:       />
+ 144:     </Card>
+ 145:   );
+ 146: }
+ 147: 
+ 148: function FrameGapDetailSheet({
+ 149:   gap,
+ 150:   copied,
+ 151:   onClose,
+ 152:   onCopy,
+ 153: }: {
+ 154:   gap: FrameGap | null;
+ 155:   copied: boolean;
+ 156:   onClose: () => void;
+ 157:   onCopy: (text: string) => void;
+ 158: }) {
+ 159:   const action = gap
+ 160:     ? UNBLOCK_ACTION[gap.reason].replace(/\$\{entity_name\}/g, gap.entity_name)
+ 161:     : "";
+ 162:   return (
+ 163:     <Sheet
+ 164:       open={gap !== null}
+ 165:       onOpenChange={(open) => {
+ 166:         if (!open) onClose();
+ 167:       }}
+ 168:     >
+ 169:       <SheetContent
+ 170:         data-testid="frame-gap-detail-sheet"
+ 171:         side="right"
+ 172:         className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+ 173:       >
+ 174:         <SheetHeader>
+ 175:           <SheetTitle data-testid="frame-gap-detail-title">
+ 176:             {gap ? `${gap.entity_name} — ${GAP_REASON_LABEL[gap.reason]}` : ""}
+ 177:           </SheetTitle>
+ 178:           <SheetDescription>
+ 179:             Documented unblock action for this frame coverage gap.
+ 180:           </SheetDescription>
+ 181:         </SheetHeader>
+ 182:         {gap ? (
+ 183:           <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+ 184:             <p data-testid="frame-gap-detail-body" className="text-foreground">
+ 185:               {gap.reason_detail ?? "No additional detail provided."}
+ 186:             </p>
+ 187:             <p
+ 188:               data-testid="frame-gap-action"
+ 189:               className="border-border rounded-md border bg-amber-500/5 p-2 text-sm"
+ 190:             >
+ 191:               <strong>Suggested action:</strong> {action}
+ 192:             </p>
+ 193:             <div className="flex items-center gap-2">
+ 194:               <Button
+ 195:                 data-testid="frame-gap-copy-button"
+ 196:                 onClick={() => onCopy(action)}
+ 197:                 size="sm"
+ 198:               >
+ 199:                 Copy action
+ 200:               </Button>
+ 201:               {copied ? (
+ 202:                 <span
+ 203:                   data-testid="frame-gap-copy-confirm"
+ 204:                   className="text-xs text-emerald-700 dark:text-emerald-300"
+ 205:                 >
+ 206:                   Copied!
+ 207:                 </span>
+ 208:               ) : null}
+ 209:             </div>
+ 210:           </div>
+ 211:         ) : null}
+ 212:       </SheetContent>
+ 213:     </Sheet>
+ 214:   );
+ 215: }
+
+ succeeded in 3544ms:
+ 601:   provenance_tokens: string[];
+ 602:   verifier_pass: boolean;
+ 603:   drop_reason: DropReason | null;
+ 604:   evaluator_agrees: boolean | null;
+ 605:   is_synthesis_claim?: boolean;
+ 606:   assertion_surface?: AssertionSurface;
+ 607: }
+ 608: 
+ 609: export type AssertionSurface =
+ 610:   | "prose"
+ 611:   | "table"
+ 612:   | "summary_bullet"
+ 613:   | "limitation"
+ 614:   | "caption"
+ 615:   | "heading";
+ 616: 
+ 617: export interface VerifiedReportSection {
+ 618:   section_id: string;
+ 619:   section_title: string;
+ 620:   verified_sentences: ReportVerifiedSentence[];
+ 621:   section_verify_pass_rate: number;
+ 622:   section_status: SectionStatus;
+ 623: }
+ 624: 
+ 625: export type GapReason =
+ 626:   | "paywalled"
+ 627:   | "no_oa"
+ 628:   | "source_tier_ineligible"
+ 629:   | "language_unavailable"
+ 630:   | "retracted_only"
+ 631:   | "jurisdiction_outside"
+ 632:   | "not_indexed"
+ 633:   | "embargoed"
+ 634:   | "other";
+ 635: 
+ 636: export interface FrameGap {
+ 637:   entity_name: string;
+ 638:   reason: GapReason;
+ 639:   reason_detail?: string | null;
+ 640: }
+ 641: 
+ 642: export interface FrameCoverage {
+ 643:   covered_entity_count: number;
+ 644:   total_entity_count: number;
+ 645:   gaps: FrameGap[];
+ 646: }
+ 647: 
+ 648: export interface VerifiedReport {
+ 649:   report_id: string;
+ 650:   pool_id: string;
+ 651:   decision_id: string;
+ 652:   sections: VerifiedReportSection[];
+ 653:   overall_verify_pass_rate: number;
+ 654:   pipeline_verdict: PipelineVerdict;
+ 655:   generator_model: string;
+ 656:   evaluator_model: string;
+ 657:   family_segregation_passed: boolean;
+ 658:   verifier_pass_threshold: number;
+ 659:   started_at_utc: string;
+ 660:   finished_at_utc: string;
+ 661:   latency_ms: number;
+ 662:   cost_usd: number;
+ 663:   frame_coverage?: FrameCoverage | null;
+ 664: }
+ 665: 
+ 666: export interface GenerationSuccessResponse {
+ 667:   error: false;
+ 668:   report: VerifiedReport;
+ 669:   server_time_utc: string;
+ 670: }
+ 671: 
+ 672: export interface GenerationErrorBody {
+ 673:   error: true;
+ 674:   code:
+ 675:     | "inadequate_pool"
+ 676:     | "completion_backend_unavailable"
+ 677:     | "malformed_output";
+ 678:   message: string;
+ 679:   pool_id: string | null;
+ 680:   decision_id: string | null;
+
+ succeeded in 4050ms:
+   1: import { SentenceHoverHarness } from "./_demo";
+   2: 
+   3: export default function SentenceHoverTestPage() {
+   4:   return <SentenceHoverHarness />;
+   5: }
+
+ succeeded in 4724ms:
+   1: "use client";
+   2: 
+   3: import { useState } from "react";
+   4: 
+   5: import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+   6: import { useSentenceHover } from "@/lib/sentence_highlight";
+   7: import { cn } from "@/lib/utils";
+   8: import {
+   9:   keptSentences,
+  10:   type AssertionSurface,
+  11:   type DropReason,
+  12:   type EvidencePool,
+  13:   type ReportVerifiedSentence,
+  14:   type VerifiedReport,
+  15:   type VerifiedReportSection,
+  16: } from "@/lib/api";
+  17: 
+  18: const ASSERTION_SURFACES: AssertionSurface[] = [
+  19:   "prose",
+  20:   "table",
+  21:   "summary_bullet",
+  22:   "limitation",
+  23:   "caption",
+  24:   "heading",
+  25: ];
+  26: 
+  27: const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  28:   prose: "Prose",
+  29:   table: "Table",
+  30:   summary_bullet: "Summary bullet",
+  31:   limitation: "Limitation",
+  32:   caption: "Caption",
+  33:   heading: "Heading",
+  34: };
+  35: 
+  36: import { FrameCoveragePanel } from "./frame_coverage_panel";
+  37: import { SentenceInspector } from "./sentence_inspector";
+  38: 
+  39: const STATUS_TONE: Record<string, string> = {
+  40:   verified:
+  41:     "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  42:   regenerated:
+  43:     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  44:   dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  45: };
+  46: 
+  47: const DROP_REASON_LABEL: Record<DropReason, string> = {
+  48:   invalid_token: "Invalid token (source not in pool)",
+  49:   span_out_of_range: "Span out of range",
+  50:   numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  51:   overlap_too_low: "Insufficient content overlap",
+  52:   no_provenance_token: "No provenance token",
+  53: };
+  54: 
+  55: function VerdictBadge({
+  56:   verdict,
+  57: }: {
+  58:   verdict: "success" | "abort_no_verified_sections";
+  59: }) {
+  60:   const ok = verdict === "success";
+  61:   return (
+  62:     <span
+  63:       data-testid="verdict-badge"
+  64:       className={cn(
+  65:         "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+  66:         ok
+  67:           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  68:           : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  69:       )}
+  70:     >
+  71:       <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+  72:       {ok ? "Success" : "Aborted (no verified sections)"}
+  73:     </span>
+  74:   );
+  75: }
+  76: 
+  77: function SentenceRow({
+  78:   sentence,
+  79:   show_dropped,
+  80:   sentence_id,
+  81:   hovered_id,
+  82:   onSelect,
+  83:   pool,
+  84: }: {
+  85:   sentence: ReportVerifiedSentence;
+  86:   show_dropped: boolean;
+  87:   sentence_id: string;
+  88:   hovered_id: string | null;
+  89:   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  90:   pool: EvidencePool | null;
+  91: }) {
+  92:   const dropped = !sentence.verifier_pass;
+  93:   if (dropped && !show_dropped) return null;
+  94: 
+  95:   // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  96:   // for one sentence, surface a "may conflict — review Inspector" caption.
+  97:   // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  98:   // detector; it's a flag prompting human review.
+  99:   const t1_conflict = (() => {
+ 100:     if (!pool || dropped) return false;
+ 101:     const cited_t1 = new Set<string>();
+ 102:     for (const tok of sentence.provenance_tokens) {
+ 103:       const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+ 104:       if (!m) continue;
+ 105:       const src = pool.sources.find((s) => s.source_id === m[1]);
+ 106:       if (src && src.tier === "T1") cited_t1.add(m[1]);
+ 107:     }
+ 108:     return cited_t1.size >= 2;
+ 109:   })();
+ 110: 
+ 111:   return (
+ 112:     <li
+ 113:       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+ 114:       data-sentence-id={sentence_id}
+ 115:       role="button"
+ 116:       tabIndex={0}
+ 117:       onClick={() => onSelect(sentence_id, sentence)}
+ 118:       onKeyDown={(e) => {
+ 119:         if (e.key === "Enter" || e.key === " ") {
+ 120:           e.preventDefault();
+ 121:           onSelect(sentence_id, sentence);
+ 122:         }
+ 123:       }}
+ 124:       className={cn(
+ 125:         "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+ 126:         dropped
+ 127:           ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+ 128:           : "border-border bg-background",
+ 129:         hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+ 130:       )}
+ 131:     >
+ 132:       <div className="flex items-start gap-2">
+ 133:         {(() => {
+ 134:           const surface = sentence.assertion_surface ?? "prose";
+ 135:           if (surface === "prose") return null;
+ 136:           return (
+ 137:             <span
+ 138:               data-testid={`surface-badge-${surface}`}
+ 139:               title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+ 140:               className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+ 141:             >
+ 142:               {SURFACE_LABEL[surface]}
+ 143:             </span>
+ 144:           );
+ 145:         })()}
+ 146:         <span className={cn(dropped ? "" : "text-foreground")}>
+ 147:           {sentence.sentence_text}
+ 148:         </span>
+ 149:       </div>
+ 150:       {sentence.provenance_tokens.length > 0 && !dropped ? (
+ 151:         <span className="text-muted-foreground font-mono text-[10px]">
+ 152:           {sentence.provenance_tokens.join(" ")}
+ 153:         </span>
+ 154:       ) : null}
+ 155:       {dropped && sentence.drop_reason ? (
+ 156:         <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+ 157:           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+ 158:         </span>
+ 159:       ) : null}
+ 160:       {t1_conflict ? (
+ 161:         <span
+ 162:           data-testid="inspector-t1-conflict"
+ 163:           title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+ 164:           className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+ 165:         >
+ 166:           ⚠ T1 sources may conflict — review Inspector
+ 167:         </span>
+ 168:       ) : null}
+ 169:     </li>
+ 170:   );
+ 171: }
+ 172: 
+ 173: function SectionCard({
+ 174:   section,
+ 175:   show_dropped,
+ 176:   hovered_id,
+ 177:   onSelect,
+ 178:   pool,
+ 179: }: {
+ 180:   section: VerifiedReportSection;
+ 181:   show_dropped: boolean;
+ 182:   hovered_id: string | null;
+ 183:   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+ 184:   pool: EvidencePool | null;
+ 185: }) {
+ 186:   const kept = keptSentences(section);
+ 187:   const dropped_count = section.verified_sentences.length - kept.length;
+ 188:   return (
+ 189:     <Card
+ 190:       data-testid={`section-${section.section_id}`}
+ 191:       className={cn(
+ 192:         "border",
+ 193:         section.section_status === "dropped" && "opacity-60",
+ 194:       )}
+ 195:     >
+ 196:       <CardHeader className="flex flex-row items-center justify-between gap-3">
+ 197:         <CardTitle className="text-base">{section.section_title}</CardTitle>
+ 198:         <span
+ 199:           className={cn(
+ 200:             "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+ 201:             STATUS_TONE[section.section_status],
+ 202:           )}
+ 203:         >
+ 204:           {section.section_status} ·{" "}
+ 205:           {Math.round(section.section_verify_pass_rate * 100)}%
+ 206:         </span>
+ 207:       </CardHeader>
+ 208:       <CardContent className="flex flex-col gap-2">
+ 209:         {kept.length === 0 && !show_dropped ? (
+ 210:           <p className="text-muted-foreground text-sm">
+ 211:             No verified sentences in this section.
+ 212:           </p>
+ 213:         ) : (
+ 214:           <ul className="flex flex-col gap-1.5">
+ 215:             {section.verified_sentences.map((s, idx) => (
+ 216:               <SentenceRow
+ 217:                 key={idx}
+ 218:                 sentence={s}
+ 219:                 show_dropped={show_dropped}
+ 220:                 sentence_id={`${section.section_id}:${idx}`}
+ 221:                 hovered_id={hovered_id}
+ 222:                 onSelect={onSelect}
+ 223:                 pool={pool}
+ 224:               />
+ 225:             ))}
+ 226:           </ul>
+ 227:         )}
+ 228:         {!show_dropped && dropped_count > 0 ? (
+ 229:           <p className="text-muted-foreground text-xs italic">
+ 230:             {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+ 231:             strict-verify (toggle below to inspect).
+ 232:           </p>
+ 233:         ) : null}
+ 234:       </CardContent>
+ 235:     </Card>
+ 236:   );
+ 237: }
+ 238: 
+ 239: export function VerifiedReportView({
+ 240:   report,
+ 241:   show_dropped = false,
+ 242:   pool = null,
+ 243: }: {
+ 244:   report: VerifiedReport;
+ 245:   show_dropped?: boolean;
+ 246:   pool?: EvidencePool | null;
+ 247: }) {
+ 248:   const { hovered_id, root_ref } = useSentenceHover();
+ 249:   const [inspector, setInspector] = useState<{
+ 250:     id: string;
+ 251:     sentence: ReportVerifiedSentence;
+ 252:   } | null>(null);
+ 253:   return (
+ 254:     <div
+ 255:       ref={root_ref}
+ 256:       data-testid="verified-report-view"
+ 257:       className="flex flex-col gap-4"
+ 258:     >
+ 259:       <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+ 260:       <Card>
+ 261:         <CardHeader className="flex flex-row items-center justify-between gap-3">
+ 262:           <CardTitle className="text-lg">Verified report</CardTitle>
+ 263:           <VerdictBadge verdict={report.pipeline_verdict} />
+ 264:         </CardHeader>
+ 265:         <CardContent>
+ 266:           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+ 267:             <dt className="text-muted-foreground">Generator</dt>
+ 268:             <dd className="text-foreground font-medium">
+ 269:               {report.generator_model}
+ 270:             </dd>
+ 271:             <dt className="text-muted-foreground">Evaluator</dt>
+ 272:             <dd
+ 273:               className="text-foreground flex items-center gap-2 font-medium"
+ 274:               data-testid="report-evaluator"
+ 275:             >
+ 276:               {report.evaluator_model}
+ 277:               {report.family_segregation_passed ? (
+ 278:                 <span
+ 279:                   data-testid="family-segregated"
+ 280:                   title="Two-family segregation passed: evaluator and generator are from different training lineages."
+ 281:                   className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+ 282:                 >
+ 283:                   ✓ Family segregated
+ 284:                 </span>
+ 285:               ) : (
+ 286:                 <span
+ 287:                   data-testid="family-not-segregated"
+ 288:                   title="Two-family segregation FAILED: evaluator and generator share training lineage."
+ 289:                   className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+ 290:                 >
+ 291:                   ✗ Same family
+ 292:                 </span>
+ 293:               )}
+ 294:             </dd>
+ 295:             <dt className="text-muted-foreground">Pass rate</dt>
+ 296:             <dd className="text-foreground font-medium">
+ 297:               {Math.round(report.overall_verify_pass_rate * 100)}%
+ 298:             </dd>
+ 299:             <dt className="text-muted-foreground">Sections</dt>
+ 300:             <dd className="text-foreground font-medium">
+ 301:               {
+ 302:                 report.sections.filter((s) => s.section_status !== "dropped")
+ 303:                   .length
+ 304:               }{" "}
+ 305:               kept ·{" "}
+ 306:               {
+ 307:                 report.sections.filter((s) => s.section_status === "dropped")
+ 308:                   .length
+ 309:               }{" "}
+ 310:               dropped
+ 311:             </dd>
+ 312:             <dt className="text-muted-foreground">Latency</dt>
+ 313:             <dd className="text-foreground font-medium">
+ 314:               {report.latency_ms} ms
+ 315:             </dd>
+ 316:           </dl>
+ 317:           <p
+ 318:             data-testid="assertion-surface-legend"
+ 319:             className="text-muted-foreground mt-3 text-xs"
+ 320:           >
+
+ succeeded in 5457ms:
+   1: "use client";
+   2: 
+   3: import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+   4: import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+   5: 
+   6: const ISO = new Date().toISOString();
+   7: 
+   8: // I-f5-007: keep the "normal" demo source ALWAYS fresh so the stale badge
+   9: // only renders for sources we explicitly mark stale. Pin to ~30 days ago.
+  10: const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+  11:   .toISOString()
+  12:   .slice(0, 10);
+  13: // Pin the stale demo source to 3 years ago — well past the 730-day cutoff.
+  14: const STALE_DATE = new Date(Date.now() - 3 * 365 * 24 * 3600 * 1000)
+  15:   .toISOString()
+  16:   .slice(0, 10);
+  17: 
+  18: const SOURCE_FULL_TEXT_5 =
+  19:   "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+  20: 
+  21: function _src(i: number): RetrievalSource {
+  22:   return {
+  23:     source_id: `src-${i}`,
+  24:     url: `https://www.cochrane.org/CD-${i}`,
+  25:     domain: "cochrane.org",
+  26:     tier: "T1",
+  27:     title: `Cochrane review ${i}`,
+  28:     publication_date: FRESH_DATE,
+  29:     authors: ["Smith J", "Doe R", "Patel K"],
+  30:     snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  31:     full_text_available: true,
+  32:     full_text: SOURCE_FULL_TEXT_5,
+  33:     fetched_at_utc: ISO,
+  34:     provenance: {},
+  35:   };
+  36: }
+  37: 
+  38: const SRC_RETRACTED: RetrievalSource = {
+  39:   source_id: "src-retracted",
+  40:   url: "https://www.cochrane.org/CD-retracted",
+  41:   domain: "cochrane.org",
+  42:   tier: "T1",
+  43:   title: "Cochrane review (retracted)",
+  44:   publication_date: FRESH_DATE,
+  45:   authors: ["Doe R"],
+  46:   snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  47:   full_text_available: true,
+  48:   full_text: SOURCE_FULL_TEXT_5,
+  49:   fetched_at_utc: ISO,
+  50:   provenance: {},
+  51:   retracted: true,
+  52: };
+  53: 
+  54: const SRC_PAYWALLED: RetrievalSource = {
+  55:   source_id: "src-paywalled",
+  56:   url: "https://nejm.org/paywalled/abc",
+  57:   domain: "nejm.org",
+  58:   tier: "T1",
+  59:   title: "Paywalled NEJM article",
+  60:   publication_date: FRESH_DATE,
+  61:   authors: ["Jones B"],
+  62:   snippet: "Abstract excerpt only — full text behind paywall.",
+  63:   full_text_available: false,
+  64:   full_text: null,
+  65:   fetched_at_utc: ISO,
+  66:   provenance: {},
+  67: };
+  68: 
+  69: const SRC_STALE: RetrievalSource = {
+  70:   source_id: "src-stale",
+  71:   url: "https://www.cochrane.org/CD-stale",
+  72:   domain: "cochrane.org",
+  73:   tier: "T1",
+  74:   title: "Cochrane review (3y old)",
+  75:   publication_date: STALE_DATE,
+  76:   authors: ["Patel K"],
+  77:   snippet: SOURCE_FULL_TEXT_5.slice(0, 80),
+  78:   full_text_available: true,
+  79:   full_text: SOURCE_FULL_TEXT_5,
+  80:   fetched_at_utc: ISO,
+  81:   provenance: {},
+  82: };
+  83: 
+  84: const POOL: EvidencePool = {
+  85:   pool_id: "p-hover",
+  86:   decision_id: "d-hover",
+  87:   sources: [
+  88:     ...Array.from({ length: 10 }, (_, i) => _src(i)),
+  89:     SRC_RETRACTED,
+  90:     SRC_STALE,
+  91:     SRC_PAYWALLED,
+  92:   ],
+  93:   adequacy: {
+  94:     is_adequate: true,
+  95:     sources_per_tier: { T1: 13, T2: 0, T3: 0 },
+  96:     min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+  97:     failure_reason: null,
+  98:   },
+  99:   queries_executed: ["aspirin migraine"],
+ 100:   retrieval_started_at_utc: ISO,
+ 101:   retrieval_finished_at_utc: ISO,
+ 102:   latency_ms: 0,
+ 103:   cost_usd: 0,
+ 104: };
+ 105: 
+ 106: const REPORT: VerifiedReport = {
+ 107:   report_id: "r-hover-test",
+ 108:   pool_id: "p-hover",
+ 109:   decision_id: "d-hover",
+ 110:   sections: [
+ 111:     {
+ 112:       section_id: "sec_x",
+ 113:       section_title: "Test section",
+ 114:       verified_sentences: [
+ 115:         ...Array.from({ length: 10 }, (_, i) => {
+ 116:           // Sentence 5: src-5 token span 0-50; sentence 9: src-ghost (missing-source path).
+ 117:           const token =
+ 118:             i === 9
+ 119:               ? `[#ev:src-ghost:0-3]`
+ 120:               : `[#ev:src-${i}:0-${Math.min(50, SOURCE_FULL_TEXT_5.length)}]`;
+ 121:           return {
+ 122:             section_id: "sec_x",
+ 123:             sentence_text: `Test sentence ${i} about aspirin.`,
+ 124:             provenance_tokens: [token],
+ 125:             verifier_pass: true,
+ 126:             drop_reason: null,
+ 127:             evaluator_agrees: true,
+ 128:           };
+ 129:         }),
+ 130:         // sec_x:10 — agree state (explicit for I-f5-004).
+ 240:           evaluator_agrees: true,
+ 241:         },
+ 242:         // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+ 243:         {
+ 244:           section_id: "sec_x",
+ 245:           sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+ 246:           provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+ 247:           verifier_pass: true,
+ 248:           drop_reason: null,
+ 249:           evaluator_agrees: true,
+ 250:         },
+ 251:       ],
+ 252:       section_verify_pass_rate: 1.0,
+ 253:       section_status: "verified",
+ 254:     },
+ 255:   ],
+ 256:   overall_verify_pass_rate: 1.0,
+ 257:   pipeline_verdict: "success",
+ 258:   generator_model: "test/model",
+ 259:   evaluator_model: "strict_verify_v1",
+ 260:   family_segregation_passed: true,
+ 261:   frame_coverage: {
+ 262:     covered_entity_count: 14,
+ 263:     total_entity_count: 15,
+ 264:     gaps: [
+ 265:       {
+ 266:         entity_name: "Pediatric population",
+ 267:         reason: "no_oa",
+ 268:         reason_detail: "no open-access version of Cochrane review",
+ 269:       },
+ 270:     ],
+ 271:   },
+ 272:   verifier_pass_threshold: 0.4,
+ 273:   started_at_utc: ISO,
+ 274:   finished_at_utc: ISO,
+ 275:   latency_ms: 0,
+ 276:   cost_usd: 0,
+ 277: };
+ 278: 
+ 279: export function SentenceHoverHarness() {
+ 280:   return (
+ 281:     <div className="mx-auto max-w-4xl p-6">
+ 282:       <VerifiedReportView report={REPORT} pool={POOL} />
+ 283:     </div>
+ 284:   );
+ 285: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/tests/e2e -Force | Select-Object Name,Length,LastWriteTime' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sentence_hover_test|coverage" web/playwright.config.ts web/package.json web/tests -g "*.ts" -g "*.json"' in C:\POLARIS
+ succeeded in 2941ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 3298ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 3837ms:
+
+Name                                       Length LastWriteTime
+----                                       ------ -------------
+visual.spec.ts-snapshots                          2026-05-01 12:34:27 PM
+accessibility.spec.ts                      10736  2026-05-01 3:44:21 PM
+audit_bundle.spec.ts                       3103   2026-05-05 4:14:34 PM
+audit_live_adversarial.spec.ts             2832   2026-05-07 1:56:30 AM
+audit_live_multitab.spec.ts                1308   2026-05-07 1:43:07 AM
+audit_live.spec.ts                         781    2026-05-07 1:28:43 AM
+benchmark.spec.ts                          1621   2026-05-05 4:14:34 PM
+bundle_preview.spec.ts                     4140   2026-05-07 8:24:45 AM
+command_palette_adversarial.spec.ts        3005   2026-05-06 11:35:43 AM
+command_palette_suggest.spec.ts            3074   2026-05-06 11:12:20 AM
+command_palette.spec.ts                    2482   2026-05-06 10:43:27 AM
+contract_editor.spec.ts                    839    2026-05-07 12:43:17 AM
+demo_walkthrough.spec.ts                   2684   2026-05-06 7:27:04 AM
+disambiguation_modal.spec.ts               1221   2026-05-06 2:05:08 PM
+f1_a11y.spec.ts                            1807   2026-05-06 11:57:51 AM
+f1_multi_tab.spec.ts                       4111   2026-05-06 12:21:47 PM
+f2_walkthrough.spec.ts                     8770   2026-05-06 3:21:39 PM
+frame_coverage_adversarial.spec.ts         1730   2026-05-07 12:05:00 PM
+frame_coverage_panel.spec.ts               2965   2026-05-07 11:56:36 AM
+generation.spec.ts                         3592   2026-05-05 4:14:34 PM
+inspector.spec.ts                          3767   2026-05-01 12:13:21 PM
+intake_disambiguation_negative.spec.ts     3161   2026-05-06 2:39:56 PM
+intake_disambiguation.spec.ts              2759   2026-05-06 2:26:15 PM
+intake_edge.spec.ts                        1521   2026-05-06 2:52:25 PM
+intake.spec.ts                             3972   2026-05-04 9:28:41 AM
+landing_template_grid.spec.ts              3215   2026-05-06 7:27:04 AM
+performance_hover.spec.ts                  2907   2026-05-01 1:00:19 PM
+performance.spec.ts                        4701   2026-05-01 12:55:03 PM
+retrieval.spec.ts                          3905   2026-05-05 4:14:34 PM
+sentence_hover.spec.ts                     634    2026-05-07 2:20:37 AM
+sentence_inspector_adversarial.spec.ts     1792   2026-05-07 11:05:13 AM
+sentence_inspector_agreement.spec.ts       1497   2026-05-07 8:24:45 AM
+sentence_inspector_ai_agent.spec.ts        3566   2026-05-07 11:16:56 AM
+sentence_inspector_latency.spec.ts         1749   2026-05-07 10:43:03 AM
+sentence_inspector_multispan.spec.ts       1771   2026-05-07 8:35:54 AM
+sentence_inspector_retracted_stale.spec.ts 1299   2026-05-07 10:31:24 AM
+sentence_inspector_source.spec.ts          1345   2026-05-07 10:31:24 AM
+sentence_inspector_surfaces.spec.ts        1167   2026-05-07 10:53:05 AM
+sentence_inspector_synthesis.spec.ts       859    2026-05-07 8:59:12 AM
+sentence_inspector.spec.ts                 666    2026-05-07 7:23:23 AM
+sse_client.spec.ts                         1160   2026-05-07 1:12:32 AM
+upload_doc_preview.spec.ts                 2740   2026-05-06 8:10:48 PM
+upload_dropzone.spec.ts                    2921   2026-05-06 5:51:28 PM
+upload_evidence_toggle.spec.ts             2276   2026-05-06 8:23:55 PM
+upload_parse_status.spec.ts                2249   2026-05-06 6:01:17 PM
+visual.spec.ts                             2574   2026-05-01 12:34:18 PM
+
+
+ succeeded in 4350ms:
+web/tests\e2e\frame_coverage_panel.spec.ts:3:test("Frame coverage panel renders above the report with gap details", async ({
+web/tests\e2e\frame_coverage_panel.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:7:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:8:  await expect(page.getByTestId("frame-coverage-progress")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_panel.spec.ts:13:  const gap = page.getByTestId("frame-coverage-gap-0");
+web/tests\e2e\frame_coverage_panel.spec.ts:23:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:24:  await page.getByTestId("frame-coverage-gap-0").click();
+web/tests\e2e\frame_coverage_panel.spec.ts:50:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:51:  await page.getByTestId("frame-coverage-gap-0").click();
+web/tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web/tests\e2e\frame_coverage_panel.spec.ts:62:  await page.goto("/sentence_hover_test");
+web/tests\e2e\frame_coverage_panel.spec.ts:71:    return first?.getAttribute("data-testid") === "frame-coverage-gaps";
+web/tests\e2e\frame_coverage_adversarial.spec.ts:3:test("0/15 — all gaps, no coverage; gap-14 visible + 15 gaps text", async ({
+web/tests\e2e\frame_coverage_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test/coverage?covered=0&gap_count=15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:7:  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:8:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:9:  await expect(page.getByTestId("frame-coverage-gap-14")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:10:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:13:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:17:  await page.goto("/sentence_hover_test/coverage?covered=15&gap_count=0");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:18:  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:19:  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:20:  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
+web/tests\e2e\frame_coverage_adversarial.spec.ts:21:  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:29:  await page.goto("/sentence_hover_test/coverage?covered=1&gap_count=14");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:30:  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:31:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:32:  await expect(page.getByTestId("frame-coverage-gap-13")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:33:  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
+web/tests\e2e\frame_coverage_adversarial.spec.ts:34:  await expect(page.getByTestId("frame-coverage-gap-count")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:37:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
+web/tests\e2e\sentence_inspector.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:22:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:38:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_adversarial.spec.ts:47:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_hover.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:17:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:28:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_agreement.spec.ts:37:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_ai_agent.spec.ts:54:  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+web/tests\e2e\sentence_inspector_multispan.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_multispan.spec.ts:26:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_latency.spec.ts:7:    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+web/tests\e2e\sentence_inspector_source.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_source.spec.ts:29:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:17:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts:28:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_surfaces.spec.ts:12:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_surfaces.spec.ts:26:    await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_synthesis.spec.ts:6:  await page.goto("/sentence_hover_test");
+web/tests\e2e\sentence_inspector_synthesis.spec.ts:18:  await page.goto("/sentence_hover_test");
+web/tests\e2e\visual.spec.ts:7: * the committed baseline on every CI run. Diff threshold and mask coverage
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "searchParams: Promise|searchParams" web/app -g "page.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath web/app/sentence_hover_test/coverage -Force | Select-Object Name,Length,Mode' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath web/tsconfig.json' in C:\POLARIS
+ succeeded in 1895ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 2835ms:
+
+Name     Length Mode
+----     ------ ----
+page.tsx    664 -a---
+
+
+ succeeded in 3656ms:
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:8:  searchParams,
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:10:  searchParams: Promise<{ n?: string }>;
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:12:  const { n } = await searchParams;
+web/app\sentence_hover_test\coverage\page.tsx:11:  searchParams,
+web/app\sentence_hover_test\coverage\page.tsx:13:  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+web/app\sentence_hover_test\coverage\page.tsx:15:  const params = await searchParams;
+web/app\sentence_hover_test\stress\page.tsx:4:  searchParams,
+web/app\sentence_hover_test\stress\page.tsx:6:  searchParams: Promise<{ n?: string }>;
+web/app\sentence_hover_test\stress\page.tsx:8:  const params = await searchParams;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/sentence_hover_test/stress/page.tsx | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/tests/e2e/sentence_inspector_latency.spec.ts | ForEach-Object { $i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath web/app/'"'(test_harness)'/disambiguation_modal_preview/page.tsx | ForEach-Object { "'$i++; "{0,4}: {1}" -f $i, $_ }' in C:\POLARIS
+ succeeded in 1793ms:
+   1: import { StressHarness } from "../_demo_stress";
+   2: 
+   3: export default async function StressPage({
+   4:   searchParams,
+   5: }: {
+   6:   searchParams: Promise<{ n?: string }>;
+   7: }) {
+   8:   const params = await searchParams;
+   9:   const n = Number.parseInt(params.n ?? "50", 10);
+  10:   const safe_n = Number.isFinite(n) && n > 0 && n <= 1000 ? n : 50;
+  11:   return <StressHarness n={safe_n} />;
+  12: }
+
+ succeeded in 3266ms:
+   1: import { DisambiguationModalHarnessClient } from "./_client";
+   2: 
+   3: export const metadata = {
+   4:   robots: { index: false, follow: false },
+   5: };
+   6: 
+   7: export default async function Page({
+   8:   searchParams,
+   9: }: {
+  10:   searchParams: Promise<{ n?: string }>;
+  11: }) {
+  12:   const { n } = await searchParams;
+  13:   const count = n === "5" ? 5 : n === "3" ? 3 : 2;
+  14:   return <DisambiguationModalHarnessClient count={count} />;
+  15: }
+
+ succeeded in 4640ms:
+   1: import { expect, test } from "@playwright/test";
+   2: 
+   3: const TIERS = [50, 100, 200, 500];
+   4: 
+   5: for (const n of TIERS) {
+   6:   test(`Inspector opens in <1000ms at n=${n} sentences`, async ({ page }) => {
+   7:     await page.goto(`/sentence_hover_test/stress?n=${n}`);
+   8:     await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+   9:     await expect(page.getByTestId("verified-report-view")).toBeVisible();
+  10:     // Codex iter-1 P2: assert row count to prevent false-pass with fewer rows.
+  11:     await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+  12: 
+  13:     // Codex iter-1 P2: use performance.now() for tighter precision.
+  14:     const elapsed_ms = await page.evaluate(async () => {
+  15:       const target = document.querySelector(
+  16:         '[data-sentence-id="sec_stress:0"]',
+  17:       ) as HTMLElement | null;
+  18:       if (!target) throw new Error("sentence row not found");
+  19:       const t0 = performance.now();
+  20:       target.click();
+  21:       // Wait for the Sheet to attach to the DOM.
+  22:       await new Promise<void>((resolve) => {
+  23:         const observer = new MutationObserver(() => {
+  24:           if (
+  25:             document.querySelector('[data-testid="sentence-inspector-sheet"]')
+  26:           ) {
+  27:             observer.disconnect();
+  28:             resolve();
+  29:           }
+  30:         });
+  31:         observer.observe(document.body, { childList: true, subtree: true });
+  32:         if (
+  33:           document.querySelector('[data-testid="sentence-inspector-sheet"]')
+  34:         ) {
+  35:           observer.disconnect();
+  36:           resolve();
+  37:         }
+  38:       });
+  39:       const t1 = performance.now();
+  40:       return t1 - t0;
+  41:     });
+  42: 
+  43:     expect(elapsed_ms).toBeLessThan(1000);
+  44:     await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+  45:   });
+  46: }
+
+codex
+I don’t see a type or route-contract mismatch so far. I’m doing one last pass for diff identity and test harness wiring before I decide the verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --no-ext-diff --binary -- web/app/sentence_hover_test/_demo_coverage.tsx web/app/sentence_hover_test/coverage/page.tsx web/tests/e2e/frame_coverage_adversarial.spec.ts | git hash-object --stdin' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --shortstat -- web/app/sentence_hover_test/_demo_coverage.tsx web/app/sentence_hover_test/coverage/page.tsx web/tests/e2e/frame_coverage_adversarial.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --numstat -- web/app/sentence_hover_test/_demo_coverage.tsx web/app/sentence_hover_test/coverage/page.tsx web/tests/e2e/frame_coverage_adversarial.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "FrameCoveragePanel|frame_coverage|coverage-harness|frame-coverage-complete|frame-coverage-gaps" web/app web/tests -g "*.tsx" -g "*.ts"' in C:\POLARIS
+ succeeded in 2175ms:
+121	0	web/app/sentence_hover_test/_demo_coverage.tsx
+19	0	web/app/sentence_hover_test/coverage/page.tsx
+38	0	web/tests/e2e/frame_coverage_adversarial.spec.ts
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3714ms:
+web/app\inspector\[runId]\page.tsx:74:          count: bundle.frame_coverage.length,
+web/app\inspector\[runId]\page.tsx:359:  if (bundle.frame_coverage.length === 0) {
+web/app\inspector\[runId]\page.tsx:364:      {bundle.frame_coverage.map((f) => (
+web/app\sentence_hover_test\_demo_coverage.tsx:102:    frame_coverage: {
+web/app\sentence_hover_test\_demo_coverage.tsx:115:      data-testid={`coverage-harness-${covered}-${gap_count}`}
+web/app\sentence_hover_test\_demo.tsx:261:  frame_coverage: {
+web/app\generation\components\frame_coverage_panel.tsx:40:export function FrameCoveragePanel({
+web/app\generation\components\frame_coverage_panel.tsx:63:        all_covered ? "frame-coverage-complete" : "frame-coverage-gaps"
+web/app\generation\components\verified_report_view.tsx:36:import { FrameCoveragePanel } from "./frame_coverage_panel";
+web/app\generation\components\verified_report_view.tsx:259:      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+web/tests\e2e\frame_coverage_panel.spec.ts:7:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_panel.spec.ts:71:    return first?.getAttribute("data-testid") === "frame-coverage-gaps";
+web/tests\e2e\frame_coverage_adversarial.spec.ts:7:  await expect(page.getByTestId("coverage-harness-0-15")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:8:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:13:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("0/15");
+web/tests\e2e\frame_coverage_adversarial.spec.ts:18:  await expect(page.getByTestId("coverage-harness-15-0")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:19:  await expect(page.getByTestId("frame-coverage-complete")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:21:  await expect(page.getByTestId("frame-coverage-complete")).toContainText(
+web/tests\e2e\frame_coverage_adversarial.spec.ts:30:  await expect(page.getByTestId("coverage-harness-1-14")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:31:  await expect(page.getByTestId("frame-coverage-gaps")).toBeVisible();
+web/tests\e2e\frame_coverage_adversarial.spec.ts:37:  await expect(page.getByTestId("frame-coverage-gaps")).toContainText("1/15");
+
+ succeeded in 4752ms:
+40e3cfd4af5288b6b036c2d254862399bcb5a63c
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 6194ms:
+ 3 files changed, 178 insertions(+)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+55,875
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
