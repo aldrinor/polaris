@@ -19,6 +19,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from polaris_graph.evidence_contract import (
+    ContractRequiredError,
+    EvidenceContract,
+    assert_generation_has_contract,
+    evaluate_contract,
+)
 from polaris_graph.generator2.generator import (
     GeneratorCompletionFn,
     process_generation,
@@ -87,6 +93,16 @@ class GenerationRequest(BaseModel):
             "rate threshold. None -> use orchestrator default (0.40)."
         ),
     )
+    contract: EvidenceContract | None = Field(
+        default=None,
+        description=(
+            "Pre-generation Evidence Contract (I-ecg-001). Generation "
+            "REFUSES if missing AND POLARIS_REQUIRE_CONTRACT=1 — request "
+            "returns HTTP 400 with code 'contract_required'. Default OFF "
+            "for legacy callers during migration period; set env=1 in "
+            "production once all callers thread the contract."
+        ),
+    )
 
 
 class GenerationErrorResponse(BaseModel):
@@ -124,6 +140,24 @@ def post_generation(
     completion_fn: GeneratorCompletionFn | None = Depends(get_completion_fn),
 ) -> GenerationSuccessResponse | GenerationErrorResponse:
     """Run an EvidencePool through generator + strict-verify."""
+    import os
+
+    require_contract = os.environ.get("POLARIS_REQUIRE_CONTRACT", "0").strip() == "1"
+    if require_contract:
+        try:
+            assert_generation_has_contract(req.contract, report_id=None)
+        except ContractRequiredError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": True,
+                    "code": "contract_required",
+                    "message": str(exc),
+                    "pool_id": req.pool.pool_id,
+                    "decision_id": req.pool.decision_id,
+                },
+            )
+
     kwargs: dict[str, Any] = {"scope_class": req.scope_class}
     if req.verifier_pass_threshold is not None:
         kwargs["verifier_pass_threshold"] = req.verifier_pass_threshold
@@ -144,6 +178,22 @@ def post_generation(
         )
 
     assert isinstance(result, VerifiedReport)
+    if require_contract and req.contract is not None:
+        verdict = evaluate_contract(req.contract, req.pool, result)
+        if not verdict.passed:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": True,
+                    "code": "contract_unsatisfied",
+                    "message": (
+                        f"contract {req.contract.contract_id} unsatisfied: "
+                        f"{', '.join(verdict.failures)}"
+                    ),
+                    "pool_id": req.pool.pool_id,
+                    "decision_id": req.pool.decision_id,
+                },
+            )
     return GenerationSuccessResponse(
         report=result.model_dump(mode="json"),
         server_time_utc=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
