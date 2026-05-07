@@ -162,6 +162,15 @@ function SentenceRow({
           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
         </span>
       ) : null}
+      {!dropped && sentence.evaluator_agrees === false ? (
+        <span
+          data-testid={`evaluator-flag-${sentence_id}`}
+          title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+          className="inline-flex w-fit items-center gap-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+        >
+          ⚠ Internal evaluator flagged this
+        </span>
+      ) : null}
       {!dropped && sentence.contradiction ? (
         <button
           type="button"
