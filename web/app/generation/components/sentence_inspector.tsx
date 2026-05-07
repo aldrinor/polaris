@@ -166,6 +166,15 @@ function SourceCard({
           {source.domain}
         </a>
         <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
           {source.retracted ? (
             <span
               data-testid={`inspector-retracted-${idx}`}

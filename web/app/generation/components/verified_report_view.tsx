@@ -79,15 +79,33 @@ function SentenceRow({
   sentence_id,
   hovered_id,
   onSelect,
+  pool,
 }: {
   sentence: ReportVerifiedSentence;
   show_dropped: boolean;
   sentence_id: string;
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
 }) {
   const dropped = !sentence.verifier_pass;
   if (dropped && !show_dropped) return null;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
 
   return (
     <li
@@ -138,6 +156,15 @@ function SentenceRow({
           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
         </span>
       ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
     </li>
   );
 }
@@ -147,11 +174,13 @@ function SectionCard({
   show_dropped,
   hovered_id,
   onSelect,
+  pool,
 }: {
   section: VerifiedReportSection;
   show_dropped: boolean;
   hovered_id: string | null;
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  pool: EvidencePool | null;
 }) {
   const kept = keptSentences(section);
   const dropped_count = section.verified_sentences.length - kept.length;
@@ -190,6 +219,7 @@ function SectionCard({
                 sentence_id={`${section.section_id}:${idx}`}
                 hovered_id={hovered_id}
                 onSelect={onSelect}
+                pool={pool}
               />
             ))}
           </ul>
@@ -299,6 +329,7 @@ export function VerifiedReportView({
           show_dropped={show_dropped}
           hovered_id={hovered_id}
           onSelect={(id, sentence) => setInspector({ id, sentence })}
+          pool={pool}
         />
       ))}
       <SentenceInspector

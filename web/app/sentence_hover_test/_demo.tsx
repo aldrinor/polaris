@@ -51,6 +51,21 @@ const SRC_RETRACTED: RetrievalSource = {
   retracted: true,
 };
 
+const SRC_PAYWALLED: RetrievalSource = {
+  source_id: "src-paywalled",
+  url: "https://nejm.org/paywalled/abc",
+  domain: "nejm.org",
+  tier: "T1",
+  title: "Paywalled NEJM article",
+  publication_date: FRESH_DATE,
+  authors: ["Jones B"],
+  snippet: "Abstract excerpt only — full text behind paywall.",
+  full_text_available: false,
+  full_text: null,
+  fetched_at_utc: ISO,
+  provenance: {},
+};
+
 const SRC_STALE: RetrievalSource = {
   source_id: "src-stale",
   url: "https://www.cochrane.org/CD-stale",
@@ -69,10 +84,15 @@ const SRC_STALE: RetrievalSource = {
 const POOL: EvidencePool = {
   pool_id: "p-hover",
   decision_id: "d-hover",
-  sources: [...Array.from({ length: 10 }, (_, i) => _src(i)), SRC_RETRACTED, SRC_STALE],
+  sources: [
+    ...Array.from({ length: 10 }, (_, i) => _src(i)),
+    SRC_RETRACTED,
+    SRC_STALE,
+    SRC_PAYWALLED,
+  ],
   adequacy: {
     is_adequate: true,
-    sources_per_tier: { T1: 12, T2: 0, T3: 0 },
+    sources_per_tier: { T1: 13, T2: 0, T3: 0 },
     min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
     failure_reason: null,
   },
@@ -198,6 +218,36 @@ const REPORT: VerifiedReport = {
           evaluator_agrees: true,
           assertion_surface: surface,
         })),
+        // sec_x:23 — paywalled source (I-f5-010 case 1).
+        {
+          section_id: "sec_x",
+          sentence_text: "Paywalled-source demo sentence cites NEJM.",
+          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:24 — multi-span with one out-of-range (I-f5-010 case 2).
+        {
+          section_id: "sec_x",
+          sentence_text: "Multi-span with bad span demo sentence.",
+          provenance_tokens: [
+            `[#ev:src-0:0-30]`,
+            `[#ev:src-0:5000-5050]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
+        // sec_x:25 — T1-vs-T1 conflict heuristic (I-f5-010 case 3).
+        {
+          section_id: "sec_x",
+          sentence_text: "T1-conflict heuristic demo cites two T1 sources.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",
