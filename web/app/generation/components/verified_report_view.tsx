@@ -1,6 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
 import { cn } from "@/lib/utils";
 import {
   keptSentences,
@@ -15,8 +16,7 @@ const STATUS_TONE: Record<string, string> = {
     "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   regenerated:
     "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  dropped:
-    "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
 };
 
 const DROP_REASON_LABEL: Record<DropReason, string> = {
@@ -52,9 +52,13 @@ function VerdictBadge({
 function SentenceRow({
   sentence,
   show_dropped,
+  sentence_id,
+  hovered_id,
 }: {
   sentence: ReportVerifiedSentence;
   show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
 }) {
   const dropped = !sentence.verifier_pass;
   if (dropped && !show_dropped) return null;
@@ -62,11 +66,13 @@ function SentenceRow({
   return (
     <li
       data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
       className={cn(
-        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm",
+        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors",
         dropped
-          ? "border-rose-500/30 bg-rose-500/5 text-muted-foreground line-through"
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
           : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
       )}
     >
       <span className={cn(dropped ? "" : "text-foreground")}>
@@ -78,7 +84,7 @@ function SentenceRow({
         </span>
       ) : null}
       {dropped && sentence.drop_reason ? (
-        <span className="text-rose-700 dark:text-rose-300 text-[10px] uppercase tracking-widest">
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
         </span>
       ) : null}
@@ -89,13 +95,14 @@ function SentenceRow({
 function SectionCard({
   section,
   show_dropped,
+  hovered_id,
 }: {
   section: VerifiedReportSection;
   show_dropped: boolean;
+  hovered_id: string | null;
 }) {
   const kept = keptSentences(section);
-  const dropped_count =
-    section.verified_sentences.length - kept.length;
+  const dropped_count = section.verified_sentences.length - kept.length;
   return (
     <Card
       data-testid={`section-${section.section_id}`}
@@ -112,7 +119,8 @@ function SectionCard({
             STATUS_TONE[section.section_status],
           )}
         >
-          {section.section_status} · {Math.round(section.section_verify_pass_rate * 100)}%
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
         </span>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -127,13 +135,16 @@ function SectionCard({
                 key={idx}
                 sentence={s}
                 show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
               />
             ))}
           </ul>
         )}
         {!show_dropped && dropped_count > 0 ? (
           <p className="text-muted-foreground text-xs italic">
-            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by strict-verify (toggle below to inspect).
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
           </p>
         ) : null}
       </CardContent>
@@ -148,8 +159,13 @@ export function VerifiedReportView({
   report: VerifiedReport;
   show_dropped?: boolean;
 }) {
+  const { hovered_id, root_ref } = useSentenceHover();
   return (
-    <div data-testid="verified-report-view" className="flex flex-col gap-4">
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-lg">Verified report</CardTitle>
@@ -167,9 +183,16 @@ export function VerifiedReportView({
             </dd>
             <dt className="text-muted-foreground">Sections</dt>
             <dd className="text-foreground font-medium">
-              {report.sections.filter((s) => s.section_status !== "dropped").length} kept ·
-              {" "}
-              {report.sections.filter((s) => s.section_status === "dropped").length} dropped
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
             </dd>
             <dt className="text-muted-foreground">Latency</dt>
             <dd className="text-foreground font-medium">
@@ -184,6 +207,7 @@ export function VerifiedReportView({
           key={section.section_id}
           section={section}
           show_dropped={show_dropped}
+          hovered_id={hovered_id}
         />
       ))}
     </div>
