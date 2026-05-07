@@ -97,6 +97,13 @@ export interface UploadResponse {
   chunk_preview: string[];
 }
 
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await fetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
 export async function uploadDocument(
   file: File,
   classification: DataClassification = "UNKNOWN",
