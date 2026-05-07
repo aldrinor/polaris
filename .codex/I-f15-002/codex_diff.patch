@@ -1,0 +1,139 @@
+diff --git a/src/polaris_graph/audit_bundle/span_truncate.py b/src/polaris_graph/audit_bundle/span_truncate.py
+new file mode 100644
+index 0000000..c8a15bd
+--- /dev/null
++++ b/src/polaris_graph/audit_bundle/span_truncate.py
+@@ -0,0 +1,33 @@
++"""UTF-8 safe span truncation for audit bundle embedding (I-f15-002)."""
++
++from __future__ import annotations
++
++import unicodedata
++
++MAX_SPAN_CHARS = 500
++ELLIPSIS = "…"
++ZWJ = "‍"
++
++
++def truncate_span(text: str, max_chars: int = MAX_SPAN_CHARS) -> str:
++    """Truncate ``text`` to at most ``max_chars`` codepoints total.
++
++    Output never exceeds ``max_chars`` codepoints (including any appended
++    ellipsis). Walks back to avoid splitting a base+combining sequence or
++    landing immediately before/after a ZWJ join.
++    """
++    if max_chars < 1:
++        return ""
++    if len(text) <= max_chars:
++        return text
++    cut = max_chars - 1
++    while cut > 0:
++        prev_ch = text[cut - 1]
++        next_ch = text[cut] if cut < len(text) else ""
++        cut_in_combining = bool(next_ch) and unicodedata.combining(next_ch) != 0
++        cut_at_zwj_join = prev_ch == ZWJ or next_ch == ZWJ
++        if cut_in_combining or cut_at_zwj_join:
++            cut -= 1
++            continue
++        break
++    return text[:cut] + ELLIPSIS
+diff --git a/tests/polaris_graph/audit_bundle/test_span_truncate.py b/tests/polaris_graph/audit_bundle/test_span_truncate.py
+new file mode 100644
+index 0000000..69bceca
+--- /dev/null
++++ b/tests/polaris_graph/audit_bundle/test_span_truncate.py
+@@ -0,0 +1,94 @@
++"""Tests for span_truncate (I-f15-002)."""
++
++from __future__ import annotations
++
++from src.polaris_graph.audit_bundle.span_truncate import (
++    ELLIPSIS,
++    MAX_SPAN_CHARS,
++    ZWJ,
++    truncate_span,
++)
++
++FAMILY = "\U0001F468" + ZWJ + "\U0001F469" + ZWJ + "\U0001F467"  # 5 codepoints
++SHADDA = "ّ"
++
++
++def test_short_text_passthrough():
++    text = "a" * 500
++    out = truncate_span(text)
++    assert out == text
++    assert not out.endswith(ELLIPSIS)
++
++
++def test_ascii_truncation_total_500():
++    text = "a" * 600
++    out = truncate_span(text)
++    assert len(out) == 500
++    assert out.endswith(ELLIPSIS)
++    assert out[:-1] == "a" * 499
++
++
++def test_cjk_truncation_total_500():
++    text = "中" * 600
++    out = truncate_span(text)
++    assert len(out) == 500
++    assert out.endswith(ELLIPSIS)
++
++
++def test_arabic_combining_walk_back():
++    text = ("a" * 499) + SHADDA + ("b" * 100)
++    out = truncate_span(text, max_chars=500)
++    assert len(out) <= 500
++    assert out.endswith(ELLIPSIS)
++    assert SHADDA not in out[-2:]
++
++
++def test_zwj_emoji_cut_after_zwj():
++    text = ("a" * 499) + ZWJ + ("b" * 100)
++    out = truncate_span(text, max_chars=500)
++    assert len(out) <= 500
++    assert out.endswith(ELLIPSIS)
++    assert ZWJ not in out
++
++
++def test_zwj_emoji_cut_before_zwj():
++    text = ("a" * 498) + ZWJ + ("b" * 100)
++    out = truncate_span(text, max_chars=500)
++    assert len(out) <= 500
++    assert out.endswith(ELLIPSIS)
++    assert ZWJ not in out
++
++
++def test_compound_emoji_not_split():
++    text = ("a" * 497) + FAMILY + ("z" * 100)
++    out = truncate_span(text, max_chars=500)
++    assert len(out) <= 500
++    assert out.endswith(ELLIPSIS)
++    assert ZWJ not in out
++
++
++def test_max_chars_zero():
++    assert truncate_span("abc", max_chars=0) == ""
++
++
++def test_max_chars_one():
++    assert truncate_span("abc", max_chars=1) == ELLIPSIS
++
++
++def test_utf8_byte_safe():
++    samples = [
++        "a" * 600,
++        "中" * 600,
++        ("a" * 499) + SHADDA + ("b" * 100),
++        ("a" * 498) + ZWJ + FAMILY + ("z" * 100),
++    ]
++    for s in samples:
++        out = truncate_span(s, max_chars=500)
++        out.encode("utf-8")
++        assert len(out) <= 500
++
++
++def test_module_constants():
++    assert MAX_SPAN_CHARS == 500
++    assert ELLIPSIS == "…"
++    assert ZWJ == "‍"
