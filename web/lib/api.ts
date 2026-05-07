@@ -710,6 +710,7 @@ export interface AuditBundleErrorBody {
   code:
     | "fk_chain_mismatch"
     | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
     | "gpg_unavailable"
     | "sign_failed";
   message: string;

@@ -76,6 +76,7 @@ class AuditBundleErrorResponse(BaseModel):
 
     error: bool = True
     code: str  # 'fk_chain_mismatch' | 'verdict_not_success' |
+               # 'cited_span_unreachable_after_snapshot' |
                # 'gpg_unavailable' | 'sign_failed'
     message: str
     report_id: str | None = None
@@ -119,13 +120,14 @@ def post_audit_bundle(
             sign_fn=sign_fn,
         )
     except ValueError as exc:
-        # FK chain mismatch or verdict != success
+        # FK chain mismatch, verdict != success, or cited-span unreachable
         msg = str(exc)
-        code = (
-            "fk_chain_mismatch"
-            if "FK chain" in msg or "pool_id" in msg or "decision_id" in msg
-            else "verdict_not_success"
-        )
+        if "cited span unreachable" in msg:
+            code = "cited_span_unreachable_after_snapshot"
+        elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
+            code = "fk_chain_mismatch"
+        else:
+            code = "verdict_not_success"
         raise HTTPException(
             status_code=400,
             detail={
@@ -188,12 +190,18 @@ def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
             req.decision, req.pool, req.report
         )
     except ValueError as exc:
+        msg = str(exc)
+        code = (
+            "cited_span_unreachable_after_snapshot"
+            if "cited span unreachable" in msg
+            else "verdict_not_success"
+        )
         raise HTTPException(
             status_code=400,
             detail={
                 "error": True,
-                "code": "verdict_not_success",
-                "message": str(exc),
+                "code": code,
+                "message": msg,
                 "report_id": req.report.report_id,
             },
         )
