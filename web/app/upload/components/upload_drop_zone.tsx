@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
 
@@ -19,6 +19,11 @@ type FileEntry = {
   response?: UploadResponse;
   parse_status?: ParseStatus;
   chunk_preview_count?: number;
+  included?: boolean;
+};
+
+type UploadDropZoneProps = {
+  onSelectionChange?: (docIds: string[]) => void;
 };
 
 const POLL_MAX = 10;
@@ -45,12 +50,30 @@ const extOf = (n: string) => {
   return i === -1 ? "" : n.slice(i).toLowerCase();
 };
 
-export function UploadDropZone() {
+export function UploadDropZone({
+  onSelectionChange,
+}: UploadDropZoneProps = {}) {
   const baseId = useId();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [openPreviewDocId, setOpenPreviewDocId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   let counter = 0;
+
+  useEffect(() => {
+    if (!onSelectionChange) return;
+    const ids = files
+      .filter((f) => f.included && f.parse_status === "completed" && f.response)
+      .map((f) => f.response!.document_id);
+    onSelectionChange(ids);
+  }, [files, onSelectionChange]);
+
+  const toggleIncluded = (id: string) => {
+    setFiles((p) =>
+      p.map((e) =>
+        e.id === id ? { ...e, included: !(e.included ?? true) } : e,
+      ),
+    );
+  };
 
   const handleFiles = async (incoming: FileList | File[]) => {
     for (const f of Array.from(incoming)) {
@@ -93,6 +116,7 @@ export function UploadDropZone() {
                   response,
                   parse_status: ps,
                   chunk_preview_count: response.chunk_preview.length,
+                  included: true,
                 }
               : e,
           ),
@@ -159,7 +183,18 @@ export function UploadDropZone() {
               data-status={f.status}
               className="border-border bg-muted/20 flex items-center justify-between gap-2 rounded-lg border p-3 text-sm"
             >
-              <span className="text-foreground truncate">{f.name}</span>
+              <span className="flex items-center gap-2">
+                {f.status === "completed" && f.parse_status === "completed" && (
+                  <input
+                    type="checkbox"
+                    data-testid={`include-toggle-${f.id}`}
+                    checked={f.included ?? true}
+                    onChange={() => toggleIncluded(f.id)}
+                    aria-label={`Include ${f.name} in evidence pool`}
+                  />
+                )}
+                <span className="text-foreground truncate">{f.name}</span>
+              </span>
               <span className="text-muted-foreground text-xs">
                 {f.status === "uploading" && "uploading…"}
                 {f.status === "completed" && f.response && (
