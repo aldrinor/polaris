@@ -7,7 +7,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { ContradictionCategory, ContradictionSignal } from "@/lib/api";
+import type {
+  ContradictionCategory,
+  ContradictionEvidenceType,
+  ContradictionSignal,
+} from "@/lib/api";
+
+const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
+  trial: "Trial",
+  guideline: "Guideline",
+  meta_analysis: "Meta-analysis",
+  observational: "Observational",
+  regulatory_label: "Regulatory label",
+  expert_opinion: "Expert opinion",
+  unspecified: "Unspecified",
+};
 
 const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
   T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -76,12 +90,28 @@ export function ContradictionPane({
                 <code data-testid={`contradiction-source-${idx}`}>
                   {side.source_id}
                 </code>
-                <span
-                  data-testid={`contradiction-tier-${idx}`}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
-                >
-                  {side.source_tier}
-                </span>
+                <div className="flex items-center gap-1">
+                  {(() => {
+                    // Codex iter-1 P2: coalesce undefined to "unspecified"
+                    // and skip badge for that default.
+                    const et = side.evidence_type ?? "unspecified";
+                    if (et === "unspecified") return null;
+                    return (
+                      <span
+                        data-testid={`contradiction-evidence-type-${idx}`}
+                        className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] tracking-widest text-violet-700 uppercase dark:text-violet-300"
+                      >
+                        {EVIDENCE_TYPE_LABEL[et]}
+                      </span>
+                    );
+                  })()}
+                  <span
+                    data-testid={`contradiction-tier-${idx}`}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+                  >
+                    {side.source_tier}
+                  </span>
+                </div>
               </div>
               <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
                 {side.sample_size !== null &&
