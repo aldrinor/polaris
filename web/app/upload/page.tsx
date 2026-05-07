@@ -1,4 +1,4 @@
-import { UploadDropZone } from "./components/upload_drop_zone";
+import { UploadWorkspace } from "./components/upload_workspace";
 
 export const metadata = {
   title: "Upload — POLARIS Canada",
@@ -23,7 +23,7 @@ export default function UploadPage() {
         </p>
       </section>
 
-      <UploadDropZone />
+      <UploadWorkspace />
     </main>
   );
 }

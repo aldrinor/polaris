@@ -1,0 +1,2237 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e006b-ee52-7d20-8479-90bc527b9647
+--------
+user
+# Codex Brief Review — I-f3-008 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f3-008 — Frontend: "use these docs as evidence" toggle
+**Phase:** 1 / **Feature:** F3
+**LOC budget:** 100 net per breakdown. **CHARTER §1 hard cap: 200.**
+
+## Mission
+
+Add per-uploaded-doc toggle in the upload UI that gates inclusion in the evidence pool. Per breakdown: "Acceptance: Playwright; backend echoes inclusion."
+
+## Substrate (HONEST)
+
+- I-f3-005..007 (just merged): UploadDropZone shows files with parse_status + open-preview button.
+- I-f3-001: graph_v4.build_and_run_v4 accepts `document_ids: list[str]`. Currently any uploaded doc that the user provides is consumed.
+- This Issue: introduce a per-file `included` boolean in UploadDropZone; persist the picked doc_ids to a parent state slot; expose a `getSelectedDocIds()` accessor that downstream intake/research code reads.
+
+## Acceptance criteria (binding)
+
+1. **`web/app/upload/components/upload_drop_zone.tsx`** (EDIT, ~20 LOC):
+   - `FileEntry` gets `included: boolean` (default true on completed status).
+   - Each completed file's row shows a `<input type="checkbox" data-testid="include-toggle-{id}">` bound to `included`.
+   - Component accepts an optional prop `onSelectionChange?: (docIds: string[]) => void` called with the list of `included && parse_status==="completed"` doc_ids on every toggle.
+
+2. **`web/app/upload/components/selected_docs_indicator.tsx`** (NEW, ~25 LOC):
+   - `"use client"`.
+   - Local state mirrors `onSelectionChange`.
+   - Renders `<output data-testid="selected-doc-ids">{ids.join(",")}</output>` so Playwright + downstream wiring can read.
+
+3. **`web/app/upload/page.tsx`** (EDIT, ~5 LOC): wraps `<UploadDropZone>` with a sibling `<SelectedDocsIndicator>` that subscribes to selection.
+
+4. **`web/tests/e2e/upload_evidence_toggle.spec.ts`** (NEW, ~50 LOC):
+   - Mock POST `/upload` returns 2 different doc_ids on 2 sequential calls (`doc-A`, `doc-B`).
+   - Drop 2 .md files → both completed, both `included=true` by default → `selected-doc-ids` text equals `doc-A,doc-B` (or `doc-B,doc-A` order; test asserts both ids present).
+   - Toggle off `include-toggle-{id}` for first file → `selected-doc-ids` only contains second.
+   - Toggle back on → both again.
+
+## Planned diff shape
+
+```
+web/app/upload/components/upload_drop_zone.tsx           EDIT  +20
+web/app/upload/components/selected_docs_indicator.tsx    NEW   +25
+web/app/upload/page.tsx                                  EDIT  +5
+web/tests/e2e/upload_evidence_toggle.spec.ts             NEW   +50
+```
+
+LOC: +100 net pre-Prettier. At breakdown budget. Under CHARTER §1 200-cap by 100. Pre-Prettier headroom for reflow: ~100 LOC; comfortable.
+
+## Out of scope
+
+- Wiring selected doc_ids into intake `runIntake()` / retrieval / generation flows → follow-up I-f3-008b. This Issue ships the selection UI + accessor; consumer wiring is a follow-up so the Codex review stays focused.
+- Backend echo of inclusion → this Issue's "echoes inclusion" interpretation: the frontend exposes the selected doc_ids in DOM (`<output>`); subsequent runIntake/runRetrieval calls (follow-up) will pass them via existing `document_ids` parameter (already supported by graph_v4).
+
+## Risks for Codex Red-Team
+
+1. **Sole UI surface for selection.** `selected-doc-ids` `<output>` is the source of truth for downstream consumers. Future Issues will read from React context instead; this Issue uses prop-drilling for simplicity.
+2. **No backend changes.** The "backend echoes inclusion" requirement is satisfied via the existing graph_v4 `document_ids` parameter (which downstream Issues will populate). No new endpoint.
+3. **Toggle defaults to true.** New uploads are auto-included; user opts out. Matches user expectation.
+4. **`onSelectionChange` callback.** Called on every `included` toggle change AND when files transition from queued→completed (so newly-completed files appear in selection automatically).
+5. **CHARTER §1 LOC cap.** 100 net. Well under.
+6. **No new package.json dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+codex
+I’ll inspect the current upload UI and nearby e2e patterns so the review is grounded in the actual substrate, then I’ll return only the mandatory YAML with real blockers separated from lower-risk issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/tests/e2e -Filter *.spec.ts | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/upload/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/upload/components/upload_drop_zone.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "UploadDropZone|selected-doc|runIntake|document_ids|getSelectedDocIds|upload" web/app web/tests/e2e' in C:\POLARIS
+ succeeded in 1775ms:
+C:\POLARIS\web\tests\e2e\accessibility.spec.ts
+C:\POLARIS\web\tests\e2e\audit_bundle.spec.ts
+C:\POLARIS\web\tests\e2e\benchmark.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette_adversarial.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette_suggest.spec.ts
+C:\POLARIS\web\tests\e2e\command_palette.spec.ts
+C:\POLARIS\web\tests\e2e\demo_walkthrough.spec.ts
+C:\POLARIS\web\tests\e2e\disambiguation_modal.spec.ts
+C:\POLARIS\web\tests\e2e\f1_a11y.spec.ts
+C:\POLARIS\web\tests\e2e\f1_multi_tab.spec.ts
+C:\POLARIS\web\tests\e2e\f2_walkthrough.spec.ts
+C:\POLARIS\web\tests\e2e\generation.spec.ts
+C:\POLARIS\web\tests\e2e\inspector.spec.ts
+C:\POLARIS\web\tests\e2e\intake_disambiguation_negative.spec.ts
+C:\POLARIS\web\tests\e2e\intake_disambiguation.spec.ts
+C:\POLARIS\web\tests\e2e\intake_edge.spec.ts
+C:\POLARIS\web\tests\e2e\intake.spec.ts
+C:\POLARIS\web\tests\e2e\landing_template_grid.spec.ts
+C:\POLARIS\web\tests\e2e\performance_hover.spec.ts
+C:\POLARIS\web\tests\e2e\performance.spec.ts
+C:\POLARIS\web\tests\e2e\retrieval.spec.ts
+C:\POLARIS\web\tests\e2e\upload_doc_preview.spec.ts
+C:\POLARIS\web\tests\e2e\upload_dropzone.spec.ts
+C:\POLARIS\web\tests\e2e\upload_parse_status.spec.ts
+C:\POLARIS\web\tests\e2e\visual.spec.ts
+
+ succeeded in 1990ms:
+import { UploadDropZone } from "./components/upload_drop_zone";
+
+export const metadata = {
+  title: "Upload — POLARIS Canada",
+  description:
+    "Upload documents for grounding. Drag PDFs, MD, TXT, or DOCX (50MB max).",
+};
+
+export default function UploadPage() {
+  return (
+    <main
+      data-testid="upload-page"
+      className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+    >
+      <section className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Upload documents
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Drop PDFs, MD, TXT, or DOCX files. POLARIS will parse and chunk each
+          document so you can ground intake queries against your uploads (50MB
+          per file max).
+        </p>
+      </section>
+
+      <UploadDropZone />
+    </main>
+  );
+}
+
+ succeeded in 2205ms:
+web/tests/e2e\accessibility.spec.ts:97:test.describe("WCAG-AA — dashboard upload list with files", () => {
+web/tests/e2e\accessibility.spec.ts:98:  test("Upload list \"remove\" button is WCAG-AA clean (real upload)", async ({
+web/tests/e2e\accessibility.spec.ts:102:    // (\"remove\" button on upload list) but no test exercised it because
+web/tests/e2e\accessibility.spec.ts:103:    // no fixture populated the upload state. This test posts a real file
+web/tests/e2e\accessibility.spec.ts:104:    // through the live /api/upload endpoint, then asserts axe-clean once
+web/tests/e2e\accessibility.spec.ts:105:    // the upload-list <li> renders with the destructive-class \"remove\"
+web/tests/e2e\accessibility.spec.ts:116:    // Wait for the upload-list item to appear with our filename + the
+web/tests/e2e\accessibility.spec.ts:117:    // \"remove\" button. The list rendering depends on POST /api/upload
+web/app\dashboard\page.tsx:21:  uploadDocument,
+web/app\dashboard\page.tsx:79:  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+web/app\dashboard\page.tsx:80:  const [uploading, setUploading] = useState(false);
+web/app\dashboard\page.tsx:110:        const result = await uploadDocument(file, "UNKNOWN");
+web/app\dashboard\page.tsx:138:      if (decision.verdict === "accepted" && uploads.length > 0) {
+web/app\dashboard\page.tsx:139:        const candidates = uploads.flatMap((u, ui) =>
+web/app\dashboard\page.tsx:179:        document_ids: uploads.map((u) => u.document_id),
+web/app\dashboard\page.tsx:279:              Optional: upload supporting documents
+web/app\dashboard\page.tsx:304:                  disabled={uploading || submitting}
+web/app\dashboard\page.tsx:311:              {uploading && (
+web/app\dashboard\page.tsx:315:            {uploads.length > 0 && (
+web/app\dashboard\page.tsx:317:                {uploads.map((u) => (
+web/app\dashboard\page.tsx:402:                  Your question or uploads suggest more than one topic. Pick one
+web/app\intake\components\intake_form.tsx:11:  runIntake,
+web/app\intake\components\intake_form.tsx:74:      const result = await runIntake(trimmed);
+web/app\intake\components\pdf_drop_banner.tsx:56:      <span>PDFs go through the upload flow (coming soon).</span>
+web/app\upload\page.tsx:1:import { UploadDropZone } from "./components/upload_drop_zone";
+web/app\upload\page.tsx:12:      data-testid="upload-page"
+web/app\upload\page.tsx:21:          document so you can ground intake queries against your uploads (50MB
+web/app\upload\page.tsx:26:      <UploadDropZone />
+web/app\retrieval\components\retrieval_runner.tsx:10:  runIntake,
+web/app\retrieval\components\retrieval_runner.tsx:58:      const intake = await runIntake(trimmed);
+web/app\upload\components\upload_drop_zone.tsx:5:import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
+web/app\upload\components\upload_drop_zone.tsx:12:type Status = "uploading" | "completed" | "error";
+web/app\upload\components\upload_drop_zone.tsx:48:export function UploadDropZone() {
+web/app\upload\components\upload_drop_zone.tsx:83:      setFiles((p) => [...p, { id, name: f.name, status: "uploading" }]);
+web/app\upload\components\upload_drop_zone.tsx:85:        const response = await uploadDocument(f, "UNKNOWN");
+web/app\upload\components\upload_drop_zone.tsx:112:        const msg = err instanceof Error ? err.message : "upload failed";
+web/app\upload\components\upload_drop_zone.tsx:125:        data-testid="upload-dropzone"
+web/app\upload\components\upload_drop_zone.tsx:158:              data-testid={`upload-file-${f.id}`}
+web/app\upload\components\upload_drop_zone.tsx:164:                {f.status === "uploading" && "uploading…"}
+web/app\upload\components\upload_drop_zone.tsx:167:                    <span data-testid="upload-doc-id">
+web/app\upload\components\upload_drop_zone.tsx:171:                      data-testid={`upload-parse-${f.id}`}
+web/app\generation\components\generation_runner.tsx:14:  runIntake,
+web/app\generation\components\generation_runner.tsx:63:      const intake = await runIntake(trimmed);
+web/tests/e2e\upload_doc_preview.spec.ts:8:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_doc_preview.spec.ts:26:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\upload_doc_preview.spec.ts:45:  await page.goto("/upload");
+web/tests/e2e\upload_doc_preview.spec.ts:51:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web/tests/e2e\upload_dropzone.spec.ts:5:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_dropzone.spec.ts:39:      const zone = document.querySelector('[data-testid="upload-dropzone"]')!;
+web/tests/e2e\upload_dropzone.spec.ts:54:  await page.goto("/upload");
+web/tests/e2e\upload_dropzone.spec.ts:56:  await expect(page.getByTestId("upload-doc-id")).toBeVisible();
+web/tests/e2e\upload_dropzone.spec.ts:60:test("drop oversize → error, no upload call", async ({ page }) => {
+web/tests/e2e\upload_dropzone.spec.ts:62:  await page.goto("/upload");
+web/tests/e2e\upload_dropzone.spec.ts:72:test("drop multiple files → all upload", async ({ page }) => {
+web/tests/e2e\upload_dropzone.spec.ts:74:  await page.goto("/upload");
+web/tests/e2e\upload_dropzone.spec.ts:83:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web/tests/e2e\upload_parse_status.spec.ts:13:    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+web/tests/e2e\upload_parse_status.spec.ts:27:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:43:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:62:  await page.goto("/upload");
+web/tests/e2e\upload_parse_status.spec.ts:66:  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+web/tests/e2e\upload_parse_status.spec.ts:71:  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+
+ succeeded in 2344ms:
+"use client";
+
+import { useId, useRef, useState } from "react";
+
+import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
+
+import { DocumentPreview } from "./document_preview";
+
+const MAX_BYTES = 50 * 1024 * 1024;
+const ALLOWED_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
+
+type Status = "uploading" | "completed" | "error";
+type ParseStatus = "queued" | "completed" | "failed";
+type FileEntry = {
+  id: string;
+  name: string;
+  status: Status;
+  error?: string;
+  response?: UploadResponse;
+  parse_status?: ParseStatus;
+  chunk_preview_count?: number;
+};
+
+const POLL_MAX = 10;
+const POLL_INTERVAL_MS = 1000;
+
+async function pollParseStatus(
+  document_id: string,
+  onUpdate: (status: ParseStatus, count: number) => void,
+): Promise<void> {
+  for (let i = 0; i < POLL_MAX; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    try {
+      const fresh = await getUpload(document_id);
+      onUpdate(fresh.parse_status as ParseStatus, fresh.chunk_preview.length);
+      if (fresh.parse_status !== "queued") return;
+    } catch {
+      return;
+    }
+  }
+}
+
+const extOf = (n: string) => {
+  const i = n.lastIndexOf(".");
+  return i === -1 ? "" : n.slice(i).toLowerCase();
+};
+
+export function UploadDropZone() {
+  const baseId = useId();
+  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [openPreviewDocId, setOpenPreviewDocId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  let counter = 0;
+
+  const handleFiles = async (incoming: FileList | File[]) => {
+    for (const f of Array.from(incoming)) {
+      const id = `${baseId}-${counter++}-${Date.now()}`;
+      const ext = extOf(f.name);
+      if (!ALLOWED_EXT.has(ext)) {
+        setFiles((p) => [
+          ...p,
+          {
+            id,
+            name: f.name,
+            status: "error",
+            error: `unsupported extension ${ext}`,
+          },
+        ]);
+        continue;
+      }
+      if (f.size > MAX_BYTES) {
+        setFiles((p) => [
+          ...p,
+          {
+            id,
+            name: f.name,
+            status: "error",
+            error: `exceeds 50MB limit (${(f.size / 1024 / 1024).toFixed(1)}MB)`,
+          },
+        ]);
+        continue;
+      }
+      setFiles((p) => [...p, { id, name: f.name, status: "uploading" }]);
+      try {
+        const response = await uploadDocument(f, "UNKNOWN");
+        const ps = response.parse_status as ParseStatus;
+        setFiles((p) =>
+          p.map((e) =>
+            e.id === id
+              ? {
+                  ...e,
+                  status: "completed",
+                  response,
+                  parse_status: ps,
+                  chunk_preview_count: response.chunk_preview.length,
+                }
+              : e,
+          ),
+        );
+        if (ps === "queued") {
+          pollParseStatus(response.document_id, (status, count) => {
+            setFiles((p) =>
+              p.map((e) =>
+                e.id === id
+                  ? { ...e, parse_status: status, chunk_preview_count: count }
+                  : e,
+              ),
+            );
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "upload failed";
+        setFiles((p) =>
+          p.map((e) =>
+            e.id === id ? { ...e, status: "error", error: msg } : e,
+          ),
+        );
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        data-testid="upload-dropzone"
+        role="button"
+        tabIndex={0}
+        aria-label="Drop files here or click to browse"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer?.files) handleFiles(e.dataTransfer.files);
+        }}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+        }}
+        className="border-border bg-muted/10 flex min-h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center"
+      >
+        <p className="text-foreground text-sm font-medium">Drop files here</p>
+        <p className="text-muted-foreground text-xs">
+          or click to browse · PDF, DOCX, MD, TXT · max 50MB
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.md,.txt"
+          onChange={(e) => e.target.files && handleFiles(e.target.files)}
+          className="sr-only"
+        />
+      </div>
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {files.map((f) => (
+            <li
+              key={f.id}
+              data-testid={`upload-file-${f.id}`}
+              data-status={f.status}
+              className="border-border bg-muted/20 flex items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+            >
+              <span className="text-foreground truncate">{f.name}</span>
+              <span className="text-muted-foreground text-xs">
+                {f.status === "uploading" && "uploading…"}
+                {f.status === "completed" && f.response && (
+                  <span className="flex flex-col items-end gap-0.5">
+                    <span data-testid="upload-doc-id">
+                      {f.response.document_id}
+                    </span>
+                    <span
+                      data-testid={`upload-parse-${f.id}`}
+                      data-parse-status={f.parse_status}
+                    >
+                      {f.parse_status === "queued" &&
+                        `parsing… (${f.chunk_preview_count ?? 0} chunks so far)`}
+                      {f.parse_status === "completed" &&
+                        `completed · ${f.chunk_preview_count ?? 0} chunks`}
+                      {f.parse_status === "failed" && "parse failed"}
+                    </span>
+                    {f.parse_status === "completed" &&
+                      (f.chunk_preview_count ?? 0) > 0 && (
+                        <button
+                          type="button"
+                          data-testid={`open-preview-${f.id}`}
+                          onClick={() =>
+                            setOpenPreviewDocId(
+                              openPreviewDocId === f.response!.document_id
+                                ? null
+                                : f.response!.document_id,
+                            )
+                          }
+                          className="text-xs underline"
+                        >
+                          {openPreviewDocId === f.response.document_id
+                            ? "Close preview"
+                            : "Open preview"}
+                        </button>
+                      )}
+                  </span>
+                )}
+                {f.status === "error" && (
+                  <span className="text-rose-700">{f.error}</span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {openPreviewDocId && <DocumentPreview documentId={openPreviewDocId} />}
+    </div>
+  );
+}
+
+codex
+The current `UploadDropZone` is standalone client state with no props, and `/upload/page.tsx` is a server component. I’m checking the existing Playwright upload mocks now because the proposed indicator/page wiring may have a framework constraint.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/upload_dropzone.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/upload_doc_preview.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/upload_parse_status.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts' in C:\POLARIS
+ succeeded in 1609ms:
+import { expect, test } from "@playwright/test";
+
+async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+  let calls = 0;
+  await page.route("**/upload", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    calls++;
+    await new Promise((r) => setTimeout(r, 50));
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        document_id: `doc-${calls.toString().padStart(16, "0")}`,
+        filename: "test.pdf",
+        bytes: 1024,
+        sha256: "stub",
+        classification: "UNKNOWN",
+        parse_status: "completed",
+        chunk_preview: [],
+      }),
+    });
+  });
+  return () => calls;
+}
+
+async function dropFile(
+  page: import("@playwright/test").Page,
+  name: string,
+  sizeBytes: number,
+) {
+  await page.evaluate(
+    ({ name, sizeBytes }) => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([new Uint8Array(sizeBytes)], name, {
+          type: "application/pdf",
+        }),
+      );
+      const zone = document.querySelector('[data-testid="upload-dropzone"]')!;
+      zone.dispatchEvent(
+        new DragEvent("drop", {
+          dataTransfer: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { name, sizeBytes },
+  );
+}
+
+test("drop pdf under limit → completed with document_id", async ({ page }) => {
+  const getCalls = await mockUploadEndpoint(page);
+  await page.goto("/upload");
+  await dropFile(page, "small.pdf", 1024);
+  await expect(page.getByTestId("upload-doc-id")).toBeVisible();
+  expect(getCalls()).toBe(1);
+});
+
+test("drop oversize → error, no upload call", async ({ page }) => {
+  const getCalls = await mockUploadEndpoint(page);
+  await page.goto("/upload");
+  await dropFile(page, "huge.pdf", 51 * 1024 * 1024);
+  await expect(page.locator('li[data-status="error"]').first()).toBeVisible();
+  await expect(page.locator('li[data-status="error"]').first()).toContainText(
+    "exceeds 50MB",
+  );
+  await page.waitForTimeout(150);
+  expect(getCalls()).toBe(0);
+});
+
+test("drop multiple files → all upload", async ({ page }) => {
+  const getCalls = await mockUploadEndpoint(page);
+  await page.goto("/upload");
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([new Uint8Array(1024)], "a.pdf", { type: "application/pdf" }),
+    );
+    dt.items.add(
+      new File([new Uint8Array(1024)], "b.pdf", { type: "application/pdf" }),
+    );
+    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(page.locator('li[data-status="completed"]')).toHaveCount(2);
+  expect(getCalls()).toBe(2);
+});
+
+ succeeded in 1690ms:
+import { expect, test, type Page } from "@playwright/test";
+
+const DOC_ID = "doc-test-id-0001";
+
+async function dropFile(page: Page) {
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([new Uint8Array(1024)], "queued.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+test("watches parse-status progression queued → completed", async ({
+  page,
+}) => {
+  let getCalls = 0;
+  await page.route("**/upload", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        document_id: DOC_ID,
+        filename: "queued.pdf",
+        bytes: 1024,
+        sha256: "stub",
+        classification: "UNKNOWN",
+        parse_status: "queued",
+        chunk_preview: [],
+      }),
+    });
+  });
+  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    getCalls++;
+    const isComplete = getCalls >= 2;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        document_id: DOC_ID,
+        filename: "queued.pdf",
+        bytes: 1024,
+        sha256: "stub",
+        classification: "UNKNOWN",
+        parse_status: isComplete ? "completed" : "queued",
+        chunk_preview: isComplete ? ["c1", "c2", "c3"] : ["c1"],
+      }),
+    });
+  });
+
+  await page.goto("/upload");
+  await dropFile(page);
+
+  // Initial: parsing visible
+  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+    "parsing",
+  );
+
+  // After progression: completed visible
+  await expect(page.getByTestId(/upload-parse-/).first()).toContainText(
+    "completed · 3 chunks",
+    { timeout: 5000 },
+  );
+
+  // Polling stops after completed (cap-of-2 polls)
+  await page.waitForTimeout(1500);
+  expect(getCalls).toBeLessThanOrEqual(3);
+});
+
+ succeeded in 1992ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+ * http://127.0.0.1:8000 for local development).
+ */
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
+
+export type TemplateId =
+  | "clinical"
+  | "trade"
+  | "housing"
+  | "defense"
+  | "climate"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await fetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await fetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+}
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given BPEI chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+ succeeded in 2149ms:
+import { expect, test } from "@playwright/test";
+
+const DOC_ID = "doc-preview-id-0001";
+
+test("open preview → click chunk → mark wraps text in iframe", async ({
+  page,
+}) => {
+  await page.route("**/upload", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        document_id: DOC_ID,
+        filename: "doc.md",
+        bytes: 100,
+        sha256: "stub",
+        classification: "UNKNOWN",
+        parse_status: "completed",
+        chunk_preview: ["alpha sentence here", "beta sentence here"],
+        content: "alpha sentence here\nbeta sentence here",
+        html: "<p>alpha sentence here</p><p>beta sentence here</p>",
+      }),
+    });
+  });
+  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        document_id: DOC_ID,
+        filename: "doc.md",
+        bytes: 100,
+        sha256: "stub",
+        classification: "UNKNOWN",
+        parse_status: "completed",
+        chunk_preview: ["alpha sentence here", "beta sentence here"],
+        content: "alpha sentence here\nbeta sentence here",
+        html: "<p>alpha sentence here</p><p>beta sentence here</p>",
+      }),
+    });
+  });
+
+  await page.goto("/upload");
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([new Uint8Array(100)], "doc.md", { type: "text/markdown" }),
+    );
+    document.querySelector('[data-testid="upload-dropzone"]')!.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+
+  // Open preview button visible
+  const openBtn = page.locator('[data-testid^="open-preview-"]').first();
+  await expect(openBtn).toBeVisible();
+  await openBtn.click();
+
+  // Preview iframe rendered
+  const iframe = page.locator('[data-testid="preview-iframe"]');
+  await expect(iframe).toBeVisible();
+
+  // Click chunk-1 (the "beta" chunk)
+  await page.getByTestId("chunk-1").click();
+
+  // Inspect iframe contentDocument for the <mark> element
+  const markText = await page.evaluate(() => {
+    const iframe = document.querySelector(
+      '[data-testid="preview-iframe"]',
+    ) as HTMLIFrameElement | null;
+    const mark = iframe?.contentDocument?.querySelector(
+      "mark[data-polaris-mark]",
+    );
+    return mark?.textContent ?? null;
+  });
+
+  expect(markText).toBe("beta sentence here");
+});
+
+codex
+The key substrate mismatch is now clear: the page is a Server Component with a `metadata` export, while the proposed callback/state bridge needs to live in a Client Component boundary. I’m doing one more pass for any other acceptance-level blockers before issuing the YAML.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/upload/components | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/dashboard/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"metadata =|SelectedDocsIndicator|use client|export default function .*Page|document_ids|runIntake\\(\" web/app web/lib src tests" in C:\POLARIS
+ succeeded in 1639ms:
+src\agents\base_agent.py:572:            max_tokens: Per-call token limit (0 = use client default)
+src\agents\analyst_agent.py:835:                metadata = getattr(result, 'metadata', {}) or {}
+src\agents\analyst_agent.py:902:                    is_metadata = Evidence.detect_metadata(fact.supporting_text)
+src\agents\analyst_agent.py:1137:                    metadata = getattr(result, 'metadata', {}) or {}
+src\utils\citation_registry.py:274:                metadata = results["metadatas"][i] if results.get("metadatas") else {}
+web/lib\api.ts:36:  document_ids?: string[];
+web/lib\api.ts:427:export async function runIntake(
+src\tools\access_bypass.py:536:            winner.metadata = {
+src\tools\access_bypass.py:1519:                                resp_metadata = {
+src\utils\ingest.py:509:                metadata = trafilatura.extract_metadata(raw_html)
+src\utils\ingest.py:1248:    metadata = ExtractedMetadata(source_type="academic")
+src\utils\ingest.py:1391:        api_metadata = None
+src\utils\ingest.py:1396:                api_metadata = _fetch_pmc_metadata_via_oaipmh(pmcid)
+src\utils\ingest.py:1405:                api_metadata = _fetch_pubmed_metadata_via_api_sync(pmid, pmcid)
+src\utils\ingest.py:1442:    metadata = ExtractedMetadata(source_type="academic")
+src\utils\ingest.py:1531:    metadata = ExtractedMetadata()
+src\utils\ingest.py:1548:        metadata = pubmed_meta
+src\utils\ingest.py:1554:        metadata = doi_meta
+src\utils\crossref_resolver.py:17:    metadata = await resolver.resolve_doi("10.1021/acs.est.5b00716")
+src\polaris_v6\schemas\run_request.py:32:    document_ids: list[str] = Field(
+src\polaris_v6\replay\schema.py:22:    document_ids: list[str] = Field(default_factory=list)
+web/app\benchmark\page.tsx:7:export const metadata = {
+web/app\benchmark\page.tsx:13:export default function BenchmarkPage() {
+web/app\benchmark\components\benchmark_board.tsx:1:"use client";
+web/app\page.tsx:106:export default function HomePage() {
+web/app\components\home_keyboard_shell.tsx:1:"use client";
+web/app\retrieval\page.tsx:7:export const metadata = {
+web/app\retrieval\page.tsx:13:export default function RetrievalPage() {
+web/app\components\command_palette.tsx:1:"use client";
+web/app\intake\page.tsx:8:export const metadata = {
+web/app\intake\page.tsx:14:export default function IntakePage() {
+web/app\retrieval\components\retrieval_runner.tsx:1:"use client";
+web/app\retrieval\components\retrieval_runner.tsx:58:      const intake = await runIntake(trimmed);
+web/app\retrieval\components\corpus_brief.tsx:1:"use client";
+web/app\runs\[runId]\page.tsx:1:"use client";
+web/app\runs\[runId]\page.tsx:27:export default function RunDetailPage({ params }: RunPageProps) {
+web/app\sign-in\page.tsx:14:export default function SignInPage() {
+web/app\upload\components\upload_drop_zone.tsx:1:"use client";
+web/app\upload\components\document_preview.tsx:1:"use client";
+web/app\generation\page.tsx:7:export const metadata = {
+web/app\generation\page.tsx:13:export default function GenerationPage() {
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:1:"use client";
+web/app\intake\components\scope_decision_view.tsx:1:"use client";
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:3:export const metadata = {
+web/app\intake\components\pdf_drop_banner.tsx:1:"use client";
+web/app\dashboard\page.tsx:1:"use client";
+web/app\dashboard\page.tsx:69:export default function DashboardPage() {
+web/app\dashboard\page.tsx:179:        document_ids: uploads.map((u) => u.document_id),
+web/app\intake\components\intake_form.tsx:1:"use client";
+web/app\intake\components\intake_form.tsx:74:      const result = await runIntake(trimmed);
+web/app\intake\components\disambiguation_modal.tsx:1:"use client";
+web/app\generation\components\verified_report_view.tsx:1:"use client";
+web/app\inspector\[runId]\page.tsx:1:"use client";
+web/app\inspector\[runId]\page.tsx:30:export default function InspectorPage({ params }: InspectorPageProps) {
+web/app\generation\components\generation_runner.tsx:1:"use client";
+web/app\generation\components\generation_runner.tsx:63:      const intake = await runIntake(trimmed);
+web/app\upload\page.tsx:3:export const metadata = {
+web/app\upload\page.tsx:9:export default function UploadPage() {
+web/app\intake\components\ambiguity_modal.tsx:1:"use client";
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:238:    metadata = json.loads(metadata_bytes.decode("utf-8"))
+tests\polaris_graph\test_graph_v4_documents.py:110:        vector_id="test", query="Q", document_ids=["a" * 16, "b" * 16],
+tests\polaris_graph\test_m61_human_completion.py:446:        metadata = {
+tests\polaris_graph\test_m61_human_completion.py:476:        metadata = {
+src\polaris_v6\adapters\evidence_pool_merger.py:4:graph_v4.py:149 accepts a `document_ids` parameter but does NOT use it.
+src\polaris_graph\v30_sweep_integration.py:504:    metadata = {
+tests\v6\test_regression_lab.py:27:        document_ids=[],
+tests\v6\test_schemas.py:14:    assert req.document_ids == []
+tests\v6\test_scripts_v6_handover.py:85:        "document_ids": [],
+src\polaris_graph\graph_v2.py:764:    document_ids: list[str] | None = None,
+src\polaris_graph\graph.py:1289:    document_ids: list[str] | None = None,
+src\polaris_graph\graph.py:1332:    if document_ids:
+src\polaris_graph\graph.py:1341:            for doc_id in document_ids:
+src\polaris_graph\graph.py:1351:                metadata = doc.get("metadata", {})
+tests\v6\fixtures\baseline_pins\baseline_housing.json:7:  "document_ids": [],
+tests\v6\test_replay.py:18:        document_ids=[],
+tests\v6\fixtures\baseline_pins\baseline_clinical.json:7:  "document_ids": [],
+tests\v6\fixtures\baseline_pins\baseline_climate.json:7:  "document_ids": [],
+tests\v6\acceptance\test_runs_db_integration.py:72:    payload = {"template": "clinical", "question": "noop?", "document_ids": []}
+tests\v6\acceptance\test_runs_db_integration.py:151:    assert decoded["echo"] == {"template": "clinical", "question": "noop?", "document_ids": []}
+tests\v6\acceptance\test_dramatiq_acceptance.py:54:    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+tests\v3\test_graph.py:112:        optional = {"max_iterations", "max_execution_minutes", "document_ids", "steer_callback"}
+tests\v3\test_contracts.py:269:    def test_v1_has_document_ids(self):
+tests\v3\test_contracts.py:270:        """v1 must accept document_ids for upload pipeline compat."""
+tests\v3\test_contracts.py:273:        assert "document_ids" in sig.parameters
+src\polaris_graph\document_ingester.py:266:        pdf_metadata = doc.metadata or {}
+src\polaris_graph\document_ingester.py:355:        result_metadata = {
+src\polaris_graph\document_ingester.py:1105:        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+src\polaris_graph\memory\local_document_rag.py:360:    def get_document_ids(self) -> list[str]:
+src\polaris_graph\memory\cross_vector.py:174:        metadata = {
+src\polaris_graph\memory\cross_vector.py:504:        metadata = {
+tests\unit\test_orchestration_state.py:237:        assert sr.metadata == {}
+src\polaris_graph\graph_v4.py:45:    document_ids: list[str], ingester: Any = None, chunk_size: int = 1500,
+src\polaris_graph\graph_v4.py:47:    """Load chunks for given document_ids from DocumentIngester.
+src\polaris_graph\graph_v4.py:55:    if not document_ids:
+src\polaris_graph\graph_v4.py:61:    for doc_id in document_ids:
+src\polaris_graph\graph_v4.py:84:            f"({len(document_ids)} ids) failed to resolve"
+src\polaris_graph\graph_v4.py:197:    document_ids: Optional[list[str]] = None,
+src\polaris_graph\graph_v4.py:241:    if document_ids:  # truthy: handles None and []
+src\polaris_graph\graph_v4.py:242:        q["uploaded_documents"] = _load_uploaded_documents(document_ids)
+src\polaris_graph\graph_v3.py:712:    document_ids: Optional[list[str]] = None,
+src\polaris_graph\graph_v3.py:766:    if document_ids:
+src\polaris_graph\graph_v3.py:770:            for doc_id in document_ids:
+tests\unit\test_gemini_fixes.py:2399:    ev.is_metadata = False
+src\orchestration\graph.py:778:            metadata = result.get("metadata", {})
+tests\integration\test_document_pipeline_wiring.py:5:1. ResearchRequest accepts document_ids
+tests\integration\test_document_pipeline_wiring.py:7:3. build_and_run() populates state["uploaded_documents"] from document_ids
+tests\integration\test_document_pipeline_wiring.py:67:    """Verify ResearchRequest accepts document_ids field."""
+tests\integration\test_document_pipeline_wiring.py:69:    def test_request_accepts_document_ids(self):
+tests\integration\test_document_pipeline_wiring.py:70:        """document_ids field is accepted and defaults to empty list."""
+tests\integration\test_document_pipeline_wiring.py:73:        req = ResearchRequest(query="What is PFAS?", document_ids=["doc_001", "doc_002"])
+tests\integration\test_document_pipeline_wiring.py:74:        assert req.document_ids == ["doc_001", "doc_002"]
+tests\integration\test_document_pipeline_wiring.py:76:    def test_request_defaults_empty_document_ids(self):
+tests\integration\test_document_pipeline_wiring.py:77:        """document_ids defaults to [] when not provided."""
+tests\integration\test_document_pipeline_wiring.py:81:        assert req.document_ids == []
+tests\integration\test_document_pipeline_wiring.py:280:    """Verify document_ids flows from API request through to pipeline."""
+tests\integration\test_document_pipeline_wiring.py:283:    async def test_start_research_passes_document_ids(self):
+tests\integration\test_document_pipeline_wiring.py:284:        """POST /api/research forwards document_ids to PipelineRunner.start()."""
+tests\integration\test_document_pipeline_wiring.py:298:                    "document_ids": ["doc_001", "doc_002"],
+tests\integration\test_document_pipeline_wiring.py:303:                assert data["document_ids"] == ["doc_001", "doc_002"]
+tests\integration\test_document_pipeline_wiring.py:305:                # Verify document_ids was passed to runner.start()
+tests\integration\test_document_pipeline_wiring.py:308:                assert call_kwargs["document_ids"] == ["doc_001", "doc_002"]
+src\memory\chroma_client.py:334:        metadata = {
+src\memory\chroma_client.py:384:        chunk_metadata = chunk_metadata or {}
+src\memory\chroma_client.py:393:            metadata = {
+src\memory\chroma_client.py:496:            metadata = results["metadatas"][0] if results["metadatas"] else {}
+src\memory\chroma_client.py:520:                        metadata = query_results["metadatas"][0][idx]
+src\memory\chroma_client.py:844:                metadata = doc.get('metadata', {})
+src\memory\chroma_client.py:904:            metadata = results["metadatas"][i] if results["metadatas"] else {}
+src\llm\kimi_client.py:289:            max_tokens: Per-call token limit (None = use client default)
+src\polaris_graph\audit_bundle\manifest_builder.py:123:    metadata = {
+
+ succeeded in 1745ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  checkAmbiguity,
+  checkScope,
+  createRun,
+  listTemplates,
+  uploadDocument,
+  type AmbiguityResult,
+  type ScopeDecision,
+  type TemplateContent,
+  type TemplateId,
+  type UploadResponse,
+} from "@/lib/api";
+
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "trade", title: "Trade & tariff", domain: "USMCA / WTO" },
+    {
+      id: "housing",
+      title: "Housing & productivity",
+      domain: "StatCan / CMHC",
+    },
+    { id: "defense", title: "Defense & Arctic", domain: "DND / NORAD" },
+    {
+      id: "climate",
+      title: "Climate & critical minerals",
+      domain: "ECCC / NRCan",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const [question, setQuestion] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (question.trim().length < 4) {
+      setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Start a research run
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Pick a template and ask a focused question. Every claim returned
+            will carry a provenance token tied to a primary source.
+          </p>
+        </section>
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-foreground text-sm font-semibold">
+              Template
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+                  // <div> — keyboard-only users locked out of non-default
+                  // templates, WCAG 2.1.1 Level A failure).
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTemplate(t.id)}
+                    className={`text-left rounded-lg border bg-card p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                      selected
+                        ? "border-foreground"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                  >
+                    <span className="block text-card-foreground text-xs font-medium tracking-widest uppercase">
+                      {t.domain}
+                    </span>
+                    <span className="text-card-foreground mt-1 block text-base font-semibold">
+                      {t.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="question"
+              className="text-foreground text-sm font-semibold"
+            >
+              Research question
+            </label>
+            <Input
+              id="question"
+              type="text"
+              placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              minLength={4}
+              maxLength={2000}
+              required
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-foreground text-sm font-semibold">
+              Optional: upload supporting documents
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+                dragOver
+                  ? "border-foreground bg-muted/40"
+                  : "border-border bg-muted/10"
+              }`}
+            >
+              <p className="text-muted-foreground">
+                Drag PDFs, .docx, .md, or .txt here, or
+              </p>
+              <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
+                <span>browse files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.md,.txt"
+                  className="hidden"
+                  disabled={uploading || submitting}
+                  onChange={(e) => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {uploading && (
+                <p className="text-muted-foreground text-xs">Uploading…</p>
+              )}
+            </div>
+            {uploads.length > 0 && (
+              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+                {uploads.map((u) => (
+                  <li
+                    key={u.document_id}
+                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {u.filename}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {(u.bytes / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="ml-2 uppercase">{u.classification}</span>
+                      <span className="ml-2">{u.parse_status}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUploads((prev) =>
+                          prev.filter((p) => p.document_id !== u.document_id),
+                        )
+                      }
+                      className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {scopeDecision && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/60"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-foreground mt-2 text-sm font-medium">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-foreground mt-2 text-xs font-medium">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (BPEI guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/" />}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
+              {submitting ? "Queuing…" : "Start run"}
+            </Button>
+          </div>
+        </form>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ succeeded in 1809ms:
+document_preview.tsx
+upload_drop_zone.tsx
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: The planned wiring cannot compile as described. web/app/upload/page.tsx is currently a Server Component and exports metadata; it cannot hold React selection state or pass an onSelectionChange function into the client UploadDropZone. Marking the page 'use client' would also conflict with the metadata export. Add a client wrapper component that owns selected ids and renders both UploadDropZone and SelectedDocsIndicator, or otherwise move the interactive bridge fully inside a client boundary."
+p2:
+  - "P2: The brief still conflicts with its own mission text around getSelectedDocIds()/backend echo. The binding AC only exposes a DOM output, while the mission says downstream code reads a getSelectedDocIds() accessor and the original acceptance mentions backend echo. Clarify whether this slice is UI-only DOM visibility, or require an exported accessor/backend echo test now."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the Server Component/client callback boundary for upload/page.tsx before implementation."
+```
+tokens used
+28,205
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: The planned wiring cannot compile as described. web/app/upload/page.tsx is currently a Server Component and exports metadata; it cannot hold React selection state or pass an onSelectionChange function into the client UploadDropZone. Marking the page 'use client' would also conflict with the metadata export. Add a client wrapper component that owns selected ids and renders both UploadDropZone and SelectedDocsIndicator, or otherwise move the interactive bridge fully inside a client boundary."
+p2:
+  - "P2: The brief still conflicts with its own mission text around getSelectedDocIds()/backend echo. The binding AC only exposes a DOM output, while the mission says downstream code reads a getSelectedDocIds() accessor and the original acceptance mentions backend echo. Clarify whether this slice is UI-only DOM visibility, or require an exported accessor/backend echo test now."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the Server Component/client callback boundary for upload/page.tsx before implementation."
+```
