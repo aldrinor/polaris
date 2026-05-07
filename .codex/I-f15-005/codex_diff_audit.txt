@@ -1,0 +1,3375 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e00e9-79b1-7db0-9cf0-a2869a87a913
+--------
+user
+# Codex Diff Review — I-f15-005 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f15-005 — F15 adversarial: paywalled, 500MB resumable, partial run
+**Brief:** APPROVED iter 2 (0/0/0/0)
+**Canonical-diff-sha256:** `29b6fd88ff6b9f698acd7b4a6581b19d3396dd5af95556d42440a4a94ae9ef51`
+**LOC:** 142 net (under CHARTER §1 200-cap by 58)
+**Tests:** 3/3 PASS
+
+## Files
+
+```
+tests/polaris_graph/audit_bundle/test_f15_adversarial.py   NEW +142
+```
+
+## What changed
+
+- `test_paywalled_source_falls_back_to_snippet`: Source with `full_text=None`, `snippet=PAYWALL_SNIPPET (47 chars)`. Sentence cites `[#ev:src-A:0-47]`. Asserts `sources/src-A.txt` content equals the snippet.
+- `test_500mb_per_source_capped`: 5 sources × 250KB full_text + sentences citing each. Asserts each `sources/<id>.txt` ≤ MAX_SOURCE_TEXT_BYTES + 500 (per-source cap with 500-byte buffer for truncation note).
+- `test_partial_run_aborts_bundle_build`: All-dropped section + `pipeline_verdict="abort_no_verified_sections"`. Asserts `build_manifest_and_files` raises ValueError matching "verdict".
+
+## Risks for Codex Red-Team
+
+1. **Per-source cap test scoped correctly.** Asserts only `sources/*.txt` files; does NOT assert total bundle bytes (evidence_pool.json contains full_text — out-of-scope per iter-1 P1 resolution).
+2. **Paywall fixture realism.** `full_text=None` + `snippet=PAYWALL_SNIPPET` mirrors how the retrieval layer flags paywalled sources at HEAD.
+3. **Partial-run assertion uses VerifiedReport's existing validator.** `pipeline_verdict="abort_no_verified_sections"` requires every section dropped (`verified_report.py:155-161`). Test fixture obeys.
+4. **Heap cost.** ~1.25MB pre-truncation in test #2. Acceptable per CLAUDE.md §8.4.
+5. **§9.4 compliance.** No mocks. No magic numbers. No `try: pass`. No TODO/FIXME.
+6. **CHARTER §1 LOC cap.** 142 net. Under 200.
+7. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+# CANONICAL DIFF
+
+`diff
+diff --git a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+new file mode 100644
+index 0000000..d7867a7
+--- /dev/null
++++ b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+@@ -0,0 +1,142 @@
++"""F15 adversarial tests (I-f15-005): paywalled, oversize per-source, partial run."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++import pytest
++
++from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
++from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
++from polaris_graph.generator2.verified_report import (
++    Section,
++    VerifiedReport,
++    VerifiedSentence,
++)
++from polaris_graph.retrieval2.evidence_pool import (
++    AdequacyVerdict,
++    EvidencePool,
++    Source,
++    SourceTier,
++)
++from polaris_graph.scope.scope_decision import AmbiguityAxis, ScopeDecision
++
++PAYWALL_SNIPPET = "paywalled snippet text 50 chars exactly here."
++
++
++def _src(source_id: str, full_text: str | None, snippet: str = "snippet") -> Source:
++    return Source(
++        url="https://www.cochrane.org/CD001",
++        domain="cochrane.org",
++        tier=SourceTier.T1,
++        title=f"Source {source_id}",
++        snippet=snippet,
++        full_text=full_text,
++        full_text_available=(full_text is not None),
++        source_id=source_id,
++    )
++
++
++def _decision() -> ScopeDecision:
++    return ScopeDecision(
++        decision_id="dec-adv-1",
++        status="in_scope",
++        scope_class="clinical_efficacy",
++        ambiguity_axes=[
++            AmbiguityAxis(axis="population", plausible_interpretations=["adults"], needs_clarification=False),
++        ],
++    )
++
++
++def _pool(sources: list[Source]) -> EvidencePool:
++    return EvidencePool(
++        pool_id="pool-adv-1",
++        decision_id="dec-adv-1",
++        sources=sources,
++        adequacy=AdequacyVerdict(is_adequate=True),
++        retrieval_started_at_utc=datetime.now(timezone.utc),
++        retrieval_finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def _report(sentences: list[VerifiedSentence], verdict: str = "success") -> VerifiedReport:
++    if verdict == "success":
++        section = Section(
++            section_id="sec_x",
++            section_title="X",
++            verified_sentences=sentences,
++            section_verify_pass_rate=1.0,
++            section_status="verified",
++        )
++    else:
++        section = Section(
++            section_id="sec_x",
++            section_title="X",
++            verified_sentences=sentences,
++            section_verify_pass_rate=0.0,
++            section_status="dropped",
++        )
++    return VerifiedReport(
++        pool_id="pool-adv-1",
++        decision_id="dec-adv-1",
++        sections=[section],
++        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
++        pipeline_verdict=verdict,
++        generator_model="test/model",
++        verifier_pass_threshold=0.4,
++        started_at_utc=datetime.now(timezone.utc),
++        finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++def test_paywalled_source_falls_back_to_snippet():
++    paywall = _src("src-A", full_text=None, snippet=PAYWALL_SNIPPET)
++    sentence = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text=f"claim [#ev:src-A:0-{len(PAYWALL_SNIPPET)}].",
++        provenance_tokens=[f"[#ev:src-A:0-{len(PAYWALL_SNIPPET)}]"],
++        verifier_pass=True,
++    )
++    _, files = build_manifest_and_files(_decision(), _pool([paywall]), _report([sentence]))
++    snapshot = files["sources/src-A.txt"].decode("utf-8")
++    assert snapshot == PAYWALL_SNIPPET
++
++
++def test_500mb_per_source_capped():
++    big = lambda sid: _src(sid, full_text="x" * 250_000)
++    sources = [big(f"src-{i}") for i in range(5)]
++    sentences = [
++        VerifiedSentence(
++            section_id="sec_x",
++            sentence_text=f"claim [#ev:src-{i}:0-100].",
++            provenance_tokens=[f"[#ev:src-{i}:0-100]"],
++            verifier_pass=True,
++        )
++        for i in range(5)
++    ]
++    _, files = build_manifest_and_files(_decision(), _pool(sources), _report(sentences))
++    snapshot_paths = [p for p in files if p.startswith("sources/")]
++    assert len(snapshot_paths) == 5
++    for path in snapshot_paths:
++        assert len(files[path]) <= MAX_SOURCE_TEXT_BYTES + 500, (
++            f"{path} exceeded per-source cap: {len(files[path])} bytes"
++        )
++
++
++def test_partial_run_aborts_bundle_build():
++    src = _src("src-A", full_text="something")
++    dropped = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="claim text.",
++        provenance_tokens=[],
++        verifier_pass=False,
++        drop_reason="no_provenance_token",
++    )
++    with pytest.raises(ValueError, match="verdict"):
++        build_manifest_and_files(
++            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
++        )
+
+``n
+
+codex
+I’ll review this as a blocker-focused diff review against the surrounding implementation, especially the bundle builder’s actual file outputs and the VerifiedReport validation path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path tests\\polaris_graph\\audit_bundle -Force | Select-Object Name,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def build_manifest_and_files|MAX_SOURCE_TEXT_BYTES|snapshot|evidence_pool|pipeline_verdict|abort_no_verified_sections" polaris_graph tests/polaris_graph/audit_bundle' in C:\POLARIS
+ succeeded in 1234ms:
+A  tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+?? .claude/hooks/__pycache__/
+?? .codex/I-f15-005/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+2026-05-07T05:29:34.542534Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:1:"""Tests for audit_bundle.snapshot_sources."""
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:7:from polaris_graph.audit_bundle.snapshot_sources import (
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:8:    MAX_SOURCE_TEXT_BYTES,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:9:    snapshot_size_bytes,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:10:    snapshot_sources,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:17:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:82:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:94:def test_snapshot_collects_cited_source_ids():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:110:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:111:    assert set(snapshots.keys()) == {"src-A", "src-B"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:112:    assert snapshots["src-A"] == "Full text A"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:113:    assert snapshots["src-B"] == "Full text B"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:116:def test_snapshot_skips_dropped_sentences():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:134:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:135:    assert "src-A" in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:136:    assert "src-B" not in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:139:def test_snapshot_skips_dropped_sections():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:152:    snapshots = snapshot_sources(_report(kept_section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:153:    assert snapshots == {"src-A": "txt"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:156:def test_snapshot_falls_back_to_snippet_when_no_full_text():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:165:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:166:    assert snapshots == {"src-A": "snippet only"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:169:def test_snapshot_skips_unknown_source_id_defensively():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:171:    happen post-strict-verify), the snapshot silently skips it."""
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:182:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:183:    assert "src-bogus" not in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:184:    assert snapshots == {}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:187:def test_snapshot_dedupes_same_source_across_sentences():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:199:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:200:    assert len(snapshots) == 1
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:201:    assert snapshots["src-A"] == "txt"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:204:def test_snapshot_handles_multiple_tokens_per_sentence():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:221:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:222:    assert set(snapshots.keys()) == {"src-A", "src-B"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:227:def test_snapshot_truncates_oversize_full_text():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:228:    big_text = "X" * (MAX_SOURCE_TEXT_BYTES + 5000)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:237:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:238:    text = snapshots["src-A"]
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:240:    assert len(text.encode("utf-8")) > MAX_SOURCE_TEXT_BYTES  # note appended
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:244:def test_snapshot_does_not_truncate_when_under_cap():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:245:    text = "x" * (MAX_SOURCE_TEXT_BYTES // 2)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:254:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:255:    assert snapshots["src-A"] == text
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:256:    assert "truncation notice" not in snapshots["src-A"]
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:259:def test_snapshot_truncation_respects_utf8_boundaries():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:262:    text = "а" * (MAX_SOURCE_TEXT_BYTES // 2 + 100)  # over cap
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:271:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:273:    assert isinstance(snapshots["src-A"], str)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:278:def test_snapshot_size_bytes_sums_correctly():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:280:    assert snapshot_size_bytes(snaps) == 5 + 6
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:283:def test_snapshot_size_bytes_empty():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:284:    assert snapshot_size_bytes({}) == 0
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:10:from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:16:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:86:        pipeline_verdict=verdict,
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:105:    snapshot = files["sources/src-A.txt"].decode("utf-8")
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:106:    assert snapshot == PAYWALL_SNIPPET
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:122:    snapshot_paths = [p for p in files if p.startswith("sources/")]
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:123:    assert len(snapshot_paths) == 5
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:124:    for path in snapshot_paths:
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:125:        assert len(files[path]) <= MAX_SOURCE_TEXT_BYTES + 500, (
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:141:            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:21:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:100:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:168:        pipeline_verdict="abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:204:    assert any(n.endswith("evidence_pool.json") for n in names)
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:29:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:111:        pipeline_verdict=verdict,
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:157:    # Source snapshots
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:198:        pipeline_verdict="abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:212:    # Note: report only cites src-A so src-Z is not snapshotted
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:242:    assert metadata["source_snapshot_count"] == 1
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:246:    """Same source cited twice should appear once in snapshots."""
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:273:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:144:            _file("evidence_pool.json", "evidence_pool"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:146:            _file("sources/src-1.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:187:            _file("b.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:188:            _file("c.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:191:    sources = m.file_by_content_type("source_snapshot")
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:193:    assert all(f.content_type == "source_snapshot" for f in sources)
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:205:            _file("b.txt", "source_snapshot", b"world!"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:231:        message="cannot build bundle when verdict=abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:22:from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:29:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:89:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:127:    assert manifest.file_by_content_type("source_snapshot")
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:132:    span_end = MAX_SOURCE_TEXT_BYTES + 100
+rg: polaris_graph: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 1301ms:
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:1:"""Tests for audit_bundle.snapshot_sources."""
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:7:from polaris_graph.audit_bundle.snapshot_sources import (
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:8:    MAX_SOURCE_TEXT_BYTES,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:9:    snapshot_size_bytes,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:10:    snapshot_sources,
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:17:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:82:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:94:def test_snapshot_collects_cited_source_ids():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:110:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:111:    assert set(snapshots.keys()) == {"src-A", "src-B"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:112:    assert snapshots["src-A"] == "Full text A"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:113:    assert snapshots["src-B"] == "Full text B"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:116:def test_snapshot_skips_dropped_sentences():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:134:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:135:    assert "src-A" in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:136:    assert "src-B" not in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:139:def test_snapshot_skips_dropped_sections():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:152:    snapshots = snapshot_sources(_report(kept_section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:153:    assert snapshots == {"src-A": "txt"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:156:def test_snapshot_falls_back_to_snippet_when_no_full_text():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:165:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:166:    assert snapshots == {"src-A": "snippet only"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:169:def test_snapshot_skips_unknown_source_id_defensively():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:171:    happen post-strict-verify), the snapshot silently skips it."""
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:182:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:183:    assert "src-bogus" not in snapshots
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:184:    assert snapshots == {}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:187:def test_snapshot_dedupes_same_source_across_sentences():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:199:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:200:    assert len(snapshots) == 1
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:201:    assert snapshots["src-A"] == "txt"
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:204:def test_snapshot_handles_multiple_tokens_per_sentence():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:221:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:222:    assert set(snapshots.keys()) == {"src-A", "src-B"}
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:227:def test_snapshot_truncates_oversize_full_text():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:228:    big_text = "X" * (MAX_SOURCE_TEXT_BYTES + 5000)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:237:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:238:    text = snapshots["src-A"]
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:240:    assert len(text.encode("utf-8")) > MAX_SOURCE_TEXT_BYTES  # note appended
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:244:def test_snapshot_does_not_truncate_when_under_cap():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:245:    text = "x" * (MAX_SOURCE_TEXT_BYTES // 2)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:254:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:255:    assert snapshots["src-A"] == text
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:256:    assert "truncation notice" not in snapshots["src-A"]
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:259:def test_snapshot_truncation_respects_utf8_boundaries():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:262:    text = "а" * (MAX_SOURCE_TEXT_BYTES // 2 + 100)  # over cap
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:271:    snapshots = snapshot_sources(_report(section), pool)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:273:    assert isinstance(snapshots["src-A"], str)
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:278:def test_snapshot_size_bytes_sums_correctly():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:280:    assert snapshot_size_bytes(snaps) == 5 + 6
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:283:def test_snapshot_size_bytes_empty():
+tests/polaris_graph/audit_bundle\test_snapshot_sources.py:284:    assert snapshot_size_bytes({}) == 0
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:10:from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:16:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:86:        pipeline_verdict=verdict,
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:105:    snapshot = files["sources/src-A.txt"].decode("utf-8")
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:106:    assert snapshot == PAYWALL_SNIPPET
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:122:    snapshot_paths = [p for p in files if p.startswith("sources/")]
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:123:    assert len(snapshot_paths) == 5
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:124:    for path in snapshot_paths:
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:125:        assert len(files[path]) <= MAX_SOURCE_TEXT_BYTES + 500, (
+tests/polaris_graph/audit_bundle\test_f15_adversarial.py:141:            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:21:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:100:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:168:        pipeline_verdict="abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_bundle_builder.py:204:    assert any(n.endswith("evidence_pool.json") for n in names)
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:29:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:111:        pipeline_verdict=verdict,
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:157:    # Source snapshots
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:198:        pipeline_verdict="abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:212:    # Note: report only cites src-A so src-Z is not snapshotted
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:242:    assert metadata["source_snapshot_count"] == 1
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:246:    """Same source cited twice should appear once in snapshots."""
+tests/polaris_graph/audit_bundle\test_manifest_builder.py:273:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:144:            _file("evidence_pool.json", "evidence_pool"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:146:            _file("sources/src-1.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:187:            _file("b.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:188:            _file("c.txt", "source_snapshot"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:191:    sources = m.file_by_content_type("source_snapshot")
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:193:    assert all(f.content_type == "source_snapshot" for f in sources)
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:205:            _file("b.txt", "source_snapshot", b"world!"),
+tests/polaris_graph/audit_bundle\test_bundle_schema.py:231:        message="cannot build bundle when verdict=abort_no_verified_sections",
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:22:from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:29:from polaris_graph.retrieval2.evidence_pool import (
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:89:        pipeline_verdict="success",
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:127:    assert manifest.file_by_content_type("source_snapshot")
+tests/polaris_graph/audit_bundle\test_reviewer_blind_walkthrough.py:132:    span_end = MAX_SOURCE_TEXT_BYTES + 100
+rg: polaris_graph: The system cannot find the file specified. (os error 2)
+
+ succeeded in 1509ms:
+
+Name                               Length
+----                               ------
+__pycache__                        
+__init__.py                        0
+test_bundle_builder.py             10807
+test_bundle_schema.py              6680
+test_f15_adversarial.py            4657
+test_gpg_signer.py                 6502
+test_manifest_builder.py           10909
+test_reviewer_blind_walkthrough.py 5375
+test_snapshot_sources.py           9452
+test_span_truncate.py              2345
+
+
+codex
+The repo uses a `src/` layout; I found the new test file and the existing audit-bundle tests, so I’m narrowing the check to the actual implementation modules now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files | rg \"(manifest_builder|snapshot_sources|verified_report|evidence_pool|scope_decision)\\.py"'$"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\audit_bundle\\test_f15_adversarial.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path pyproject.toml -TotalCount 180' in C:\POLARIS
+2026-05-07T05:29:43.718321Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+src\polaris_graph\generator2\verified_report.py
+src\polaris_graph\scope\scope_decision.py
+src\polaris_graph\audit_bundle\snapshot_sources.py
+src\polaris_graph\audit_bundle\manifest_builder.py
+src\polaris_graph\retrieval2\evidence_pool.py
+tests\polaris_graph\scope\test_scope_decision.py
+tests\polaris_graph\retrieval2\test_evidence_pool.py
+tests\polaris_graph\generator2\test_verified_report.py
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py
+tests\polaris_graph\audit_bundle\test_manifest_builder.py
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+
+ exited 1 in 1227ms:
+src\polaris_graph\generator2\verified_report.py
+src\polaris_graph\scope\scope_decision.py
+src\polaris_graph\audit_bundle\snapshot_sources.py
+src\polaris_graph\audit_bundle\manifest_builder.py
+src\polaris_graph\retrieval2\evidence_pool.py
+tests\polaris_graph\scope\test_scope_decision.py
+tests\polaris_graph\retrieval2\test_evidence_pool.py
+tests\polaris_graph\generator2\test_verified_report.py
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py
+tests\polaris_graph\audit_bundle\test_manifest_builder.py
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+
+ succeeded in 1414ms:
+"""F15 adversarial tests (I-f15-005): paywalled, oversize per-source, partial run."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+from polaris_graph.generator2.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+from polaris_graph.retrieval2.evidence_pool import (
+    AdequacyVerdict,
+    EvidencePool,
+    Source,
+    SourceTier,
+)
+from polaris_graph.scope.scope_decision import AmbiguityAxis, ScopeDecision
+
+PAYWALL_SNIPPET = "paywalled snippet text 50 chars exactly here."
+
+
+def _src(source_id: str, full_text: str | None, snippet: str = "snippet") -> Source:
+    return Source(
+        url="https://www.cochrane.org/CD001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title=f"Source {source_id}",
+        snippet=snippet,
+        full_text=full_text,
+        full_text_available=(full_text is not None),
+        source_id=source_id,
+    )
+
+
+def _decision() -> ScopeDecision:
+    return ScopeDecision(
+        decision_id="dec-adv-1",
+        status="in_scope",
+        scope_class="clinical_efficacy",
+        ambiguity_axes=[
+            AmbiguityAxis(axis="population", plausible_interpretations=["adults"], needs_clarification=False),
+        ],
+    )
+
+
+def _pool(sources: list[Source]) -> EvidencePool:
+    return EvidencePool(
+        pool_id="pool-adv-1",
+        decision_id="dec-adv-1",
+        sources=sources,
+        adequacy=AdequacyVerdict(is_adequate=True),
+        retrieval_started_at_utc=datetime.now(timezone.utc),
+        retrieval_finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _report(sentences: list[VerifiedSentence], verdict: str = "success") -> VerifiedReport:
+    if verdict == "success":
+        section = Section(
+            section_id="sec_x",
+            section_title="X",
+            verified_sentences=sentences,
+            section_verify_pass_rate=1.0,
+            section_status="verified",
+        )
+    else:
+        section = Section(
+            section_id="sec_x",
+            section_title="X",
+            verified_sentences=sentences,
+            section_verify_pass_rate=0.0,
+            section_status="dropped",
+        )
+    return VerifiedReport(
+        pool_id="pool-adv-1",
+        decision_id="dec-adv-1",
+        sections=[section],
+        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
+        pipeline_verdict=verdict,
+        generator_model="test/model",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def test_paywalled_source_falls_back_to_snippet():
+    paywall = _src("src-A", full_text=None, snippet=PAYWALL_SNIPPET)
+    sentence = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text=f"claim [#ev:src-A:0-{len(PAYWALL_SNIPPET)}].",
+        provenance_tokens=[f"[#ev:src-A:0-{len(PAYWALL_SNIPPET)}]"],
+        verifier_pass=True,
+    )
+    _, files = build_manifest_and_files(_decision(), _pool([paywall]), _report([sentence]))
+    snapshot = files["sources/src-A.txt"].decode("utf-8")
+    assert snapshot == PAYWALL_SNIPPET
+
+
+def test_500mb_per_source_capped():
+    big = lambda sid: _src(sid, full_text="x" * 250_000)
+    sources = [big(f"src-{i}") for i in range(5)]
+    sentences = [
+        VerifiedSentence(
+            section_id="sec_x",
+            sentence_text=f"claim [#ev:src-{i}:0-100].",
+            provenance_tokens=[f"[#ev:src-{i}:0-100]"],
+            verifier_pass=True,
+        )
+        for i in range(5)
+    ]
+    _, files = build_manifest_and_files(_decision(), _pool(sources), _report(sentences))
+    snapshot_paths = [p for p in files if p.startswith("sources/")]
+    assert len(snapshot_paths) == 5
+    for path in snapshot_paths:
+        assert len(files[path]) <= MAX_SOURCE_TEXT_BYTES + 500, (
+            f"{path} exceeded per-source cap: {len(files[path])} bytes"
+        )
+
+
+def test_partial_run_aborts_bundle_build():
+    src = _src("src-A", full_text="something")
+    dropped = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="claim text.",
+        provenance_tokens=[],
+        verifier_pass=False,
+        drop_reason="no_provenance_token",
+    )
+    with pytest.raises(ValueError, match="verdict"):
+        build_manifest_and_files(
+            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
+        )
+
+2026-05-07T05:29:44.091927Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path pyproject.toml -TotalCount 180
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.
+
+ exited 1 in 1593ms:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path pyproject.toml -TotalCount 180
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\audit_bundle\\manifest_builder.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\audit_bundle\\snapshot_sources.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\retrieval2\\evidence_pool.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\generator2\\verified_report.py" in C:\POLARIS
+ succeeded in 1127ms:
+"""Manifest builder — collects all bundle content + computes SHA256s.
+
+Per `.codex/slices/slice_004/architecture_proposal.md` §"manifest_builder".
+
+Given a ScopeDecision + EvidencePool + VerifiedReport (the BPEI chain
+output), serializes each to canonical JSON, snapshots cited source
+texts, and assembles a BundleManifest with SHA256 anchors over every
+content file.
+
+The manifest itself is YAML-serialized (canonical sort keys); GPG signs
+that YAML. External verifiers re-serialize the manifest and re-verify
+the signature.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+import yaml
+
+from polaris_graph.audit_bundle.bundle_schema import (
+    BUNDLE_VERSION,
+    BundleManifest,
+    FileEntry,
+)
+from pathlib import Path
+
+from polaris_graph.audit_bundle.snapshot_sources import (
+    snapshot_sources,
+    snapshot_sources_with_reachable,
+)
+from polaris_graph.generator2.provenance import extract_tokens
+from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+
+POLARIS_VERSION = "6.2.0"
+
+# Canonical filenames inside the bundle. External verifiers depend on
+# these; do not rename without bumping bundle_version.
+FILE_SCOPE_DECISION = "scope_decision.json"
+FILE_EVIDENCE_POOL = "evidence_pool.json"
+FILE_VERIFIED_REPORT = "verified_report.json"
+FILE_METADATA = "metadata.json"
+FILE_REVIEWER_README = "REVIEWER_README.md"
+SOURCES_DIR = "sources"
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _serialize_json_canonical(model: Any) -> bytes:
+    """Pydantic model -> deterministic UTF-8 JSON bytes.
+
+    sort_keys + no extra whitespace beyond standard separators ensures
+    re-serialization on the verifier side produces identical bytes →
+    SHA256 stable across implementations.
+    """
+    if hasattr(model, "model_dump"):
+        payload = model.model_dump(mode="json")
+    else:
+        payload = model
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _assert_cited_spans_reachable(report: VerifiedReport, snapshots: dict) -> None:
+    """Raise ValueError if any cited span exceeds its snapshot's reachable_chars.
+
+    Validates the UNION of tokens parsed from `sentence.sentence_text` and
+    `sentence.provenance_tokens`, deduped by `token.raw`. Missing source_id =>
+    unreachable. Span end > reachable_chars => unreachable.
+    """
+    seen: set[str] = set()
+    for section in report.sections:
+        if section.section_status == "dropped":
+            continue
+        for sentence in section.verified_sentences:
+            if not sentence.verifier_pass:
+                continue
+            tokens = list(extract_tokens(sentence.sentence_text))
+            for raw in sentence.provenance_tokens:
+                tokens.extend(extract_tokens(raw))
+            for tok in tokens:
+                if tok.raw in seen:
+                    continue
+                seen.add(tok.raw)
+                entry = snapshots.get(tok.source_id)
+                if entry is None:
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} not in snapshots (token={tok.raw!r})"
+                    )
+                if not (0 <= tok.span_start < tok.span_end <= entry.reachable_chars):
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} token={tok.raw!r} span="
+                        f"{tok.span_start}-{tok.span_end} reachable={entry.reachable_chars}"
+                    )
+
+
+def _safe_source_filename(source_id: str) -> str:
+    """Build a tar-safe filename from a source_id.
+
+    source_id is opaque (uuid by default, but could be 'src-1' etc). We
+    sanitize aggressively: only [a-zA-Z0-9_-]. Anything else becomes _.
+    Length-capped at 100 chars to avoid pathological inputs.
+    """
+    safe = "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in source_id
+    )[:100]
+    return f"{SOURCES_DIR}/{safe}.txt"
+
+
+def build_manifest_and_files(
+    decision: ScopeDecision,
+    pool: EvidencePool,
+    report: VerifiedReport,
+) -> tuple[BundleManifest, dict[str, bytes]]:
+    """Build the bundle manifest + content-file dict.
+
+    Returns:
+        (manifest, files) where files is {path: content_bytes}. The
+        caller (bundle_builder) packs files into a tarball and writes
+        the manifest.yaml + manifest.yaml.asc alongside.
+
+    Raises:
+        ValueError if report.pipeline_verdict != 'success'.
+    """
+    if report.pipeline_verdict != "success":
+        raise ValueError(
+            f"cannot build audit bundle for verdict "
+            f"{report.pipeline_verdict!r}; report must be successful"
+        )
+
+    files_bytes: dict[str, bytes] = {}
+
+    # 1. Slice 001 ScopeDecision
+    sd_bytes = _serialize_json_canonical(decision)
+    files_bytes[FILE_SCOPE_DECISION] = sd_bytes
+
+    # 2. Slice 002 EvidencePool
+    ep_bytes = _serialize_json_canonical(pool)
+    files_bytes[FILE_EVIDENCE_POOL] = ep_bytes
+
+    # 3. Slice 003 VerifiedReport
+    vr_bytes = _serialize_json_canonical(report)
+    files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
+
+    # 4. Per-source snapshots + cited-span reachability guard
+    snapshot_entries = snapshot_sources_with_reachable(report, pool)
+    _assert_cited_spans_reachable(report, snapshot_entries)
+    for source_id, entry in snapshot_entries.items():
+        files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
+    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
+
+    # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
+    readme_path = Path(__file__).parent / "REVIEWER_README.md"
+    files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
+
+    # 5. Bundle metadata (versions + creation timestamp)
+    metadata = {
+        "bundle_version": BUNDLE_VERSION,
+        "polaris_version": POLARIS_VERSION,
+        "created_at_utc": datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "generator_model": report.generator_model,
+        "decision_id": decision.decision_id,
+        "pool_id": report.pool_id,
+        "report_id": report.report_id,
+        "source_snapshot_count": len(snapshots),
+    }
+    files_bytes[FILE_METADATA] = json.dumps(
+        metadata,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    # Build FileEntry list with content_type tags
+    file_entries: list[FileEntry] = []
+    content_type_by_path = {
+        FILE_SCOPE_DECISION: "scope_decision",
+        FILE_EVIDENCE_POOL: "evidence_pool",
+        FILE_VERIFIED_REPORT: "verified_report",
+        FILE_METADATA: "metadata",
+    }
+    for path, content in files_bytes.items():
+        ct = content_type_by_path.get(
+            path,
+            "source_snapshot" if path.startswith(SOURCES_DIR + "/") else "metadata",
+        )
+        file_entries.append(
+            FileEntry(
+                path=path,
+                sha256=_sha256_bytes(content),
+                size_bytes=len(content),
+                content_type=ct,  # type: ignore[arg-type]
+            )
+        )
+
+    # Sort entries deterministically for stable manifest output
+    file_entries.sort(key=lambda f: f.path)
+
+    manifest = BundleManifest(
+        decision_id=decision.decision_id,
+        pool_id=report.pool_id,
+        report_id=report.report_id,
+        generator_model=report.generator_model,
+        polaris_version=POLARIS_VERSION,
+        files=file_entries,
+    )
+    return manifest, files_bytes
+
+
+def serialize_manifest_yaml(manifest: BundleManifest) -> bytes:
+    """Produce canonical YAML bytes for GPG signing.
+
+    PyYAML default_flow_style=False + sort_keys=True keeps it stable
+    across re-serializations.
+    """
+    payload = manifest.model_dump(mode="json")
+    return yaml.safe_dump(
+        payload,
+        default_flow_style=False,
+        sort_keys=True,
+        allow_unicode=True,
+    ).encode("utf-8")
+
+ succeeded in 1302ms:
+"""Source snapshot — collects every cited source's text into the bundle.
+
+Per `.codex/slices/slice_004/architecture_proposal.md` §"snapshot_sources".
+
+Walks every kept VerifiedSentence across every non-dropped Section in
+the VerifiedReport, extracts the unique source_ids referenced by their
+provenance tokens, then pulls the full_text (or snippet fallback) from
+the EvidencePool.
+
+The snapshotted text is what makes the bundle independently verifiable
+offline: a third party can re-run strict_verify against the bundle's
+content without re-fetching from the original source URLs (which may
+have changed since retrieval).
+"""
+
+from __future__ import annotations
+
+from typing import NamedTuple
+
+from polaris_graph.generator2.provenance import extract_tokens
+from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+
+
+class SnapshotEntry(NamedTuple):
+    """Snapshot text plus the reachable character count (excludes appended truncation note)."""
+
+    text: str
+    reachable_chars: int
+
+
+# Cap each source's text to keep the bundle bounded. 200KB per source
+# is enough for a typical full-text article; a Cochrane systematic
+# review with all appendices may need more — adjust if production
+# data shows truncation hits the audit_quality_gate.
+MAX_SOURCE_TEXT_BYTES = 200 * 1024  # 200 KB
+
+SOURCE_TRUNCATION_NOTE_TEMPLATE = (
+    "\n\n[POLARIS audit-bundle truncation notice: source text truncated "
+    "from {original_size} to {truncated_size} bytes per "
+    "MAX_SOURCE_TEXT_BYTES policy.]"
+)
+
+
+def _cited_source_ids(report: VerifiedReport) -> set[str]:
+    """Collect source_ids from provenance tokens of every kept sentence
+    in every non-dropped section.
+
+    Dropped sentences are excluded — we don't want to ship snapshots
+    for sources that didn't survive verification.
+    """
+    out: set[str] = set()
+    for section in report.sections:
+        if section.section_status == "dropped":
+            continue
+        for sentence in section.verified_sentences:
+            if not sentence.verifier_pass:
+                continue
+            for token_str in sentence.provenance_tokens:
+                tokens = extract_tokens(token_str)
+                for tok in tokens:
+                    out.add(tok.source_id)
+    return out
+
+
+def _snapshot_text(source: Source) -> str:
+    """Return the text to snapshot for one source.
+
+    Prefers full_text; falls back to snippet. Truncates at
+    MAX_SOURCE_TEXT_BYTES with an audit-visible note appended so
+    re-verifiers see why the span may not resolve.
+    """
+    text = source.full_text if source.full_text is not None else source.snippet
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= MAX_SOURCE_TEXT_BYTES:
+        return text
+
+    # Truncate to MAX_SOURCE_TEXT_BYTES respecting UTF-8 boundaries.
+    truncated = text_bytes[:MAX_SOURCE_TEXT_BYTES]
+    # Walk back continuation bytes (10xxxxxx). The first non-continuation
+    # byte we hit is either a single-byte ASCII char (0xxxxxxx, complete)
+    # or a multi-byte start byte (11xxxxxx). If it's a start byte, the
+    # codepoint is incomplete because we already trimmed the continuations
+    # — drop the start byte too.
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    if truncated and (truncated[-1] & 0x80) and (truncated[-1] & 0x40):
+        truncated = truncated[:-1]
+    note = SOURCE_TRUNCATION_NOTE_TEMPLATE.format(
+        original_size=len(text_bytes),
+        truncated_size=len(truncated),
+    )
+    return truncated.decode("utf-8") + note
+
+
+def snapshot_sources(
+    report: VerifiedReport,
+    pool: EvidencePool,
+) -> dict[str, str]:
+    """Return {source_id: snapshot_text} for every source cited in the
+    report's kept sentences.
+
+    Source_ids that appear in tokens but are not present in the pool
+    are silently skipped (strict_verify already rejected those sentences,
+    so they shouldn't have made it through; defensive coding).
+    """
+    needed = _cited_source_ids(report)
+    pool_index: dict[str, Source] = {s.source_id: s for s in pool.sources}
+
+    out: dict[str, str] = {}
+    for source_id in needed:
+        source = pool_index.get(source_id)
+        if source is None:
+            # Should not happen post-strict-verify; defensive skip
+            continue
+        out[source_id] = _snapshot_text(source)
+    return out
+
+
+def snapshot_size_bytes(snapshots: dict[str, str]) -> int:
+    """Total bytes across all snapshots — useful for bundle-size checks."""
+    return sum(len(text.encode("utf-8")) for text in snapshots.values())
+
+
+def _snapshot_entry(source: Source) -> SnapshotEntry:
+    """Snapshot one source returning text + reachable_chars (excl. truncation note)."""
+    text = source.full_text if source.full_text is not None else source.snippet
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= MAX_SOURCE_TEXT_BYTES:
+        return SnapshotEntry(text=text, reachable_chars=len(text))
+    truncated = text_bytes[:MAX_SOURCE_TEXT_BYTES]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    if truncated and (truncated[-1] & 0x80) and (truncated[-1] & 0x40):
+        truncated = truncated[:-1]
+    body = truncated.decode("utf-8")
+    note = SOURCE_TRUNCATION_NOTE_TEMPLATE.format(
+        original_size=len(text_bytes), truncated_size=len(truncated)
+    )
+    return SnapshotEntry(text=body + note, reachable_chars=len(body))
+
+
+def snapshot_sources_with_reachable(
+    report: VerifiedReport, pool: EvidencePool
+) -> dict[str, SnapshotEntry]:
+    """Like snapshot_sources but returns SnapshotEntry tuples (text + reachable_chars)."""
+    needed = _cited_source_ids(report)
+    pool_index: dict[str, Source] = {s.source_id: s for s in pool.sources}
+    out: dict[str, SnapshotEntry] = {}
+    for source_id in needed:
+        source = pool_index.get(source_id)
+        if source is None:
+            continue
+        out[source_id] = _snapshot_entry(source)
+    return out
+
+ succeeded in 1351ms:
+"""EvidencePool schema for slice 002 (clinical retrieval).
+
+Per `.codex/slices/slice_002/architecture_proposal.md` §"Data contracts".
+Defines the canonical Pydantic types produced by the slice 002 clinical
+retriever and consumed by future slice 003 generation:
+
+    ScopeDecision (slice 001)
+        ↓
+    process_retrieval()  (slice 002 — orchestrator, later PR)
+        ↓
+    EvidencePool (this module)
+        ↓
+    [slice 003 generator — future]
+
+Pure-types module: no I/O, no network, no LLM calls. Validation only.
+
+Slice 002 lives in `polaris_graph.retrieval2` (note the `2`) to keep
+clear separation from the heritage `polaris_graph.retrieval` substrate
+(live_retriever, source_registry, etc.) which serves the legacy honest-
+rebuild pipeline. The two coexist by design per PLAN.md §4.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime, timezone
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Source tier enum
+# ---------------------------------------------------------------------------
+
+class SourceTier(str, Enum):
+    """Three-tier source classification per architecture proposal.
+
+    T1 — regulatory + Cochrane systematic reviews. Highest evidentiary weight.
+    T2 — peer-reviewed primary research (RCTs, cohort studies, meta-analyses).
+    T3 — registries, clinical guidelines, government health agencies.
+    """
+
+    T1 = "T1"
+    T2 = "T2"
+    T3 = "T3"
+
+
+# ---------------------------------------------------------------------------
+# Source
+# ---------------------------------------------------------------------------
+
+class Source(BaseModel):
+    """A single retrieved clinical source.
+
+    `full_text` is None at retrieval time and populated lazily by the
+    fetcher when downstream stages need the body. `snippet` is always
+    populated (first ~500 chars of relevant section) so quick adequacy
+    + tier classification can run without a second HTTP round-trip.
+    """
+
+    source_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    url: HttpUrl
+    domain: str = Field(min_length=1, max_length=255)
+    tier: SourceTier
+    title: str = Field(min_length=1, max_length=1000)
+    publication_date: date | None = None
+    authors: list[str] = Field(default_factory=list, max_length=200)
+    snippet: str = Field(min_length=0, max_length=2000)
+    full_text_available: bool = False
+    full_text: str | None = None
+    fetched_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("domain")
+    @classmethod
+    def _domain_lowercase(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("authors")
+    @classmethod
+    def _authors_no_blanks(cls, v: list[str]) -> list[str]:
+        return [a.strip() for a in v if a and a.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Adequacy verdict
+# ---------------------------------------------------------------------------
+
+class AdequacyVerdict(BaseModel):
+    """Output of the corpus adequacy gate.
+
+    `is_adequate=True` ⇒ pool may flow to slice 003 generation.
+    `is_adequate=False` + `failure_reason` populated ⇒ pipeline aborts
+    upstream of generation; UI surfaces the failure_reason verbatim.
+    """
+
+    is_adequate: bool
+    sources_per_tier: dict[SourceTier, int] = Field(default_factory=dict)
+    min_required_per_tier: dict[SourceTier, int] = Field(default_factory=dict)
+    failure_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check_failure_reason_consistency(self) -> "AdequacyVerdict":
+        if self.is_adequate is False and not self.failure_reason:
+            raise ValueError(
+                "failure_reason is required when is_adequate=False"
+            )
+        if self.is_adequate is True and self.failure_reason:
+            raise ValueError(
+                "failure_reason must be None when is_adequate=True"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# EvidencePool
+# ---------------------------------------------------------------------------
+
+class EvidencePool(BaseModel):
+    """The slice 002 output. Bound to a specific ScopeDecision via decision_id.
+
+    `pool_id` is fresh per retrieval run; `decision_id` is the FK back to
+    the slice 001 ScopeDecision that triggered retrieval. Same decision +
+    same retrieval call may produce different pools across runs (sources
+    move, registries update); pool_id distinguishes them.
+    """
+
+    pool_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    decision_id: str = Field(min_length=1)
+    sources: list[Source] = Field(default_factory=list)
+    adequacy: AdequacyVerdict
+    queries_executed: list[str] = Field(default_factory=list, max_length=50)
+    retrieval_started_at_utc: datetime
+    retrieval_finished_at_utc: datetime
+    latency_ms: int = Field(ge=0)
+    cost_usd: float = Field(ge=0.0)
+
+    @field_validator("retrieval_finished_at_utc")
+    @classmethod
+    def _finished_after_started(cls, v: datetime, info) -> datetime:
+        started = info.data.get("retrieval_started_at_utc")
+        if started is not None and v < started:
+            raise ValueError(
+                "retrieval_finished_at_utc must be >= retrieval_started_at_utc"
+            )
+        return v
+
+    def sources_by_tier(self, tier: SourceTier) -> list[Source]:
+        return [s for s in self.sources if s.tier == tier]
+
+
+# ---------------------------------------------------------------------------
+# Retrieval error (parallel to slice 001's IntakeError)
+# ---------------------------------------------------------------------------
+
+class RetrievalError(BaseModel):
+    """Returned when retrieval cannot run (e.g. ScopeDecision rejects it).
+
+    Distinct from `EvidencePool { adequacy: { is_adequate: False } }`,
+    which signals retrieval ran but produced an inadequate corpus.
+    """
+
+    error: bool = True
+    code: str  # 'wrong_status' | 'wrong_scope_class' | 'fetch_backend_unavailable'
+    message: str
+    decision_id: str | None = None
+
+ succeeded in 1555ms:
+"""VerifiedReport schema for slice 003 (generator + strict-verify).
+
+Per `.codex/slices/slice_003/architecture_proposal.md` §"verified_report.py".
+
+Pure-types module. No I/O, no LLM, no network. Slice 003's
+process_generation() consumes an EvidencePool (slice 002 output) and
+produces a VerifiedReport, which slice 004 will export as an audit
+bundle.
+
+Lives in `polaris_graph.generator2` (note the `2`) to keep separation
+from heritage `polaris_graph.generator` (multi_section, live_deepseek)
+which serves the legacy honest-rebuild pipeline. Coexistence by design
+per PLAN.md §4 Heritage Import.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Type literals
+# ---------------------------------------------------------------------------
+
+SectionStatus = Literal["verified", "regenerated", "dropped"]
+"""Per-section outcome from strict_verify:
+
+- "verified": original generation passed >=verifier_pass_threshold of
+  sentences strict-verified
+- "regenerated": original failed; regeneration attempt passed
+- "dropped": both attempts failed; section excluded from final report
+"""
+
+PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+"""Top-level verdict per CLAUDE.md §9.1 invariant 4."""
+
+DropReason = Literal[
+    "invalid_token",       # token doesn't reference a known source_id
+    "span_out_of_range",   # span_start > span_end or > len(full_text)
+    "numeric_mismatch",    # decimal in sentence not present in cited span
+    "overlap_too_low",     # < min_content_overlap shared content words
+    "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
+]
+
+
+# ---------------------------------------------------------------------------
+# VerifiedSentence — atomic verified unit
+# ---------------------------------------------------------------------------
+
+class VerifiedSentence(BaseModel):
+    """A single sentence emitted by the generator after strict-verify.
+
+    Sentences that fail strict_verify are still represented here with
+    `verifier_pass=False` and a `drop_reason`, so the audit bundle can
+    surface "what got proposed and dropped" alongside "what shipped."
+    """
+
+    section_id: str = Field(min_length=1)
+    sentence_text: str = Field(min_length=1)
+    provenance_tokens: list[str] = Field(
+        default_factory=list,
+        description="Token strings of form '[#ev:<source_id>:<start>-<end>]'",
+    )
+    verifier_pass: bool
+    drop_reason: DropReason | None = None
+
+    @model_validator(mode="after")
+    def _drop_reason_consistency(self) -> "VerifiedSentence":
+        if self.verifier_pass is False and self.drop_reason is None:
+            raise ValueError(
+                "drop_reason is required when verifier_pass=False"
+            )
+        if self.verifier_pass is True and self.drop_reason is not None:
+            raise ValueError(
+                "drop_reason must be None when verifier_pass=True"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Section
+# ---------------------------------------------------------------------------
+
+class Section(BaseModel):
+    """A report section (e.g. 'Population', 'Outcomes').
+
+    `verified_sentences` includes both passed AND dropped sentences for
+    audit completeness; UI filters by `verifier_pass` when rendering the
+    user-facing report. `section_verify_pass_rate` is over all attempted
+    sentences (not just kept ones).
+    """
+
+    section_id: str = Field(min_length=1)
+    section_title: str = Field(min_length=1, max_length=200)
+    verified_sentences: list[VerifiedSentence] = Field(default_factory=list)
+    section_verify_pass_rate: float = Field(ge=0.0, le=1.0)
+    section_status: SectionStatus
+
+    def kept_sentences(self) -> list[VerifiedSentence]:
+        """Filter to sentences that passed strict_verify."""
+        return [s for s in self.verified_sentences if s.verifier_pass]
+
+
+# ---------------------------------------------------------------------------
+# VerifiedReport
+# ---------------------------------------------------------------------------
+
+class VerifiedReport(BaseModel):
+    """The slice 003 output. Bound to a slice-002 pool via pool_id +
+    a slice-001 decision via decision_id. Same pool can produce different
+    reports across runs (LLM nondeterminism); report_id distinguishes them.
+    """
+
+    report_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    pool_id: str = Field(min_length=1)
+    decision_id: str = Field(min_length=1)
+    sections: list[Section] = Field(default_factory=list)
+    overall_verify_pass_rate: float = Field(ge=0.0, le=1.0)
+    pipeline_verdict: PipelineVerdict
+    generator_model: str = Field(min_length=1, max_length=200)
+    verifier_pass_threshold: float = Field(ge=0.0, le=1.0)
+    started_at_utc: datetime
+    finished_at_utc: datetime
+    latency_ms: int = Field(ge=0)
+    cost_usd: float = Field(ge=0.0)
+
+    @field_validator("finished_at_utc")
+    @classmethod
+    def _finished_after_started(cls, v: datetime, info) -> datetime:
+        started = info.data.get("started_at_utc")
+        if started is not None and v < started:
+            raise ValueError(
+                "finished_at_utc must be >= started_at_utc"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _verdict_consistency(self) -> "VerifiedReport":
+        """If verdict=success, at least one section must be verified or
+        regenerated. If verdict=abort_no_verified_sections, every section
+        (if any) must be 'dropped' or sections may be empty."""
+        if self.pipeline_verdict == "success":
+            kept = [
+                s for s in self.sections if s.section_status != "dropped"
+            ]
+            if not kept:
+                raise ValueError(
+                    "pipeline_verdict='success' requires at least one "
+                    "non-dropped section"
+                )
+        else:  # abort_no_verified_sections
+            for section in self.sections:
+                if section.section_status != "dropped":
+                    raise ValueError(
+                        "pipeline_verdict='abort_no_verified_sections' "
+                        "requires all sections (if any) to be dropped"
+                    )
+        return self
+
+    def kept_sections(self) -> list[Section]:
+        """Filter to non-dropped sections."""
+        return [s for s in self.sections if s.section_status != "dropped"]
+
+
+# ---------------------------------------------------------------------------
+# GenerationError (parallel to slice 001 IntakeError + slice 002 RetrievalError)
+# ---------------------------------------------------------------------------
+
+class GenerationError(BaseModel):
+    """Returned when generation cannot run (e.g. inadequate input pool)."""
+
+    error: bool = True
+    code: str  # 'inadequate_pool' | 'completion_backend_unavailable' | 'malformed_output'
+    message: str
+    pool_id: str | None = None
+    decision_id: str | None = None
+
+codex
+The implementation confirms the key mechanics: `build_manifest_and_files` rejects any non-success verdict before serializing, and source snapshots are only the `sources/*.txt` entries built from `snapshot_sources_with_reachable`. I’m checking whether the added tests can mask a real regression or create unstable behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\audit_bundle\\test_manifest_builder.py -TotalCount 340" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path . -Force | Select-Object Name,Length,Mode' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\audit_bundle\\test_snapshot_sources.py -TotalCount 310" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\audit_bundle\\test_reviewer_blind_walkthrough.py -TotalCount 180" in C:\POLARIS
+ succeeded in 1428ms:
+"""Reviewer-blind walkthrough test (I-f15-004).
+
+Verifies a third party can locate the cited span in the bundle and that
+the bundle build refuses to ship unreachable spans.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from polaris_graph.audit_bundle.manifest_builder import (
+    FILE_EVIDENCE_POOL,
+    FILE_METADATA,
+    FILE_REVIEWER_README,
+    FILE_SCOPE_DECISION,
+    FILE_VERIFIED_REPORT,
+    build_manifest_and_files,
+)
+from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+from polaris_graph.generator2.provenance import extract_tokens
+from polaris_graph.generator2.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+from polaris_graph.retrieval2.evidence_pool import (
+    AdequacyVerdict,
+    EvidencePool,
+    Source,
+    SourceTier,
+)
+from polaris_graph.scope.scope_decision import AmbiguityAxis, ScopeDecision
+
+
+def _src(source_id: str = "src-A", full_text: str = "Aspirin reduces headache pain.") -> Source:
+    return Source(
+        url="https://www.cochrane.org/CD001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="Source",
+        snippet="snippet",
+        full_text=full_text,
+        full_text_available=True,
+        source_id=source_id,
+    )
+
+
+def _pool(sources: list[Source]) -> EvidencePool:
+    return EvidencePool(
+        pool_id="pool-walk-1",
+        decision_id="dec-walk-1",
+        sources=sources,
+        adequacy=AdequacyVerdict(is_adequate=True),
+        retrieval_started_at_utc=datetime.now(timezone.utc),
+        retrieval_finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _decision() -> ScopeDecision:
+    return ScopeDecision(
+        decision_id="dec-walk-1",
+        status="in_scope",
+        scope_class="clinical_efficacy",
+        ambiguity_axes=[
+            AmbiguityAxis(axis="population", plausible_interpretations=["adults"], needs_clarification=False),
+        ],
+    )
+
+
+def _report(sentence: VerifiedSentence) -> VerifiedReport:
+    return VerifiedReport(
+        pool_id="pool-walk-1",
+        decision_id="dec-walk-1",
+        sections=[
+            Section(
+                section_id="sec_x",
+                section_title="X",
+                verified_sentences=[sentence],
+                section_verify_pass_rate=1.0,
+                section_status="verified",
+            )
+        ],
+        overall_verify_pass_rate=1.0,
+        pipeline_verdict="success",
+        generator_model="test/model",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def test_happy_path_reviewer_blind_walkthrough():
+    sentence = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="Aspirin reduces headache [#ev:src-A:0-29].",
+        provenance_tokens=["[#ev:src-A:0-29]"],
+        verifier_pass=True,
+    )
+    manifest, files = build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
+
+    for required in (
+        FILE_SCOPE_DECISION,
+        FILE_EVIDENCE_POOL,
+        FILE_VERIFIED_REPORT,
+        FILE_METADATA,
+        FILE_REVIEWER_README,
+        "sources/src-A.txt",
+    ):
+        assert required in files, f"missing {required}"
+
+    readme_disk = (Path(__file__).resolve().parents[3] / "src/polaris_graph/audit_bundle/REVIEWER_README.md").read_bytes()
+    assert files[FILE_REVIEWER_README] == readme_disk
+
+    tokens = extract_tokens(sentence.sentence_text)
+    assert tokens, "test fixture must produce at least one token"
+    tok = tokens[0]
+    source_text = files[f"sources/{tok.source_id}.txt"].decode("utf-8")
+    span = source_text[tok.span_start : tok.span_end]
+    assert span == "Aspirin reduces headache pain"
+    assert manifest.file_by_content_type("source_snapshot")
+
+
+def test_fail_path_truncation_boundary():
+    big_source = _src(full_text="x" * 250_000)
+    span_end = MAX_SOURCE_TEXT_BYTES + 100
+    sentence = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text=f"claim [#ev:src-A:0-{span_end}].",
+        provenance_tokens=[f"[#ev:src-A:0-{span_end}]"],
+        verifier_pass=True,
+    )
+    with pytest.raises(ValueError, match="cited span unreachable"):
+        build_manifest_and_files(_decision(), _pool([big_source]), _report(sentence))
+
+
+def test_fail_path_token_only_in_sentence_text():
+    sentence = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="claim [#ev:src-A:0-1000000] words.",
+        provenance_tokens=["[#ev:src-A:0-5]"],
+        verifier_pass=True,
+    )
+    with pytest.raises(ValueError, match="cited span unreachable"):
+        build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
+
+
+def test_fail_path_missing_source():
+    sentence = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="claim [#ev:ghost:0-3].",
+        provenance_tokens=["[#ev:ghost:0-3]"],
+        verifier_pass=True,
+    )
+    with pytest.raises(ValueError, match="cited span unreachable"):
+        build_manifest_and_files(_decision(), _pool([_src()]), _report(sentence))
+
+ succeeded in 1550ms:
+"""Tests for manifest_builder."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+
+import pytest
+import yaml
+
+from polaris_graph.audit_bundle.manifest_builder import (
+    FILE_EVIDENCE_POOL,
+    FILE_METADATA,
+    FILE_SCOPE_DECISION,
+    FILE_VERIFIED_REPORT,
+    POLARIS_VERSION,
+    SOURCES_DIR,
+    _safe_source_filename,
+    build_manifest_and_files,
+    serialize_manifest_yaml,
+)
+from polaris_graph.audit_bundle.bundle_schema import BundleManifest
+from polaris_graph.generator2.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+from polaris_graph.retrieval2.evidence_pool import (
+    AdequacyVerdict,
+    EvidencePool,
+    Source,
+    SourceTier,
+)
+from polaris_graph.scope.scope_decision import (
+    AmbiguityAxis,
+    ScopeDecision,
+)
+
+
+# ---------- Fixtures ----------
+
+def _src(source_id: str, full_text: str = "src text") -> Source:
+    return Source(
+        url="https://www.cochrane.org/CD001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="Source",
+        snippet="snippet",
+        full_text=full_text,
+        full_text_available=True,
+        source_id=source_id,
+    )
+
+
+def _pool(*sources: Source) -> EvidencePool:
+    return EvidencePool(
+        decision_id="dec-1",
+        sources=list(sources),
+        adequacy=AdequacyVerdict(
+            is_adequate=True,
+            sources_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
+            min_required_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
+        ),
+        retrieval_started_at_utc=datetime.now(timezone.utc),
+        retrieval_finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _decision() -> ScopeDecision:
+    return ScopeDecision(
+        decision_id="dec-1",
+        status="in_scope",
+        scope_class="clinical_efficacy",
+        ambiguity_axes=[
+            AmbiguityAxis(
+                axis="population",
+                plausible_interpretations=["adults"],
+                needs_clarification=False,
+            )
+        ],
+    )
+
+
+def _report(
+    pool_id: str = "pool-1",
+    report_id: str | None = None,
+    verdict: str = "success",
+) -> VerifiedReport:
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            VerifiedSentence(
+                section_id="sec_x",
+                sentence_text="claim [#ev:src-A:0-3].",
+                provenance_tokens=["[#ev:src-A:0-3]"],
+                verifier_pass=True,
+            )
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    kwargs = dict(
+        pool_id=pool_id,
+        decision_id="dec-1",
+        sections=[section] if verdict == "success" else [],
+        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
+        pipeline_verdict=verdict,
+        generator_model="deepseek/deepseek-v4-pro",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+    if report_id is not None:
+        kwargs["report_id"] = report_id
+    return VerifiedReport(**kwargs)  # type: ignore[arg-type]
+
+
+# ---------- _safe_source_filename ----------
+
+def test_safe_source_filename_uuid_form():
+    fn = _safe_source_filename("550e8400-e29b-41d4-a716-446655440000")
+    assert fn == f"{SOURCES_DIR}/550e8400-e29b-41d4-a716-446655440000.txt"
+
+
+def test_safe_source_filename_strips_path_chars():
+    fn = _safe_source_filename("../etc/passwd")
+    assert ".." not in fn
+    assert "/" not in fn.replace(SOURCES_DIR + "/", "")
+
+
+def test_safe_source_filename_truncates_long_input():
+    fn = _safe_source_filename("a" * 500)
+    assert len(fn) < 200  # SOURCES_DIR + slash + 100 chars + .txt
+
+
+def test_safe_source_filename_replaces_special_chars():
+    fn = _safe_source_filename("src!@#$%^&*()")
+    assert all(c.isalnum() or c in "-_/." for c in fn.replace(SOURCES_DIR + "/", "")[:-4])
+
+
+# ---------- build_manifest_and_files ----------
+
+def test_build_manifest_includes_all_required_files():
+    pool = _pool(_src("src-A"))
+    manifest, files = build_manifest_and_files(_decision(), pool, _report())
+    paths = set(files.keys())
+    assert FILE_SCOPE_DECISION in paths
+    assert FILE_EVIDENCE_POOL in paths
+    assert FILE_VERIFIED_REPORT in paths
+    assert FILE_METADATA in paths
+    # Source snapshots
+    assert any(p.startswith(SOURCES_DIR + "/") for p in paths)
+
+
+def test_build_manifest_sha256_matches_content():
+    pool = _pool(_src("src-A"))
+    manifest, files = build_manifest_and_files(_decision(), pool, _report())
+    for entry in manifest.files:
+        actual_hash = hashlib.sha256(files[entry.path]).hexdigest()
+        assert entry.sha256 == actual_hash
+
+
+def test_build_manifest_size_bytes_match():
+    pool = _pool(_src("src-A"))
+    manifest, files = build_manifest_and_files(_decision(), pool, _report())
+    for entry in manifest.files:
+        assert entry.size_bytes == len(files[entry.path])
+
+
+def test_build_manifest_rejects_non_success_verdict():
+    pool = _pool(_src("src-A"))
+    bad_report = VerifiedReport(
+        pool_id="pool-1",
+        decision_id="dec-1",
+        sections=[
+            Section(
+                section_id="sec_x",
+                section_title="X",
+                verified_sentences=[
+                    VerifiedSentence(
+                        section_id="sec_x",
+                        sentence_text="bad",
+                        verifier_pass=False,
+                        drop_reason="numeric_mismatch",
+                    )
+                ],
+                section_verify_pass_rate=0.0,
+                section_status="dropped",
+            )
+        ],
+        overall_verify_pass_rate=0.0,
+        pipeline_verdict="abort_no_verified_sections",
+        generator_model="m",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+    with pytest.raises(ValueError, match="successful"):
+        build_manifest_and_files(_decision(), pool, bad_report)
+
+
+def test_build_manifest_files_sorted_by_path():
+    pool = _pool(_src("src-Z"), _src("src-A"))
+    # Note: report only cites src-A so src-Z is not snapshotted
+    manifest, _files = build_manifest_and_files(_decision(), pool, _report())
+    paths = [f.path for f in manifest.files]
+    assert paths == sorted(paths)
+
+
+def test_build_manifest_propagates_decision_pool_report_ids():
+    pool = _pool(_src("src-A"))
+    decision = _decision()
+    report = _report(pool_id="pool-7")
+    manifest, _files = build_manifest_and_files(decision, pool, report)
+    assert manifest.decision_id == decision.decision_id
+    assert manifest.pool_id == "pool-7"
+    assert manifest.report_id == report.report_id
+
+
+def test_build_manifest_includes_polaris_version():
+    pool = _pool(_src("src-A"))
+    manifest, _files = build_manifest_and_files(_decision(), pool, _report())
+    assert manifest.polaris_version == POLARIS_VERSION
+
+
+def test_build_manifest_metadata_file_has_canonical_json():
+    pool = _pool(_src("src-A"))
+    _manifest, files = build_manifest_and_files(_decision(), pool, _report())
+    metadata_bytes = files[FILE_METADATA]
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert metadata["bundle_version"] == "1.0"
+    assert metadata["polaris_version"] == POLARIS_VERSION
+    assert metadata["generator_model"] == "deepseek/deepseek-v4-pro"
+    assert metadata["source_snapshot_count"] == 1
+
+
+def test_build_manifest_dedupes_sources():
+    """Same source cited twice should appear once in snapshots."""
+    pool = _pool(_src("src-A"))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            VerifiedSentence(
+                section_id="sec_x",
+                sentence_text="claim 1 [#ev:src-A:0-3].",
+                provenance_tokens=["[#ev:src-A:0-3]"],
+                verifier_pass=True,
+            ),
+            VerifiedSentence(
+                section_id="sec_x",
+                sentence_text="claim 2 [#ev:src-A:5-8].",
+                provenance_tokens=["[#ev:src-A:5-8]"],
+                verifier_pass=True,
+            ),
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    report = VerifiedReport(
+        pool_id="pool-1",
+        decision_id="dec-1",
+        sections=[section],
+        overall_verify_pass_rate=1.0,
+        pipeline_verdict="success",
+        generator_model="m",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+    manifest, files = build_manifest_and_files(_decision(), pool, report)
+    src_files = [
+        p for p in files.keys() if p.startswith(SOURCES_DIR + "/")
+    ]
+    assert len(src_files) == 1
+
+
+def test_build_manifest_canonical_json_stable_across_runs():
+    """Re-serializing the same input must produce identical bytes."""
+    pool = _pool(_src("src-A"))
+    decision = _decision()
+    report = _report()
+    _, files1 = build_manifest_and_files(decision, pool, report)
+    _, files2 = build_manifest_and_files(decision, pool, report)
+    # ScopeDecision and EvidencePool serialization should be deterministic
+    # (modulo timestamps/uuids which are baked into the inputs)
+    assert files1[FILE_SCOPE_DECISION] == files2[FILE_SCOPE_DECISION]
+    assert files1[FILE_EVIDENCE_POOL] == files2[FILE_EVIDENCE_POOL]
+    assert files1[FILE_VERIFIED_REPORT] == files2[FILE_VERIFIED_REPORT]
+
+
+# ---------- serialize_manifest_yaml ----------
+
+def test_serialize_manifest_yaml_roundtrips():
+    manifest = BundleManifest(
+        decision_id="dec-1",
+        pool_id="pool-1",
+        report_id="report-1",
+        generator_model="m",
+        polaris_version="6.2.0",
+    )
+    yaml_bytes = serialize_manifest_yaml(manifest)
+    parsed = yaml.safe_load(yaml_bytes.decode("utf-8"))
+    assert parsed["decision_id"] == "dec-1"
+    assert parsed["bundle_version"] == "1.0"
+
+
+def test_serialize_manifest_yaml_stable():
+    manifest = BundleManifest(
+        decision_id="dec-1",
+        pool_id="pool-1",
+        report_id="report-1",
+        generator_model="m",
+        polaris_version="6.2.0",
+    )
+    a = serialize_manifest_yaml(manifest)
+    b = serialize_manifest_yaml(manifest)
+    assert a == b
+
+ succeeded in 1654ms:
+"""Tests for audit_bundle.snapshot_sources."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from polaris_graph.audit_bundle.snapshot_sources import (
+    MAX_SOURCE_TEXT_BYTES,
+    snapshot_size_bytes,
+    snapshot_sources,
+)
+from polaris_graph.generator2.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+from polaris_graph.retrieval2.evidence_pool import (
+    AdequacyVerdict,
+    EvidencePool,
+    Source,
+    SourceTier,
+)
+
+
+# ---------- Builders ----------
+
+def _src(source_id: str, full_text: str | None, snippet: str = "snip") -> Source:
+    return Source(
+        url="https://www.cochrane.org/CD001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="Source",
+        snippet=snippet,
+        full_text=full_text,
+        full_text_available=full_text is not None,
+        source_id=source_id,
+    )
+
+
+def _pool(*sources: Source) -> EvidencePool:
+    return EvidencePool(
+        decision_id="dec-1",
+        sources=list(sources),
+        adequacy=AdequacyVerdict(
+            is_adequate=True,
+            sources_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
+            min_required_per_tier={
+                SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0
+            },
+        ),
+        retrieval_started_at_utc=datetime.now(timezone.utc),
+        retrieval_finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _kept(text: str, tokens: list[str], section_id: str = "sec_x") -> VerifiedSentence:
+    return VerifiedSentence(
+        section_id=section_id,
+        sentence_text=text,
+        provenance_tokens=tokens,
+        verifier_pass=True,
+    )
+
+
+def _dropped(section_id: str = "sec_x") -> VerifiedSentence:
+    return VerifiedSentence(
+        section_id=section_id,
+        sentence_text="dropped",
+        verifier_pass=False,
+        drop_reason="numeric_mismatch",
+    )
+
+
+def _report(*sections: Section) -> VerifiedReport:
+    return VerifiedReport(
+        pool_id="pool-1",
+        decision_id="dec-1",
+        sections=list(sections),
+        overall_verify_pass_rate=1.0,
+        pipeline_verdict="success",
+        generator_model="m",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+# ---------- Cited source extraction ----------
+
+def test_snapshot_collects_cited_source_ids():
+    pool = _pool(
+        _src("src-A", "Full text A"),
+        _src("src-B", "Full text B"),
+        _src("src-C", "Full text C"),  # not cited
+    )
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            _kept("claim 1 [#ev:src-A:0-10].", ["[#ev:src-A:0-10]"]),
+            _kept("claim 2 [#ev:src-B:0-10].", ["[#ev:src-B:0-10]"]),
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert set(snapshots.keys()) == {"src-A", "src-B"}
+    assert snapshots["src-A"] == "Full text A"
+    assert snapshots["src-B"] == "Full text B"
+
+
+def test_snapshot_skips_dropped_sentences():
+    pool = _pool(_src("src-A", "kept"), _src("src-B", "dropped-only"))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            _kept("claim 1 [#ev:src-A:0-10].", ["[#ev:src-A:0-10]"]),
+            VerifiedSentence(
+                section_id="sec_x",
+                sentence_text="dropped sentence [#ev:src-B:0-10].",
+                provenance_tokens=["[#ev:src-B:0-10]"],
+                verifier_pass=False,
+                drop_reason="numeric_mismatch",
+            ),
+        ],
+        section_verify_pass_rate=0.5,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert "src-A" in snapshots
+    assert "src-B" not in snapshots
+
+
+def test_snapshot_skips_dropped_sections():
+    pool = _pool(_src("src-A", "txt"))
+    # Only-kept-section's source is included; dropped section's source is not
+    kept_section = Section(
+        section_id="sec_a",
+        section_title="A",
+        verified_sentences=[_kept("c [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"])],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    # Schema requires verdict=success to have at least one non-dropped
+    # section, so we test the dropped-section branch via single section
+    # report and assert no extra sources slip in.
+    snapshots = snapshot_sources(_report(kept_section), pool)
+    assert snapshots == {"src-A": "txt"}
+
+
+def test_snapshot_falls_back_to_snippet_when_no_full_text():
+    pool = _pool(_src("src-A", None, snippet="snippet only"))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_kept("c [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"])],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert snapshots == {"src-A": "snippet only"}
+
+
+def test_snapshot_skips_unknown_source_id_defensively():
+    """If a token references a source_id not in the pool (shouldn't
+    happen post-strict-verify), the snapshot silently skips it."""
+    pool = _pool(_src("src-A", "txt"))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            _kept("c [#ev:src-bogus:0-3].", ["[#ev:src-bogus:0-3]"])
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert "src-bogus" not in snapshots
+    assert snapshots == {}
+
+
+def test_snapshot_dedupes_same_source_across_sentences():
+    pool = _pool(_src("src-A", "txt"))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            _kept("c1 [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"]),
+            _kept("c2 [#ev:src-A:5-10].", ["[#ev:src-A:5-10]"]),
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert len(snapshots) == 1
+    assert snapshots["src-A"] == "txt"
+
+
+def test_snapshot_handles_multiple_tokens_per_sentence():
+    pool = _pool(
+        _src("src-A", "txt-a"),
+        _src("src-B", "txt-b"),
+    )
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            _kept(
+                "claim spans [#ev:src-A:0-3] and [#ev:src-B:0-3].",
+                ["[#ev:src-A:0-3]", "[#ev:src-B:0-3]"],
+            )
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert set(snapshots.keys()) == {"src-A", "src-B"}
+
+
+# ---------- Truncation ----------
+
+def test_snapshot_truncates_oversize_full_text():
+    big_text = "X" * (MAX_SOURCE_TEXT_BYTES + 5000)
+    pool = _pool(_src("src-A", big_text))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_kept("c [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"])],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    text = snapshots["src-A"]
+    # Original was MAX+5000; truncated body is <= MAX, plus a note appended
+    assert len(text.encode("utf-8")) > MAX_SOURCE_TEXT_BYTES  # note appended
+    assert "POLARIS audit-bundle truncation notice" in text
+
+
+def test_snapshot_does_not_truncate_when_under_cap():
+    text = "x" * (MAX_SOURCE_TEXT_BYTES // 2)
+    pool = _pool(_src("src-A", text))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_kept("c [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"])],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    assert snapshots["src-A"] == text
+    assert "truncation notice" not in snapshots["src-A"]
+
+
+def test_snapshot_truncation_respects_utf8_boundaries():
+    # Cyrillic each char = 2 bytes; build a text that puts a 2-byte
+    # character right at the cap boundary
+    text = "а" * (MAX_SOURCE_TEXT_BYTES // 2 + 100)  # over cap
+    pool = _pool(_src("src-A", text))
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[_kept("c [#ev:src-A:0-3].", ["[#ev:src-A:0-3]"])],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    snapshots = snapshot_sources(_report(section), pool)
+    # Should decode without UnicodeDecodeError → truncation respected boundary
+    assert isinstance(snapshots["src-A"], str)
+
+
+# ---------- Sizing helpers ----------
+
+def test_snapshot_size_bytes_sums_correctly():
+    snaps = {"a": "hello", "b": "world!"}
+    assert snapshot_size_bytes(snaps) == 5 + 6
+
+
+def test_snapshot_size_bytes_empty():
+    assert snapshot_size_bytes({}) == 0
+
+ succeeded in 1960ms:
+
+Name                                        Length Mode
+----                                        ------ ----
+__pycache__                                        d----
+.claude                                            d----
+.codex                                             d----
+.codex_pytest_tmp                                  d----
+.codex_tmp                                         d----
+.codex_tmp_m_int_6_v1_review_fresh                 d----
+.codex_tmp_md3_review                              d----
+.git                                               d--h-
+.github                                            d----
+.legacy                                            d----
+.private                                           d----
+.pytest_cache                                      d----
+.pytest_cache_local                                d----
+.pytest_tmp                                        d----
+.pytest-cache                                      d----
+.pytest-cache-local                                d----
+.tmp                                               d----
+.tmp_pytest                                        d----
+.tmp_pytest_base                                   d----
+.tmp_pytest_m_int_2                                d----
+.tmp_pytest_m_int_3                                d----
+.tmp_pytest_m_live_1_review                        d----
+.tmp_pytest_md3_review                             d----
+.tmp_pytest_md3_review2                            d----
+.tmp-pytest                                        d----
+archive                                            d----
+codex_tmp_billing_quota_store_review_alt           d----
+codex_tmp_m_int_10_v1_review                       d----
+codex_tmp_m_int_10_v1_review_rerun                 d----
+codex_tmp_m_int_10_v1_single                       d----
+codex_tmp_m_int_10_v1_single2                      d----
+codex_tmp_m_int_10_v2_review                       d----
+codex_tmp_m_int_10_v2_review_fresh                 d----
+codex_tmp_m_int_10_v3_review                       d----
+codex_tmp_m_int_10_v3_review_probe                 d----
+codex_tmp_m_int_11_v1_review                       d----
+codex_tmp_m_int_11_v1_review_fresh_20260429        d----
+codex_tmp_m_int_11_v2_review                       d----
+codex_tmp_m_int_11_v2_review_fresh                 d----
+codex_tmp_m_int_11_v2_review_fresh_subset          d----
+codex_tmp_m_int_5_v2_review                        d----
+codex_tmp_m_int_5_v3_review                        d----
+codex_tmp_m_int_5_v3_review_probe                  d----
+codex_tmp_m_int_5_v4_review                        d----
+codex_tmp_m_int_5_v4_review_fresh                  d----
+codex_tmp_m_int_5_v4_review_fresh2                 d----
+codex_tmp_m_int_6_v1_review                        d----
+codex_tmp_m_int_7_v1_review                        d----
+codex_tmp_m_int_7_v1_review_fresh                  d----
+codex_tmp_m_int_7_v2_review                        d----
+codex_tmp_m_int_7_v2_review_alt                    d----
+codex_tmp_m_int_7_v2_single                        d----
+codex_tmp_m_int_7_v3_review                        d----
+codex_tmp_m_int_7_v3_review_fresh                  d----
+codex_tmp_m_int_9_v1_review                        d----
+codex_tmp_m_int_9_v1_review_single                 d----
+codex_tmp_m_int_9_v2_review                        d----
+codex_tmp_m_int_9_v2_review_fresh                  d----
+codex_tmp_md3_pytest                               d----
+codex_tmp_pytest                                   d----
+codex_tmp_pytest_m11                               d----
+codex_tmp_pytest_m15a_v2                           d----
+codex_tmp_pytest_review                            d----
+codex_tmp_review                                   d----
+config                                             d----
+dashboard_probe_f2ltuo3t                           d----
+dashboard_probe_hhthuj3n                           d----
+dashboard_probe_xdvktanm                           d----
+dashboard_probe_znaia9ry                           d----
+dashboard_probe_zw62d2fs                           d----
+data                                               d----
+docs                                               d----
+helm                                               d----
+logs                                               d----
+m_int_10_manual_57asn199                           d----
+m_int_7_v2_manual_5fgxbzoc                         d----
+m_int_7_v3_manual_dhypw5bz                         d----
+m_live_4_r2_3qyr9r66                               d----
+m10v2_manual_yz_33hqh                              d----
+m10v3_one_wlcrnh2f                                 d----
+m8_tmp_check                                       d----
+m8_v4_pytest                                       d----
+m9_v2_manual_verify                                d----
+m9v2_pytest_run1                                   d----
+manual_pytest_base_m_int_7                         d----
+manual_pytest_base_m_int_7_ok                      d----
+manual_review_scratch_m_int_10_v3                  d----
+manual_review_scratch_m_int_9_v2                   d----
+manual_tmp_m_int_3                                 d----
+manual_tmp_m_int_3_v3                              d----
+md3_pytest_run2                                    d----
+md3_round3_manual_tmp                              d----
+md3_round3_pytest_tmp                              d----
+memory                                             d----
+models                                             d----
+outputs                                            d----
+polaris-controls                                   d----
+POLARIS.tmppytest                                  d----
+POLARIStmp_pytest_m_int_3_reviewbasetemp           d----
+py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9         d----
+pytest_run_3842f3b95af34ad8b6f93080344d5110        d----
+pytest_run_554e954860ba4943a4f9f6097fe8541f        d----
+pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba        d----
+pytest-cache-files-o969a6s7                        d----
+pytest-cache-files-tw8jzxb3                        d----
+scripts                                            d----
+src                                                d----
+state                                              d----
+tests                                              d----
+tmp_ae3ucgg                                        d----
+tmp_pytest_m_int_0b                                d----
+tmp_pytest_m_int_2                                 d----
+tmp_pytest_m_int_3                                 d----
+tmp_pytest_m_int_3_review                          d----
+tmp2ef0ie4p                                        d----
+tmp2hhmpr2y                                        d----
+tmp48c8ko2m                                        d----
+tmp63988s99                                        d----
+tmp8u9ua575                                        d----
+tmp9h7v7fon                                        d----
+tmpaufjwjy5                                        d----
+tmpgb143kt_                                        d----
+tmppvxh8fwq                                        d----
+tmpq5bdi1rl                                        d----
+tmptgnkdlz5                                        d----
+tmpu2b082f6                                        d----
+tmpuyki_w88                                        d----
+tmpv1dnokk6                                        d----
+tmpw2ru3yoj                                        d----
+tmpxnalraft                                        d----
+tmpyl5f0goo                                        d----
+web                                                d----
+.coverage                                   53248  -a---
+.dockerignore                               599    -a---
+.env                                        88725  -a---
+.env.example                                7508   -a---
+.gitignore                                  6078   -a---
+architecture.md                             15085  -a---
+CLAUDE.md                                   45500  -a---
+docker-compose.yml                          1774   -a---
+Dockerfile                                  1197   -a---
+ground_rules.md                             11552  -a---
+pytest.ini                                  654    -a---
+README.md                                   11317  -a---
+requirements-orchestrator.txt               662    -a---
+requirements-v6.txt                         1355   -a---
+requirements.txt                            6532   -a---
+
+
+codex
+I don’t see an execution blocker in the fixture shape so far. The paywall and abort cases match the schema validators, and the oversize test intentionally exercises the per-source snapshot cap without asserting total bundle size.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "python -m pytest tests\\polaris_graph\\audit_bundle\\test_f15_adversarial.py -q" in C:\POLARIS
+2026-05-07T05:30:30.226472Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6.1 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__ ERROR collecting tests/polaris_graph/audit_bundle/test_f15_adversarial.py __
+ImportError while importing test module 'C:\POLARIS\tests\polaris_graph\audit_bundle\test_f15_adversarial.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:9: in <module>
+    from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+E   ModuleNotFoundError: No module named 'polaris_graph'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 1 error in 1.27s =========================
+
+ exited 1 in 6116ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__ ERROR collecting tests/polaris_graph/audit_bundle/test_f15_adversarial.py __
+ImportError while importing test module 'C:\POLARIS\tests\polaris_graph\audit_bundle\test_f15_adversarial.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:9: in <module>
+    from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+E   ModuleNotFoundError: No module named 'polaris_graph'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 1 error in 1.27s =========================
+
+codex
+The direct pytest invocation needs `src` on `PYTHONPATH` in this checkout; without it, collection fails before reaching this diff. I’m rerunning with the repository’s source path explicitly set to separate environment setup from test behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -m pytest tests\\polaris_graph\\audit_bundle\\test_f15_adversarial.py -q" in C:\POLARIS
+ succeeded in 10209ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py ...             [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 3 passed, 1 warning in 3.33s =========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+75,492
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
