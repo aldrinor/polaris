@@ -34,6 +34,13 @@ class BenchmarkQuestion(BaseModel):
         default_factory=list,
         description="Short factual anchors any responsible answer should include.",
     )
+    expected_pico_keywords: list[str] = Field(
+        default_factory=list,
+        description=(
+            "PICO-style keywords (Population/Intervention/Comparison/Outcome). "
+            "When set, coverage_scorer prefers these over expected_anchors."
+        ),
+    )
     expected_refusals: list[str] = Field(
         default_factory=list,
         description="If the question contains a refusal trigger, expected refusal patterns.",
