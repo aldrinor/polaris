@@ -1,0 +1,145 @@
+# Codex Diff Review — I-bug-084 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document.
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-bug-084 — coverage scorer keywords. Brief APPROVE iter 1.
+- **Net LOC:** 74.
+- **Branch:** `bot/I-bug-084`.
+
+## What changed
+
+1. `src/polaris_v6/benchmark/schema.py` (+5 LOC): added `expected_pico_keywords: list[str] = Field(default_factory=list, ...)` to `BenchmarkQuestion`.
+2. `src/polaris_v6/benchmark/coverage_scorer.py` (NEW, ~17 LOC): `score_response_coverage(question, response_text)` returns 1.0 if all targets present (case-insensitive substring), else 0.0; targets are keywords if non-empty else anchors; empty both → 0.0.
+3. `tests/v6/benchmark/test_coverage_scorer.py` (NEW, 5 tests, all pass).
+
+## Test results
+
+```
+5 passed in 1.30s
+```
+
+## Acceptance — forced enumeration
+
+1. ✅ `expected_pico_keywords` field added.
+2. ✅ `score_response_coverage` implemented.
+3. ✅ Keywords preferred over anchors when set.
+4. ✅ aspirin/migraine acceptance test passes; fallback tests pass.
+5. ✅ CHARTER §3 LOC (74 ≤ 200).
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Diff (appended)
+diff --git a/src/polaris_v6/benchmark/coverage_scorer.py b/src/polaris_v6/benchmark/coverage_scorer.py
+new file mode 100644
+index 0000000..5929f6f
+--- /dev/null
++++ b/src/polaris_v6/benchmark/coverage_scorer.py
+@@ -0,0 +1,18 @@
++"""I-bug-084 — coverage scorer. Uses BenchmarkQuestion.expected_pico_keywords
++when set; falls back to expected_anchors otherwise. Returns 1.0 if all
++target tokens are present (case-insensitive substring match) in the
++response, 0.0 otherwise. Empty keywords AND empty anchors → 0.0."""
++
++from __future__ import annotations
++
++from polaris_v6.benchmark.schema import BenchmarkQuestion
++
++
++def score_response_coverage(
++    question: BenchmarkQuestion, response_text: str
++) -> float:
++    targets = question.expected_pico_keywords or question.expected_anchors
++    if not targets:
++        return 0.0
++    lower = response_text.lower()
++    return 1.0 if all(t.lower() in lower for t in targets) else 0.0
+diff --git a/src/polaris_v6/benchmark/schema.py b/src/polaris_v6/benchmark/schema.py
+index 2c46f3b..42037bd 100644
+--- a/src/polaris_v6/benchmark/schema.py
++++ b/src/polaris_v6/benchmark/schema.py
+@@ -34,6 +34,13 @@ class BenchmarkQuestion(BaseModel):
+         default_factory=list,
+         description="Short factual anchors any responsible answer should include.",
+     )
++    expected_pico_keywords: list[str] = Field(
++        default_factory=list,
++        description=(
++            "PICO-style keywords (Population/Intervention/Comparison/Outcome). "
++            "When set, coverage_scorer prefers these over expected_anchors."
++        ),
++    )
+     expected_refusals: list[str] = Field(
+         default_factory=list,
+         description="If the question contains a refusal trigger, expected refusal patterns.",
+diff --git a/tests/v6/benchmark/test_coverage_scorer.py b/tests/v6/benchmark/test_coverage_scorer.py
+new file mode 100644
+index 0000000..b01aaa3
+--- /dev/null
++++ b/tests/v6/benchmark/test_coverage_scorer.py
+@@ -0,0 +1,49 @@
++"""I-bug-084 — coverage scorer tests."""
++
++from __future__ import annotations
++
++from polaris_v6.benchmark.coverage_scorer import score_response_coverage
++from polaris_v6.benchmark.schema import BenchmarkQuestion
++
++
++def _q(
++    keywords: list[str] | None = None,
++    anchors: list[str] | None = None,
++) -> BenchmarkQuestion:
++    return BenchmarkQuestion(
++        question_id="q1",
++        template="clinical_summary",
++        text="Does aspirin reduce migraine symptoms?",
++        difficulty="routine",
++        expected_anchors=anchors or [],
++        expected_pico_keywords=keywords or [],
++    )
++
++
++def test_aspirin_migraine_with_keywords_scores_1() -> None:
++    q = _q(keywords=["aspirin", "migraine"])
++    assert score_response_coverage(q, "Aspirin reduces migraine symptoms.") == 1.0
++
++
++def test_keywords_present_takes_precedence_over_anchors() -> None:
++    # keywords match in response, anchors do NOT — keywords win → 1.0
++    q = _q(
++        keywords=["aspirin", "migraine"],
++        anchors=["unrelated_anchor_token_xyz"],
++    )
++    assert score_response_coverage(q, "Aspirin reduces migraine symptoms.") == 1.0
++
++
++def test_no_keywords_falls_back_to_anchors_pass() -> None:
++    q = _q(keywords=[], anchors=["foo", "bar"])
++    assert score_response_coverage(q, "the foo and bar both appear here") == 1.0
++
++
++def test_no_keywords_falls_back_to_anchors_fail() -> None:
++    q = _q(keywords=[], anchors=["foo", "bar"])
++    assert score_response_coverage(q, "only foo appears here") == 0.0
++
++
++def test_no_targets_returns_zero() -> None:
++    q = _q(keywords=[], anchors=[])
++    assert score_response_coverage(q, "anything goes") == 0.0
+
+# canonical-diff-sha256: 0585b7f7cb5f6b923d2e3425d0d1c2890bbba17e0402d75db8013e25848e4ad5
