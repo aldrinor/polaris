@@ -1,0 +1,2961 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0605-c4d0-74b2-92b9-952a0a97ccb1
+--------
+user
+# Codex Brief Review — I-f14-002a (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-f14-002a — prerequisite api.ts memory client. Created from Codex iter-1 directive on I-f14-002 PR #304: "split web/lib/api.ts as a 54-LOC prerequisite PR, then keep page+test together at 197 LOC."
+- **Scope:** add memory client functions to `web/lib/api.ts` only. No UI, no test (page + test land in I-f14-002 follow-up PR with 197 LOC budget).
+- **Backend:** existing `src/polaris_v6/api/memory.py` mounts the routes; this PR adds the JS client.
+
+## Plan
+
+1. Add `MemoryKind` type alias mirroring backend.
+2. Add `MemoryEntry` interface mirroring backend schema.
+3. Add `_ws(ws)` helper for `/workspaces/{ws}/memory` URL building.
+4. Add `listMemory(ws)`, `rememberMemory(ws, payload)`, `forgetMemory(ws, entry_id)` using the existing `asJsonOrThrow` helper.
+
+## Acceptance criteria
+
+1. New types/functions exported from `web/lib/api.ts`.
+2. CHARTER §1 LOC cap respected (54 net, well under 200).
+3. tsc + eslint + prettier clean.
+
+**Forced enumeration:** before verdict, write one line per criterion 1-3.
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the actual workspace diff against the stated scope, then check the touched API client against the backend route shape and type/lint expectations.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/memory.py' in C:\POLARIS
+ succeeded in 1226ms:
+?? .claude/hooks/__pycache__/
+?? .codex/I-f14-002/
+?? .codex/I-f14-002a/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/I-f14-002/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 1278ms:
+ succeeded in 1342ms:
+"""F14 workspace memory HTTP endpoints (Phase 2B Task 2B.6).
+
+Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
+the storage backend to Chroma; the HTTP contract here stays stable.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from polaris_v6.memory.schema import (
+    MemoryEntry,
+    MemoryKind,
+    MemoryQuery,
+    MemoryRecallResult,
+)
+from polaris_v6.memory.store import WorkspaceMemoryStore
+
+router = APIRouter(prefix="/workspaces", tags=["memory"])
+
+_store = WorkspaceMemoryStore()
+
+
+class RememberRequest(BaseModel):
+    kind: MemoryKind
+    content: str = Field(..., min_length=4, max_length=4000)
+    derived_from_run_ids: list[str] = Field(default_factory=list)
+
+
+@router.post(
+    "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+)
+def remember(workspace_id: str, payload: RememberRequest) -> MemoryEntry:
+    return _store.remember(
+        workspace_id=workspace_id,
+        kind=payload.kind,
+        content=payload.content,
+        derived_from_run_ids=payload.derived_from_run_ids,
+    )
+
+
+class RecallRequest(BaseModel):
+    query_text: str = Field(..., min_length=1, max_length=2000)
+    kinds: list[MemoryKind] | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+@router.post(
+    "/{workspace_id}/memory/recall",
+    response_model=list[MemoryRecallResult],
+)
+def recall(workspace_id: str, payload: RecallRequest) -> list[MemoryRecallResult]:
+    return _store.recall(
+        MemoryQuery(
+            workspace_id=workspace_id,
+            query_text=payload.query_text,
+            kinds=payload.kinds,
+            top_k=payload.top_k,
+        )
+    )
+
+
+@router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+def forget(workspace_id: str, entry_id: str) -> None:
+    if not _store.forget(workspace_id=workspace_id, entry_id=entry_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"entry {entry_id!r} not found in workspace {workspace_id!r}",
+        )
+    return None
+
+
+@router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+def list_workspace(workspace_id: str) -> list[MemoryEntry]:
+    return _store.list_workspace(workspace_id)
+
+ succeeded in 1745ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+ * http://127.0.0.1:8000 for local development).
+ */
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
+
+export type TemplateId =
+  | "clinical"
+  | "trade"
+  | "housing"
+  | "defense"
+  | "climate"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await fetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await fetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given BPEI chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await fetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+codex
+The workspace has no tracked working-tree diff for `web/lib/api.ts`, so I’m treating the current branch/HEAD as the candidate PR state. Next I’m checking the commit delta and the backend memory schema for contract mismatches.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch --show-current' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline -5' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat HEAD~1..HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/memory/schema.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD~1..HEAD -- web/lib/api.ts' in C:\POLARIS
+ succeeded in 1305ms:
+0f9cd51 I-f14-002a: api.ts memory client (prerequisite for I-f14-002 page)
+fae71c8 I-f14-001: ChromaWorkspaceMemoryStore (semantic recall substrate) (#303)
+ae7c373 I-f13-004: F13 adversarial — source retraction during replay (#302)
+0e48365 I-f13-003: Inline regression alert badges on pin replay page (#301)
+8f2d0b1 I-f13-002: Pin replay diff visualization — Vega-Lite timeseries + diff side-panel (#300)
+
+ succeeded in 1461ms:
+bot/I-f14-002a-api-client
+
+ succeeded in 1513ms:
+"""Workspace memory schema — what gets persisted across runs in a workspace."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+MemoryKind = Literal[
+    "user_preference",
+    "domain_assumption",
+    "prior_run_summary",
+    "rejected_source",
+    "preferred_source",
+]
+
+
+class MemoryEntry(BaseModel):
+    """A single workspace-scoped memory entry."""
+
+    entry_id: str
+    workspace_id: str
+    kind: MemoryKind
+    content: str = Field(..., min_length=4, max_length=4000)
+    embedding_vector: list[float] | None = Field(
+        default=None,
+        description="Optional vector for semantic recall. Phase 2B fills via Chroma.",
+    )
+    created_at: str
+    last_used_at: str | None = None
+    use_count: int = Field(default=0, ge=0)
+    derived_from_run_ids: list[str] = Field(default_factory=list)
+
+
+class MemoryQuery(BaseModel):
+    """A semantic-recall query."""
+
+    workspace_id: str
+    query_text: str = Field(..., min_length=1, max_length=2000)
+    kinds: list[MemoryKind] | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+class MemoryRecallResult(BaseModel):
+    """Result of a recall query."""
+
+    entry: MemoryEntry
+    score: float = Field(..., ge=0.0, le=1.0)
+
+ succeeded in 1624ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1699ms:
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 8c81908..98d98ed 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -998,3 +998,57 @@ export async function getBenchmarkSummary(
+   }
+   return await response.text();
+ }
++
++// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
++export type MemoryKind =
++  | "user_preference"
++  | "domain_assumption"
++  | "prior_run_summary"
++  | "rejected_source"
++  | "preferred_source";
++
++export interface MemoryEntry {
++  entry_id: string;
++  workspace_id: string;
++  kind: MemoryKind;
++  content: string;
++  created_at: string;
++  last_used_at?: string | null;
++  use_count: number;
++  derived_from_run_ids: string[];
++}
++
++const _ws = (ws: string) =>
++  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
++
++export async function listMemory(ws: string): Promise<MemoryEntry[]> {
++  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
++}
++
++export async function rememberMemory(
++  ws: string,
++  payload: {
++    kind: MemoryKind;
++    content: string;
++    derived_from_run_ids?: string[];
++  },
++): Promise<MemoryEntry> {
++  return asJsonOrThrow<MemoryEntry>(
++    await fetch(_ws(ws), {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify(payload),
++    }),
++  );
++}
++
++export async function forgetMemory(
++  ws: string,
++  entry_id: string,
++): Promise<void> {
++  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
++    method: "DELETE",
++  });
++  if (!r.ok && r.status !== 404)
++    throw new Error(`forget memory failed: HTTP ${r.status}`);
++}
+
+ succeeded in 1810ms:
+ web/lib/api.ts | 54 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+codex
+The PR commit is exactly a 54-line addition in `web/lib/api.ts`. The visible contract difference I’m checking now is whether the omitted `embedding_vector` field matters for this client surface, and whether the exported functions compile cleanly.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "memory|include_router|APIRouter" src/polaris_v6 src/polaris_graph web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path src/polaris_v6/api/memory.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path src/polaris_v6/memory/schema.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web/lib/api.ts | ForEach-Object { if ($i -ge 990) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+ succeeded in 1070ms:
+web/lib/api.ts:1002:// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+web/lib/api.ts:1022:  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+web/lib/api.ts:1053:    throw new Error(`forget memory failed: HTTP ${r.status}`);
+src/polaris_graph\agents\verifier.py:113:        from src.polaris_graph.memory.source_content_store import (
+src/polaris_v6\api\ambiguity.py:13:from fastapi import APIRouter
+src/polaris_v6\api\ambiguity.py:21:router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+src/polaris_v6\memory\__init__.py:1:"""Workspace memory substrate (Phase 2B Task 2B.6).
+src/polaris_v6\memory\__init__.py:3:Per memory bpei_phantom_completion_lessons.md and v6 plan errata,
+src/polaris_v6\memory\__init__.py:4:existing `workspace_memory.py` is keyword/Jaccard v1, NOT semantic.
+src/polaris_v6\memory\__init__.py:6:holds the v6 schema + an in-memory implementation that can be
+src/polaris_v6\queue\run_store.py:7:across restarts (replacing the previous in-memory dict).
+src/polaris_v6\memory\store.py:1:"""In-memory workspace memory store (Phase 2B substrate).
+src/polaris_v6\memory\store.py:20:from polaris_v6.memory.schema import (
+src/polaris_v6\memory\store.py:55:    """In-memory implementation. Production swaps for Chroma in Phase 2B."""
+src/polaris_v6\memory\schema.py:1:"""Workspace memory schema — what gets persisted across runs in a workspace."""
+src/polaris_v6\memory\schema.py:19:    """A single workspace-scoped memory entry."""
+src/polaris_v6\memory\chroma_store.py:1:"""ChromaDB-backed semantic workspace memory store (I-f14-001).
+src/polaris_v6\memory\chroma_store.py:14:from polaris_v6.memory.schema import (
+src/polaris_v6\memory\chroma_store.py:42:                 collection_name: str = "v6_workspace_memory") -> None:
+src/polaris_graph\api\retrieval_route.py:20:    app.include_router(retrieval_router, prefix="/api")
+src/polaris_graph\api\retrieval_route.py:33:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph\api\retrieval_route.py:43:router = APIRouter(tags=["retrieval"])
+src/polaris_graph\agents\searcher.py:22:from src.polaris_graph.memory.search_cache import (
+src/polaris_graph\agents\searcher.py:26:from src.polaris_graph.memory.content_cache import (
+src/polaris_graph\api\intake_route.py:5:    api/intake_route.py → FastAPI APIRouter exposing it as POST /api/intake
+src/polaris_graph\api\intake_route.py:13:    app.include_router(intake_router, prefix="/api")
+src/polaris_graph\api\intake_route.py:27:from fastapi import APIRouter, HTTPException
+src/polaris_graph\api\intake_route.py:33:router = APIRouter(tags=["intake"])
+src/polaris_graph\agents\planner.py:144:    ltm_priors = state.get("memory_ltm_priors", [])
+src/polaris_graph\agents\planner.py:185:        from src.polaris_graph.memory.cross_vector import query_human_overrides
+src/polaris_graph\agents\planner.py:345:    # M-16: Inject learned strategies from session feedback memory
+src/polaris_graph\agents\planner.py:347:    best_strategies = state.get("memory_best_strategies", [])
+src/polaris_graph\agents\planner.py:367:    ltm_priors = state.get("memory_ltm_priors", [])
+src/polaris_graph\agents\planner.py:387:        from src.polaris_graph.memory.cross_vector import query_human_overrides
+src/polaris_graph\api\disambiguation_route.py:11:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph\api\disambiguation_route.py:18:router = APIRouter(tags=["disambiguation"])
+src/polaris_graph\agents\nli_verifier.py:130:                props, "total_memory",
+src/polaris_graph\agents\nli_verifier.py:202:                alloc = torch.cuda.memory_allocated() / 1e9
+src/polaris_graph\api\benchmark_route.py:27:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph\api\benchmark_route.py:31:router = APIRouter(tags=["benchmark"])
+src/polaris_graph\api\audit_bundle_route.py:16:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph\api\audit_bundle_route.py:38:router = APIRouter(tags=["audit-bundle"])
+src/polaris_graph\api\generation_route.py:11:    app.include_router(generation_router, prefix="/api")
+src/polaris_graph\api\generation_route.py:19:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph\api\generation_route.py:38:router = APIRouter(tags=["generation"])
+src/polaris_graph\agents\analyzer.py:71:from src.polaris_graph.memory.content_cache import (
+src/polaris_graph\agents\analyzer.py:987:        from src.polaris_graph.memory.source_content_store import (
+src/polaris_graph\agents\analyzer.py:1163:        from src.polaris_graph.memory.evidence_hierarchy import store_evidence
+src/polaris_graph\agents\analyzer.py:1818:        from src.polaris_graph.memory.source_content_store import (
+src/polaris_graph\agents\analyzer.py:1864:    # Cap content to prevent memory issues
+src/polaris_graph\audit_ir\retrieval_cache.py:60:independent of the memory table — they don't share rows or
+src/polaris_graph\audit_ir\retrieval_cache.py:61:foreign keys. A workspace can have memory entries without
+src/polaris_graph\audit_ir\retrieval_cache.py:297:    workspace_memory; one extra table.
+src/polaris_graph\agents\cross_reference.py:241:    # --- Cap evidence to avoid excessive memory / compute ---
+src/polaris_graph\audit_ir\beat_both_scoring.py:29:memory `autoloop_beat_tier1_mandate.md`:
+src/polaris_graph\audit_ir\beat_both_scoring.py:96:    `state/v17_vs_tier1_headtohead.md` and locked memory
+src/polaris_graph\audit_ir\billing_quota_store.py:223:    Per-call connections (matches the workspace/job/review/memory
+src/polaris_graph\audit_ir\inspector_router.py:26:from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+src/polaris_graph\audit_ir\inspector_router.py:143:router = APIRouter()
+src/polaris_graph\audit_ir\inspector_router.py:164:# Per locked memory feedback_substrate_is_not_product.md: this is
+src/polaris_graph\audit_ir\inspector_router.py:631:    Phase A: builds the ZIP in-memory from the artifact directory.
+src/polaris_graph\audit_ir\inspector_router.py:1795:# Workspace-memory store (M-21)
+src/polaris_graph\audit_ir\inspector_router.py:1800:    REPO_ROOT / "state" / "polaris_workspace_memory.sqlite"
+src/polaris_graph\audit_ir\inspector_router.py:1802:_workspace_memory_store = None  # type: ignore[var-annotated]
+src/polaris_graph\audit_ir\inspector_router.py:1805:def get_workspace_memory_store():
+src/polaris_graph\audit_ir\inspector_router.py:1807:    from src.polaris_graph.audit_ir.workspace_memory import (
+src/polaris_graph\audit_ir\inspector_router.py:1810:    global _workspace_memory_store
+src/polaris_graph\audit_ir\inspector_router.py:1811:    if _workspace_memory_store is None:
+src/polaris_graph\audit_ir\inspector_router.py:1812:        _workspace_memory_store = WorkspaceMemoryStore(
+src/polaris_graph\audit_ir\inspector_router.py:1815:    return _workspace_memory_store
+src/polaris_graph\audit_ir\inspector_router.py:1818:def _set_workspace_memory_store_for_tests(store) -> None:
+src/polaris_graph\audit_ir\inspector_router.py:1819:    global _workspace_memory_store
+src/polaris_graph\audit_ir\inspector_router.py:1820:    _workspace_memory_store = store
+src/polaris_graph\audit_ir\inspector_router.py:2203:# Workspace memory (M-21)
+src/polaris_graph\audit_ir\inspector_router.py:2208:    claim_text: str = Field(..., description="Concrete prose stored as memory")
+src/polaris_graph\audit_ir\inspector_router.py:2213:        description="Evidence ID this memory derives from, if any.",
+src/polaris_graph\audit_ir\inspector_router.py:2217:@router.post("/api/inspector/workspaces/{workspace_id}/memory")
+src/polaris_graph\audit_ir\inspector_router.py:2218:async def append_workspace_memory(
+src/polaris_graph\audit_ir\inspector_router.py:2223:    """Append one memory entry to a workspace.
+src/polaris_graph\audit_ir\inspector_router.py:2230:    from src.polaris_graph.audit_ir.workspace_memory import (
+src/polaris_graph\audit_ir\inspector_router.py:2232:        memory_entry_to_dict,
+src/polaris_graph\audit_ir\inspector_router.py:2234:    store = get_workspace_memory_store()
+src/polaris_graph\audit_ir\inspector_router.py:2245:    return memory_entry_to_dict(entry)
+src/polaris_graph\audit_ir\inspector_router.py:2248:@router.get("/api/inspector/workspaces/{workspace_id}/memory")
+src/polaris_graph\audit_ir\inspector_router.py:2249:async def list_workspace_memory(
+src/polaris_graph\audit_ir\inspector_router.py:2254:    """List all memory entries for a workspace, newest first.
+src/polaris_graph\audit_ir\inspector_router.py:2259:    from src.polaris_graph.audit_ir.workspace_memory import (
+src/polaris_graph\audit_ir\inspector_router.py:2261:        memory_entry_to_dict,
+src/polaris_graph\audit_ir\inspector_router.py:2263:    store = get_workspace_memory_store()
+src/polaris_graph\audit_ir\inspector_router.py:2272:        "entries": [memory_entry_to_dict(e) for e in entries],
+src/polaris_graph\audit_ir\inspector_router.py:2276:@router.post("/api/inspector/workspaces/{workspace_id}/memory/retrieve")
+src/polaris_graph\audit_ir\inspector_router.py:2277:async def retrieve_workspace_memory(
+src/polaris_graph\audit_ir\inspector_router.py:2284:    """Active retrieval surface — returns ranked memory entries
+src/polaris_graph\audit_ir\inspector_router.py:2287:    'memory-derived' in the rendered audit (per FINAL_PLAN
+src/polaris_graph\audit_ir\inspector_router.py:2290:    from src.polaris_graph.audit_ir.workspace_memory import (
+src/polaris_graph\audit_ir\inspector_router.py:2292:        memory_entry_to_dict,
+src/polaris_graph\audit_ir\inspector_router.py:2294:    store = get_workspace_memory_store()
+src/polaris_graph\audit_ir\inspector_router.py:2305:            {"entry": memory_entry_to_dict(e), "score": round(score, 4)}
+src/polaris_graph\audit_ir\inspector_router.py:2312:    "/api/inspector/workspaces/{workspace_id}/memory/{entry_id}"
+src/polaris_graph\audit_ir\inspector_router.py:2314:async def delete_workspace_memory_entry(
+src/polaris_graph\audit_ir\inspector_router.py:2319:    """Hard-delete one memory entry. Per FINAL_PLAN, memory must
+src/polaris_graph\audit_ir\inspector_router.py:2322:    store = get_workspace_memory_store()
+src/polaris_graph\audit_ir\inspector_router.py:2330:                f"memory entry {entry_id!r} not found in workspace "
+src/polaris_graph\audit_ir\inspector_router.py:2899:# Counters are in-memory + per-process. Production deployment
+src/polaris_graph\audit_ir\freshness_monitor.py:266:    workspace_id; same DB file as workspace_memory + retrieval
+src/polaris_graph\audit_ir\progress_surfaces.py:28:- The bus is in-memory, single-process. Phase C upgrades to
+src/polaris_graph\audit_ir\progress_surfaces.py:97:# memory. Old events drop on overflow per asyncio.QueueFull behavior
+src/polaris_graph\audit_ir\progress_surfaces.py:113:    """In-memory, thread-safe pub-sub for progressive Inspector
+src/polaris_graph\audit_ir\progress_surfaces.py:242:        Caller MUST unsubscribe on disconnect to free memory.
+src/polaris_graph\audit_ir\decision_telemetry.py:328:    workspace memory + M-D7 retrieval cache + M-D10 freshness
+src/polaris_v6\bpei\__init__.py:3:The BPEI failure pattern (memory: bpei_phantom_completion_lessons.md): user
+src/polaris_v6\bpei\ambiguity_detector.py:4:memory bpei_phantom_completion_lessons.md, the BPEI failure happened
+src/polaris_graph\graph.py:90:                from src.polaris_graph.memory.session_feedback import get_best_strategies
+src/polaris_graph\graph.py:94:                        "[polaris graph] MEM-2b: Top strategies from memory: %s",
+src/polaris_graph\graph.py:97:                    result["memory_best_strategies"] = best[:10]
+src/polaris_graph\graph.py:105:                from src.polaris_graph.memory.cross_vector import query_ltm
+src/polaris_graph\graph.py:109:                    result["memory_ltm_prior_count"] = len(prior)
+src/polaris_graph\graph.py:111:                    result["memory_ltm_priors"] = prior
+src/polaris_graph\graph.py:236:                    from src.polaris_graph.memory.content_cache import cache_content
+src/polaris_graph\graph.py:365:                from src.polaris_graph.memory.session_feedback import record_feedback
+src/polaris_graph\graph.py:804:                from src.polaris_graph.memory.evidence_hierarchy import get_by_perspective
+src/polaris_graph\graph.py:814:                    result["memory_perspective_gaps"] = missing
+src/polaris_graph\graph.py:952:                from src.polaris_graph.memory.cross_vector import promote_to_ltm
+src/polaris_graph\graph.py:1335:            from src.polaris_graph.memory.local_document_rag import LocalDocumentRAG
+src/polaris_graph\graph.py:1746:                # Logs memory/handle usage for future crash investigations.
+src/polaris_graph\graph.py:1751:                        mem = proc.memory_info()
+src/polaris_graph\graph.py:1752:                        sys_mem = psutil.virtual_memory()
+src/polaris_v6\api\upload.py:21:from fastapi import APIRouter, Form, HTTPException, UploadFile
+src/polaris_v6\api\upload.py:24:router = APIRouter(prefix="/upload", tags=["upload"])
+src/polaris_v6\api\templates.py:9:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\templates.py:17:router = APIRouter(prefix="/templates", tags=["templates"])
+src/polaris_v6\api\stream.py:19:from fastapi import APIRouter
+src/polaris_v6\api\stream.py:22:router = APIRouter(prefix="/stream", tags=["stream"])
+src/polaris_v6\api\scope.py:5:from fastapi import APIRouter
+src/polaris_v6\api\scope.py:11:router = APIRouter(prefix="/scope", tags=["scope"])
+src/polaris_v6\api\runs.py:5:Replaces the previous in-memory `_run_table` dict.
+src/polaris_v6\api\runs.py:13:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\runs.py:20:router = APIRouter(prefix="/runs", tags=["runs"])
+src/polaris_v6\api\app.py:22:from polaris_v6.api.memory import router as memory_router
+src/polaris_v6\api\app.py:80:    app.include_router(health_router)
+src/polaris_v6\api\app.py:81:    app.include_router(runs_router)
+src/polaris_v6\api\app.py:82:    app.include_router(stream_router)
+src/polaris_v6\api\app.py:83:    app.include_router(ambiguity_router)
+src/polaris_v6\api\app.py:84:    app.include_router(bundle_router)
+src/polaris_v6\api\app.py:85:    app.include_router(scope_router)
+src/polaris_v6\api\app.py:86:    app.include_router(upload_router)
+src/polaris_v6\api\app.py:87:    app.include_router(charts_router)
+src/polaris_v6\api\app.py:88:    app.include_router(followup_router)
+src/polaris_v6\api\app.py:89:    app.include_router(compare_router)
+src/polaris_v6\api\app.py:90:    app.include_router(memory_router)
+src/polaris_v6\api\app.py:91:    app.include_router(templates_router)
+src/polaris_v6\api\app.py:94:    app.include_router(slice001_intake_router, prefix="/api")
+src/polaris_v6\api\app.py:110:    app.include_router(slice002_retrieval_router, prefix="/api")
+src/polaris_v6\api\app.py:125:    app.include_router(slice003_generation_router, prefix="/api")
+src/polaris_v6\api\app.py:140:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src/polaris_v6\api\app.py:159:    app.include_router(slice005_benchmark_router, prefix="/api")
+src/polaris_v6\api\app.py:161:    app.include_router(disambiguation_router, prefix="/api")
+src/polaris_graph\generator\frame_manifest.py:82:    in-memory side channel.
+src/polaris_v6\api\memory.py:1:"""F14 workspace memory HTTP endpoints (Phase 2B Task 2B.6).
+src/polaris_v6\api\memory.py:3:Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
+src/polaris_v6\api\memory.py:9:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\memory.py:12:from polaris_v6.memory.schema import (
+src/polaris_v6\api\memory.py:18:from polaris_v6.memory.store import WorkspaceMemoryStore
+src/polaris_v6\api\memory.py:20:router = APIRouter(prefix="/workspaces", tags=["memory"])
+src/polaris_v6\api\memory.py:32:    "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+src/polaris_v6\api\memory.py:50:    "/{workspace_id}/memory/recall",
+src/polaris_v6\api\memory.py:64:@router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+src/polaris_v6\api\memory.py:74:@router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+src/polaris_graph\state.py:564:    memory_perspective_gaps: list[str]
+src/polaris_graph\state.py:565:    memory_best_strategies: list[dict]
+src/polaris_graph\state.py:566:    memory_ltm_prior_count: int
+src/polaris_graph\state.py:567:    memory_ltm_priors: list[dict]  # Sprint 1B: actual LTM prior knowledge items
+src/polaris_graph\state.py:680:        memory_perspective_gaps=[],
+src/polaris_graph\state.py:681:        memory_best_strategies=[],
+src/polaris_graph\state.py:682:        memory_ltm_prior_count=0,
+src/polaris_graph\state.py:683:        memory_ltm_priors=[],
+src/polaris_v6\api\health.py:3:from fastapi import APIRouter
+src/polaris_v6\api\health.py:8:router = APIRouter(tags=["health"])
+src/polaris_v6\api\followup.py:7:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\followup.py:15:router = APIRouter(prefix="/runs", tags=["followup"])
+src/polaris_v6\api\compare.py:8:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\compare.py:14:router = APIRouter(prefix="/runs", tags=["compare"])
+src/polaris_v6\api\charts.py:7:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\charts.py:15:router = APIRouter(prefix="/runs", tags=["charts"])
+src/polaris_graph\memory\cross_vector.py:5:long-term memory (src/memory/chroma_client.py).  High-quality evidence
+src/polaris_graph\memory\cross_vector.py:40:        from src.memory.chroma_client import get_chroma_manager
+src/polaris_graph\memory\local_document_rag.py:47:# Maximum batch size for ChromaDB upsert to avoid memory pressure.
+src/polaris_graph\memory\local_document_rag.py:203:        # Upsert in batches to avoid memory pressure
+src/polaris_v6\api\bundle.py:20:from fastapi import APIRouter, HTTPException
+src/polaris_v6\api\bundle.py:24:router = APIRouter(prefix="/runs", tags=["bundle"])
+src/polaris_graph\agents\synthesizer.py:2009:            from src.polaris_graph.memory.evidence_hierarchy import count_by_tier
+src/polaris_graph\agents\synthesizer.py:2020:            from src.polaris_graph.memory.evidence_hierarchy import store_evidence
+src/polaris_graph\agents\synthesizer.py:2301:    if ltm_enabled and state.get("memory_ltm_prior_count", 0) > 0:
+src/polaris_graph\agents\synthesizer.py:2303:            from src.polaris_graph.memory.cross_vector import query_ltm
+src/polaris_graph\agents\synthesizer.py:2425:                from src.polaris_graph.memory.content_cache import get_cached_content
+src/polaris_graph\agents\synthesizer.py:2569:            from src.polaris_graph.memory.evidence_hierarchy import batch_update_section_assignments
+src/polaris_graph\agents\synthesizer.py:2857:            from src.polaris_graph.memory.source_content_store import (
+src/polaris_graph\pipeline_wizard.py:9:Sessions are stored in-memory (dict). For production persistence,
+src/polaris_graph\pipeline_wizard.py:124:    """In-memory state for a single wizard conversation."""
+src/polaris_graph\pipeline_wizard.py:165:# In-memory session store
+src/polaris_graph\memory\evidence_hierarchy.py:31:    """Create the evidence_memory table if it doesn't exist."""
+src/polaris_graph\memory\evidence_hierarchy.py:33:        CREATE TABLE IF NOT EXISTS evidence_memory (
+src/polaris_graph\memory\evidence_hierarchy.py:49:            "ALTER TABLE evidence_memory ADD COLUMN section_assignments TEXT DEFAULT ''"
+src/polaris_graph\memory\evidence_hierarchy.py:55:            ON evidence_memory (vector_id)
+src/polaris_graph\memory\evidence_hierarchy.py:59:            ON evidence_memory (vector_id, cluster_id)
+src/polaris_graph\memory\evidence_hierarchy.py:63:            ON evidence_memory (vector_id, perspective)
+src/polaris_graph\memory\evidence_hierarchy.py:67:            ON evidence_memory (vector_id, quality_tier)
+src/polaris_graph\memory\evidence_hierarchy.py:108:                """INSERT OR REPLACE INTO evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:148:                   FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:194:                       FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:203:                       FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:240:                "SELECT l2_full FROM evidence_memory WHERE evidence_id = ?",
+src/polaris_graph\memory\evidence_hierarchy.py:269:                   FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:316:                   FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:353:                   FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:379:    More efficient than scanning the full in-memory evidence list.
+src/polaris_graph\memory\evidence_hierarchy.py:405:                       FROM evidence_memory
+src/polaris_graph\memory\evidence_hierarchy.py:455:                    f"SELECT evidence_id, l2_full FROM evidence_memory WHERE evidence_id IN ({placeholders})",
+src/polaris_graph\memory\evidence_hierarchy.py:497:                "UPDATE evidence_memory SET section_assignments = ? WHERE evidence_id = ?",
+src/polaris_graph\memory\evidence_hierarchy.py:532:                    "UPDATE evidence_memory SET section_assignments = ? WHERE evidence_id = ?",
+src/polaris_graph\memory\evidence_hierarchy.py:567:                   FROM evidence_memory
+src/polaris_graph\retrieval\live_retriever.py:682:# diagnostics`. Keyed by url; overwritten on each call so memory
+src/polaris_graph\retrieval\human_gap_completion.py:526:    audit evidence without needing an in-memory side channel.
+src/polaris_graph\tracing.py:48:    one event per line. Also keeps events in memory for summary.
+src/polaris_graph\tracing.py:219:        """Write a trace event to JSONL and memory."""
+src/polaris_graph\tools\evidence_database.py:3:Loads evidence into an in-memory SQLite database, enabling SQL-based
+src/polaris_graph\tools\evidence_database.py:32:    """In-memory SQLite database for evidence analysis.
+src/polaris_graph\tools\evidence_database.py:42:        self._conn = sqlite3.connect(":memory:")
+src/polaris_graph\audit_ir\workspace_memory.py:1:"""Retrieval-active workspace memory (M-21 — Phase C).
+src/polaris_graph\audit_ir\workspace_memory.py:4:  Retrieval-active workspace memory (10-18 eng days, Phase C per
+src/polaris_graph\audit_ir\workspace_memory.py:8:      "memory-derived"
+src/polaris_graph\audit_ir\workspace_memory.py:13:  - Persist a workspace's memory entries (claim_text + source_url
+src/polaris_graph\audit_ir\workspace_memory.py:16:    memory entries that match question keywords. Pure deterministic
+src/polaris_graph\audit_ir\workspace_memory.py:30:    v1 is enough for the Inspector "memory-derived" label
+src/polaris_graph\audit_ir\workspace_memory.py:32:    when the Phase D memory-quality work begins.
+src/polaris_graph\audit_ir\workspace_memory.py:34:    memory is "quarantined from audit lane by default" — the
+src/polaris_graph\audit_ir\workspace_memory.py:35:    workspace-memory module does not write to that surface, and
+src/polaris_graph\audit_ir\workspace_memory.py:38:    time, called by the V30 runner when an entry meets a memory-
+src/polaris_graph\audit_ir\workspace_memory.py:64:    """One workspace-memory record.
+src/polaris_graph\audit_ir\workspace_memory.py:69:    surface the "memory-derived" label with a back-link, which
+src/polaris_graph\audit_ir\workspace_memory.py:83:def memory_entry_to_dict(entry: MemoryEntry) -> dict[str, Any]:
+src/polaris_graph\audit_ir\workspace_memory.py:102:    """Base error for workspace-memory operations."""
+src/polaris_graph\audit_ir\workspace_memory.py:115:CREATE TABLE IF NOT EXISTS workspace_memory (
+src/polaris_graph\audit_ir\workspace_memory.py:126:CREATE INDEX IF NOT EXISTS idx_workspace_memory_ws_created
+src/polaris_graph\audit_ir\workspace_memory.py:127:    ON workspace_memory(workspace_id, created_at DESC);
+src/polaris_graph\audit_ir\workspace_memory.py:133:CREATE INDEX IF NOT EXISTS idx_workspace_memory_used
+src/polaris_graph\audit_ir\workspace_memory.py:134:    ON workspace_memory(workspace_id, last_used_at DESC);
+src/polaris_graph\audit_ir\workspace_memory.py:172:    """SQLite-backed workspace memory.
+src/polaris_graph\audit_ir\workspace_memory.py:211:        """Persist one memory entry. Cross-workspace isolation: the
+src/polaris_graph\audit_ir\workspace_memory.py:222:                "memory entries must carry concrete prose"
+src/polaris_graph\audit_ir\workspace_memory.py:228:                "show a memory-derived label without an attribution "
+src/polaris_graph\audit_ir\workspace_memory.py:235:                "memory-derived attribution surface"
+src/polaris_graph\audit_ir\workspace_memory.py:241:                "INSERT INTO workspace_memory (entry_id, workspace_id, "
+src/polaris_graph\audit_ir\workspace_memory.py:269:                "SELECT * FROM workspace_memory "
+src/polaris_graph\audit_ir\workspace_memory.py:295:            "SELECT * FROM workspace_memory WHERE workspace_id = ? "
+src/polaris_graph\audit_ir\workspace_memory.py:324:        so freshness ranking can favor recently-useful memory.
+src/polaris_graph\audit_ir\workspace_memory.py:364:                    f"UPDATE workspace_memory SET last_used_at = ? "
+src/polaris_graph\audit_ir\workspace_memory.py:382:        Per FINAL_PLAN, memory must be user-removable. Hard delete
+src/polaris_graph\audit_ir\workspace_memory.py:396:                "DELETE FROM workspace_memory "
+src/polaris_graph\audit_ir\workspace_memory.py:414:                "DELETE FROM workspace_memory WHERE workspace_id = ?",
+src/polaris_graph\tools\pdf_table_extractor.py:124:    """Extract tables from in-memory PDF bytes.
+src/polaris_graph\nodes\scope.py:98:        ltm_priors: Optional list of prior findings from LTM memory.
+
+ succeeded in 1142ms:
+   1: """F14 workspace memory HTTP endpoints (Phase 2B Task 2B.6).
+   2: 
+   3: Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
+   4: the storage backend to Chroma; the HTTP contract here stays stable.
+   5: """
+   6: 
+   7: from __future__ import annotations
+   8: 
+   9: from fastapi import APIRouter, HTTPException
+  10: from pydantic import BaseModel, Field
+  11: 
+  12: from polaris_v6.memory.schema import (
+  13:     MemoryEntry,
+  14:     MemoryKind,
+  15:     MemoryQuery,
+  16:     MemoryRecallResult,
+  17: )
+  18: from polaris_v6.memory.store import WorkspaceMemoryStore
+  19: 
+  20: router = APIRouter(prefix="/workspaces", tags=["memory"])
+  21: 
+  22: _store = WorkspaceMemoryStore()
+  23: 
+  24: 
+  25: class RememberRequest(BaseModel):
+  26:     kind: MemoryKind
+  27:     content: str = Field(..., min_length=4, max_length=4000)
+  28:     derived_from_run_ids: list[str] = Field(default_factory=list)
+  29: 
+  30: 
+  31: @router.post(
+  32:     "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+  33: )
+  34: def remember(workspace_id: str, payload: RememberRequest) -> MemoryEntry:
+  35:     return _store.remember(
+  36:         workspace_id=workspace_id,
+  37:         kind=payload.kind,
+  38:         content=payload.content,
+  39:         derived_from_run_ids=payload.derived_from_run_ids,
+  40:     )
+  41: 
+  42: 
+  43: class RecallRequest(BaseModel):
+  44:     query_text: str = Field(..., min_length=1, max_length=2000)
+  45:     kinds: list[MemoryKind] | None = None
+  46:     top_k: int = Field(default=5, ge=1, le=50)
+  47: 
+  48: 
+  49: @router.post(
+  50:     "/{workspace_id}/memory/recall",
+  51:     response_model=list[MemoryRecallResult],
+  52: )
+  53: def recall(workspace_id: str, payload: RecallRequest) -> list[MemoryRecallResult]:
+  54:     return _store.recall(
+  55:         MemoryQuery(
+  56:             workspace_id=workspace_id,
+  57:             query_text=payload.query_text,
+  58:             kinds=payload.kinds,
+  59:             top_k=payload.top_k,
+  60:         )
+  61:     )
+  62: 
+  63: 
+  64: @router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+  65: def forget(workspace_id: str, entry_id: str) -> None:
+  66:     if not _store.forget(workspace_id=workspace_id, entry_id=entry_id):
+  67:         raise HTTPException(
+  68:             status_code=404,
+  69:             detail=f"entry {entry_id!r} not found in workspace {workspace_id!r}",
+  70:         )
+  71:     return None
+  72: 
+  73: 
+  74: @router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+  75: def list_workspace(workspace_id: str) -> list[MemoryEntry]:
+  76:     return _store.list_workspace(workspace_id)
+
+ succeeded in 1250ms:
+   1: """Workspace memory schema — what gets persisted across runs in a workspace."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: from typing import Literal
+   6: 
+   7: from pydantic import BaseModel, Field
+   8: 
+   9: MemoryKind = Literal[
+  10:     "user_preference",
+  11:     "domain_assumption",
+  12:     "prior_run_summary",
+  13:     "rejected_source",
+  14:     "preferred_source",
+  15: ]
+  16: 
+  17: 
+  18: class MemoryEntry(BaseModel):
+  19:     """A single workspace-scoped memory entry."""
+  20: 
+  21:     entry_id: str
+  22:     workspace_id: str
+  23:     kind: MemoryKind
+  24:     content: str = Field(..., min_length=4, max_length=4000)
+  25:     embedding_vector: list[float] | None = Field(
+  26:         default=None,
+  27:         description="Optional vector for semantic recall. Phase 2B fills via Chroma.",
+  28:     )
+  29:     created_at: str
+  30:     last_used_at: str | None = None
+  31:     use_count: int = Field(default=0, ge=0)
+  32:     derived_from_run_ids: list[str] = Field(default_factory=list)
+  33: 
+  34: 
+  35: class MemoryQuery(BaseModel):
+  36:     """A semantic-recall query."""
+  37: 
+  38:     workspace_id: str
+  39:     query_text: str = Field(..., min_length=1, max_length=2000)
+  40:     kinds: list[MemoryKind] | None = None
+  41:     top_k: int = Field(default=5, ge=1, le=50)
+  42: 
+  43: 
+  44: class MemoryRecallResult(BaseModel):
+  45:     """Result of a recall query."""
+  46: 
+  47:     entry: MemoryEntry
+  48:     score: float = Field(..., ge=0.0, le=1.0)
+
+ succeeded in 1324ms:
+ 990: export async function getBenchmarkSummary(
+ 991:   benchmark_id: string,
+ 992: ): Promise<string> {
+ 993:   const response = await fetch(
+ 994:     `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+ 995:   );
+ 996:   if (!response.ok) {
+ 997:     throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+ 998:   }
+ 999:   return await response.text();
+1000: }
+1001: 
+1002: // I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+1003: export type MemoryKind =
+1004:   | "user_preference"
+1005:   | "domain_assumption"
+1006:   | "prior_run_summary"
+1007:   | "rejected_source"
+1008:   | "preferred_source";
+1009: 
+1010: export interface MemoryEntry {
+1011:   entry_id: string;
+1012:   workspace_id: string;
+1013:   kind: MemoryKind;
+1014:   content: string;
+1015:   created_at: string;
+1016:   last_used_at?: string | null;
+1017:   use_count: number;
+1018:   derived_from_run_ids: string[];
+1019: }
+1020: 
+1021: const _ws = (ws: string) =>
+1022:   `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+1023: 
+1024: export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+1025:   return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
+1026: }
+1027: 
+1028: export async function rememberMemory(
+1029:   ws: string,
+1030:   payload: {
+1031:     kind: MemoryKind;
+1032:     content: string;
+1033:     derived_from_run_ids?: string[];
+1034:   },
+1035: ): Promise<MemoryEntry> {
+1036:   return asJsonOrThrow<MemoryEntry>(
+1037:     await fetch(_ws(ws), {
+1038:       method: "POST",
+1039:       headers: { "content-type": "application/json" },
+1040:       body: JSON.stringify(payload),
+1041:     }),
+1042:   );
+1043: }
+1044: 
+1045: export async function forgetMemory(
+1046:   ws: string,
+1047:   entry_id: string,
+1048: ): Promise<void> {
+1049:   const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+1050:     method: "DELETE",
+1051:   });
+1052:   if (!r.ok && r.status !== 404)
+1053:     throw new Error(`forget memory failed: HTTP ${r.status}`);
+1054: }
+
+codex
+The backend returns a 204 on successful delete and a structured 404 on missing entries. I’m going to run the web gates now because the one-line delete error path is the most likely place for lint/format disagreement.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run format:check' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+2026-05-08T05:19:12.743804Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.7 seconds
+Output:
+
+> web@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+[warn] app/pin_replay/page.tsx
+[warn] lib/api.ts
+[warn] lib/pin_regression.ts
+[warn] lib/pin_replay_demo.ts
+[warn] test-results/.last-run.json
+[warn] tests/e2e/pin_regression_alert.spec.ts
+[warn] tests/e2e/pin_retraction_handled.spec.ts
+[warn] Code style issues found in 7 files. Run Prettier with --write to fix.
+
+ exited 1 in 3723ms:
+
+> web@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+[warn] app/pin_replay/page.tsx
+[warn] lib/api.ts
+[warn] lib/pin_regression.ts
+[warn] lib/pin_replay_demo.ts
+[warn] test-results/.last-run.json
+[warn] tests/e2e/pin_regression_alert.spec.ts
+[warn] tests/e2e/pin_retraction_handled.spec.ts
+[warn] Code style issues found in 7 files. Run Prettier with --write to fix.
+
+2026-05-08T05:19:13.204172Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.2 seconds
+Output:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+.next/types/validator.ts(159,39): error TS2307: Cannot find module '../../app/memory/page.js' or its corresponding type declarations.
+
+ exited 1 in 4176ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+.next/types/validator.ts(159,39): error TS2307: Cannot find module '../../app/memory/page.js' or its corresponding type declarations.
+
+ succeeded in 8303ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\app\inspector\[runId]\page.tsx
+  507:6  warning  React Hook useEffect has a missing dependency: 'chartTypes'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+
+
+codex
+The gates did not all pass in this workspace: eslint has only pre-existing warnings, but typecheck is reading stale `.next` generated types for an `app/memory/page.js` that is not in this prerequisite PR, and Prettier reports `lib/api.ts` plus unrelated files. I’m isolating whether `lib/api.ts` itself is newly unformatted.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check lib/api.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path app\\memory\\page.tsx; Test-Path .next\\types\\validator.ts; if (Test-Path .next\\types\\validator.ts) { Select-String -Path .next\\types\\validator.ts -Pattern 'app/memory' -Context 2,2 }" in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files web/.next web/test-results web/lib/api.ts web/app/memory/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tsconfig.json' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --list-different lib/api.ts' in C:\POLARIS\web
+ succeeded in 1133ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1278ms:
+web/lib/api.ts
+
+ succeeded in 1484ms:
+False
+True
+
+  .next\types\validator.ts:154:}
+  .next\types\validator.ts:155:
+> .next\types\validator.ts:156:// Validate ../../app/memory/page.tsx
+  .next\types\validator.ts:157:{
+  .next\types\validator.ts:158:  type __IsExpected<Specific extends AppPageConfig<"/memory">> = Specific
+> .next\types\validator.ts:159:  const handler = {} as typeof import("../../app/memory/page.js")
+  .next\types\validator.ts:160:  type __Check = __IsExpected<typeof handler>
+  .next\types\validator.ts:161:  // @ts-ignore
+
+
+2026-05-08T05:19:32.064611Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.3 seconds
+Output:
+Checking formatting...
+[warn] lib/api.ts
+[warn] Code style issues found in the above file. Run Prettier with --write to fix.
+
+ exited 1 in 2325ms:
+Checking formatting...
+[warn] lib/api.ts
+[warn] Code style issues found in the above file. Run Prettier with --write to fix.
+
+2026-05-08T05:19:32.370654Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+lib/api.ts
+
+ exited 1 in 2550ms:
+lib/api.ts
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier lib/api.ts | Select-Object -Last 80' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show HEAD~1:web/lib/api.ts | Select-Object -Last 30' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline HEAD' in C:\POLARIS
+ succeeded in 1048ms:
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+ succeeded in 1156ms:
+0f9cd51 I-f14-002a: api.ts memory client (prerequisite for I-f14-002 page)
+ web/lib/api.ts | 54 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+ succeeded in 2456ms:
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await fetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path .prettierignore) { Get-Content .prettierignore }; if (Test-Path prettier.config.js) { Get-Content prettier.config.js }; if (Test-Path .prettierrc) { Get-Content .prettierrc }' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show HEAD~1:web/lib/api.ts | npx prettier --check --stdin-filepath lib/api.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check --end-of-line auto lib/api.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force -Name | Where-Object { $_ -eq '"'.prettierrc' -or "'$_ -eq '"'prettier.config.js' -or "'$_ -eq '"'.prettierignore' }; Get-ChildItem -Force -Name .. | Where-Object { "'$_ -eq '"'.prettierrc' -or "'$_ -eq '"'prettier.config.js' -or "'$_ -eq '"'.prettierignore' }" in C:\POLARIS\web
+ succeeded in 1004ms:
+.next
+out
+build
+node_modules
+public
+next-env.d.ts
+package-lock.json
+screenshots
+coverage
+
+ succeeded in 1242ms:
+.prettierignore
+
+2026-05-08T05:20:01.281306Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.4 seconds
+Output:
+(stdin)
+
+ exited 1 in 2399ms:
+(stdin)
+
+ succeeded in 2542ms:
+Checking formatting...
+All matched files use Prettier code style!
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path ..\\.gitattributes -ErrorAction SilentlyContinue" in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git config --get core.autocrlf; git config --get core.eol' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files --eol web/lib/api.ts web/app/pin_replay/page.tsx web/lib/pin_regression.ts web/tests/e2e/pin_regression_alert.spec.ts' in C:\POLARIS
+2026-05-08T05:20:11.973932Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+
+ exited 1 in 910ms:
+2026-05-08T05:20:12.143366Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+true
+
+ exited 1 in 1050ms:
+true
+
+ succeeded in 1108ms:
+i/lf    w/crlf  attr/                 	web/app/pin_replay/page.tsx
+i/lf    w/crlf  attr/                 	web/lib/api.ts
+i/lf    w/crlf  attr/                 	web/lib/pin_regression.ts
+i/lf    w/crlf  attr/                 	web/tests/e2e/pin_regression_alert.spec.ts
+
+codex
+Prettier’s complaint on `lib/api.ts` is the Windows CRLF checkout; `prettier --check --end-of-line auto lib/api.ts` passes, and `git ls-files --eol` shows the index stores LF. I’m doing one targeted TypeScript check on `lib/api.ts` to separate the new client from the stale `.next` cache failure.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx tsc --noEmit --pretty false --module esnext --moduleResolution bundler --target ES2017 --lib dom,dom.iterable,esnext --strict --esModuleInterop --skipLibCheck --isolatedModules --jsx react-jsx --allowJs lib/api.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show HEAD:web/lib/api.ts | npx prettier --check --end-of-line lf --stdin-filepath lib/api.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --numstat HEAD~1..HEAD -- web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --check HEAD~1..HEAD -- web/lib/api.ts' in C:\POLARIS
+ succeeded in 1207ms:
+54	0	web/lib/api.ts
+
+ succeeded in 1381ms:
+2026-05-08T05:20:29.642849Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+error TS6046: Argument for '--lib' option must be: 'es5', 'es6', 'es2015', 'es7', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'es2024', 'esnext', 'dom', 'dom.iterable', 'dom.asynciterable', 'webworker', 'webworker.importscripts', 'webworker.iterable', 'webworker.asynciterable', 'scripthost', 'es2015.core', 'es2015.collection', 'es2015.generator', 'es2015.iterable', 'es2015.promise', 'es2015.proxy', 'es2015.reflect', 'es2015.symbol', 'es2015.symbol.wellknown', 'es2016.array.include', 'es2016.intl', 'es2017.arraybuffer', 'es2017.date', 'es2017.object', 'es2017.sharedmemory', 'es2017.string', 'es2017.intl', 'es2017.typedarrays', 'es2018.asyncgenerator', 'es2018.asynciterable', 'es2018.intl', 'es2018.promise', 'es2018.regexp', 'es2019.array', 'es2019.object', 'es2019.string', 'es2019.symbol', 'es2019.intl', 'es2020.bigint', 'es2020.date', 'es2020.promise', 'es2020.sharedmemory', 'es2020.string', 'es2020.symbol.wellknown', 'es2020.intl', 'es2020.number', 'es2021.promise', 'es2021.string', 'es2021.weakref', 'es2021.intl', 'es2022.array', 'es2022.error', 'es2022.intl', 'es2022.object', 'es2022.string', 'es2022.regexp', 'es2023.array', 'es2023.collection', 'es2023.intl', 'es2024.arraybuffer', 'es2024.collection', 'es2024.object', 'es2024.promise', 'es2024.regexp', 'es2024.sharedmemory', 'es2024.string', 'esnext.array', 'esnext.collection', 'esnext.symbol', 'esnext.asynciterable', 'esnext.intl', 'esnext.disposable', 'esnext.bigint', 'esnext.string', 'esnext.promise', 'esnext.weakref', 'esnext.decorators', 'esnext.object', 'esnext.regexp', 'esnext.iterator', 'esnext.float16', 'esnext.error', 'esnext.sharedmemory', 'decorators', 'decorators.legacy'.
+
+ exited 1 in 2511ms:
+error TS6046: Argument for '--lib' option must be: 'es5', 'es6', 'es2015', 'es7', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'es2024', 'esnext', 'dom', 'dom.iterable', 'dom.asynciterable', 'webworker', 'webworker.importscripts', 'webworker.iterable', 'webworker.asynciterable', 'scripthost', 'es2015.core', 'es2015.collection', 'es2015.generator', 'es2015.iterable', 'es2015.promise', 'es2015.proxy', 'es2015.reflect', 'es2015.symbol', 'es2015.symbol.wellknown', 'es2016.array.include', 'es2016.intl', 'es2017.arraybuffer', 'es2017.date', 'es2017.object', 'es2017.sharedmemory', 'es2017.string', 'es2017.intl', 'es2017.typedarrays', 'es2018.asyncgenerator', 'es2018.asynciterable', 'es2018.intl', 'es2018.promise', 'es2018.regexp', 'es2019.array', 'es2019.object', 'es2019.string', 'es2019.symbol', 'es2019.intl', 'es2020.bigint', 'es2020.date', 'es2020.promise', 'es2020.sharedmemory', 'es2020.string', 'es2020.symbol.wellknown', 'es2020.intl', 'es2020.number', 'es2021.promise', 'es2021.string', 'es2021.weakref', 'es2021.intl', 'es2022.array', 'es2022.error', 'es2022.intl', 'es2022.object', 'es2022.string', 'es2022.regexp', 'es2023.array', 'es2023.collection', 'es2023.intl', 'es2024.arraybuffer', 'es2024.collection', 'es2024.object', 'es2024.promise', 'es2024.regexp', 'es2024.sharedmemory', 'es2024.string', 'esnext.array', 'esnext.collection', 'esnext.symbol', 'esnext.asynciterable', 'esnext.intl', 'esnext.disposable', 'esnext.bigint', 'esnext.string', 'esnext.promise', 'esnext.weakref', 'esnext.decorators', 'esnext.object', 'esnext.regexp', 'esnext.iterator', 'esnext.float16', 'esnext.error', 'esnext.sharedmemory', 'decorators', 'decorators.legacy'.
+
+2026-05-08T05:20:30.103345Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3 seconds
+Output:
+(stdin)
+
+ exited 1 in 2967ms:
+(stdin)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx tsc --noEmit --pretty false --module esnext --moduleResolution bundler --target ES2017 --lib dom --lib dom.iterable --lib esnext --strict --esModuleInterop --skipLibCheck --isolatedModules --jsx react-jsx --allowJs lib/api.ts' in C:\POLARIS\web
+2026-05-08T05:20:40.506045Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.7 seconds
+Output:
+lib/api.ts(290,16): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(293,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(295,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(315,27): error TS2315: Type 'MessageEvent' is not generic.
+lib/api.ts(438,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(536,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(764,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(846,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(881,27): error TS2339: Property 'detail' does not exist on type '{}'.
+
+ exited 1 in 2725ms:
+lib/api.ts(290,16): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(293,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(295,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+lib/api.ts(315,27): error TS2315: Type 'MessageEvent' is not generic.
+lib/api.ts(438,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(536,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(764,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(846,27): error TS2339: Property 'detail' does not exist on type '{}'.
+lib/api.ts(881,27): error TS2339: Property 'detail' does not exist on type '{}'.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx tsc --noEmit --pretty false --module esnext --moduleResolution bundler --target ES2017 --lib "dom,dom.iterable,esnext" --strict --esModuleInterop --skipLibCheck --isolatedModules --jsx react-jsx --allowJs lib/api.ts' in C:\POLARIS\web
+ succeeded in 2760ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check . --end-of-line auto' in C:\POLARIS\web
+2026-05-08T05:21:25.391604Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.1 seconds
+Output:
+Checking formatting...
+[warn] test-results/.last-run.json
+[warn] Code style issues found in the above file. Run Prettier with --write to fix.
+
+ exited 1 in 4120ms:
+Checking formatting...
+[warn] test-results/.last-run.json
+[warn] Code style issues found in the above file. Run Prettier with --write to fix.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short web/.next web/test-results web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git check-ignore -v web/.next/types/validator.ts web/test-results/.last-run.json' in C:\POLARIS
+ succeeded in 1034ms:
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1087ms:
+web/.gitignore:17:/.next/	web/.next/types/validator.ts
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+Criterion 1: PASS: new memory types/functions are exported from `web/lib/api.ts`.
+Criterion 2: PASS: net +54 LOC in `web/lib/api.ts`, under cap.
+Criterion 3: PARTIAL/ENV-BLOCKED: `npm run lint` exits 0; scoped `lib/api.ts` tsc passes. Full `npm run typecheck` is blocked by stale ignored `.next/types/validator.ts`; Prettier default is blocked by Windows CRLF/untracked `web/test-results`.
+
+Completeness check: read `web/lib/api.ts`, `src/polaris_v6/api/memory.py`, `src/polaris_v6/memory/schema.py`, `web/package.json`, `web/tsconfig.json`, `web/.prettierignore`; searched route mounts with `rg`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/lib/api.ts:1010 omits backend MemoryEntry.embedding_vector from src/polaris_v6/memory/schema.py:25. This is contract drift, but not execution-blocking for list/add/delete UI usage."
+  - "web/lib/api.ts:1049 handles DELETE manually and treats 404 as success instead of using asJsonOrThrow, losing consistent ApiError semantics. Non-blocking if delete is intentionally idempotent."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+tokens used
+74,931
+Criterion 1: PASS: new memory types/functions are exported from `web/lib/api.ts`.
+Criterion 2: PASS: net +54 LOC in `web/lib/api.ts`, under cap.
+Criterion 3: PARTIAL/ENV-BLOCKED: `npm run lint` exits 0; scoped `lib/api.ts` tsc passes. Full `npm run typecheck` is blocked by stale ignored `.next/types/validator.ts`; Prettier default is blocked by Windows CRLF/untracked `web/test-results`.
+
+Completeness check: read `web/lib/api.ts`, `src/polaris_v6/api/memory.py`, `src/polaris_v6/memory/schema.py`, `web/package.json`, `web/tsconfig.json`, `web/.prettierignore`; searched route mounts with `rg`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/lib/api.ts:1010 omits backend MemoryEntry.embedding_vector from src/polaris_v6/memory/schema.py:25. This is contract drift, but not execution-blocking for list/add/delete UI usage."
+  - "web/lib/api.ts:1049 handles DELETE manually and treats 404 as success instead of using asJsonOrThrow, losing consistent ApiError semantics. Non-blocking if delete is intentionally idempotent."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
