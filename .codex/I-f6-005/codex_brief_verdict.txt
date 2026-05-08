@@ -1,0 +1,2724 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e04fd-f7d3-7283-bf5b-d64603fd5b6b
+--------
+user
+# Codex Brief Review — I-f6-005 (ITER 4 of 5)
+
+## Iter 4 changes per Codex iter 3
+
+- **P1 fix (CI inert spec):** Codex iter-3 verified `web_ci.yml` `e2e_playwright` job runs only `tests/e2e/inspector.spec.ts`, `tests/e2e/accessibility.spec.ts`, `tests/e2e/performance.spec.ts`. A new spec at `tests/e2e/evidence_tooltip_perf.spec.ts` would not execute in CI. Iter-4 plan: ALSO add a step `run_e2e_evidence_tooltip_perf` to `.github/workflows/web_ci.yml` that runs `npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts` after the existing perf step. Reuses the same backend + frontend startup steps; no new build/dependency cost.
+- **P2 fix (observer self-or-descendant):** the MutationObserver scan checks BOTH `node.matches?.(selector)` AND `node.querySelector?.(selector)` so the popup can be matched whether it's the directly-added node or a descendant of a Portal wrapper.
+
+## Iter 3 changes per Codex iter 2
+
+- **P1 fix (Base UI async unmount):** Codex iter-2 verified Base UI's Tooltip unmount is async via `useOpenChangeComplete` + `useAnimationsFinished`. One `requestAnimationFrame` after `setOpenOverride(false)` is insufficient — the popup may still be in the DOM when the next iteration calls `setOpenOverride(true)`, defeating the MutationObserver. Iter-3 plan: poll `document.querySelector('[data-testid="evidence-tooltip-popup"]')` after each `setOpenOverride(false)` until it returns `null`, then continue. Use `await new Promise(r => requestAnimationFrame(r))` between polls; bail out at 50 polls with a recorded "stuck-popup" sentinel that the spec asserts against.
+- **P2 fix (added-node descendants):** the MutationObserver scans `addedNode.querySelector('[data-testid="evidence-tooltip-popup"]')` to handle Base UI's Portal wrapper/Positioner nesting (the popup is several layers deep, not a direct addedNode).
+- **P2 cleanup:** the obsolete HarnessTooltip/Profiler text below was already removed in iter-2; if any vestige remains, this is the iter-3 final cleanup.
+
+## Iter 2 changes per Codex iter 1
+
+- **P1 fix (React.Profiler is dev-only):** abandon `React.Profiler.onRender`. Use `performance.now()` markers around each cycle, capturing the time from `setOpen(true)` → MutationObserver firing on popup-mount in the React Portal target.
+- **P1 fix (must exercise REAL EvidenceTooltip path):** add ONE small opt-in prop `openOverride?: boolean` to `EvidenceTooltip` (default `undefined` — no behavior change for existing callers). When defined, bypasses the internal hover/touch state machine and feeds Tooltip.Root directly: `const final_open = openOverride ?? open;`. The harness then drives the real production component's render path via the override; this guarantees production-component perf regression is locked.
+- **P2 fix (open-commit filter):** since we count cycles ourselves (loop iterations) and use performance.now() pairs (one start per cycle, one end on first MutationObserver "popup added" notification), we don't rely on Profiler — we get exactly 100 cycle timings by construction.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Issue:** I-f6-005 — F6 perf: 100x hover consistent <100ms.
+- **Acceptance from `state/polaris_restart/issue_breakdown.md`:** "rendering perf test" + "consistent under threshold".
+- **What "100ms" means:** the 300ms hover-debounce (I-f6-001 baseline + I-f6-003 internalization) precludes hover-to-popup-visible <100ms. The 100ms target therefore measures **render commit time** of the popup content — i.e., the JSX-→-DOM mounting cost — repeated 100 times, asserting consistent <100ms per render.
+- **Why this matters:** the F6 evidence overlay must scale to long reports (200+ sentences, each potentially hovered). A regression in `EvidenceTooltip` popup render cost (e.g., adding a heavy child component or re-rendering the whole pool list per hover) would violate this implicitly. This issue locks the regression budget at 100ms per popup mount.
+- **Scope:** test-only + a small perf harness route. NO production code change to `EvidenceTooltip` (its current render cost is the baseline we're locking).
+
+## Plan
+
+### Production component (small opt-in prop)
+
+1. `web/components/ui/evidence-tooltip.tsx`:
+   - Add optional `openOverride?: boolean` to `EvidenceTooltipProps`.
+   - In the body: `const final_open = openOverride ?? open;` and pass `final_open` to `<Tooltip.Root open={final_open}>`. `onOpenChange={handleOpenChange}` stays the same — when `openOverride` is defined, Base UI still calls back but our `setOpen` updates internal state harmlessly; the rendered `open` value remains driven by `openOverride`.
+   - Default `undefined` — no behavior change for existing callers (existing harness routes, inspector page, demo, multi-source pane). Verified by the existing 3+ Playwright specs that don't pass the new prop.
+
+### Frontend perf harness
+
+2. `web/app/sentence_hover_test/_demo_perf.tsx` (NEW client component):
+   - Imports `EvidenceTooltipProvider`, `EvidenceTooltip` from `@/components/ui/evidence-tooltip`.
+   - State: `[openOverride, setOpenOverride] = useState<boolean | undefined>(undefined)`, `[iter, setIter] = useState(0)`, `[timings, setTimings] = useState<number[]>([])`.
+   - Renders ONE production `<EvidenceTooltip openOverride={openOverride} ...>` (note: `EvidenceTooltipProvider` wrapper is outside).
+   - Button `data-testid="run-perf"` clicks: runs an async loop of 100 iterations. Per iteration:
+     1. Set up a `MutationObserver` on `document.body` (subtree) — its callback iterates added nodes and runs `node.querySelector?.('[data-testid="evidence-tooltip-popup"]')` to handle Base UI's Portal/Positioner wrapper nesting. First match resolves the iter promise.
+     2. Capture `t_start = performance.now()`.
+     3. Call `setOpenOverride(true)`. React schedules the commit.
+     4. Wait for the MutationObserver `popup-added` callback; capture `t_end = performance.now()`. Disconnect the observer. Record `t_end - t_start` into `timings_ref.current`.
+     5. Call `setOpenOverride(false)`. Poll `document.querySelector('[data-testid="evidence-tooltip-popup"]')` after each `requestAnimationFrame` until it returns `null` (Base UI's async unmount via `useOpenChangeComplete` + `useAnimationsFinished` is honoured). Bail out at 50 polls with a sentinel `-1` timing if popup never unmounts (spec asserts no sentinels appear).
+     6. Increment `iter` (every 5 iterations to avoid React thrashing) so Playwright can poll progress.
+   - After 100 iterations: `setTimings([...timings_ref.current])`, `setIter(100)`.
+   - Render `<div data-testid="perf-results" data-iter={iter} data-timings={JSON.stringify(timings)} />`.
+
+3. `web/app/sentence_hover_test/perf/page.tsx` (NEW route): mounts the harness inside `<EvidenceTooltipProvider>`.
+
+### Playwright perf spec + CI wiring
+
+3. `web/tests/e2e/evidence_tooltip_perf.spec.ts` (NEW):
+   - Visit `/sentence_hover_test/perf`.
+   - Click `[data-testid="run-perf"]`.
+   - Wait for `[data-testid="perf-results"]` to have `data-iter="100"` (timeout 30s — generous so CI noise doesn't flake; the rAF loop should complete in ~3-5s on a reasonable machine).
+   - Read `data-timings` JSON; assert:
+     - `timings.length === 100`
+     - **every t satisfies `Number.isFinite(t) && t >= 0 && t < 100`** — sentinel `-1` (popup-stuck) is explicitly excluded.
+   - On failure, log the offending timing(s).
+
+4. `.github/workflows/web_ci.yml` — add a new step in `e2e_playwright` job after `run_e2e_performance`:
+   ```yaml
+   - name: run_e2e_evidence_tooltip_perf
+     env:
+       SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+       POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+     run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+   ```
+   This wires the new perf gate into the existing CI path without adding a new job.
+
+## Risks for Codex Red-Team
+
+1. **CI noise headroom:** 100ms is per-render. CI runners (GitHub Actions ubuntu-latest) sometimes spike on cold renders. The test asserts ALL 100 < 100ms; the first render after JS warmup may be a P99 outlier. If flaky, we may need to bump to 150ms, but per the spec letter we keep 100ms initially and tune only if CI flakes.
+2. **Real production component:** harness mounts the real `EvidenceTooltip` via `openOverride` so production-component perf regression is locked. No clone, no Profiler bundle dependency.
+3. **MutationObserver subtree depth:** Base UI portals add wrapper nodes; observer scans `addedNode.querySelector(...)` to find the popup at any descendant depth.
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** estimated ~5 LOC openOverride prop + ~70 LOC harness + ~30 LOC spec + ~5 LOC route = ~110. Under 200. Within issue_breakdown LOC estimate of 70 + slack.
+
+## Acceptance criteria
+
+1. `EvidenceTooltip` accepts a new optional `openOverride?: boolean` prop. When undefined (default), behavior is byte-equivalent to the iter pre-I-f6-005 component. When defined, drives the controlled `open` directly.
+2. New harness route `/sentence_hover_test/perf` exposes a `[data-testid="run-perf"]` button.
+3. Clicking the button runs 100 mount-cycles via `setOpenOverride(true/false)`, measuring `performance.now()` from setOpenOverride(true) to MutationObserver popup-added callback.
+4. On completion, `[data-testid="perf-results"]` has `data-iter="100"` and `data-timings` JSON list of 100 numbers.
+5. New Playwright spec asserts every timing satisfies `Number.isFinite(t) && t >= 0 && t < 100`. The sentinel `-1` (set when popup-unmount poll bails out at 50 polls) is explicitly excluded by `t >= 0`, so a stuck-popup cannot pass the gate as a false green.
+6. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll read the existing tooltip, CI workflow, and nearby e2e/app structure so the plan review is grounded in the current repo shape rather than assumptions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/tests/e2e -Force | Select-Object Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/sentence_hover_test -Force -Recurse | Select-Object FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .github/workflows/web_ci.yml' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/evidence-tooltip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path state/polaris_restart/issue_breakdown.md' in C:\POLARIS
+ succeeded in 1199ms:
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
+
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
+  pytest_v6_backend:
+    name: pytest tests/v6/ (Phase 0 backend coverage)
+    runs-on: ubuntu-latest
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+      # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+      # test_otel_init.py use pytest.importorskip against dramatiq +
+      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+      # (LAW II violation). This job uses requirements-v6.txt as the
+      # canonical pin source for v6 backend code.
+      - name: install_v6_dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v6.txt
+
+      - name: run_pytest_v6
+        env:
+          PYTHONPATH: src
+        # `-q` keeps output tight; `--strict-markers` fails on undefined
+        # markers; `--no-header` removes pytest banner from CI logs.
+        # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+        # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+        # which runs in its own integration job once Vast.ai cluster is live.
+        run: |
+          pytest tests/v6/ \
+            --ignore=tests/v6/acceptance \
+            -q --strict-markers --no-header
+
+ succeeded in 1303ms:
+
+Name
+----
+visual.spec.ts-snapshots
+accessibility.spec.ts
+audit_bundle.spec.ts
+audit_live_adversarial.spec.ts
+audit_live_multitab.spec.ts
+audit_live.spec.ts
+benchmark.spec.ts
+bundle_preview.spec.ts
+command_palette_adversarial.spec.ts
+command_palette_suggest.spec.ts
+command_palette.spec.ts
+contract_editor.spec.ts
+demo_walkthrough.spec.ts
+disambiguation_modal.spec.ts
+evidence_tooltip_edges.spec.ts
+evidence_tooltip_mobile.spec.ts
+evidence_tooltip.spec.ts
+f1_a11y.spec.ts
+f1_multi_tab.spec.ts
+f2_walkthrough.spec.ts
+frame_coverage_adversarial.spec.ts
+frame_coverage_panel.spec.ts
+generation.spec.ts
+inspector.spec.ts
+intake_disambiguation_negative.spec.ts
+intake_disambiguation.spec.ts
+intake_edge.spec.ts
+intake.spec.ts
+landing_template_grid.spec.ts
+multi_source_panel.spec.ts
+performance_hover.spec.ts
+performance.spec.ts
+retrieval.spec.ts
+sentence_hover.spec.ts
+sentence_inspector_adversarial.spec.ts
+sentence_inspector_agreement.spec.ts
+sentence_inspector_ai_agent.spec.ts
+sentence_inspector_contradiction.spec.ts
+sentence_inspector_evaluator_edge.spec.ts
+sentence_inspector_evaluator_flag.spec.ts
+sentence_inspector_latency.spec.ts
+sentence_inspector_multispan.spec.ts
+sentence_inspector_retracted_stale.spec.ts
+sentence_inspector_source.spec.ts
+sentence_inspector_surfaces.spec.ts
+sentence_inspector_synthesis.spec.ts
+sentence_inspector.spec.ts
+sse_client.spec.ts
+upload_doc_preview.spec.ts
+upload_dropzone.spec.ts
+upload_evidence_toggle.spec.ts
+upload_parse_status.spec.ts
+visual.spec.ts
+
+
+ succeeded in 1345ms:
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import * as React from "react";
+
+interface EvidenceTooltipProps {
+  evidenceId: string;
+  sourceUrl?: string;
+  spanText?: string;
+  sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
+  /**
+   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
+   * Positioner applies flip+shift collision avoidance automatically when
+   * the requested side would clip the viewport.
+   */
+  side?: "top" | "right" | "bottom" | "left";
+  onClickToInspect?: () => void;
+  children: React.ReactNode;
+}
+
+const HOVER_DEBOUNCE_MS = 300;
+const TOUCH_AUTO_CLOSE_MS = 3000;
+
+/**
+ * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+ * source span behind a provenance token. Click still triggers the right-
+ * pane Inspector view; hover shows a quick preview.
+ *
+ * I-f6-003: fully-controlled Tooltip with explicit hover/focus/touch open
+ * semantics. Touch tap opens the popup with a 3-second auto-close timer
+ * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+ * from cancelling our touch-open in the same event).
+ */
+export function EvidenceTooltip({
+  evidenceId,
+  sourceUrl,
+  spanText,
+  sourceTier,
+  publishedDate,
+  side = "top",
+  onClickToInspect,
+  children,
+}: EvidenceTooltipProps) {
+  const [open, setOpen] = React.useState(false);
+  const hoverDebounceRef = React.useRef<number | null>(null);
+  const touchAutoCloseRef = React.useRef<number | null>(null);
+  const touchSessionRef = React.useRef(false);
+
+  const clearHoverDebounce = React.useCallback(() => {
+    if (hoverDebounceRef.current !== null) {
+      window.clearTimeout(hoverDebounceRef.current);
+      hoverDebounceRef.current = null;
+    }
+  }, []);
+
+  const clearTouchAutoClose = React.useCallback(() => {
+    if (touchAutoCloseRef.current !== null) {
+      window.clearTimeout(touchAutoCloseRef.current);
+      touchAutoCloseRef.current = null;
+    }
+  }, []);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) {
+        clearHoverDebounce();
+        clearTouchAutoClose();
+        touchSessionRef.current = false;
+      }
+      setOpen(next);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  React.useEffect(
+    () => () => {
+      clearHoverDebounce();
+      clearTouchAutoClose();
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    hoverDebounceRef.current = window.setTimeout(() => {
+      hoverDebounceRef.current = null;
+      setOpen(true);
+    }, HOVER_DEBOUNCE_MS);
+  }, [clearHoverDebounce]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    setOpen(false);
+  }, [clearHoverDebounce]);
+
+  const handleFocus = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(true);
+  }, []);
+
+  const handleBlur = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(false);
+  }, []);
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType !== "touch") return;
+      touchSessionRef.current = true;
+      clearHoverDebounce();
+      clearTouchAutoClose();
+      setOpen(true);
+      touchAutoCloseRef.current = window.setTimeout(() => {
+        touchAutoCloseRef.current = null;
+        touchSessionRef.current = false;
+        setOpen(false);
+      }, TOUCH_AUTO_CLOSE_MS);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  return (
+    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+      <Tooltip.Trigger
+        closeOnClick={false}
+        render={
+          <button
+            type="button"
+            onClick={onClickToInspect}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onPointerDown={handlePointerDown}
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+          />
+        }
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6} side={side}>
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <p className="text-muted-foreground font-mono text-[11px]">
+              {evidenceId}
+              {sourceTier && ` · tier ${sourceTier}`}
+            </p>
+            {sourceUrl && (
+              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+                {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
+              </p>
+            )}
+            {spanText && (
+              <p className="text-foreground mt-2 text-xs leading-snug">
+                &ldquo;
+                {spanText.length > 240
+                  ? spanText.slice(0, 240) + "…"
+                  : spanText}
+                &rdquo;
+              </p>
+            )}
+            <p className="text-muted-foreground mt-2 text-[11px] italic">
+              Click to pin in Evidence pane
+            </p>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export const EvidenceTooltipProvider = Tooltip.Provider;
+
+ succeeded in 1391ms:
+
+FullName
+--------
+C:\POLARIS\web\app\sentence_hover_test\coverage
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip_edges
+C:\POLARIS\web\app\sentence_hover_test\stress
+C:\POLARIS\web\app\sentence_hover_test\_demo_coverage.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo_stress.tsx
+C:\POLARIS\web\app\sentence_hover_test\_demo.tsx
+C:\POLARIS\web\app\sentence_hover_test\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\coverage\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evaluator_edge\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+C:\POLARIS\web\app\sentence_hover_test\stress\page.tsx
+
+
+ succeeded in 1396ms:
+# POLARIS issue breakdown (state/polaris_restart/issue_breakdown.md)
+
+**Authority:** advisory until Codex APPROVE.
+**Source:** `state/polaris_restart/plan.md` §4 (Codex-APPROVE'd at iter 4 on 2026-05-05).
+**Iter:** 2 (addressing iter-1 P1×6 + P2×3 findings).
+
+This document expands plan §4 into the canonical Issue list. Each Issue has `id`, `title`, `scope`, `acceptance_criteria`, `foundation_refs`, `addBlockedBy`, `phase`, `feature`, plus LOC estimate per CHARTER §3. The `addBlockedBy` chain enforces military-order sequential execution.
+
+Issues are atomic per CHARTER §3 (≤200 LOC PR cap). Multi-PR features decompose to N Issues, each with its own brief→APPROVE→diff→APPROVE→merge cycle.
+
+---
+
+## §1 Issue ID schema (FIXED iter 3 P1-ID-SCHEMA per Codex iter 2)
+
+```
+I-<prefix>-<NNN>
+```
+
+Where:
+- `<prefix>` is alphanumeric (lowercase letters + digits permitted), 2-8 characters, MUST NOT start with `-`. Iter-1 said "alpha only" — Codex iter 2 caught that `phase0` and `2c` violated; fixed iter 3 to "alphanumeric" since Phase 0 and Phase 2C both reference numeric phase identifiers naturally.
+- `<NNN>` is exactly three decimal digits zero-padded.
+- The full ID matches regex `^I-[a-z0-9]{2,8}-[0-9]{3}$`.
+
+Prefixes:
+- `phase0`: Phase 0 outstanding tasks
+- `f1` through `f15`: Carney v6.2 user-visible features
+- `ecg`: Evidence Contract Gate
+- `bug`: Reissued bug fixes (#79/#82/#84)
+- `bench`: Benchmark proof package
+- `tpl`: Template additions (Phase 3)
+- `p2c`: Phase 2C polish (renamed from `2c` to `p2c` for clarity, still alphanumeric)
+- `sov`: Phase 4 sovereign migration
+- `buf`: Phase 4.5 buffer
+- `hand`: Phase 5 Carney handover
+- `cj`: Crown jewel preservation
+- `anti`: Anti-sycophancy CI
+
+Three-digit zero-padded sequence within prefix. Example: `I-phase0-003` for Vast.ai task.
+
+**Task 0.8 split** (per Codex iter 1 P1-USER-BLOCKED-CONFLICT) becomes two distinct IDs without suffix:
+- `I-phase0-008` — Gemma 4 31B technical verification (auto-progressable)
+- `I-phase0-010` — Gemma 4 31B license sign-off (user-blocked) — uses ID 010 because 009 is OVH H200
+
+This eliminates the `-tech`/`-license` suffix that violated the schema.
+
+---
+
+## §2 Mandatory pre-execution preconditions (FIXED iter 2 P2-MECHANICAL-GATES)
+
+Before ANY Issue execution begins, all preconditions must be verified:
+
+1. **§10 mechanical gates LIVE** — see plan §10. CODEOWNERS file in place; `polaris-controls/` signed-commits-required protection enabled; `gh pr merge --admin` revoked from Claude; CI workflow `polaris/codex-required.yml` deployed. Verification: `scripts/verify_cage.py` returns "33/33 cage checks pass".
+2. **§9.6a session-start hook deployed** — `scripts/hooks/session_start_check.py` (canonical, cross-platform) + `scripts/hooks/session_start_check.sh` (fallback) + `.claude/settings.json` (TRACKED, project-shared) wire the PreToolUse matcher with `python $CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py`. Hook verifies BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` blob hashes against `state/polaris_restart/charter_sha_pin.txt` on every tool call (no same-day-stamp shortcut; stamp is informational only). Verification: any Bash/Edit/Write/MultiEdit call with mismatched or missing pin emits PreToolUse deny payload with reconciliation instructions.
+3. **§7.G G2 signed commit on polaris-controls** — operator-approval commit exists with body acknowledging slice 001 goldens + CHARTER + PLAN SHAs.
+4. **`pre_restart_2026_05_05` tag created** on `polaris` branch HEAD before reset.
+5. **`polaris` branch reset** to `365f334` per plan §7.D ROAD B without cherry-pick.
+
+These are USER actions, not Issues. They are NOT in the Issue list because they are not Codex-executable. Verification reference: plan §10.0 + §11 "What I cannot do".
+
+---
+
+## §3 Issue body template (CHARTER §7 visibility — FIXED iter 2 P1-VISIBILITY-GAP)
+
+Every Issue uses this body when opened on GitHub:
+
+```markdown
+## Scope
+<one paragraph; what this Issue produces and what it does NOT touch>
+
+## Foundation refs
+- CHARTER §<N> (`polaris-controls/CHARTER.md`)
+- PLAN §<N> (`polaris-controls/PLAN.md`)
+- Carney v6.2 §<F or Phase> (`docs/carney_delivery_plan_v6_2.md`)
+- Substrate audit (`docs/substrate_audit_2026-05-01.md` — module path if relevant)
+- Slice spec (`polaris-controls/slices/slice_NNN_*.md` — if applicable)
+
+## Acceptance criteria
+<bulleted list; each item testable>
+
+## Out of scope
+<bulleted list; explicit exclusions>
+
+## Adversarial inputs
+<bulleted list>
+
+## LOC estimate
+<integer; must be ≤200 per CHARTER §3>
+
+## Per-Issue artifacts required at PR open (CHARTER §7 visibility)
+
+Per CLAUDE.md §3.0 + plan.md §7.A LOCKED A2 + PR-D `codex-required.yml` 5-artifact gate (PR-D iter 3 PRD3-P2-001 fix synchronizes this list with CLAUDE.md/plan.md/codex-required.yml — earlier `decision.md` entry was an iter-pre-PR-D draft superseded by the canonical 5-artifact contract):
+
+- `.codex/<issue_id>/brief.md` (Claude-authored)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (Codex APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; binds to actual PR diff via PR-D `codex-required.yml` content-hash check per PRD3-P1-001 fix)
+- `.codex/<issue_id>/codex_diff_audit.txt` (Codex APPROVE — Red-Team checklist on codex_diff.patch)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude architect review — `<issue_id>` is literal Issue ID e.g. `I-f1-001`)
+
+## Blocks
+<list of Issue IDs this Issue must complete before>
+
+## Blocked by
+<list of Issue IDs that must complete before this can start>
+```
+
+CI workflow `polaris/codex-required.yml` checks for ALL FIVE artifacts (the four `.codex/` files + the `outputs/audits/` claude_audit). Missing any → CI fail → cannot merge.
+
+---
+
+## §3a Default metadata inheritance (FIXED iter 3 P1-INCOMPLETE-METADATA)
+
+To avoid repeating identical metadata on every Issue, the following defaults apply to every Issue in this document UNLESS the Issue explicitly overrides:
+
+- **Phase:** inherited from containing section header (deterministic):
+  - PHASE0 → Phase 0
+  - F1, F2, F3, F15, ECG, BUG-079, BUG-082 → Phase 1
+  - F4, F5, F7, F8, F9 → Phase 2A
+  - F6, F10, F13, F14 → Phase 2B (F6 is in 2B per Carney v6.2 §"Phase 2B" line; iter 3 PHASE-METADATA-CONFLICT resolved here — F6 belongs ONLY to Phase 2B, not Phase 2A. Iter 2 §3a incorrectly listed F6 in both; corrected.)
+  - P2C → Phase 2C polish
+  - F11, F12, BENCH, TPL, BUG-084 → Phase 3
+  - SOV → Phase 4
+  - BUF → Phase 4.5
+  - HAND → Phase 5
+  - CJ, ANTI → parallel side-tracks (no phase number; flagged as "side-track" in body)
+- **Feature:** inherited from prefix. `f1` Issues have feature F1, `f2` have F2, etc. `phase0` Issues have feature `infra`. `cj` have feature `crown-jewel-preservation`. `anti` have feature `anti-sycophancy-CI`. `bug` Issues have feature corresponding to the bug location (079=F1 intake, 082=F15 audit-bundle, 084=F12+benchmark scorer).
+- **Foundation refs:** every Issue references (a) `state/polaris_restart/plan.md` §4 (the master breakdown), (b) `polaris-controls/CHARTER.md` §1+§3+§4+§7 (role assignment + LOC cap + immutable tests + visibility), (c) `polaris-controls/PLAN.md` (slice progression context), (d) `docs/carney_delivery_plan_v6_2.md` §<feature or phase>. Issue-specific foundation refs (e.g., specific substrate paths) appear ONLY when the Issue depends on a non-default reference; these are listed inline in the Issue.
+
+When an Issue is opened on GitHub (per §3 body template), the Phase/Feature/Foundation refs lines are FILLED IN by the brief writer using these defaults plus any inline overrides. The body template §3 lists them as required fields; missing them in the GitHub Issue body fails CI.
+
+---
+
+## §4 Phase 0 outstanding Issues (7, FIXED iter 3 count + iter 2 schema + user-blocked split)
+
+7 Issues: I-phase0-003 (Vast.ai), I-phase0-005 (Dramatiq), I-phase0-006 (hardware path decision), I-phase0-007 (SGLang vs vLLM), I-phase0-008 (Gemma tech), I-phase0-009 (OVH H200), I-phase0-010 (Gemma license sign-off).
+
+### I-phase0-003 — Vast.ai US dev cluster operational (Carney Task 0.3)
+
+- **Phase:** 0 / **Feature:** infra
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.3; existing `scripts/provision_vast_dev_cluster.py` substrate
+- **Scope:** stand up Vast.ai account, provision GPU instance per `scripts/provision_vast_dev_cluster.py` config, verify SSH access, install POLARIS dependencies, run smoke test, write `docs/decisions/0_3_vastai_provisioning.md` recording instance ID, region, GPU type, hourly cost
+- **Acceptance:** Vast.ai instance reachable; `nvidia-smi` shows expected GPU; POLARIS test-suite-light runs green; verification doc committed
+- **LOC estimate:** 80 (verification doc + provisioning script `--apply` path implementation per existing dry-run substrate)
+- **User-blocked:** YES (account, billing, payment)
+- **Blocked by:** preconditions §2
+- **Blocks:** I-phase0-006, I-phase0-007
+
+### I-phase0-005 — Backend modernization + Dramatiq queue (Carney Task 0.5)
+
+- **Phase:** 0 / **Feature:** infra
+- **Scope:** install Dramatiq + Redis, write `Job` + `Worker` skeleton, integration test with single job
+- **Acceptance:** Dramatiq worker consumes job from queue; result materialized in DB; integration test green
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.5
+- **LOC estimate:** 180
+- **User-blocked:** NO
+- **Blocked by:** preconditions §2
+- **Blocks:** I-f1-001, I-cj-001, I-anti-001
+
+### I-phase0-006 — DeepSeek V4 hardware Path A/B/C decision (Carney Task 0.6)
+
+- **Phase:** 0 / **Feature:** infra
+- **Scope:** decision document `docs/decisions/0_6_hardware_path.md` with cost/speed/sovereignty matrix; user signs which path
+- **Acceptance:** user-signed commit on polaris-controls naming chosen path
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.6
+- **LOC estimate:** 0 (decision document)
+- **User-blocked:** YES (strategic decision)
+- **Blocked by:** I-phase0-003
+- **Blocks:** I-phase0-007, I-phase0-009
+
+### I-phase0-007 — SGLang vs vLLM bakeoff (Carney Task 0.7)
+
+- **Phase:** 0 / **Feature:** infra
+- **Scope:** `scripts/bakeoff_sglang_vllm.py` runs identical workload through both engines on Vast.ai GPU; latency, throughput, token/$ measured
+- **Acceptance:** decision document `docs/decisions/0_7_inference_engine.md` with chosen engine + benchmark numbers + Codex APPROVE
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.7
+- **LOC estimate:** 200 (script + decision doc)
+- **User-blocked:** NO (after I-phase0-003 done)
+- **Blocked by:** I-phase0-003, I-phase0-006
+- **Blocks:** I-sov-001
+
+### I-phase0-008 — Gemma 4 31B technical verification (Carney Task 0.8 tech portion — RENAMED iter 3)
+
+- **Phase:** 0 / **Feature:** infra
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.8; memory `v6_phase_0_errata_otel_gemma`
+- **Scope:** download Gemma 4 31B weights; checksum-verify against published; smoke-test with single inference
+- **Acceptance:** weights downloaded + checksum verified; smoke test runs
+- **LOC estimate:** 80
+- **User-blocked:** NO
+- **Blocked by:** preconditions §2
+- **Blocks:** I-phase0-010
+
+### I-phase0-009 — OVH Canada BHS H200 invoice + provisioning (Carney Task 0.9 — HARD GATE)
+
+- **Phase:** 0 / **Feature:** infra
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.9
+- **Scope:** OVH H200 invoice paid, provisioning script ready, sovereign cluster reachable
+- **Acceptance:** OVH H200 SSH-reachable from authorized IPs; nvidia-smi shows H200; user-signed commit recording invoice ID
+- **LOC estimate:** 60 (provisioning script + verification doc)
+- **User-blocked:** YES (procurement + invoice)
+- **Blocked by:** I-phase0-006
+- **Blocks:** I-sov-001
+
+### I-phase0-010 — Gemma 4 31B license sign-off (Carney Task 0.8 license portion — RENAMED iter 3 from `008-license`)
+
+- **Phase:** 0 / **Feature:** infra
+- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.8
+- **Scope:** confirm Gemma 4 31B Apache 2.0 + Gemma Use Policy compliance; user signs `docs/licenses/gemma4.md`
+- **Acceptance:** user-signed license document
+- **LOC estimate:** 0 (sign-off only)
+- **User-blocked:** YES (legal sign-off)
+- **Blocked by:** I-phase0-008
+- **Blocks:** I-sov-001
+
+---
+
+## §5 F1 — Scope discovery + template browse (6 issues)
+
+### I-f1-001 — Next.js landing page Card grid
+
+- **Scope:** `web/app/page.tsx` Card grid renders 3 active + 5 to-build templates; responsive at 1920/1024/768/375; Tailwind v4
+- **Acceptance:** 4 viewport Playwright screenshots clean; axe-core WCAG-AA pass; cards link to `/intake?template=<id>`
+- **Foundation refs:** Carney v6.2 §F1; substrate `template_catalog.py`, `template_classifier.py`
+- **LOC estimate:** 150
+- **Blocked by:** I-phase0-005
+- **Blocks:** I-f1-002
+
+### I-f1-002 — Command palette + react-hotkeys-hook keyboard nav
+
+- **Scope:** ⌘K opens command palette; arrow-key navigate; Enter selects template
+- **Acceptance:** Playwright keyboard-only test passes; no mouse needed
+- **Foundation refs:** Carney v6.2 §F1
+- **LOC estimate:** 120
+- **Blocked by:** I-f1-001
+- **Blocks:** I-f1-003
+
+### I-f1-003 — Live template-suggestion as user types
+
+- **Scope:** input "tirzepatide" → suggest "Clinical drug audit" within 200ms (debounced)
+- **Acceptance:** Playwright timing test under 200ms; suggestion overlay positioned correctly; mobile tap-to-show
+- **LOC estimate:** 140
+- **Blocked by:** I-f1-002
+- **Blocks:** I-f1-004
+
+### I-f1-004 — Template adversarial test: "BPEI" → no false-positive
+
+- **Scope:** input "BPEI" must NOT suggest any template
+- **Acceptance:** Playwright + AI-agent adversarial test confirms no false-positive across 22-input adversarial corpus
+- **LOC estimate:** 100
+- **Blocked by:** I-f1-003
+- **Blocks:** I-f1-005
+
+### I-f1-005 — F1 axe-core WCAG-AA compliance test
+
+- **Scope:** automated accessibility scan
+- **Acceptance:** zero serious/critical violations
+- **LOC estimate:** 60
+- **Blocked by:** I-f1-004
+- **Blocks:** I-f1-006
+
+### I-f1-006 — F1 multi-tab safety test (3 tabs, no state pollution)
+
+- **Scope:** open 3 tabs each with different query; no global-state leakage between tabs
+- **Acceptance:** Playwright parallel-context test passes
+- **LOC estimate:** 80
+- **Blocked by:** I-f1-005
+- **Blocks:** I-f2-001
+
+---
+
+## §6 F2 — Query input with disambiguation modal (8 issues)
+
+### I-f2-001 — Backend: HDBSCAN clustering on top-K retrieval candidates
+
+- **Scope:** `src/polaris_graph/intake/disambiguation_clusterer.py`; cluster top-K (default 30) candidate embeddings; HDBSCAN min_cluster_size=2
+- **Acceptance:** unit tests with synthetic embedding sets; >1 cluster surfaces ambiguity; single dense cluster does not
+- **Foundation:** v6.2 §F2 Diversify-then-Verify
+- **LOC estimate:** 180
+- **Blocked by:** I-f1-006
+- **Blocks:** I-f2-002
+
+### I-f2-002 — Backend: LLM cluster-labeling per primary entity
+
+- **Scope:** `src/polaris_graph/intake/cluster_labeler.py`
+- **Acceptance:** "BPEI" clusters → 3 labels: syndrome, institute, chemical
+- **LOC estimate:** 130
+- **Blocked by:** I-f2-001
+- **Blocks:** I-f2-003
+
+### I-f2-003 — Backend: disambiguation API endpoint
+
+- **Scope:** POST `/api/disambiguation` returns clusters
+- **Acceptance:** OpenAPI valid; httpx test green
+- **LOC estimate:** 120
+- **Blocked by:** I-f2-002
+- **Blocks:** I-f2-004
+
+### I-f2-004 — Frontend: disambiguation modal (2/3/5 candidate variants)
+
+- **Scope:** `web/app/intake/components/DisambiguationModal.tsx`
+- **Acceptance:** Playwright visual test all variants clean
+- **LOC estimate:** 160
+- **Blocked by:** I-f2-003
+- **Blocks:** I-f2-005
+
+### I-f2-005 — F2 functional test: BPEI end-to-end
+
+- **Scope:** Playwright: type → submit → modal → 3 candidates → pick → query proceeds
+- **Acceptance:** test passes; latency tooltip-to-modal <500ms
+- **LOC estimate:** 100
+- **Blocked by:** I-f2-004
+- **Blocks:** I-f2-006
+
+### I-f2-006 — F2 adversarial: tirzepatide → no false disambiguation
+
+- **Scope:** single primary entity → no modal
+- **Acceptance:** Playwright zero modal renders for unambiguous queries
+- **LOC estimate:** 80
+- **Blocked by:** I-f2-005
+- **Blocks:** I-f2-007
+
+### I-f2-007 — F2 edge: French / PDF drop
+
+- **Scope:** non-English → English-only message; PDF on /intake → routes to /upload
+- **Acceptance:** edge tests pass
+- **LOC estimate:** 100
+- **Blocked by:** I-f2-006
+- **Blocks:** I-f2-008
+
+### I-f2-008 — F2 evaluator walkthrough
+
+- **Scope:** product-owner walkthrough; record-screen 3 sessions × 22-input corpus
+- **Acceptance:** all 22 handled correctly per recording review
+- **LOC estimate:** 0 (walkthrough; no code)
+- **Blocked by:** I-f2-007
+- **Blocks:** I-bug-079
+
+---
+
+## §7 I-bug-079 — async/sync collision in clinical_classifier (reissued)
+
+- **Phase:** 1 / **Feature:** F1 (intake)
+- **Scope:** fix `_default_llm_completion` to drive async `OpenRouterClient.generate` via `asyncio.run`; raise RuntimeError if called from running event loop
+- **Acceptance:** smoke test under real key returns `scope_class=clinical_efficacy`; 5 regression tests
+- **Foundation refs:** plan §4.9b
+- **LOC estimate:** 80
+- **Blocked by:** I-f2-008
+- **Blocks:** I-f3-001
+
+---
+
+## §8 F3 — Document upload + grounding (10 issues)
+
+### I-f3-001 — Backend: wire document_ids into graph_v4 evidence pool
+
+- **Scope:** `src/polaris_graph/graph_v4.py:149` consume `document_ids`; merge document evidence into pool
+- **Acceptance:** integration test: upload PDF → query references content → strict_verify cites span
+- **Foundation:** v6.2 §F3 CRITICAL GAP
+- **LOC estimate:** 200
+- **Blocked by:** I-bug-079
+- **Blocks:** I-f3-002
+
+### I-f3-002 — Backend: data classification taxonomy
+
+- **Scope:** `src/polaris_graph/sovereignty/classification.py`; enum `PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN`
+- **Acceptance:** unit tests; serializable to JSON
+- **LOC estimate:** 100
+- **Blocked by:** I-f3-001
+- **Blocks:** I-f3-003
+
+### I-f3-003 — Backend: sovereignty router
+
+- **Scope:** `src/polaris_graph/sovereignty/router.py`; intercepts CLIENT-tagged docs from external API
+- **Acceptance:** unit + integration; CLIENT cannot leak
+- **LOC estimate:** 180
+- **Blocked by:** I-f3-002
+- **Blocks:** I-f3-004
+
+### I-f3-004 — Backend: sovereignty CI test
+
+- **Scope:** `.github/workflows/sovereignty.yml` runs CLIENT-doc-cannot-leak test
+- **Acceptance:** CI fails on intentional violation
+- **LOC estimate:** 80
+- **Blocked by:** I-f3-003
+- **Blocks:** I-f3-005
+
+### I-f3-005 — Frontend: drag-drop upload zone
+
+- **Scope:** `web/app/upload/page.tsx`; shadcn dropzone + react-dropzone; 50MB limit
+- **Acceptance:** Playwright drag 50MB PDF → progress visible
+- **LOC estimate:** 150
+- **Blocked by:** I-f3-004
+- **Blocks:** I-f3-006
+
+### I-f3-006 — Frontend: per-file parse status
+
+- **Scope:** parsed-chunks list as DocumentIngester progresses
+- **Acceptance:** Playwright watches progression
+- **LOC estimate:** 120
+- **Blocked by:** I-f3-005
+- **Blocks:** I-f3-007
+
+### I-f3-007 — Frontend: doc preview with chunk highlights
+
+- **Scope:** PDF.js preview + click chunk → highlight at coordinates
+- **Acceptance:** Playwright span/coords accurate
+- **LOC estimate:** 180
+- **Blocked by:** I-f3-006
+- **Blocks:** I-f3-008
+
+### I-f3-008 — Frontend: "use these docs as evidence" toggle
+
+- **Scope:** per-doc toggle gates inclusion in evidence pool
+- **Acceptance:** Playwright; backend echoes inclusion
+- **LOC estimate:** 100
+- **Blocked by:** I-f3-007
+- **Blocks:** I-f3-009
+
+### I-f3-009 — F3 adversarial: 8 input types
+
+- **Scope:** 100MB, 0-byte, malformed, password, image-only, Word, txt, EPUB
+- **Acceptance:** each handled per spec
+- **LOC estimate:** 200
+- **Blocked by:** I-f3-008
+- **Blocks:** I-f3-010
+
+### I-f3-010 — F3 sovereignty walkthrough
+
+- **Scope:** product-owner upload-and-fact-check walkthrough
+- **Acceptance:** recording: CLIENT classification visible, no external API call
+- **LOC estimate:** 0 (walkthrough)
+- **Blocked by:** I-f3-009
+- **Blocks:** I-f15-001
+
+---
+
+## §9 F15 — Audit bundle export (6 issues)
+
+### I-f15-001 — Bundle schema
+
+- **Scope:** `src/polaris_graph/audit_bundle/schema.py`; manifest + 6 component files + reviewer README
+- **Acceptance:** Pydantic models; jsonschema validates
+- **Foundation:** v6.2 §F15
+- **LOC estimate:** 200
+- **Blocked by:** I-f3-010
+- **Blocks:** I-f15-002
+
+### I-f15-002 — Embed extracted span text ≤500 chars
+
+- **Scope:** truncate spans; preserve UTF-8 boundaries
+- **Acceptance:** unit test; multilingual safe
+- **LOC estimate:** 80
+- **Blocked by:** I-f15-001
+- **Blocks:** I-f15-003
+
+### I-f15-003 — Bundle preview pane in report header
+
+- **Scope:** `web/app/generation/components/BundlePreview.tsx`
+- **Acceptance:** Playwright preview accurate
+- **LOC estimate:** 130
+- **Blocked by:** I-f15-002
+- **Blocks:** I-f15-004
+
+### I-f15-004 — Standalone-verifiable test
+
+- **Scope:** README explains structure; reviewer-blind test
+- **Acceptance:** random claim → span found <5min
+- **LOC estimate:** 100
+- **Blocked by:** I-f15-003
+- **Blocks:** I-f15-005
+
+### I-f15-005 — F15 adversarial: paywalled, 500MB resumable, partial run
+
+- **Scope:** 3 adversarial tests
+- **Acceptance:** each handled per spec
+- **LOC estimate:** 150
+- **Blocked by:** I-f15-004
+- **Blocks:** I-f15-006
+
+### I-f15-006 — Sovereignty CI: legal-cleared spans only
+
+- **Scope:** CI rejects bundle with copyrighted span
+- **Acceptance:** CI fails on violation
+- **LOC estimate:** 100
+- **Blocked by:** I-f15-005
+- **Blocks:** I-bug-082
+
+---
+
+## §10 I-bug-082 — audit-bundle health endpoint hardcoded sentinel (reissued)
+
+- **Scope:** `/api/audit-bundle/health` uses `Depends(get_sign_fn)`
+- **Acceptance:** health test with `POLARIS_GPG_KEY_ID` returns `signing_backend: gpg`
+- **Foundation refs:** plan §4.9b
+- **LOC estimate:** 60
+- **Blocked by:** I-f15-006
+- **Blocks:** I-ecg-001
+
+---
+
+## §11 Evidence Contract Gate (4 issues)
+
+### I-ecg-001 — Contract schema
+- **Scope:** `src/polaris_graph/evidence_contract/schema.py`; entities, claims, jurisdictions, expected sources
+- **Acceptance:** Pydantic schema; tests
+- **Foundation:** v6.2 §Phase 1 ECG
+- **LOC estimate:** 180
+- **Blocked by:** I-bug-082
+- **Blocks:** I-ecg-002
+
+### I-ecg-002 — Gate enforcement
+- **Scope:** `src/polaris_graph/evidence_contract/gate.py`; raises if generation without contract
+- **Acceptance:** integration test
+- **LOC estimate:** 130
+- **Blocked by:** I-ecg-001
+- **Blocks:** I-ecg-003
+
+### I-ecg-003 — Contract editor UI
+- **Scope:** `web/app/contracts/page.tsx`
+- **Acceptance:** Playwright create/edit/save
+- **LOC estimate:** 200
+- **Blocked by:** I-ecg-002
+- **Blocks:** I-ecg-004
+
+### I-ecg-004 — Contract version migration test
+- **Scope:** v1 → v2 schema migration; backward-compat
+- **Acceptance:** migration test on fixture v1 contracts
+- **LOC estimate:** 100
+- **Blocked by:** I-ecg-003
+- **Blocks:** I-f4-001
+
+---
+
+## §12 F4 — Live audit run (5 issues)
+
+### I-f4-001 — SSE EventSource consumer with reconnect/backoff
+- **Scope:** `web/lib/sse_client.ts`; reconnect on drop with exponential backoff
+- **Acceptance:** Playwright force-disconnect → reconnects within 2s
+- **LOC estimate:** 150
+- **Blocked by:** I-ecg-004
+- **Blocks:** I-f4-002
+
+### I-f4-002 — Event-type UI affordances
+- **Scope:** 6 event types render as dedicated UI: query reformulations, retrieval candidates, sources dropped, synthesis decisions, contradiction events, per-sentence verify decisions
+- **Acceptance:** Playwright full-run recording 5-10min — every event appears within 1s of server emit
+- **LOC estimate:** 200
+- **Blocked by:** I-f4-001
+- **Blocks:** I-f4-003
+
+### I-f4-003 — Multi-tab independent updates
+- **Scope:** open same run in 2 tabs; cancel in one cancels both
+- **Acceptance:** Playwright parallel-context test
+- **LOC estimate:** 120
+- **Blocked by:** I-f4-002
+- **Blocks:** I-f4-004
+
+### I-f4-004 — Adversarial: 80% fetch fail; strict_verify drops all
+- **Scope:** UI shows partial-evidence warning; zero-verified abort
+- **Acceptance:** adversarial Playwright tests
+- **LOC estimate:** 130
+- **Blocked by:** I-f4-003
+- **Blocks:** I-f4-005
+
+### I-f4-005 — F4 200-sentence walkthrough
+- **Scope:** product-owner recording on 200-sentence run
+- **Acceptance:** hover/click latency <1s
+- **LOC estimate:** 0 (walkthrough)
+- **Blocked by:** I-f4-004
+- **Blocks:** I-f5-001
+
+---
+
+## §13 F5 — Report inspection (11 issues)
+
+### I-f5-001 — Hover-highlight every claim sentence
+- **Scope:** intersection observer; debounced
+- **Acceptance:** Playwright hover at random sentence highlights
+- **LOC estimate:** 150
+- **Blocked by:** I-f4-005
+- **Blocks:** I-f5-002
+
+### I-f5-002 — Click → Inspector pane (Sheet, 40% width)
+- **Scope:** shadcn Sheet from right
+- **Acceptance:** Playwright click sentence → Sheet opens
+- **LOC estimate:** 130
+- **Blocked by:** I-f5-001
+- **Blocks:** I-f5-003
+
+### I-f5-003 — Inspector: source span + URL + tier + retrieval trace
+- **Scope:** highlighted span; tier badge with rationale; retrieval steps
+- **Acceptance:** Playwright Inspector content correct
+- **LOC estimate:** 180
+- **Blocked by:** I-f5-002
+- **Blocks:** I-f5-004
+
+### I-f5-004 — Inspector: two-family evaluator agreement signal
+- **Scope:** badge showing generator/evaluator agreement
+- **Acceptance:** Playwright; backend signal correct
+- **LOC estimate:** 100
+- **Blocked by:** I-f5-003
+- **Blocks:** I-f5-005
+
+### I-f5-005 — Inspector: multi-span support
+- **Scope:** claims with N spans show all N
+- **Acceptance:** Playwright multi-span test
+- **LOC estimate:** 110
+- **Blocked by:** I-f5-004
+- **Blocks:** I-f5-006
+
+### I-f5-006 — Inspector: synthesis-claim badge
+- **Scope:** when no direct span, show synthesis-claim badge
+- **Acceptance:** Playwright detection
+- **LOC estimate:** 80
+- **Blocked by:** I-f5-005
+- **Blocks:** I-f5-007
+
+### I-f5-007 — Inspector: retracted-source + stale (>2y) badges
+- **Scope:** stale + retracted-source badges
+- **Acceptance:** Playwright; backend metadata
+- **LOC estimate:** 100
+- **Blocked by:** I-f5-006
+- **Blocks:** I-f5-008
+
+### I-f5-008 — F5 latency at 50/100/200/500 sentences
+- **Scope:** stress test
+- **Acceptance:** all under 1s
+- **LOC estimate:** 100
+- **Blocked by:** I-f5-007
+- **Blocks:** I-f5-009
+
+### I-f5-009 — F5 functional: every assertion gated-and-clickable
+- **Scope:** prose, table, summary bullet, limitation, caption, heading — all clickable OR marked ungated
+- **Acceptance:** Playwright comprehensive
+- **LOC estimate:** 150
+- **Blocked by:** I-f5-008
+- **Blocks:** I-f5-010
+
+### I-f5-010 — F5 adversarial: paywalled span, multi-span claim, T1-vs-T1 conflict
+- **Scope:** 3 adversarial cases
+- **Acceptance:** each handled
+- **LOC estimate:** 120
+- **Blocked by:** I-f5-009
+- **Blocks:** I-f5-011
+
+### I-f5-011 — F5 AI agent test
+- **Scope:** independent agent navigates 10 random sentences
+- **Acceptance:** each opens evidence within 1s
+- **LOC estimate:** 100
+- **Blocked by:** I-f5-010
+- **Blocks:** I-f7-001
+
+---
+
+## §14 F7 — Frame coverage (4 issues)
+
+### I-f7-001 — Top-of-report panel
+- **Scope:** Alert + Progress component above-the-fold
+- **Acceptance:** 14/15 entities → "1 gap: <name>, reason"
+- **LOC estimate:** 120
+- **Blocked by:** I-f5-011
+- **Blocks:** I-f7-002
+
+### I-f7-002 — Gap reason taxonomy frozen as enum
+- **Scope:** paywalled / no OA / source-tier ineligible / etc.
+- **Acceptance:** enum exhaustive; tests
+- **LOC estimate:** 80
+- **Blocked by:** I-f7-001
+- **Blocks:** I-f7-003
+
+### I-f7-003 — Each gap clickable → unblock action
+- **Scope:** click gap → detail panel + documented unblock
+- **Acceptance:** Playwright; copy-to-clipboard
+- **LOC estimate:** 130
+- **Blocked by:** I-f7-002
+- **Blocks:** I-f7-004
+
+### I-f7-004 — F7 adversarial: 0/15, 15/15, 1/15
+- **Scope:** edge variants
+- **Acceptance:** each renders correctly
+- **LOC estimate:** 100
+- **Blocked by:** I-f7-003
+- **Blocks:** I-f8-001
+
+---
+
+## §15 F8 — Contradiction navigation (6 issues)
+
+### I-f8-001 — Inline `⚠ N sources disagree` badge
+- **Scope:** badge in body
+- **Acceptance:** Playwright detects badge in contradicting prose
+- **LOC estimate:** 110
+- **Blocked by:** I-f7-004
+- **Blocks:** I-f8-002
+
+### I-f8-002 — Side pane with all sides
+- **Scope:** Sheet + tiers + sample sizes + hedge language + per-flag PT08
+- **Acceptance:** Playwright pane content correct
+- **LOC estimate:** 200
+- **Blocked by:** I-f8-001
+- **Blocks:** I-f8-003
+
+### I-f8-003 — F8 adversarial: contradicting paragraphs same source
+- **Scope:** "X is safe" + "X is dangerous" same source → flagged
+- **Acceptance:** test detects
+- **LOC estimate:** 100
+- **Blocked by:** I-f8-002
+- **Blocks:** I-f8-004
+
+### I-f8-004 — Non-numeric contradictions
+- **Scope:** "is approved" vs "is not approved"
+- **Acceptance:** detected
+- **LOC estimate:** 90
+- **Blocked by:** I-f8-003
+- **Blocks:** I-f8-005
+
+### I-f8-005 — Guideline-vs-trial conflict
+- **Scope:** distinct conflict type
+- **Acceptance:** rendered with type tag
+- **LOC estimate:** 80
+- **Blocked by:** I-f8-004
+- **Blocks:** I-f8-006
+
+### I-f8-006 — Jurisdictional disagreement display
+- **Scope:** Canada/US/EU/UK contradictions
+- **Acceptance:** jurisdiction tags visible
+- **LOC estimate:** 100
+- **Blocked by:** I-f8-005
+- **Blocks:** I-f9-001
+
+---
+
+## §16 F9 — Two-family disagreement signal (3 issues)
+
+### I-f9-001 — Per-claim badge
+- **Scope:** "⚠ Internal evaluator flagged this"
+- **Acceptance:** Playwright detects badge
+- **LOC estimate:** 100
+- **Blocked by:** I-f8-006
+- **Blocks:** I-f9-002
+
+### I-f9-002 — Side pane: generator vs evaluator readings
+- **Scope:** show both readings + evidence each cited
+- **Acceptance:** Playwright pane content
+- **LOC estimate:** 150
+- **Blocked by:** I-f9-001
+- **Blocks:** I-f9-003
+
+### I-f9-003 — F9 edge: no disagreements / all disagreements
+- **Scope:** boundary tests
+- **Acceptance:** UI handles each
+- **LOC estimate:** 80
+- **Blocked by:** I-f9-002
+- **Blocks:** I-f6-001
+
+---
+
+## §17 F6 — Live citation overlay (5 issues)
+
+### I-f6-001 — Hover-card with debounced rendering
+- **Scope:** existing `web/components/ui/evidence-tooltip.tsx` extended
+- **Acceptance:** hover percentage → tooltip with quote + tier + timestamp
+- **LOC estimate:** 130
+- **Blocked by:** I-f9-003
+- **Blocks:** I-f6-002
+
+### I-f6-002 — Edge-aware positioning
+- **Scope:** near viewport edge → repositions
+- **Acceptance:** Playwright edge cases
+- **LOC estimate:** 100
+- **Blocked by:** I-f6-001
+- **Blocks:** I-f6-003
+
+### I-f6-003 — Mobile tap-to-show fallback
+- **Scope:** no hover on mobile → tap shows
+- **Acceptance:** mobile Playwright
+- **LOC estimate:** 90
+- **Blocked by:** I-f6-002
+- **Blocks:** I-f6-004
+
+### I-f6-004 — Multi-source claim cross-ref panel
+- **Scope:** count "5 sources" → click → panel with all 5
+- **Acceptance:** Playwright cross-ref
+- **LOC estimate:** 130
+- **Blocked by:** I-f6-003
+- **Blocks:** I-f6-005
+
+### I-f6-005 — F6 perf: 100x hover consistent <100ms
+- **Scope:** rendering perf test
+- **Acceptance:** consistent under threshold
+- **LOC estimate:** 70
+- **Blocked by:** I-f6-004
+- **Blocks:** I-f10-001
+
+---
+
+## §18 F10 — Inline visual generation (8 issues)
+
+### I-f10-001 — Vega-Lite renderer (react-vega + Vega-Lite v5)
+- **Scope:** wire react-vega
+- **Acceptance:** sample chart renders
+- **LOC estimate:** 120
+- **Blocked by:** I-f6-005
+- **Blocks:** I-f10-002
+
+### I-f10-002 — Forest plot chart spec
+- **Scope:** spec generator + tests
+- **Acceptance:** sample meta-analysis renders
+- **LOC estimate:** 150
+- **Blocked by:** I-f10-001
+- **Blocks:** I-f10-003
+
+### I-f10-003 — Comparison table chart spec
+- **Scope:** auto-table when comparing N entities
+- **Acceptance:** N=2,3,5 render correctly
+- **LOC estimate:** 130
+- **Blocked by:** I-f10-002
+- **Blocks:** I-f10-004
+
+### I-f10-004 — Timeline chart spec
+- **Scope:** time-series Vega-Lite
+- **Acceptance:** sample timeline renders
+- **LOC estimate:** 130
+- **Blocked by:** I-f10-003
+- **Blocks:** I-f10-005
+
+### I-f10-005 — Chart provenance schema
+- **Scope:** every chart cites source data via Evidence Contract spans
+- **Acceptance:** schema; tests
+- **LOC estimate:** 100
+- **Blocked by:** I-f10-004
+- **Blocks:** I-f10-006
+
+### I-f10-006 — Click-through-to-source-data
+- **Scope:** click chart point → opens Inspector with source span
+- **Acceptance:** Playwright click-through
+- **LOC estimate:** 110
+- **Blocked by:** I-f10-005
+- **Blocks:** I-f10-007
+
+### I-f10-007 — Sandboxed Python execution (no-egress, resource-capped)
+- **Scope:** existing code_executor.py hardened; egress blocked
+- **Acceptance:** sovereignty CI test
+- **LOC estimate:** 200
+- **Blocked by:** I-f10-006
+- **Blocks:** I-f10-008
+
+### I-f10-008 — F10 walkthrough: tirzepatide vs semaglutide
+- **Scope:** product-owner recording
+- **Acceptance:** auto-table generated with citations
+- **LOC estimate:** 0 (walkthrough)
+- **Blocked by:** I-f10-007
+- **Blocks:** I-f13-001
+
+---
+
+## §19 F13 — Pin replay (4 issues)
+
+### I-f13-001 — Pin replay UI
+- **Scope:** same query rerun on different dates
+- **Acceptance:** Playwright switch dates
+- **LOC estimate:** 150
+- **Blocked by:** I-f10-008
+- **Blocks:** I-f13-002
+
+### I-f13-002 — Diff visualization
+- **Scope:** Vega-Lite time-series; diff side-panel
+- **Acceptance:** Playwright diff
+- **LOC estimate:** 180
+- **Blocked by:** I-f13-001
+- **Blocks:** I-f13-003
+
+### I-f13-003 — Regression alerts inline
+- **Scope:** alert badges when metric drops >threshold
+- **Acceptance:** alert fires on test fixture
+- **LOC estimate:** 100
+- **Blocked by:** I-f13-002
+- **Blocks:** I-f13-004
+
+### I-f13-004 — F13 adversarial: source retraction during replay
+- **Scope:** retracted source mid-replay → handled
+- **Acceptance:** test
+- **LOC estimate:** 90
+- **Blocked by:** I-f13-003
+- **Blocks:** I-f14-001
+
+---
+
+## §20 F14 — Auditable research memory (5 issues)
+
+### I-f14-001 — Migrate workspace_memory to Chroma semantic
+- **Scope:** keyword/Jaccard → ChromaDB embedding-based
+- **Acceptance:** semantic recall test
+- **LOC estimate:** 200
+- **Blocked by:** I-f13-004
+- **Blocks:** I-f14-002
+
+### I-f14-002 — Memory page with explicit controls
+- **Scope:** save / pin / forget UI
+- **Acceptance:** Playwright controls
+- **LOC estimate:** 150
+- **Blocked by:** I-f14-001
+- **Blocks:** I-f14-003
+
+### I-f14-003 — Cross-session surfacing
+- **Scope:** "you researched X last week"
+- **Acceptance:** test
+- **LOC estimate:** 110
+- **Blocked by:** I-f14-002
+- **Blocks:** I-f14-004
+
+### I-f14-004 — Memory-as-corpus for new queries
+- **Scope:** prior runs join evidence pool
+- **Acceptance:** integration test
+- **LOC estimate:** 130
+- **Blocked by:** I-f14-003
+- **Blocks:** I-f14-005
+
+### I-f14-005 — Cited recall
+- **Scope:** when memory contributes, surface which past run + claim
+- **Acceptance:** Playwright shows cite-in-current
+- **LOC estimate:** 100
+- **Blocked by:** I-f14-004
+- **Blocks:** I-p2c-001
+
+---
+
+## §21 Phase 2C polish (5 issues)
+
+### I-p2c-001 — Cross-feature integration testing
+- **Scope:** F1→F2→F3→F4→F5 chain
+- **Acceptance:** integration suite green
+- **LOC estimate:** 180
+- **Blocked by:** I-f14-005
+- **Blocks:** I-p2c-002
+
+### I-p2c-002 — Visual regression: 60 baselines (4 viewports × 15 features)
+- **Scope:** Playwright + percy.io baselines
+- **Acceptance:** zero unintended pixel diffs
+- **LOC estimate:** 200
+- **Blocked by:** I-p2c-001
+- **Blocks:** I-p2c-003
+
+### I-p2c-003 — Cross-browser: Chromium / Firefox / WebKit
+- **Scope:** Playwright across 3 browsers
+- **Acceptance:** all pass
+- **LOC estimate:** 130
+- **Blocked by:** I-p2c-002
+- **Blocks:** I-p2c-004
+
+### I-p2c-004 — Performance: Core Web Vitals green
+- **Scope:** Lighthouse + perf test
+- **Acceptance:** LCP <2.5s, INP <200ms, hover-latency <100ms
+- **LOC estimate:** 150
+- **Blocked by:** I-p2c-003
+- **Blocks:** I-p2c-005
+
+### I-p2c-005 — Mobile end-to-end
+- **Scope:** mobile viewport full flow
+- **Acceptance:** Playwright mobile
+- **LOC estimate:** 130
+- **Blocked by:** I-p2c-004
+- **Blocks:** I-f11-001
+
+---
+
+## §22 F11 — Auditable follow-up (5 issues)
+
+### I-f11-001 — Follow-up agent with parent-run-context preservation
+- **Scope:** `src/polaris_graph/followup/agent.py`
+- **Acceptance:** parent context preserved test
+- **LOC estimate:** 200
+- **Blocked by:** I-p2c-005
+- **Blocks:** I-f11-002
+
+### I-f11-002 — Append-to-existing-report rendering
+- **Scope:** UI appends below original with separator
+- **Acceptance:** Playwright; clear separator visible
+- **LOC estimate:** 110
+- **Blocked by:** I-f11-001
+- **Blocks:** I-f11-003
+
+### I-f11-003 — Evidence Contract inheritance
+- **Scope:** follow-up inherits parent's accepted-source pool
+- **Acceptance:** integration; no re-retrieval of parent
+- **LOC estimate:** 130
+- **Blocked by:** I-f11-002
+- **Blocks:** I-f11-004
+
+### I-f11-004 — Refusal handling for out-of-scope follow-ups
+- **Scope:** out-of-scope follow-up → refusal-with-explanation
+- **Acceptance:** adversarial test
+- **LOC estimate:** 90
+- **Blocked by:** I-f11-003
+- **Blocks:** I-f11-005
+
+### I-f11-005 — F11 multi-turn: 5 sequential follow-ups
+- **Scope:** 5 follow-ups grounded correctly
+- **Acceptance:** test
+- **LOC estimate:** 100
+- **Blocked by:** I-f11-004
+- **Blocks:** I-f12-001
+
+---
+
+## §23 F12 — Side-by-side compare (4 issues)
+
+### I-f12-001 — Two-run picker UI
+- **Scope:** pick any 2 completed runs
+- **Acceptance:** Playwright pick
+- **LOC estimate:** 110
+- **Blocked by:** I-f11-005
+- **Blocks:** I-f12-002
+
+### I-f12-002 — Split-screen view (ResizablePanels)
+- **Scope:** shadcn ResizablePanels
+- **Acceptance:** Playwright split-screen
+- **LOC estimate:** 130
+- **Blocked by:** I-f12-001
+- **Blocks:** I-f12-003
+
+### I-f12-003 — Claim-level diff algorithm
+- **Scope:** claims agree/disagree/evidence-pool overlap
+- **Acceptance:** diff sample fixtures
+- **LOC estimate:** 200
+- **Blocked by:** I-f12-002
+- **Blocks:** I-f12-004
+
+### I-f12-004 — F12 functional: jurisdictional diff
+- **Scope:** same query different jurisdictions
+- **Acceptance:** show jurisdictional differences
+- **LOC estimate:** 100
+- **Blocked by:** I-f12-003
+- **Blocks:** I-bug-084
+
+---
+
+## §24 I-bug-084 — coverage scorer keywords (reissued)
+
+- **Scope:** add `expected_pico_keywords` field; scorer prefers keywords when set
+- **Acceptance:** aspirin/migraine with keywords scores 1.0; without keywords falls back
+- **Foundation refs:** plan §4.9b
+- **LOC estimate:** 90
+- **Blocked by:** I-f12-004
+- **Blocks:** I-bench-001
+
+---
+
+## §25 Benchmark + templates (5 issues)
+
+### I-bench-001 — 50 questions × 4 systems × 6 dimensions
+- **Scope:** benchmark harness `scripts/benchmark_proof_package.py`
+- **Acceptance:** harness runs end-to-end
+- **LOC estimate:** 200
+- **Blocked by:** I-bug-084
+- **Blocks:** I-bench-002
+
+### I-bench-002 — Paid sample evaluator scoring
+- **Scope:** $5-12k procurement; evaluator scores benchmark slice
+- **Acceptance:** evaluator delivers scoring report
+- **LOC estimate:** 0 (procurement + integration of report)
+- **User-blocked:** YES (procurement)
+- **Blocked by:** I-bench-001
+- **Blocks:** I-tpl-006
+
+### I-tpl-006 — AI sovereignty template
+- **Scope:** new template + scope examples
+- **Acceptance:** classifier correctly suggests
+- **LOC estimate:** 150
+- **Blocked by:** I-bench-002
+- **Blocks:** I-tpl-007
+
+### I-tpl-007 — Canada-US template
+- **Scope:** new template
+- **Acceptance:** classifier suggests
+- **LOC estimate:** 150
+- **Blocked by:** I-tpl-006
+- **Blocks:** I-tpl-008
+
+### I-tpl-008 — Workforce template
+- **Scope:** new template
+- **Acceptance:** classifier suggests
+- **LOC estimate:** 150
+- **Blocked by:** I-tpl-007
+- **Blocks:** I-sov-001
+
+---
+
+## §26 Phase 4 sovereign migration (4 issues)
+
+### I-sov-001 — Replace OpenRouter with sovereign vLLM
+- **Scope:** swap LLM client; sovereignty router enforces
+- **Acceptance:** integration test on sovereign cluster
+- **LOC estimate:** 200
+- **Blocked by:** I-tpl-008, I-phase0-007, I-phase0-010, I-phase0-009
+- **Blocks:** I-sov-002
+
+### I-sov-002 — Validate quality unchanged
+- **Scope:** paired-prompt eval comparing OpenRouter vs sovereign
+- **Acceptance:** quality delta within 5%
+- **LOC estimate:** 150
+- **Blocked by:** I-sov-001
+- **Blocks:** I-sov-003
+
+### I-sov-003 — Re-run F-INT regression suite on sovereign topology
+- **Scope:** full regression
+- **Acceptance:** all green
+- **LOC estimate:** 80
+- **Blocked by:** I-sov-002
+- **Blocks:** I-sov-004
+
+### I-sov-004 — Two-family segregation re-verification
+- **Scope:** check_family_segregation passes on sovereign generator + verifier
+- **Acceptance:** test green
+- **LOC estimate:** 60
+- **Blocked by:** I-sov-003
+- **Blocks:** I-buf-001
+
+---
+
+## §27 Phase 4.5 buffer (1 issue)
+
+### I-buf-001 — Migration findings + regression fixes
+- **Scope:** catch-all for issues found in Phase 4
+- **Acceptance:** issues triaged + fixed
+- **LOC estimate:** 200 (variable; cap enforces split if needed)
+- **Blocked by:** I-sov-004
+- **Blocks:** I-hand-001
+
+---
+
+## §28 Phase 5 Carney handover (3 issues)
+
+### I-hand-001 — Final walkthrough + Codex sweep
+- **Scope:** product-owner end-to-end walkthrough; Codex full audit
+- **Acceptance:** walkthrough recorded; Codex APPROVE
+- **LOC estimate:** 0 (walkthrough)
+- **Blocked by:** I-buf-001
+- **Blocks:** I-hand-002
+
+### I-hand-002 — Handover package
+- **Scope:** runbook + demo script + crown-jewel registry + handover.md
+- **Acceptance:** package complete
+- **LOC estimate:** 200
+- **Blocked by:** I-hand-001
+- **Blocks:** I-hand-003
+
+### I-hand-003 — Carney office demo
+- **Scope:** Sep 6 demo to Carney office
+- **Acceptance:** demo completes; deliverable accepted
+- **LOC estimate:** 0 (demo)
+- **Blocked by:** I-hand-002
+- **Blocks:** none (terminal)
+
+---
+
+## §29 Crown jewel preservation (7 issues, parallel side-track — FIXED P1-CJ-GATE-CONFLICT)
+
+These run in parallel after I-phase0-005 (Dramatiq queue live, so test infrastructure works). The earlier reference in iter 1 to "after I-f1-006" was inconsistent; corrected to single rule: `addBlockedBy = I-phase0-005`.
+
+### I-cj-001 — Two-family evaluator test
+- **Scope:** test asserts `check_family_segregation` raises on violation
+- **Acceptance:** test green; fixture violation triggers raise
+- **LOC estimate:** 80
+- **Blocked by:** I-phase0-005
+- **Blocks:** I-cj-002
+
+### I-cj-002 — Provenance token test
+- **Scope:** every generated sentence has `[#ev:source_id:start-end]`
+- **Acceptance:** test green
+- **LOC estimate:** 70
+- **Blocked by:** I-cj-001
+- **Blocks:** I-cj-003
+
+### I-cj-003 — Strict-verify test
+- **Scope:** per-sentence numeric match + ≥2 content-word overlap
+- **Acceptance:** test green; mutation tests verify gate teeth
+- **LOC estimate:** 100
+- **Blocked by:** I-cj-002
+- **Blocks:** I-cj-004
+
+### I-cj-004 — Zero-verified abort test
+- **Scope:** assert `abort_no_verified_sections` fires when all sections fail
+- **Acceptance:** test
+- **LOC estimate:** 80
+- **Blocked by:** I-cj-003
+- **Blocks:** I-cj-005
+
+### I-cj-005 — Corpus approval enforcement test
+- **Scope:** rubber-stamp note + material deviation → `abort_corpus_approval_denied`
+- **Acceptance:** test
+- **LOC estimate:** 80
+- **Blocked by:** I-cj-004
+- **Blocks:** I-cj-006
+
+### I-cj-006 — Budget cap test
+- **Scope:** `_impute_cost_from_tokens` backstops token-only responses
+- **Acceptance:** test
+- **LOC estimate:** 70
+- **Blocked by:** I-cj-005
+- **Blocks:** I-cj-007
+
+### I-cj-007 — Delimiter sanitization test
+- **Scope:** NFKD, invisible chars, homoglyph evasions all neutralized
+- **Acceptance:** test
+- **LOC estimate:** 90
+- **Blocked by:** I-cj-006
+- **Blocks:** none (terminal in side-track)
+
+---
+
+## §30 Anti-sycophancy CI (4 issues, parallel side-track)
+
+These run in parallel after I-phase0-005 (Dramatiq stack present for nightly job).
+
+### I-anti-001 — Paired-prompt corpus
+- **Scope:** neutral / leading / opposite-frame triples for 20 questions
+- **Acceptance:** corpus committed
+- **LOC estimate:** 100 (mostly data)
+- **Blocked by:** I-phase0-005
+- **Blocks:** I-anti-002
+
+### I-anti-002 — Stance-delta computation
+- **Scope:** `src/polaris_graph/anti_sycophancy/stance_delta.py`
+- **Acceptance:** unit tests on fixture corpus
+- **LOC estimate:** 130
+- **Blocked by:** I-anti-001
+- **Blocks:** I-anti-003
+
+### I-anti-003 — CI gate at <5% delta on 20 paired prompts
+- **Scope:** `.github/workflows/anti_sycophancy.yml`
+- **Acceptance:** CI runs; >5% fails build
+- **LOC estimate:** 80
+- **Blocked by:** I-anti-002
+- **Blocks:** I-anti-004
+
+### I-anti-004 — Nightly full eval
+- **Scope:** Dramatiq scheduled task; reports to log
+- **Acceptance:** nightly run succeeds
+- **LOC estimate:** 100
+- **Blocked by:** I-anti-003
+- **Blocks:** none (terminal in side-track)
+
+---
+
+## §31 Issue count summary (FIXED iter 2 P1-COUNT-MISMATCH)
+
+| Group | Count | Section |
+|---|---|---|
+| Phase 0 outstanding | 7 (split 0.8 into tech + license) | §4 |
+| F1 | 6 | §5 |
+| F2 | 8 | §6 |
+| Reissued bug 079 | 1 | §7 |
+| F3 | 10 | §8 |
+| F15 | 6 | §9 |
+| Reissued bug 082 | 1 | §10 |
+| Evidence Contract Gate | 4 | §11 |
+| F4 | 5 | §12 |
+| F5 | 11 | §13 |
+| F7 | 4 | §14 |
+| F8 | 6 | §15 |
+| F9 | 3 | §16 |
+| F6 | 5 | §17 |
+| F10 | 8 | §18 |
+| F13 | 4 | §19 |
+| F14 | 5 | §20 |
+| Phase 2C polish | 5 | §21 |
+| F11 | 5 | §22 |
+| F12 | 4 | §23 |
+| Reissued bug 084 | 1 | §24 |
+| Benchmark + templates | 5 | §25 |
+| Phase 4 sovereign | 4 | §26 |
+| Phase 4.5 buffer | 1 | §27 |
+| Phase 5 handover | 3 | §28 |
+| Crown jewels (parallel) | 7 | §29 |
+| Anti-sycophancy (parallel) | 4 | §30 |
+| **TOTAL** | **133** | |
+
+(Iter-2 P1-COUNT-MISMATCH resolved iter 3: cell-by-cell sum is 7+6+8+1+10+6+1+4+5+11+4+6+3+5+8+4+5+5+5+4+1+5+4+1+3+7+4 = 133. Iter-1 over-counted to 137; iter-2 incorrectly stated 138. Cell totals now reconciled. Phase 0 has 7 Issues since Task 0.8 split into tech (I-phase0-008) + license (I-phase0-010); §3 header says "7" not "6".)
+
+---
+
+## §32 Sequential execution chain (top → bottom)
+
+Main chain (sequential, blocks each next Issue):
+
+```
+preconditions §2
+  → I-phase0-005
+  → I-f1-001 → I-f1-002 → I-f1-003 → I-f1-004 → I-f1-005 → I-f1-006
+  → I-f2-001 → I-f2-002 → I-f2-003 → I-f2-004 → I-f2-005 → I-f2-006 → I-f2-007 → I-f2-008
+  → I-bug-079
+  → I-f3-001 → I-f3-002 → I-f3-003 → I-f3-004 → I-f3-005 → I-f3-006 → I-f3-007 → I-f3-008 → I-f3-009 → I-f3-010
+  → I-f15-001 → I-f15-002 → I-f15-003 → I-f15-004 → I-f15-005 → I-f15-006
+  → I-bug-082
+  → I-ecg-001 → I-ecg-002 → I-ecg-003 → I-ecg-004
+  → I-f4-001 → I-f4-002 → I-f4-003 → I-f4-004 → I-f4-005
+  → I-f5-001 → ... → I-f5-011
+  → I-f7-001 → ... → I-f7-004
+  → I-f8-001 → ... → I-f8-006
+  → I-f9-001 → I-f9-002 → I-f9-003
+  → I-f6-001 → ... → I-f6-005
+  → I-f10-001 → ... → I-f10-008
+  → I-f13-001 → ... → I-f13-004
+  → I-f14-001 → ... → I-f14-005
+  → I-p2c-001 → ... → I-p2c-005
+  → I-f11-001 → ... → I-f11-005
+  → I-f12-001 → ... → I-f12-004
+  → I-bug-084
+  → I-bench-001 → I-bench-002 (USER-BLOCKED)
+  → I-tpl-006 → I-tpl-007 → I-tpl-008
+  → I-sov-001 → I-sov-002 → I-sov-003 → I-sov-004
+  → I-buf-001
+  → I-hand-001 → I-hand-002 → I-hand-003
+```
+
+Parallel side-tracks (run alongside main chain after I-phase0-005):
+- Crown jewels: I-cj-001 → I-cj-002 → I-cj-003 → I-cj-004 → I-cj-005 → I-cj-006 → I-cj-007
+- Anti-sycophancy: I-anti-001 → I-anti-002 → I-anti-003 → I-anti-004
+
+Hardware procurement (user-blocked, parallel to all):
+- I-phase0-003 → I-phase0-006 → I-phase0-007 (sequential within hardware track)
+- I-phase0-006 → I-phase0-009
+- I-phase0-008 → I-phase0-010
+
+These three external prerequisites (I-phase0-007 + I-phase0-010 + I-phase0-009) merge with I-tpl-008 (main-chain prerequisite) as the four total prerequisites for I-sov-001.
+
+---
+
+## §33 User-blocked Issues summary (FIXED iter 2 P1-USER-BLOCKED-CONFLICT)
+
+5 Issues require user procurement / signing / decision and CANNOT be auto-progressed:
+
+- I-phase0-003 (Vast.ai account)
+- I-phase0-006 (hardware path A/B/C decision)
+- I-phase0-010 (Gemma 4 license sign-off ONLY; tech portion I-phase0-008 is auto-progressable)
+- I-phase0-009 (OVH H200 invoice)
+- I-bench-002 (paid sample evaluator $5-12k procurement)
+
+These are flagged in TaskCreate as user-blocked. Software work continues in main chain; sovereign migration (Phase 4) is gated on I-phase0-007 + I-phase0-010 + I-phase0-009 completing.
+
+---
+
+## §34 Calendar context (FIXED iter 2 P2-CALENDAR — historical only, NOT commitment)
+
+Carney v6.2 §"Phase plan" gives calendar windows for each phase (Phase 1 May 13-31, etc.). These are historical context from the v6.2 document, not execution commitments. Per CHARTER §3 (200-LOC PR cap) + §5 (reviewer-fatigue halt at >3 PRs/24h) + per-Issue Codex iteration cycles, real velocity will diverge from calendar. Execution rate is measured by Issue throughput per day post-execution-start, not by calendar dates.
+
+---
+
+## §35 Halt conditions (CHARTER §5 + plan §10 — FIXED iter 2 P1-VISIBILITY-GAP)
+
+CI workflow `polaris/codex-required.yml` rejects PR if any of:
+
+- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
+- Codex `codex_brief_verdict.txt` does not contain `verdict: APPROVE`
+- Codex `codex_diff_audit.txt` does not contain `verdict: APPROVE`
+- PR > 200 net additions (per CHARTER §3)
+- `state/active_issue.json` shows different Issue in_progress (sequence violation)
+
+Halt emitted to `state/halt_<utc>_<reason>.md` on:
+
+- Sequence violation: any attempt to start I-X-NNN+1 while I-X-NNN is not `completed`
+- Codex unavailable >1h: halt; do not bypass
+- Reviewer fatigue: >3 PRs queued for user in 24h → halt; user-side surface
+- 2-cycle repeated root cause: same P1 finding twice across cycles → halt; investigate harness
+- SHA pin drift: polaris-controls/CHARTER.md SHA changes between sessions → halt session-start hook
+- 200-LOC overflow: redundant with CI but emit halt for tracking
+
+---
+
+## §36 Codex review request iter 4 (was iter 3)
+
+This iter 4 brief addresses all iter-3 findings (1 P1 + 4 P2):
+
+- **iter3 P1-PHASE-METADATA-CONFLICT** → §3a Phase mapping rewritten as deterministic per-prefix list. F6 explicitly assigned ONLY to Phase 2B (was double-listed in 2A and 2B). Each prefix maps to exactly one phase.
+- **iter3 P2-ARTIFACT-PATH-AMBIGUITY** → §3 body template line for `outputs/audits/I-<id>/claude_audit.md` rewritten to `outputs/audits/<issue_id>/claude_audit.md` matching §35/§36.
+- **iter3 P2-BLOCKS-RECIPROCITY-CJ** → I-phase0-005 Blocks now lists I-cj-001 and I-anti-001 (and I-f1-001) reciprocally with their Blocked-by entries.
+- **iter3 P2-BLOCKS-FIELD-POLLUTION** → I-f1-006 Blocks line cleaned to bare ID list (`I-f2-001`); the parenthetical clarification removed so mechanical ID extraction sees only valid Issue IDs.
+- **iter3 P2-SOVEREIGN-GATE-WORDING** → §32 sovereign gate wording corrected: "These three external prerequisites (...) merge with I-tpl-008 (main-chain prerequisite) as the four total prerequisites for I-sov-001."
+
+Earlier iter 1 + iter 2 findings carried through and remain addressed.
+
+Codex: emit structured verdict same format as iter 3. APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+## §36-OBSOLETE iter 3 brief (preserved for audit trail)
+
+This iter 3 brief addresses all iter-2 findings (4 P1 + 4 P2):
+
+- **iter2 P1-ID-SCHEMA** → §1 schema clarified to alphanumeric `[a-z0-9]{2,8}` (was "alpha only" which conflicted with `phase0`/`f1`/`2c`). `I-phase0-008-tech`/`-license` renamed to `I-phase0-008` (tech) + `I-phase0-010` (license sign-off). `I-2c-NNN` renamed to `I-p2c-NNN`.
+- **iter2 P1-COUNT-MISMATCH** → §31 cell-by-cell sum now 133 (corrected from iter 2's incorrectly-stated 138). §4 header now "7" not "6".
+- **iter2 P1-CJ-GATE-CONFLICT** → I-f1-006 Blocks line corrected; crown jewels blocked-by I-phase0-005 only per §29. §32 chain reflects.
+- **iter2 P1-INCOMPLETE-METADATA** → new §3a defines default Phase/Feature/Foundation refs inheritance from prefix + section header; CI body-template check (§3) requires brief author to fill these in per §3a defaults plus inline overrides.
+- **iter2 P2-BLOCKS-RECIPROCITY** → I-phase0-003 Blocks now lists I-phase0-006 + I-phase0-007 (reciprocal with each's Blocked-by).
+- **iter2 P2-ARTIFACT-PATH-AMBIGUITY** → all `.codex/I-<id>/` and `.codex/I-X/` replaced with `.codex/<issue_id>/`. Same for `outputs/audits/<issue_id>/`.
+- **iter2 P2-F4-EVENT-COUNT** → I-f4-002 scope now says "6 event types" matching enumeration.
+- **iter2 P2-LOC-ZERO-MISMATCH** → I-phase0-003 LOC raised from 0 to 80.
+
+Iter 1 findings carried through both iterations — no regression.
+
+Codex: emit structured verdict same format as iter 2. APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+```
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0:
+  - <id>: <one-sentence finding>
+continuing_p0:
+  - <id from prior iter>: <one-sentence finding>
+p1:
+  - <id>: <one-sentence finding>
+p2:
+  - <id>: <one-sentence finding>
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: <list any user-blocked items>
+```
+
+No exec exploration unless verifying a specific concern. No toothpaste-squeeze. List ALL remaining issues this iteration.
+
+codex
+The core files match the brief’s setup: the CI job currently names only three Playwright specs, and the tooltip is controlled by internal `open` today. I’m checking the exact F6 acceptance wording and nearby tests now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/_demo_evidence_tooltip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/sentence_hover_test/evidence_tooltip/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "I-f6-005|rendering perf test|consistent under threshold|hover.*100ms|hover-latency" state/polaris_restart/issue_breakdown.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/performance.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/performance_hover.spec.ts' in C:\POLARIS
+ succeeded in 1131ms:
+"use client";
+
+import {
+  EvidenceTooltip,
+  EvidenceTooltipProvider,
+} from "@/components/ui/evidence-tooltip";
+
+/**
+ * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+ * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+ * can assert (a) popup absent before hover, (b) popup absent immediately
+ * after hover (within ~50ms), (c) popup visible within 500ms.
+ */
+export function EvidenceTooltipHarness() {
+  return (
+    <EvidenceTooltipProvider delay={300}>
+      <div
+        data-testid="evidence-tooltip-harness"
+        className="mx-auto max-w-xl p-8"
+      >
+        <p className="mb-4 text-sm">
+          Hover the citation token below to see the evidence tooltip.
+        </p>
+        <p className="text-sm">
+          Aspirin reduces headache pain in adults
+          <EvidenceTooltip
+            evidenceId="src-demo-1"
+            sourceUrl="https://www.cochrane.org/CD-demo-1"
+            sourceTier="T1"
+            publishedDate="2024-03-15"
+            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+          >
+            <span data-testid="evidence-tooltip-trigger">[#ev:src-demo-1]</span>
+          </EvidenceTooltip>
+          .
+        </p>
+      </div>
+    </EvidenceTooltipProvider>
+  );
+}
+
+ succeeded in 1207ms:
+import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+
+export default function EvidenceTooltipPage() {
+  return <EvidenceTooltipHarness />;
+}
+
+ succeeded in 1282ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.4 F-2 (root_cause) — measure REAL hover-to-tooltip latency.
+ *
+ * Closes outputs/audits/continuous/4fe03f7_audit.md P1.2: the original
+ * 2C.4 spec docstring promised hover-latency measurement but no test
+ * file actually exercised it.
+ *
+ * Approach
+ * --------
+ * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+ * waits its open-delay (~600ms in base-ui v1.4 default) before showing
+ * the popup. So end-to-end user-perceived latency is:
+ *
+ *   total_ms = base_ui_open_delay_ms + react_render_ms
+ *
+ * The render contribution is what we care about for perf regressions.
+ * We bound the WHOLE thing (1000ms = 600ms typical open-delay + 400ms
+ * render budget) so a regression in either component fails the gate.
+ *
+ * Hover target: the `[#ev:ev_clin_001:1200-1450]` provenance token
+ * inside the Verified-sentences tab on golden_clinical_001.
+ */
+
+test.describe("Performance — hover-to-tooltip end-to-end latency", () => {
+  // The popup unique signature is the `<p>` containing `<evidenceId> · tier <T>`
+  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+  // base-ui doesn't put role="tooltip" on Popup so we content-select instead.
+  const POPUP_TEXT = /ev_clin_001 · tier T1/;
+
+  test("token hover → tooltip visible < 1000ms (golden_clinical_001)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+
+    const start = Date.now();
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+    const totalMs = Date.now() - start;
+
+    expect(totalMs).toBeLessThan(1000);
+  });
+
+  test("hover-out hides tooltip < 500ms", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+
+    const trigger = page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first();
+    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+    await trigger.hover();
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+
+    // Move the cursor far away to trigger close.
+    const start = Date.now();
+    await page.mouse.move(0, 0);
+    await page.getByText(POPUP_TEXT).first().waitFor({
+      state: "hidden",
+      timeout: 1_500,
+    });
+    const closeMs = Date.now() - start;
+
+    expect(closeMs).toBeLessThan(500);
+  });
+});
+
+ succeeded in 1339ms:
+783:- **Blocks:** I-f6-005
+785:### I-f6-005 — F6 perf: 100x hover consistent <100ms
+786:- **Scope:** rendering perf test
+787:- **Acceptance:** consistent under threshold
+800:- **Blocked by:** I-f6-005
+950:- **Acceptance:** LCP <2.5s, INP <200ms, hover-latency <100ms
+1299:  → I-f6-001 → ... → I-f6-005
+
+ succeeded in 1401ms:
+import { expect, test, type Page } from "@playwright/test";
+
+/**
+ * Phase 2C.4 — performance gates.
+ *
+ * Each test measures one user-facing latency budget against the live build.
+ * Budgets follow the rule `max(2 × baseline_observed, hard_floor)` — tight
+ * enough to catch a 2-3x regression, loose enough not to flake on a busy
+ * CI runner. F-3 fix from outputs/audits/continuous/4fe03f7_audit.md
+ * tightened these from the original 2x-5x slack baselines.
+ *
+ * Budgets:
+ *   - Inspector cold load → DOMContentLoaded < 1000ms (observed: ~270-450ms)
+ *   - Inspector tab switch → click-to-content < 250ms (observed: ~100ms)
+ *   - Charts tab → first Vega SVG inserted in DOM < 2000ms (observed: ~1.0s)
+ *   - Inspector first contentful paint < 800ms (observed: ~400ms)
+ *
+ * Hover-latency budget is measured separately in
+ * `tests/e2e/performance_hover.spec.ts` (instruments PerformanceMark on
+ * mouseenter → [role="tooltip"] visible).
+ */
+
+async function measureLoadMs(page: Page, url: string): Promise<number> {
+  const start = Date.now();
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  return Date.now() - start;
+}
+
+test.describe("Performance — Inspector cold load", () => {
+  test("DOMContentLoaded < 1000ms on golden_clinical_001", async ({ page }) => {
+    const loadMs = await measureLoadMs(page, "/inspector/golden_clinical_001");
+    expect(loadMs).toBeLessThan(1000);
+  });
+
+  test("DOMContentLoaded < 1000ms on golden_climate_005", async ({ page }) => {
+    const loadMs = await measureLoadMs(page, "/inspector/golden_climate_005");
+    expect(loadMs).toBeLessThan(1000);
+  });
+});
+
+test.describe("Performance — Inspector tab switch latency", () => {
+  test("Verified sentences tab switch < 250ms", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    const tab = page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first();
+
+    const start = Date.now();
+    await tab.click();
+    // F-4: wait timeout > budget so a slow render surfaces as a budget
+    // failure (`expected < 250, got ${switchMs}`) rather than a misleading
+    // locator-timeout.
+    await page
+      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+      .first()
+      .waitFor({
+        state: "visible",
+        timeout: 5_000,
+      });
+    const switchMs = Date.now() - start;
+    expect(switchMs).toBeLessThan(250);
+  });
+
+  test("Contradictions tab switch < 250ms", async ({ page }) => {
+    await page.goto("/inspector/golden_housing_002", {
+      waitUntil: "networkidle",
+    });
+    const tab = page.getByRole("button", { name: /Contradictions/ }).first();
+
+    const start = Date.now();
+    await tab.click();
+    await page
+      .getByText(/noted_both/)
+      .first()
+      .waitFor({
+        state: "visible",
+        timeout: 5_000,
+      });
+    const switchMs = Date.now() - start;
+    expect(switchMs).toBeLessThan(250);
+  });
+});
+
+test.describe("Performance — Charts tab first SVG", () => {
+  test("Charts tab Vega-Lite SVG appears < 2000ms", async ({ page }) => {
+    await page.goto("/inspector/golden_climate_005", {
+      waitUntil: "networkidle",
+    });
+    const tab = page.getByRole("button", { name: /^Charts/ }).first();
+
+    const start = Date.now();
+    await tab.click();
+    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 5_000 });
+    const renderMs = Date.now() - start;
+    expect(renderMs).toBeLessThan(2000);
+  });
+});
+
+test.describe("Performance — page-load Web Vitals", () => {
+  test("Inspector first contentful paint < 800ms after navigation", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", { waitUntil: "load" });
+
+    // Wait until at least one paint entry is recorded, then assert FCP budget.
+    const fcpMs = await page.evaluate<number>(() => {
+      return new Promise((resolve) => {
+        const entries = performance.getEntriesByType("paint");
+        const existing = entries.find(
+          (e) => e.name === "first-contentful-paint",
+        );
+        if (existing) {
+          resolve(existing.startTime);
+          return;
+        }
+        const obs = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.name === "first-contentful-paint") {
+              obs.disconnect();
+              resolve(entry.startTime);
+              return;
+            }
+          }
+        });
+        obs.observe({ type: "paint", buffered: true });
+        // Hard timeout so we don't hang the test if FCP never fires.
+        setTimeout(() => {
+          obs.disconnect();
+          resolve(-1);
+        }, 3_000);
+      });
+    });
+    expect(fcpMs).toBeGreaterThanOrEqual(0);
+    expect(fcpMs).toBeLessThan(800);
+  });
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"addedNodes|MutationObserver|querySelector\\?\\.\\(\" web" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tsconfig.json' in C:\POLARIS
+ succeeded in 1083ms:
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:70:        const observer = new MutationObserver(() => {
+web\tests\e2e\sentence_inspector_latency.spec.ts:23:        const observer = new MutationObserver(() => {
+
+ succeeded in 1083ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1121ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+codex
+The TypeScript config is strict, so any DOM-observer code in a TSX harness needs to narrow `Node` to `Element` before calling `matches` or `querySelector`. I’m checking whether that affects the verdict or is just an implementation note.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_latency.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/sentence_inspector_ai_agent.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/sentence_hover_test/stress,page.tsx -ErrorAction SilentlyContinue' in C:\POLARIS
+ succeeded in 1058ms:
+import { expect, test } from "@playwright/test";
+
+const TIERS = [50, 100, 200, 500];
+
+for (const n of TIERS) {
+  test(`Inspector opens in <1000ms at n=${n} sentences`, async ({ page }) => {
+    await page.goto(`/sentence_hover_test/stress?n=${n}`);
+    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
+    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+    // Codex iter-1 P2: assert row count to prevent false-pass with fewer rows.
+    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+
+    // Codex iter-1 P2: use performance.now() for tighter precision.
+    const elapsed_ms = await page.evaluate(async () => {
+      const target = document.querySelector(
+        '[data-sentence-id="sec_stress:0"]',
+      ) as HTMLElement | null;
+      if (!target) throw new Error("sentence row not found");
+      const t0 = performance.now();
+      target.click();
+      // Wait for the Sheet to attach to the DOM.
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (
+            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (
+          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+        ) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      const t1 = performance.now();
+      return t1 - t0;
+    });
+
+    expect(elapsed_ms).toBeLessThan(1000);
+    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
+  });
+}
+
+2026-05-08T00:31:37.314597Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+
+    Directory: C:\POLARIS\web\app\sentence_hover_test\stress
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---          2026-05-07  4:39 PM            357 page.tsx
+
+
+ exited 1 in 1109ms:
+
+    Directory: C:\POLARIS\web\app\sentence_hover_test\stress
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---          2026-05-07  4:39 PM            357 page.tsx
+
+
+ succeeded in 1137ms:
+import { expect, test } from "@playwright/test";
+
+const N = 200;
+const PICK_COUNT = 10;
+const SEED = "polaris-i-f5-011";
+
+// xmur3 string-hash → 32-bit seed (public-domain implementation).
+function xmur3(str: string): () => number {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return h >>> 0;
+  };
+}
+
+// sfc32 PRNG (public-domain) seeded from 4 32-bit ints.
+function sfc32(a: number, b: number, c: number, d: number): () => number {
+  return () => {
+    a >>>= 0;
+    b >>>= 0;
+    c >>>= 0;
+    d >>>= 0;
+    let t = (a + b) | 0;
+    a = b ^ (b >>> 9);
+    b = (c + (c << 3)) | 0;
+    c = (c << 21) | (c >>> 11);
+    d = (d + 1) | 0;
+    t = (t + d) | 0;
+    c = (c + t) | 0;
+    return (t >>> 0) / 4294967296;
+  };
+}
+
+function pickIndices(): number[] {
+  const seed_fn = xmur3(SEED);
+  const rand = sfc32(seed_fn(), seed_fn(), seed_fn(), seed_fn());
+  const all = Array.from({ length: N }, (_, i) => i);
+  for (let i = N - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all.slice(0, PICK_COUNT);
+}
+
+test("AI agent navigates 10 random sentences; each opens evidence within 1s", async ({
+  page,
+}) => {
+  await page.goto(`/sentence_hover_test/stress?n=${N}`);
+  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+
+  const picks = pickIndices();
+  expect(picks).toHaveLength(PICK_COUNT);
+
+  for (const i of picks) {
+    const elapsed_ms = await page.evaluate(async (idx) => {
+      const target = document.querySelector(
+        `[data-sentence-id="sec_stress:${idx}"]`,
+      ) as HTMLElement | null;
+      if (!target) throw new Error(`sentence row ${idx} not found`);
+      const t0 = performance.now();
+      target.click();
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (
+            document.querySelector('[data-testid="sentence-inspector-sheet"]')
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (
+          document.querySelector('[data-testid="sentence-inspector-sheet"]')
+        ) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      return performance.now() - t0;
+    }, i);
+
+    expect(elapsed_ms, `iter ${i}: click → Sheet`).toBeLessThan(1000);
+
+    // Each kept stress sentence cites src-(i mod 50) → inspector-source-0
+    // should always be present. Tolerate alternates for robustness.
+    const sheet = page.getByTestId("sentence-inspector-sheet");
+    await expect(sheet).toBeVisible();
+    const evidence_count = await page
+      .locator(
+        '[data-testid^="inspector-source-"], [data-testid="inspector-paywalled-0"], [data-testid="inspector-synthesis-claim"]',
+      )
+      .count();
+    expect(evidence_count, `iter ${i}: evidence card present`).toBeGreaterThan(
+      0,
+    );
+
+    // Per Codex iter-1 P1: close + assert detach before next iteration.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+  }
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -Path state/polaris_restart/issue_breakdown.md; $lines[770..792]' in C:\POLARIS
+ succeeded in 1096ms:
+### I-f6-003 — Mobile tap-to-show fallback
+- **Scope:** no hover on mobile → tap shows
+- **Acceptance:** mobile Playwright
+- **LOC estimate:** 90
+- **Blocked by:** I-f6-002
+- **Blocks:** I-f6-004
+
+### I-f6-004 — Multi-source claim cross-ref panel
+- **Scope:** count "5 sources" → click → panel with all 5
+- **Acceptance:** Playwright cross-ref
+- **LOC estimate:** 130
+- **Blocked by:** I-f6-003
+- **Blocks:** I-f6-005
+
+### I-f6-005 — F6 perf: 100x hover consistent <100ms
+- **Scope:** rendering perf test
+- **Acceptance:** consistent under threshold
+- **LOC estimate:** 70
+- **Blocked by:** I-f6-004
+- **Blocks:** I-f10-001
+
+---
+
+
+codex
+criterion_1: satisfied by the opt-in `openOverride` prop; default `undefined` preserves existing behavior.
+criterion_2: satisfied by the planned `/sentence_hover_test/perf` route and `run-perf` button.
+criterion_3: satisfied; the loop measures controlled popup mount via real `EvidenceTooltip`.
+criterion_4: satisfied; `perf-results` exposes `data-iter` and JSON timings.
+criterion_5: satisfied; `t >= 0` excludes the stuck-popup sentinel and `t < 100` enforces budget.
+criterion_6: satisfied by the stated ~110 LOC estimate, under the 200 LOC cap.
+
+files_actually_read:
+  - web/components/ui/evidence-tooltip.tsx
+  - .github/workflows/web_ci.yml
+  - state/polaris_restart/issue_breakdown.md
+  - web/tests/e2e/performance_hover.spec.ts
+  - web/tests/e2e/performance.spec.ts
+  - web/app/sentence_hover_test/evidence_tooltip/page.tsx
+  - web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+  - web/tsconfig.json
+  - web/package.json
+  - web/tests/e2e/sentence_inspector_latency.spec.ts
+  - web/tests/e2e/sentence_inspector_ai_agent.spec.ts
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - P2-MUTATION-OBSERVER-TYPING: The implementation should narrow `addedNode` to `Element` before calling `matches` or `querySelector`; strict TS will not accept direct `Node.querySelector?.(...)`.
+  - P2-PLAN-TEXT-DRIFT: The detailed harness step still mentions only descendant `querySelector`; carry the iter-4 self-or-descendant scan into the actual code.
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+36,566
+criterion_1: satisfied by the opt-in `openOverride` prop; default `undefined` preserves existing behavior.
+criterion_2: satisfied by the planned `/sentence_hover_test/perf` route and `run-perf` button.
+criterion_3: satisfied; the loop measures controlled popup mount via real `EvidenceTooltip`.
+criterion_4: satisfied; `perf-results` exposes `data-iter` and JSON timings.
+criterion_5: satisfied; `t >= 0` excludes the stuck-popup sentinel and `t < 100` enforces budget.
+criterion_6: satisfied by the stated ~110 LOC estimate, under the 200 LOC cap.
+
+files_actually_read:
+  - web/components/ui/evidence-tooltip.tsx
+  - .github/workflows/web_ci.yml
+  - state/polaris_restart/issue_breakdown.md
+  - web/tests/e2e/performance_hover.spec.ts
+  - web/tests/e2e/performance.spec.ts
+  - web/app/sentence_hover_test/evidence_tooltip/page.tsx
+  - web/app/sentence_hover_test/_demo_evidence_tooltip.tsx
+  - web/tsconfig.json
+  - web/package.json
+  - web/tests/e2e/sentence_inspector_latency.spec.ts
+  - web/tests/e2e/sentence_inspector_ai_agent.spec.ts
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - P2-MUTATION-OBSERVER-TYPING: The implementation should narrow `addedNode` to `Element` before calling `matches` or `querySelector`; strict TS will not accept direct `Node.querySelector?.(...)`.
+  - P2-PLAN-TEXT-DRIFT: The detailed harness step still mentions only descendant `querySelector`; carry the iter-4 self-or-descendant scan into the actual code.
+convergence_call: continue
+remaining_blockers_for_execution: []
