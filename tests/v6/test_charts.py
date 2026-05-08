@@ -84,6 +84,41 @@ def test_timeline_date_kind_uses_temporal():
     assert spec["encoding"]["x"]["type"] == "temporal"
 
 
+def test_forest_plot_meta_analysis_with_negative_estimates():
+    """I-f10-002: SELECT-trial-style meta-analysis with negative effect
+    estimates and asymmetric CIs (e.g., MACE -0.20 [-0.27, -0.13]) MUST
+    produce a two-layer rule+point Vega-Lite spec where every point row
+    carries its evidence_id in tooltip metadata. Locks the meta-analysis
+    use case the I-f10-002 acceptance criterion calls out beyond the
+    basic-shape coverage."""
+    spec = build_forest_plot(
+        title="SELECT trial cardiovascular outcomes",
+        points=[
+            ForestPlotPoint("MACE", -0.20, -0.27, -0.13, "ev_clin_001"),
+            ForestPlotPoint("MI", -0.18, -0.28, -0.06, "ev_clin_002"),
+            ForestPlotPoint("Stroke", -0.07, -0.19, 0.05, "ev_clin_003"),
+        ],
+    )
+    # Two-layer structure (rule for CI bars, point for estimates) preserved.
+    assert "layer" in spec
+    assert len(spec["layer"]) == 2
+    rule_layer, point_layer = spec["layer"]
+    assert rule_layer["mark"]["type"] == "rule"
+    assert point_layer["mark"]["type"] == "point"
+    # Each point's tooltip carries the evidence_id (click-through-to-source
+    # contract for F10b).
+    tooltip_fields = {f["field"] for f in point_layer["encoding"]["tooltip"]}
+    assert "evidence_id" in tooltip_fields
+    # Negative effect estimates serialize correctly.
+    data = spec["data"]["values"]
+    assert data[0]["estimate"] == -0.20
+    assert data[0]["ci_low"] == -0.27
+    assert data[0]["ci_high"] == -0.13
+    # Asymmetric CI: stroke crosses zero (effect estimate negative, ci_high
+    # positive) — meta-analysis "no effect" boundary case.
+    assert data[2]["ci_low"] < 0 < data[2]["ci_high"]
+
+
 def test_all_charts_carry_evidence_ids():
     forest = build_forest_plot(
         title="t",
