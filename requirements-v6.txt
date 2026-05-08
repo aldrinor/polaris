@@ -2,6 +2,10 @@
 # Owning task: Phase 0 Task 0.5 (docs/backend_modernization.md)
 # Pin policy: pin to a specific PyPI release; verified against PyPI on 2026-05-01.
 
+# --- Vector store (I-f14-001 — workspace memory semantic recall) ---
+# Pinned to PyPI release verified 2026-05-07 against local install.
+chromadb==1.0.20
+
 # --- Web framework ---
 fastapi==0.136.1
 pydantic==2.11.7
