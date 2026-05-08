@@ -1,0 +1,2387 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e052c-7fd2-7b51-8e2f-fc380430d8f1
+--------
+user
+# Codex Brief Review — I-f10-003 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Issue:** I-f10-003 — Comparison table chart spec. Scope: "auto-table when comparing N entities". Acceptance: "N=2,3,5 render correctly". LOC estimate 130.
+- **Existing substrate:** `src/polaris_v6/charts/spec_builder.py:95` already implements `build_comparison_table(title, rows: list[ComparisonRow]) → dict` returning a Vega-Lite v5 grouped-bar spec with `polaris_provenance: { chart_type: "comparison_table", evidence_ids }`. `tests/v6/test_charts.py:43` covers `test_comparison_table_basic_shape` (3 rows). Backend canonical generator + basic test exist.
+- **What's missing for "N=2,3,5 render correctly":** (a) backend tests for N=2 and N=5 (only N=3 covered); (b) frontend TS helper mirroring Python (parallel to I-f10-002 forest-plot helper); (c) demo route exercising N=2/3/5; (d) Playwright spec asserting all three Ns render.
+- **Honest framing per CLAUDE.md §9.4:** Python `build_comparison_table` is canonical. This Issue ships frontend visualization substrate + N-coverage hardening on the backend test.
+
+## Plan
+
+### Backend — N=2 and N=5 coverage
+
+1. `tests/v6/test_charts.py` — add two tests:
+   - `test_comparison_table_n2_renders_correctly` — 2 entities × 1 metric → assert spec has 2 data rows + bar mark + grouped-by-entity Y axis.
+   - `test_comparison_table_n5_renders_correctly` — 5 entities × 2 metrics → 10 data rows, color-by-metric encoding present, every row carries `evidence_id`.
+   - The existing `test_comparison_table_basic_shape` covers N=3 with 1 metric; together they cover acceptance "N=2,3,5".
+
+### Frontend
+
+2. `web/lib/comparison_table_spec.ts` (NEW):
+   - Export `ComparisonRow` interface mirroring `polaris_v6.charts.spec_builder.ComparisonRow` (entity, metric, value, evidence_id).
+   - Export `buildComparisonTableSpec(title, rows): VegaLiteSpec` returning the same Vega-Lite v5 grouped-bar shape produced by the Python builder.
+   - Empty rows throws `Error("comparison table requires at least one row")` mirroring Python `ValueError`.
+
+3. `web/app/charts_test/comparison_table/page.tsx` (NEW route):
+   - Render THREE `<VegaChart>` instances: N=2 (Ontario vs Quebec housing starts), N=3 (Ontario/Quebec/BC), N=5 (5 provinces × 2 metrics: starts and completions).
+   - Each chart wrapped in a section with `data-testid="comparison-table-n2"`, `comparison-table-n3`, `comparison-table-n5` to make Playwright assertions distinct.
+   - Honest-frame: "Sample comparison tables (demo data, demo evidence_ids); same Vega-Lite structure produced by `polaris_v6.charts.spec_builder.build_comparison_table`."
+
+### Playwright
+
+4. `web/tests/e2e/comparison_table_chart.spec.ts` (NEW):
+   - Visit `/charts_test/comparison_table`.
+   - For each of `n2`, `n3`, `n5`: locate the section, assert `[data-testid="vega-chart"]` inside it has visible svg, assert at least N graphics-symbol marks (per N count, conservative — could be more on grouped-bar with multiple metrics).
+   - Use the same role-aware selector pattern as I-f10-002 (`role="graphics-object"` containers + fallback to `role="graphics-symbol"` count).
+   - Assert no `[data-testid="vega-chart-error"]` rendered on the page.
+
+## Risks for Codex Red-Team
+
+1. **Multi-VegaChart per page:** three `<VegaChart>` instances on `/charts_test/comparison_table`. Each gets its own scoped `data-testid="vega-chart"` (locator scoping via parent section testid handles that — `section[data-testid="comparison-table-n3"] [data-testid="vega-chart"]`).
+2. **Grouped-bar (N×2 metrics) at N=5:** the existing Python builder uses `color: { field: "metric", type: "nominal" }` so multiple metrics produce stacked or side-by-side bars; the TS helper mirrors this. Vega-Lite v5 default is stacking; the spec doesn't override → 5×2 = 10 datums = up to 10 bar marks.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~50 LOC TS helper + ~80 LOC route (3 sample datasets) + ~40 LOC spec + ~30 LOC backend tests = ~200. AT cap. May need to trim sample data inline or use compact array literals.
+
+## Acceptance criteria
+
+1. New backend tests assert N=2 and N=5 spec correctness (existing test covers N=3 — together: acceptance "N=2,3,5").
+2. New `buildComparisonTableSpec` TS helper mirrors Python `build_comparison_table` field-for-field.
+3. Demo route `/charts_test/comparison_table` renders 3 charts (N=2/3/5) with distinct section testids.
+4. Playwright spec asserts each of N=2/3/5 charts has visible svg + at least N marks.
+5. Honest fallback: empty rows throws (mirroring Python `ValueError`).
+6. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll validate the plan against the existing chart builder, tests, and frontend chart patterns, then judge only execution blockers in the plan itself.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/charts/spec_builder.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(forest|VegaChart|charts_test|e2e|vega|comparison)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/v6/test_charts.py' in C:\POLARIS
+ succeeded in 915ms:
+"""Vega-Lite v5 chart spec builders for the 3 supported chart types.
+
+Each builder returns a dict that can be JSON-serialised and rendered by
+any Vega-Lite v5 client. The `polaris_provenance` extension is
+non-standard but ignored by Vega-Lite renderers; it carries the
+evidence_id mapping for the F10b click-through-to-source UX.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+VEGA_LITE_SCHEMA_URL = "https://vega.github.io/schema/vega-lite/v5.json"
+
+
+@dataclass
+class ForestPlotPoint:
+    label: str
+    estimate: float
+    ci_low: float
+    ci_high: float
+    evidence_id: str
+
+
+@dataclass
+class ComparisonRow:
+    entity: str
+    metric: str
+    value: float
+    evidence_id: str
+
+
+@dataclass
+class TimelinePoint:
+    period: str  # ISO 8601 date or YYYY-Qn
+    value: float
+    series: str
+    evidence_id: str
+
+
+def build_forest_plot(
+    *,
+    title: str,
+    points: list[ForestPlotPoint],
+    x_label: str = "Effect estimate (95% CI)",
+) -> dict[str, Any]:
+    if not points:
+        raise ValueError("forest plot requires at least one point")
+    data_values = [
+        {
+            "label": p.label,
+            "estimate": p.estimate,
+            "ci_low": p.ci_low,
+            "ci_high": p.ci_high,
+            "evidence_id": p.evidence_id,
+        }
+        for p in points
+    ]
+    return {
+        "$schema": VEGA_LITE_SCHEMA_URL,
+        "title": title,
+        "data": {"values": data_values},
+        "layer": [
+            {
+                "mark": {"type": "rule"},
+                "encoding": {
+                    "y": {"field": "label", "type": "nominal", "sort": None, "axis": {"title": None}},
+                    "x": {"field": "ci_low", "type": "quantitative", "title": x_label},
+                    "x2": {"field": "ci_high"},
+                },
+            },
+            {
+                "mark": {"type": "point", "filled": True, "size": 100},
+                "encoding": {
+                    "y": {"field": "label", "type": "nominal"},
+                    "x": {"field": "estimate", "type": "quantitative"},
+                    "tooltip": [
+                        {"field": "label"},
+                        {"field": "estimate"},
+                        {"field": "ci_low"},
+                        {"field": "ci_high"},
+                        {"field": "evidence_id"},
+                    ],
+                },
+            },
+        ],
+        "polaris_provenance": {
+            "chart_type": "forest_plot",
+            "evidence_ids": [p.evidence_id for p in points],
+        },
+    }
+
+
+def build_comparison_table(
+    *,
+    title: str,
+    rows: list[ComparisonRow],
+) -> dict[str, Any]:
+    if not rows:
+        raise ValueError("comparison table requires at least one row")
+    data_values = [
+        {
+            "entity": r.entity,
+            "metric": r.metric,
+            "value": r.value,
+            "evidence_id": r.evidence_id,
+        }
+        for r in rows
+    ]
+    return {
+        "$schema": VEGA_LITE_SCHEMA_URL,
+        "title": title,
+        "data": {"values": data_values},
+        "mark": {"type": "bar"},
+        "encoding": {
+            "y": {"field": "entity", "type": "nominal", "axis": {"title": None}},
+            "x": {"field": "value", "type": "quantitative"},
+            "color": {"field": "metric", "type": "nominal"},
+            "tooltip": [
+                {"field": "entity"},
+                {"field": "metric"},
+                {"field": "value"},
+                {"field": "evidence_id"},
+            ],
+        },
+        "polaris_provenance": {
+            "chart_type": "comparison_table",
+            "evidence_ids": [r.evidence_id for r in rows],
+        },
+    }
+
+
+def build_timeline(
+    *,
+    title: str,
+    points: list[TimelinePoint],
+    period_kind: Literal["date", "quarter", "year"] = "quarter",
+) -> dict[str, Any]:
+    if not points:
+        raise ValueError("timeline requires at least one point")
+    temporal_type = "temporal" if period_kind == "date" else "ordinal"
+    data_values = [
+        {
+            "period": p.period,
+            "value": p.value,
+            "series": p.series,
+            "evidence_id": p.evidence_id,
+        }
+        for p in points
+    ]
+    return {
+        "$schema": VEGA_LITE_SCHEMA_URL,
+        "title": title,
+        "data": {"values": data_values},
+        "mark": {"type": "line", "point": True},
+        "encoding": {
+            "x": {"field": "period", "type": temporal_type, "axis": {"title": "Period"}},
+            "y": {"field": "value", "type": "quantitative"},
+            "color": {"field": "series", "type": "nominal"},
+            "tooltip": [
+                {"field": "period"},
+                {"field": "value"},
+                {"field": "series"},
+                {"field": "evidence_id"},
+            ],
+        },
+        "polaris_provenance": {
+            "chart_type": "timeline",
+            "period_kind": period_kind,
+            "evidence_ids": [p.evidence_id for p in points],
+        },
+    }
+
+ succeeded in 951ms:
+web\lib\forest_plot_spec.ts
+web\components\ui\vega-chart.tsx
+web\app\charts_test\page.tsx
+web\app\charts_test\forest_plot\page.tsx
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\forest_plot_chart.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\evidence_tooltip_perf.spec.ts
+web\tests\e2e\evidence_tooltip_mobile.spec.ts
+web\tests\e2e\evidence_tooltip_edges.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-executive-summary-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\inspector-error-state-chromium-win32.png
+web\tests\e2e\visual.spec.ts-snapshots\dashboard-initial-chromium-win32.png
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\vega_lite_chart.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\multi_source_panel.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\audit_live.spec.ts
+
+ succeeded in 998ms:
+"""Tests for the Vega-Lite chart spec builders."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from polaris_v6.charts.spec_builder import (
+    ComparisonRow,
+    ForestPlotPoint,
+    TimelinePoint,
+    build_comparison_table,
+    build_forest_plot,
+    build_timeline,
+)
+
+
+def test_forest_plot_basic_shape():
+    spec = build_forest_plot(
+        title="SELECT trial cardiovascular outcomes",
+        points=[
+            ForestPlotPoint("MACE", -0.20, -0.27, -0.13, "ev_clin_001"),
+            ForestPlotPoint("MI", -0.18, -0.28, -0.06, "ev_clin_002"),
+            ForestPlotPoint("Stroke", -0.07, -0.19, 0.05, "ev_clin_003"),
+        ],
+    )
+    assert spec["$schema"].startswith("https://vega.github.io/schema/vega-lite/v5")
+    assert spec["polaris_provenance"]["chart_type"] == "forest_plot"
+    assert spec["polaris_provenance"]["evidence_ids"] == [
+        "ev_clin_001",
+        "ev_clin_002",
+        "ev_clin_003",
+    ]
+    json.dumps(spec)  # serializable
+
+
+def test_forest_plot_empty_raises():
+    with pytest.raises(ValueError):
+        build_forest_plot(title="empty", points=[])
+
+
+def test_comparison_table_basic_shape():
+    spec = build_comparison_table(
+        title="Q3 2025 housing starts by province",
+        rows=[
+            ComparisonRow("Ontario", "starts_thousands", 18.4, "ev_house_on"),
+            ComparisonRow("Quebec", "starts_thousands", 9.7, "ev_house_qc"),
+            ComparisonRow("BC", "starts_thousands", 7.2, "ev_house_bc"),
+        ],
+    )
+    assert spec["mark"]["type"] == "bar"
+    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+    assert len(spec["polaris_provenance"]["evidence_ids"]) == 3
+    json.dumps(spec)
+
+
+def test_timeline_quarter_kind():
+    spec = build_timeline(
+        title="Oil-sands GHG intensity per barrel",
+        points=[
+            TimelinePoint("2010-Q1", 0.080, "Suncor", "ev_oil_010"),
+            TimelinePoint("2015-Q1", 0.075, "Suncor", "ev_oil_015"),
+            TimelinePoint("2020-Q1", 0.070, "Suncor", "ev_oil_020"),
+            TimelinePoint("2023-Q4", 0.066, "Suncor", "ev_oil_023"),
+        ],
+        period_kind="quarter",
+    )
+    assert spec["mark"]["type"] == "line"
+    assert spec["encoding"]["x"]["type"] == "ordinal"
+    assert spec["polaris_provenance"]["period_kind"] == "quarter"
+    json.dumps(spec)
+
+
+def test_timeline_date_kind_uses_temporal():
+    spec = build_timeline(
+        title="ECCC monthly emissions",
+        points=[
+            TimelinePoint("2024-01-01", 14.2, "ECCC", "ev_eccc_jan"),
+            TimelinePoint("2024-02-01", 13.8, "ECCC", "ev_eccc_feb"),
+        ],
+        period_kind="date",
+    )
+    assert spec["encoding"]["x"]["type"] == "temporal"
+
+
+def test_forest_plot_meta_analysis_with_negative_estimates():
+    """I-f10-002: SELECT-trial-style meta-analysis with negative effect
+    estimates and asymmetric CIs (e.g., MACE -0.20 [-0.27, -0.13]) MUST
+    produce a two-layer rule+point Vega-Lite spec where every point row
+    carries its evidence_id in tooltip metadata. Locks the meta-analysis
+    use case the I-f10-002 acceptance criterion calls out beyond the
+    basic-shape coverage."""
+    spec = build_forest_plot(
+        title="SELECT trial cardiovascular outcomes",
+        points=[
+            ForestPlotPoint("MACE", -0.20, -0.27, -0.13, "ev_clin_001"),
+            ForestPlotPoint("MI", -0.18, -0.28, -0.06, "ev_clin_002"),
+            ForestPlotPoint("Stroke", -0.07, -0.19, 0.05, "ev_clin_003"),
+        ],
+    )
+    # Two-layer structure (rule for CI bars, point for estimates) preserved.
+    assert "layer" in spec
+    assert len(spec["layer"]) == 2
+    rule_layer, point_layer = spec["layer"]
+    assert rule_layer["mark"]["type"] == "rule"
+    assert point_layer["mark"]["type"] == "point"
+    # Each point's tooltip carries the evidence_id (click-through-to-source
+    # contract for F10b).
+    tooltip_fields = {f["field"] for f in point_layer["encoding"]["tooltip"]}
+    assert "evidence_id" in tooltip_fields
+    # Negative effect estimates serialize correctly.
+    data = spec["data"]["values"]
+    assert data[0]["estimate"] == -0.20
+    assert data[0]["ci_low"] == -0.27
+    assert data[0]["ci_high"] == -0.13
+    # Asymmetric CI: stroke crosses zero (effect estimate negative, ci_high
+    # positive) — meta-analysis "no effect" boundary case.
+    assert data[2]["ci_low"] < 0 < data[2]["ci_high"]
+
+
+def test_all_charts_carry_evidence_ids():
+    forest = build_forest_plot(
+        title="t",
+        points=[ForestPlotPoint("a", 0.0, -0.1, 0.1, "ev1")],
+    )
+    table = build_comparison_table(
+        title="t",
+        rows=[ComparisonRow("e", "m", 1.0, "ev2")],
+    )
+    timeline = build_timeline(
+        title="t",
+        points=[TimelinePoint("2025-Q1", 1.0, "s", "ev3")],
+    )
+    for spec in (forest, table, timeline):
+        assert "polaris_provenance" in spec
+        assert "evidence_ids" in spec["polaris_provenance"]
+        assert len(spec["polaris_provenance"]["evidence_ids"]) >= 1
+
+
+# Coverage gap fixes — exercise the from_bundle.py fallback paths that
+# only fire on edge-case bundles (no frame_coverage, no verified_sentences,
+# unknown chart_type). Closes the 3 uncovered lines (81, 116, 149).
+
+
+def _make_bundle(**overrides):
+    """Build a minimal valid EvidenceContract for from_bundle tests."""
+    from polaris_v6.schemas.evidence_contract import (
+        EvidenceContract,
+        SourceSpan,
+        VerifiedSentence,
+    )
+
+    base = dict(
+        contract_version="1.0",
+        run_id="test_bundle",
+        template="clinical",
+        question="q?",
+        queued_at="2026-05-01T10:00:00Z",
+        finished_at="2026-05-01T10:01:00Z",
+        pipeline_status="success",
+        evidence_pool=[
+            SourceSpan(
+                evidence_id="ev_x",
+                source_url="https://example.gov",
+                source_tier="T1",
+                span_start=0,
+                span_end=100,
+                span_text="x",
+            )
+        ],
+        verified_sentences=[
+            VerifiedSentence(
+                section_id="summary",
+                sentence_text="x [#ev:ev_x:0-100].",
+                provenance_tokens=["[#ev:ev_x:0-100]"],
+                verifier_local_pass=True,
+                verifier_global_pass=True,
+                drop_reason=None,
+            )
+        ],
+        frame_coverage=[],
+        contradictions=[],
+        cost_usd=0.1,
+        generator_model="deepseek-v4-flash",
+        verifier_model="gemma-4-31b-it",
+        family_segregation_passed=True,
+    )
+    base.update(overrides)
+    return EvidenceContract.model_validate(base)
+
+
+def test_from_bundle_comparison_table_falls_back_to_evidence_pool():
+    """Cover from_bundle.py:81 — comparison_table with no frame_coverage
+    falls back to per-source-tier rows from the evidence_pool."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle(frame_coverage=[])
+    spec = chart_from_bundle(bundle=bundle, chart_type="comparison_table")
+    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+    # Should use the evidence_pool fallback (entity = "tier T1" etc).
+    assert any("tier" in str(d) for d in spec["data"]["values"])
+
+
+def test_from_bundle_timeline_falls_back_when_no_verified_sentences():
+    """Cover from_bundle.py:116 — timeline placeholder when bundle has
+    no verified_sentences."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle(verified_sentences=[])
+    spec = chart_from_bundle(bundle=bundle, chart_type="timeline")
+    assert spec["polaris_provenance"]["chart_type"] == "timeline"
+    # Placeholder series.
+    assert any(
+        "no sentences" in str(d.get("series", "")).lower()
+        for d in spec["data"]["values"]
+    )
+
+
+def test_from_bundle_unknown_chart_type_raises():
+    """Cover from_bundle.py:149 — ValueError on unknown chart_type."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle()
+    with pytest.raises(ValueError, match=r"unknown chart_type"):
+        chart_from_bundle(bundle=bundle, chart_type="bogus")  # type: ignore[arg-type]
+
+codex
+The Python builder matches the brief’s canonical shape: simple bar mark, `y=entity`, `x=value`, `color=metric`, and top-level provenance. I’m checking the existing frontend helper and Playwright pattern now, because most plan risk is in matching those local conventions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/forest_plot_spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/vega-chart.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/charts_test/forest_plot/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/forest_plot_chart.spec.ts' in C:\POLARIS
+ succeeded in 894ms:
+"use client";
+
+import vegaEmbed from "vega-embed";
+import { useEffect, useRef, useState } from "react";
+
+import type { VegaLiteSpec } from "@/lib/api";
+
+interface VegaChartProps {
+  spec: VegaLiteSpec;
+  className?: string;
+  onPointClick?: (datum: Record<string, unknown>) => void;
+}
+
+/**
+ * F10 Vega-Lite v5 client renderer (Phase 2B Task 2B.2 frontend half).
+ *
+ * Renders a Vega-Lite spec via vega-embed. The spec arrives from the
+ * backend `/runs/{run_id}/charts/{chart_type}` endpoint with the
+ * polaris_provenance extension. Click events on datums fire onPointClick
+ * with the datum (which includes evidence_id) so the host page can
+ * surface the source span.
+ *
+ * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+ * pane (LAW II — fail loudly, no silent empty chart). Mount div remains
+ * present so future spec changes can re-trigger the embed.
+ */
+export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    let cancelled = false;
+    let viewToFinalize: { finalize: () => void } | null = null;
+
+    setError(null);
+
+    // VegaLiteSpec from our API types is intentionally permissive; vega-embed
+    // narrows to its full TopLevelSpec type. Casting through unknown is the
+    // documented bridge.
+    vegaEmbed(ref.current, spec as unknown as Parameters<typeof vegaEmbed>[1], {
+      actions: false,
+      renderer: "svg",
+    })
+      .then((result) => {
+        if (cancelled) {
+          result.view.finalize();
+          return;
+        }
+        viewToFinalize = result.view;
+        if (onPointClick) {
+          result.view.addEventListener("click", (_event, item) => {
+            if (item?.datum) {
+              onPointClick(item.datum as Record<string, unknown>);
+            }
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("vega-embed render failed", err);
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      viewToFinalize?.finalize();
+    };
+  }, [spec, onPointClick]);
+
+  return (
+    <>
+      {error !== null ? (
+        <div
+          data-testid="vega-chart-error"
+          role="alert"
+          className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300"
+        >
+          Vega-Lite render failed: {error}
+        </div>
+      ) : null}
+      <div
+        ref={ref}
+        data-testid="vega-chart"
+        className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+      />
+    </>
+  );
+}
+
+ succeeded in 920ms:
+import { VegaChart } from "@/components/ui/vega-chart";
+import {
+  buildForestPlotSpec,
+  type ForestPlotPoint,
+} from "@/lib/forest_plot_spec";
+
+const SAMPLE_META_ANALYSIS: ForestPlotPoint[] = [
+  {
+    label: "MACE",
+    estimate: -0.2,
+    ci_low: -0.27,
+    ci_high: -0.13,
+    evidence_id: "demo-clin-001",
+  },
+  {
+    label: "MI",
+    estimate: -0.18,
+    ci_low: -0.28,
+    ci_high: -0.06,
+    evidence_id: "demo-clin-002",
+  },
+  {
+    label: "Stroke",
+    estimate: -0.07,
+    ci_low: -0.19,
+    ci_high: 0.05,
+    evidence_id: "demo-clin-003",
+  },
+];
+
+export default function ForestPlotPage() {
+  const spec = buildForestPlotSpec(
+    "SELECT trial cardiovascular outcomes (demo)",
+    SAMPLE_META_ANALYSIS,
+  );
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Forest plot — sample meta-analysis
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample SELECT-trial cardiovascular outcomes (demo data, demo
+          evidence_ids); same Vega-Lite structure produced by{" "}
+          <code>polaris_v6.charts.spec_builder.build_forest_plot</code>.
+        </p>
+        <div className="mt-6">
+          <VegaChart spec={spec} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+ succeeded in 964ms:
+/**
+ * I-f10-002: TypeScript helper that mirrors `polaris_v6.charts.spec_builder.build_forest_plot`
+ * for client-side visualization demos. Canonical spec generator remains the
+ * Python builder; the backend route `/runs/{run_id}/charts/forest_plot` returns
+ * specs of the same shape this helper produces.
+ */
+
+import type { VegaLiteSpec } from "@/lib/api";
+
+export const VEGA_LITE_SCHEMA_URL =
+  "https://vega.github.io/schema/vega-lite/v5.json";
+
+export interface ForestPlotPoint {
+  label: string;
+  estimate: number;
+  ci_low: number;
+  ci_high: number;
+  evidence_id: string;
+}
+
+export function buildForestPlotSpec(
+  title: string,
+  points: ForestPlotPoint[],
+  x_label: string = "Effect estimate (95% CI)",
+): VegaLiteSpec {
+  if (points.length === 0) {
+    throw new Error("forest plot requires at least one point");
+  }
+  const data_values = points.map((p) => ({
+    label: p.label,
+    estimate: p.estimate,
+    ci_low: p.ci_low,
+    ci_high: p.ci_high,
+    evidence_id: p.evidence_id,
+  }));
+  return {
+    $schema: VEGA_LITE_SCHEMA_URL,
+    title,
+    data: { values: data_values },
+    layer: [
+      {
+        mark: { type: "rule" },
+        encoding: {
+          y: {
+            field: "label",
+            type: "nominal",
+            sort: null,
+            axis: { title: null },
+          },
+          x: {
+            field: "ci_low",
+            type: "quantitative",
+            title: x_label,
+          },
+          x2: { field: "ci_high" },
+        },
+      },
+      {
+        mark: { type: "point", filled: true, size: 100 },
+        encoding: {
+          y: { field: "label", type: "nominal" },
+          x: { field: "estimate", type: "quantitative" },
+          tooltip: [
+            { field: "label" },
+            { field: "estimate" },
+            { field: "ci_low" },
+            { field: "ci_high" },
+            { field: "evidence_id" },
+          ],
+        },
+      },
+    ],
+    polaris_provenance: {
+      chart_type: "forest_plot",
+      evidence_ids: points.map((p) => p.evidence_id),
+    },
+  };
+}
+
+ succeeded in 998ms:
+import { expect, test } from "@playwright/test";
+
+test("Forest plot demo route renders sample meta-analysis (rule + point marks)", async ({
+  page,
+}) => {
+  await page.goto("/charts_test/forest_plot");
+
+  const chart = page.getByTestId("vega-chart");
+  await expect(chart).toBeVisible();
+
+  const svg = chart.locator("svg");
+  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
+
+  // Vega scenegraph emits a graphics-object container per mark layer with
+  // role="graphics-object". We narrow further by aria-roledescription which
+  // Vega sets to "rule mark" / "symbol mark" on the marked groups. This
+  // avoids matching axes/gridlines/background.
+  const rule_layer = chart.locator(
+    'g[role="graphics-object"][aria-roledescription="rule mark container"]',
+  );
+  const point_layer = chart.locator(
+    'g[role="graphics-object"][aria-roledescription="symbol mark container"]',
+  );
+
+  // If Vega's exact aria-roledescription strings differ at runtime, fall back
+  // to counting graphics-symbol descendants under each role-aware container.
+  const rule_count = await rule_layer.count();
+  const point_count = await point_layer.count();
+
+  if (rule_count > 0 && point_count > 0) {
+    // Each layer present.
+    expect(rule_count).toBeGreaterThan(0);
+    expect(point_count).toBeGreaterThan(0);
+  } else {
+    // Fallback: assert at least N graphics-symbol marks (3 data points = 3
+    // rule lines + 3 point marks = 6 graphics symbols). Filters out non-mark
+    // SVG (axes/gridlines/background) by role.
+    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
+    const total_marks = await graphics_symbols.count();
+    expect(total_marks).toBeGreaterThanOrEqual(6);
+  }
+
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export type VegaLiteSpec|interface VegaLiteSpec|VegaLiteSpec" web/lib web -g "*.ts" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/charts_test/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/vega_lite_chart.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "graphics-object|graphics-symbol|aria-roledescription|bar mark|rect" web/tests/e2e -g "*.ts"' in C:\POLARIS
+ succeeded in 904ms:
+web\lib\forest_plot_spec.ts:8:import type { VegaLiteSpec } from "@/lib/api";
+web\lib\forest_plot_spec.ts:25:): VegaLiteSpec {
+web/lib\forest_plot_spec.ts:8:import type { VegaLiteSpec } from "@/lib/api";
+web/lib\forest_plot_spec.ts:25:): VegaLiteSpec {
+web\app\inspector\[runId]\page.tsx:23:  type VegaLiteSpec,
+web\app\inspector\[runId]\page.tsx:478:  const [specs, setSpecs] = useState<Record<ChartType, VegaLiteSpec | null>>({
+web\app\inspector\[runId]\page.tsx:619:  const [spec, setSpec] = useState<VegaLiteSpec | null>(null);
+web\lib\api.ts:260:export interface VegaLiteSpec {
+web\lib\api.ts:278:): Promise<VegaLiteSpec> {
+web\lib\api.ts:282:  return asJsonOrThrow<VegaLiteSpec>(response);
+web/lib\api.ts:260:export interface VegaLiteSpec {
+web/lib\api.ts:278:): Promise<VegaLiteSpec> {
+web/lib\api.ts:282:  return asJsonOrThrow<VegaLiteSpec>(response);
+web\app\charts_test\page.tsx:2:import type { VegaLiteSpec } from "@/lib/api";
+web\app\charts_test\page.tsx:4:const SAMPLE_SPEC: VegaLiteSpec = {
+web\components\ui\vega-chart.tsx:6:import type { VegaLiteSpec } from "@/lib/api";
+web\components\ui\vega-chart.tsx:9:  spec: VegaLiteSpec;
+web\components\ui\vega-chart.tsx:38:    // VegaLiteSpec from our API types is intentionally permissive; vega-embed
+
+ succeeded in 954ms:
+import { VegaChart } from "@/components/ui/vega-chart";
+import type { VegaLiteSpec } from "@/lib/api";
+
+const SAMPLE_SPEC: VegaLiteSpec = {
+  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+  title: "Sample bar chart — POLARIS vs ChatGPT vs Gemini (demo only)",
+  data: {
+    values: [
+      { dimension: "Sourcing", system: "POLARIS", score: 0.92 },
+      { dimension: "Sourcing", system: "ChatGPT DR", score: 0.78 },
+      { dimension: "Sourcing", system: "Gemini DR", score: 0.74 },
+    ],
+  },
+  mark: "bar",
+  encoding: {
+    x: { field: "system", type: "nominal" },
+    y: { field: "score", type: "quantitative" },
+    color: { field: "system", type: "nominal" },
+  },
+  polaris_provenance: {
+    chart_type: "forest_plot",
+    evidence_ids: ["demo-1", "demo-2", "demo-3"],
+  },
+};
+
+export default function ChartsTestPage() {
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Charts substrate test
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample chart — demo evidence_ids only; renders the Vega-Lite v5
+          substrate (consumed by the real forest-plot spec in I-f10-002).
+        </p>
+        <div className="mt-6">
+          <VegaChart spec={SAMPLE_SPEC} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+ succeeded in 923ms:
+import { expect, test } from "@playwright/test";
+
+test("Charts test route renders the Vega-Lite v5 sample bar chart", async ({
+  page,
+}) => {
+  await page.goto("/charts_test");
+
+  const chart = page.getByTestId("vega-chart");
+  await expect(chart).toBeVisible();
+
+  // vega-embed uses { renderer: "svg" } so the chart content is an SVG root.
+  const svg = chart.locator("svg");
+  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
+
+  // Vega rect (bar) marks render as <path> elements (vega-scenegraph
+  // SVGRenderer maps `rect` mark to SVG `path`). Three demo data points →
+  // at least three mark <path> elements.
+  const paths = chart.locator("svg path");
+  expect(await paths.count()).toBeGreaterThan(0);
+
+  // No error pane should render on a valid spec.
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+ succeeded in 997ms:
+web/tests/e2e\accessibility.spec.ts:166:  // This sweep walks every clickable element + asserts ≥24x24 directly.
+web/tests/e2e\accessibility.spec.ts:180:      // hidden file input directly) so it remains in scope.
+web/tests/e2e\command_palette_adversarial.spec.ts:4: * I-f1-004 — Adversarial corpus: zero false-positive + correct positives.
+web/tests/e2e\command_palette_adversarial.spec.ts:8: * false-positive template suggestions and DOES produce the correct
+web/tests/e2e\demo_walkthrough.spec.ts:35:    // Step 2 — retrieval (navigate directly; no nav bar mid-flow yet)
+web/tests/e2e\forest_plot_chart.spec.ts:14:  // Vega scenegraph emits a graphics-object container per mark layer with
+web/tests/e2e\forest_plot_chart.spec.ts:15:  // role="graphics-object". We narrow further by aria-roledescription which
+web/tests/e2e\forest_plot_chart.spec.ts:19:    'g[role="graphics-object"][aria-roledescription="rule mark container"]',
+web/tests/e2e\forest_plot_chart.spec.ts:22:    'g[role="graphics-object"][aria-roledescription="symbol mark container"]',
+web/tests/e2e\forest_plot_chart.spec.ts:25:  // If Vega's exact aria-roledescription strings differ at runtime, fall back
+web/tests/e2e\forest_plot_chart.spec.ts:26:  // to counting graphics-symbol descendants under each role-aware container.
+web/tests/e2e\forest_plot_chart.spec.ts:35:    // Fallback: assert at least N graphics-symbol marks (3 data points = 3
+web/tests/e2e\forest_plot_chart.spec.ts:38:    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
+web/tests/e2e\vega_lite_chart.spec.ts:15:  // Vega rect (bar) marks render as <path> elements (vega-scenegraph
+web/tests/e2e\vega_lite_chart.spec.ts:16:  // SVGRenderer maps `rect` mark to SVG `path`). Three demo data points →
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 250 -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path pyproject.toml | Select-Object -First 120' in C:\POLARIS
+ succeeded in 1129ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1157ms:
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+2026-05-08T01:21:36.454658Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path pyproject.toml | Select-Object -First 120
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.
+
+ exited 1 in 1192ms:
+Get-Content: 
+Line |
+   2 |  Get-Content -Path pyproject.toml | Select-Object -First 120
+     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.
+
+codex
+No P0/P1 blocker has surfaced from the local substrate. The only notable execution risk is brittleness around how Vega exposes bar marks to Playwright, so I’m keeping that at non-blocking severity rather than treating it as a plan failure.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"§9\\.4|9\\.4|LOC cap|CHARTER|I-f10-002|comparison_table\" -S . -g \"CLAUDE.md\" -g \"CHARTER.md\" -g \"*.md\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files | rg "(''^|['"\\\\/])(CLAUDE\\.md|CHARTER\\.md)"'$"' in C:\POLARIS
+2026-05-08T01:22:21.326299Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Total output lines: 437
+Output:
+.\CLAUDE.md:93:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+.\CLAUDE.md:134:- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+.\CLAUDE.md:142:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+.\CLAUDE.md:166:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+.\CLAUDE.md:194:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+.\CLAUDE.md:561:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+.\CLAUDE.md:571:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+.\CLAUDE.md:662:### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+.\CLAUDE.md:683:Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+.\CLAUDE.md:685:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+.\CLAUDE.md:696:Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+.\docs\handover.md:6:**Charter + Plan:** `C:\POLARIS\polaris-controls\CHARTER.md` AND `C:\POLARIS\polaris-controls\PLAN.md` (admin-only sister repo, both SHA-pinned per `state/polaris_restart/charter_sha_pin.txt`)
+.\docs\handover.md:55:1. Read `polaris-controls/CHARTER.md` and `PLAN.md`
+.\docs\handover.md:81:- Use `gh pr merge --admin` (revoked per CHARTER §1)
+.\docs\demo_runbook.md:5:**Why deprecated:** auto-merge produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1. See `memory/failure_28_commits_2026_05_03.md` and `memory/forbidden_admin_merge.md`.
+.\docs\demo_e2e_verification_2026_05_04.md:7:**Why deprecated:** auto-merge produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1. See `memory/failure_28_commits_2026_05_03.md`.
+.\docs\mission_status.md:5:**Why deprecated:** the May-4 work was produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1 (the 28-commits failure pattern, see `memory/failure_28_commits_2026_05_03.md`). The actual code is preserved in tag `pre_restart_2026_05_05` for forensic recovery but does NOT reflect the canonical state.
+.\docs\walkthroughs\2B.7\test_inputs.md:11:> Charts derived from `frame_coverage` (forest_plot + comparison_table rows
+.\outputs\forensic_report_PG_TEST_060.md:331:- [success] https://pfas-1.itrcweb.org/4-physical-and-chemical-properties/ (30000 chars, 39.4s)
+.\outputs\forensic_report_PG_TEST_060.md:367:- [success] https://lavie.bio/en/blog/reverse-osmosis-pfas/ (27787 chars, 19.4s)
+.\outputs\forensic_report_PG_TEST_060.md:490:- MF + CCRO (3 MGD plant): $345M capital, $3.07M annual O&M, $99.4M total lifecycle (Source 9)
+.\outputs\forensic_report_PG_TEST_060.md:1732:- [structured] structured:StormAnswer in=1,490 out=790 19.4s
+.\outputs\forensic_report_PG_TEST_060.md:1844:- [llm] generate in=1,349 out=760 39.4s
+.\outputs\forensic_report_PG_TEST_060.md:1960:- [llm] generate in=3,341 out=421 19.4s
+.\outputs\forensic_report_PG_TEST_060.md:2034:- [structured] structured:SourceAnalysisBatch in=5,962 out=2,081 59.4s
+.\outputs\forensic_report_PG_TEST_060.md:2227:- **[log_errors]** Log CRITICAL: 2026-02-26 12:40:19,263 | CRITICAL | src.agents.search_agent | [FIX-121] _serper_search_sync ENTERED, API key present: True (2026-02-26T20:40:19.402872+00:00)
+.\outputs\consensus_features_research.md:332:### 9.4 Publication Filters
+.\outputs\google_ai_product_ui_patterns_2025_2026.md:419:### 9.4 Grounding and Verification Visualization
+.\docs\walkthroughs\2B.7\briefing.md:22:| F10b Chart provenance | Click datum on charts whose spec emits an evidence-id-keyed identifier (per `src/polaris_v6/charts/from_bundle.py` evidence-keyed paths) → opens source span. Frame-coverage-derived charts (forest_plot / comparison_table rows from frame_coverage) emit `frame_id` and intentionally do NOT resolve through `evidenceById` in this phase. |
+.\docs\walkthroughs\2B.7\briefing.md:43:  identifiers (e.g., comparison_table / forest_plot rows derived from
+.\outputs\audits\I-ecg-001\claude_audit.md:14:## §9.4 compliance
+.\outputs\audits\I-ecg-001\claude_audit.md:25:## CHARTER §1 LOC cap
+.\outputs\audits\I-bug-082\claude_audit.md:17:## §9.4 compliance
+.\outputs\audits\I-bug-082\claude_audit.md:20:## CHARTER §1 LOC cap
+.\outputs\audits\continuous\bb60495_audit.md:6:Six-commit window: `9fe4de9` (SSE) → `8ae03b6` (Throttle) → `cc10303` (StickyConnection §9.4) → `dbe62e0` (OtelPropagate) → `3cf4737` (F-7+F-8+cycle-2 audit) → `bb60495` (F-7b a11y guardrail). Local re-run on the running 8000+3738 servers: 228 v6 tests (221 pass + 7 xfail) in 19.3s; 30/30 e2e in 35.1s; 9/9 a11y in 14.2s; 4/4 visual in 5.3s.
+.\outputs\audits\continuous\bb60495_audit.md:22:- C7 [Sticky connection §9.4 fix]: NONE for the bug fix. WARNING log + cleared `_local.client` on failure. See **P2.1** for `# pragma: no cover` mismatch.
+.\outputs\audits\I-f3-006\claude_audit.md:4:**LOC:** 144 net (under CHARTER §1 200-cap by 56)
+.\outputs\audits\I-f3-006\claude_audit.md:32:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-006\claude_audit.md:33:- CHARTER §1 200-cap: 144 net. ✓
+.\outputs\audits\I-f3-005\claude_audit.md:4:**LOC:** 258 net — **58 over CHARTER §1 200-cap. Explicit exemption requested below.**
+.\outputs\audits\I-f3-005\claude_audit.md:6:## CHARTER §1 LOC-cap exemption request
+.\outputs\audits\I-f3-005\claude_audit.md:9:- Breakdown LOC budget = 150; CHARTER cap = 200; binding multi-scenario test coverage (3 tests covering drop-pdf, drop-oversize, drop-multi) requires the upload component + page + tests.
+.\outputs\audits\I-f3-005\claude_audit.md:40:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-004\claude_audit.md:4:**LOC:** 64 net (under CHARTER §1 200-cap by 136; under breakdown 80 budget by 16)
+.\outputs\audits\I-f3-003\claude_audit.md:4:**LOC:** 155 net (under CHARTER §1 200-cap by 45)
+.\outputs\audits\I-f3-003\claude_audit.md:35:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-003\claude_audit.md:36:- CHARTER §1 200-cap: 155 net. ✓
+.\outputs\audits\I-f3-002\claude_audit.md:4:**LOC:** 111 net (under CHARTER §1 200-cap by 89)
+.\outputs\audits\I-f3-002\claude_audit.md:28:- **§9.4:** No `unittest.mock`. ✓
+.\outputs\audits\I-f3-002\claude_audit.md:29:- **CHARTER §1 200-cap:** 111 net. ✓
+.\outputs\audits\I-f3-001\claude_audit.md:4:**LOC:** 166 net (under CHARTER §1 200-cap by 34)
+.\outputs\audits\I-f3-001\claude_audit.md:41:- **§9.4:** No `unittest.mock`; tests use `StubIngester` regular class + `monkeypatch.setattr`. ✓
+.\outputs\audits\I-f3-001\claude_audit.md:43:- **CHARTER §1 200-cap:** 166 net. ✓
+.\outputs\audits\I-f2-008\claude_audit.md:4:**LOC:** 335 net insertions — **OVER CHARTER §1 200-cap by 135 lines.** Explicit exemption requested below.
+.\outputs\audits\I-f2-008\claude_audit.md:7:## CHARTER §1 LOC-cap exemption request
+.\outputs\audits\I-f2-008\claude_audit.md:52:- **§9.4:** No `unittest.mock`; Playwright `page.route` only. ✓
+.\outputs\audits\I-f2-008\claude_audit.md:54:- **CHARTER §1 200-cap:** 335 — exemption requested above.
+.\outputs\audits\I-f2-007\claude_audit.md:4:**LOC:** 141 net insertions / 3 deletions (under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-007\claude_audit.md:48:- **§9.4:** No `unittest.mock`; tests use `page.route` + `page.evaluate`. ✓
+.\outputs\audits\I-f2-007\claude_audit.md:50:- **CHARTER §1 200-cap:** 141 net insertions; well under. ✓
+.\outputs\audits\I-f2-006\claude_audit.md:4:**LOC:** 104 net (well under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-006\claude_audit.md:38:- **§9.4:** No `unittest.mock`; tests use Playwright's built-in `page.route()`. ✓
+.\outputs\audits\I-f2-006\claude_audit.md:40:- **CHARTER §1 200-cap:** 104 net. ✓
+.\outputs\audits\I-f2-005\claude_audit.md:4:**LOC:** 155 net insertions / 23 deletions (well under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-005\claude_audit.md:45:- **§9.4:** No `unittest.mock`; FakeClient harness pattern reused. ✓
+.\outputs\audits\I-f2-005\claude_audit.md:47:- **CHARTER §1 200-cap:** 155 net insertions; well under. ✓
+.\outputs\audits\I-f2-004\claude_audit.md:4:**LOC:** 161 net (under CHARTER §1 200-cap by 39 lines)
+.\outputs\audits\I-f2-004\claude_audit.md:48:- **CHARTER §1 (200 LOC cap):** 161. ✓
+.\outputs\audits\I-f2-003\claude_audit.md:4:**LOC:** 200 net (at CHARTER §1 200-cap, exact)
+.\outputs\audits\I-f2-003\claude_audit.md:41:- **§9.4:** No `unittest.mock` in `src/`; tests use regular `FakeClient` class + `app.dependency_overrides`. ✓
+.\outputs\audits\I-f2-003\claude_audit.md:43:- **CHARTER §1 200 LOC cap:** 200 exact. ✓
+.\outputs\audits\I-f2-002\claude_audit.md:6:**LOC:** 192 net (under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-002\claude_audit.md:15:1. **Protocol-based LLM client.** `ClusterLabelClient(Protocol)` decouples this module from the async `OpenRouterClient`. Tests stub with a tiny `FakeClient` (regular class, NOT `unittest.mock` — CLAUDE.md §9.4 forbidden pattern). I-f2-003 will wire the real client via a thin sync adapter (`asyncio.run` per call or persistent loop).
+.\outputs\audits\I-f2-002\claude_audit.md:21:4. **Truncation cap.** ≤ `MAX_LABEL_WORDS` (= 8) words. Defensive against verbose LLM output. Per Carney plan §F2 "one-line description" — 8-word ceiling matches typical UI badge constraints. Module-level constant per CLAUDE.md §9.4 (no magic numbers).
+.\outputs\audits\I-f2-002\claude_audit.md:35:- **CHARTER §1 (200 LOC cap):** 192 net. ✓
+.\outputs\audits\I-f2-002\claude_audit.md:36:- **§9.4 (no magic numbers, no `unittest.mock` in `src/`):** ✓
+.\outputs\audits\I-f2-001\claude_audit.md:35:**Total: +167 net.** Under 180 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f15-006\claude_audit.md:18:## §9.4 compliance
+.\outputs\audits\I-f15-006\claude_audit.md:29:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-005\claude_audit.md:14:## §9.4 compliance
+.\outputs\audits\I-f15-005\claude_audit.md:21:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-004\claude_audit.md:20:## §9.4 compliance
+.\outputs\audits\I-f15-004\claude_audit.md:34:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-003\claude_audit.md:20:## §9.4 compliance
+.\outputs\audits\I-f15-003\claude_audit.md:39:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-002\claude_audit.md:19:## §9.4 compliance
+.\outputs\audits\I-f15-002\claude_audit.md:34:## CHARTER §1 LOC cap
+.\outputs\audits\I-f10-002\claude_audit.md:1:# Claude architect audit — I-f10-002
+.\outputs\audits\I-f10-002\claude_audit.md:4:**Branch:** bot/I-f10-002
+.\outputs\audits\I-f10-002\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f10-002\claude_audit.md:18:## CHARTER §1 LOC cap
+.\outputs\audits\I-f10-001\claude_audit.md:15:- Demo spec uses valid `ChartType: "forest_plot"` per `@/lib/api`; honest-framed as "demo evidence_ids only; consumed by real forest-plot spec in I-f10-002."
+.\outputs\audits\I-f10-001\claude_audit.md:17:## §9.4 N/A frontend.
+.\outputs\audits\I-f10-001\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f1-006\claude_audit.md:32:**Total: +96 net.** Over 80 issue-budget but under CHARTER §1 200-cap. The +16 overrun came from the iter-3 active-index revision (multi-result tab B setup). Acceptable per CHARTER 200-cap binding ceiling.
+.\outputs\audits\I-f1-005\claude_audit.md:28:**Total: +47/-1 = +46 net.** Under 60 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f1-004\claude_audit.md:31:**Total: +82 net.** Under 100 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f1-003\claude_audit.md:41:**Total: +106 / -10 = +96 net additions.** Under 140 LOC issue-budget AND under CHARTER §1 200-LOC hard cap.
+.\outputs\audits\I-f1-002\claude_audit.md:9:Per iter-5 brief (Codex APPROVE), implements ⌘K command palette per CHARTER §1 ≤200 LOC cap:
+.\outputs\audits\I-f1-002\claude_audit.md:30:## LOC accounting (CHARTER §1 binding 200-cap)
+.\outputs\audits\I-f1-002\claude_audit.md:39:**Total: +218 / -20 = +198 net additions.** Under the CHARTER §1 200-LOC hard cap with 2 LOC headroom. Above the 120-LOC issue-breakdown estimate but within the binding ceiling.
+.\outputs\audits\I-f1-002\claude_audit.md:44:- iter 3: 1 P1 + 1 P2 (200-LOC overrun caught — real CHARTER violation; brief trimmed scope)
+.\outputs\audits\I-ecg-004\claude_audit.md:13:## §9.4 compliance
+.\outputs\audits\I-ecg-004\claude_audit.md:23:## CHARTER §1 LOC cap
+.\outputs\audits\I-ecg-003\claude_audit.md:16:## §9.4 N/A (frontend).
+.\outputs\audits\I-ecg-003\claude_audit.md:25:## CHARTER §1 LOC cap
+.\outputs\audits\I-ecg-002\claude_audit.md:21:## §9.4 compliance
+.\outputs\audits\I-ecg-002\claude_audit.md:33:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-002\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-002\claude_audit.md:17:## CHARTER §1 LOC cap
+.\state\restart_instructions.md:6:2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS).
+.\state\restart_instructions.md:7:3. Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
+.\state\restart_instructions.md:48:- `gh pr merge --admin` (REVOKED per CHARTER §1)
+.\state\restart_instructions.md:57:- CHARTER.md OR PLAN.md SHA pin mismatch
+.\outputs\audits\I-f8-001\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-001\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-004\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-004\claude_audit.md:17:## CHARTER §1 LOC cap
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:38:- CHARTER §1 role assignment LOCKED. Claude writes briefs+diffs; Codex reviews; user reads `git log`. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:39:- CHARTER §3 200-LOC PR cap. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:40:- CHARTER §4 immutable-tests-via-polaris-controls. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:41:- CHARTER §7 visibility (every Issue is GitHub-visible). Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:70:5. **Operator-attested signed commit on polaris-controls was Method A `--allow-empty -S` per G2 staging — does that still hold value if we skip the reset?** Yes. G2 anchors the SHA pins regardless of `polaris` history. The pins point to `polaris-controls/CHARTER.md` and `PLAN.md` content, not to any specific `polaris` commit.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:86:If the amendment is APPROVED: I delete the local `backup/pre-reset-2026-05-05` branch (already done after revert), proceed with Cleanup-PR-1 from `polaris` HEAD `85f0c38`. Cleanup-PR-1 substrate authored per cleanup_audit.md iter 21 schedule; submitted to Codex review; then to user merge per CHARTER §1.
+.\state\polaris_restart\plan.md:6:**Pin SHA (polaris-controls HEAD at authoring):** fd86bc68a1c25af44e557118e242973c04894c30 (CHARTER.md, PLAN.md both at this commit) — **HOWEVER per iter 1 finding the commit is unsigned (G?=N), so this SHA is a content reference not a signature anchor.**
+.\state\polaris_restart\plan.md:12:This plan exists because the user diagnosed structural drift across the 2026-05-04 session: 12 PRs shipped under Claude-as-coder + Claude-as-reviewer + Claude-as-merger, all merged via `gh pr merge --admin` with zero Codex review, despite `polaris-controls/CHARTER.md` §1 explicitly assigning roles as Claude=architect+reviewer-only, Codex=executor-only, user=spec-owner+merge-gate. Sister project (`we_commander`) hit the same failure mode, ran a 10-iteration Codex review loop on her restart plan to APPROVE convergence, then surfaced the equivalent of this document for user authorization. This document mirrors that approach for POLARIS, exhaustively, no toothpaste-squeeze.
+.\state\polaris_restart\plan.md:22:| Charter (8 hard rules, role assignment) | `polaris-controls/CHARTER.md` | git blob SHA via `git -C polaris-controls log -1 --format=%H -- CHARTER.md` = `fd86bc68a1c25af44e557118e242973c04894c30` (post-PR-B2: nested path; pre-PR-B2 sibling form was `git -C ../polaris-controls log ...`) |
+.\state\polaris_restart\plan.md:42:### §2.1 Memory contradicts CHARTER
+.\state\polaris_restart\plan.md:44:`memory/autonomous_merge_tradeoff.md` (in user's auto-memory, file path `C:\Users\msn\.claude\projects\C--POLARIS\memory\autonomous_merge_tradeoff.md`) records a user directive from 2026-05-04: "I will ask you to do everything autonomously. Branch protection on polaris relaxed (enforce_admins=false, no PR review required); I have effective merge authority via gh pr merge --squash --admin." This contradicts CHARTER §1 ("Claude Code is architect + reviewer ONLY") and CHARTER "Out of Scope for Claude" ("Sign any commit. Merge any PR."). CHARTER §8 says: "If any document conflicts with this Charter, this Charter wins." The memory loses. The memory must be deprecated.
+.\state\polaris_restart\plan.md:48:Files exist at `.codex/slices/slice_00{2,3,4,5}/golden_drafts/test_*.json`. They were written by me in prior sessions as draft fixtures for integration tests. CHARTER §4 says "Tests are immutable to Claude and Codex (admin-only repo, CODEOWNERS-protected)" and §"Out of Scope" says "Claude does NOT mutate any test." The drafts have no legitimacy as fitness functions because the user did not author them. They cannot be promoted to `polaris-controls/golden/slice_NNN/`. They are evidence of authorship-rule violation, not evidence of slice progress.
+.\state\polaris_restart\plan.md:52:Reviewing `git log --oneline | grep "slice 00[2345]"` …3871 tokens truncated…
+.\outputs\audits\I-f7-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-002\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-002\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-001\claude_audit.md:10:- Schema field + UI consumer; live generator does NOT yet populate `frame_coverage` — substrate target for next Issue. Demo page is the only render path today; honest framing per CLAUDE.md §9.4 + substrate-honesty memory.
+.\outputs\audits\I-f7-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\state\polaris_restart\cleanup_audit.md:26:- `polaris-controls/` directory in `C:\POLARIS\`: **EXISTS as nested admin-only sister repo** at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05 night. Gitignored from POLARIS via `.gitignore` so its files are not tracked by POLARIS git (they belong to its own git history with origin `aldrinor/polaris-controls`). DO NOT TOUCH from PR-C cleanup execution: any classification action attempting to delete, archive, or rename `polaris-controls/<anything>` is a CHARTER §1 violation and fails Codex APPROVE.
+.\state\polaris_restart\cleanup_audit.md:53:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | per CHARTER §4 immutable |
+.\state\polaris_restart\cleanup_audit.md:55:| `archive/` itself | per CHARTER §6 read-only (cleanup destination, not source) |
+.\state\polaris_restart\cleanup_audit.md:56:| `.legacy/` | **iter 14 CLEAN-LEGACY-DNT-INCONSISTENT-1 fix:** per CHARTER §6 immutable historical content; never touched. |
+.\state\polaris_restart\cleanup_audit.md:100:| `.codex/loop_log.jsonl` | K | — | per CHARTER §7 visibility log |
+.\state\polaris_restart\cleanup_audit.md:123:| `.legacy/` (tracked subtree at reset target) | K | — | **iter 14 CLEAN-LEGACY-DNT-INCONSISTENT-1 fix:** explicitly added to §2 do-not-touch list (was previously missing). Added to all rename-gate exclusions and draft-preflight excludes. KEEP per CHARTER §6 immutability. |
+.\state\polaris_restart\cleanup_audit.md:725:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | K | per CHARTER §4 immutable |
+.\state\polaris_restart\cleanup_audit.md:936:Cleanup is NOT one PR. Per plan §10 (CHARTER §3 200-LOC cap on PRs translated to file-count cap for moves) and to enable per-batch Codex audit, cleanup splits into N PRs. **All run AFTER ROAD B reset.**
+.\state\polaris_restart\cleanup_audit.md:938:Cleanup is NOT one PR. Per plan §10 (CHARTER §3 200-LOC cap on PRs translated to file-count cap for moves) and to enable per-batch Codex audit, cleanup splits into N PRs.
+.\state\polaris_restart\cleanup_audit.md:1414:Canonical Cleanup-PR-3 was ~372 files in iter 16 — violates audit's own file-count batching rule (200-LOC cap translated to ~200-file cap for moves). Iter-17 splits PR-3 into PR-3a/3b/3c each ~120-200 files. Final canonical schedule = **10 PRs**:
+.\state\polaris_restart\cleanup_audit.md:1921:2. §3.2 ARCHIVE for 200+ Codex briefs: any of the briefs actively imported or referenced from current docs (CHARTER, PLAN, agent_architecture, substrate_audit, Carney v6.2)?
+.\outputs\audits\I-f6-005\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-005\claude_audit.md:18:## CHARTER §1 LOC cap
+.\outputs\audits\I-f6-004\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-004\claude_audit.md:18:## CHARTER §1 LOC cap exemption (justified in diff brief)
+.\state\MORNING_2026_05_05.md:28:- `fd86bc6` — initial commit: CHARTER + PLAN + slice_001 spec + golden manifest
+.\outputs\audits\I-f6-003\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-003\claude_audit.md:18:## CHARTER §1 LOC cap
+.\state\handover.md:5:**That pattern was REVOKED 2026-05-05** per CHARTER §1 + polaris-restart Plan §9.1 after the 28-commits failure (`memory/failure_28_commits_2026_05_03.md`).
+.\state\handover.md:17:- `gh pr merge --admin` REVOKED from Claude (CHARTER §1)
+.\outputs\audits\I-f6-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f6-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-011\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-011\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-010\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-010\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-009\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-009\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-008\claude_audit.md:17:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-008\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-007\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-007\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-006\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-006\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-005\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-005\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-004\claude_audit.md:19:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-004\claude_audit.md:21:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-005\claude_audit.md:14:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-004\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-004\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-003\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-003\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-002\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-001\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-001\claude_audit.md:22:## CHARTER §1 LOC cap
+.\outputs\audits\I-f3-009\claude_audit.md:31:4. **§9.4 compliance:** No `unittest.mock`. FastAPI TestClient + real route.
+.\outputs\audits\I-f3-008\claude_audit.md:4:**LOC:** 145 net (under CHARTER §1 200-cap by 55)
+.\outputs\audits\I-f3-008\claude_audit.md:28:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-008\claude_audit.md:29:- CHARTER §1 200-cap: 145 net. ✓
+.\outputs\audits\I-f3-007\claude_audit.md:4:**LOC:** 230 net — **30 over CHARTER §1 200-cap. Exemption requested.**
+.\outputs\audits\I-f3-007\claude_audit.md:6:## CHARTER §1 LOC-cap exemption ask
+.\outputs\audits\I-f3-007\claude_audit.md:37:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-phase0-005\claude_audit.md:30:Brief budgeted 200 LOC at the CHARTER §3 cap. Actual diff:
+.\outputs\audits\I-phase0-005\claude_audit.md:43:1. `run_store.py` ended up larger because each function carries a parent-dir-makedirs guard, a context-manager close, and a docstring. Trimming would mean removing context managers (resource leak) or docstrings (loses CHARTER §7 visibility into the function contracts). I judged keeping them defensively over hitting the budget.
+.\outputs\audits\I-phase0-005\claude_audit.md:48:**My recommendation to Codex:** accept the overrun for this Issue with the documented rationale. Note in plan §3.0 that "200-LOC cap" is a target not a hard ceiling for Phase-0 substrate Issues that introduce both a new module AND its integration tests in one PR; future Issues split substrate-vs-tests across two PRs.
+.\outputs\audits\I-phase0-005\claude_audit.md:52:- **CHARTER §3 LOC cap overrun:** disclosed above. Mitigation: Codex final-say.
+.\outputs\audits\I-f9-003\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-003\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f9-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f9-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-006\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-006\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-005\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-005\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-004\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-004\claude_audit.md:16:## CHARTER §1 LOC cap
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 1086ms:
+.\CLAUDE.md:93:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+.\CLAUDE.md:134:- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+.\CLAUDE.md:142:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+.\CLAUDE.md:166:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+.\CLAUDE.md:194:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+.\CLAUDE.md:561:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+.\CLAUDE.md:571:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+.\CLAUDE.md:662:### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+.\CLAUDE.md:683:Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+.\CLAUDE.md:685:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+.\CLAUDE.md:696:Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+.\docs\handover.md:6:**Charter + Plan:** `C:\POLARIS\polaris-controls\CHARTER.md` AND `C:\POLARIS\polaris-controls\PLAN.md` (admin-only sister repo, both SHA-pinned per `state/polaris_restart/charter_sha_pin.txt`)
+.\docs\handover.md:55:1. Read `polaris-controls/CHARTER.md` and `PLAN.md`
+.\docs\handover.md:81:- Use `gh pr merge --admin` (revoked per CHARTER §1)
+.\docs\demo_runbook.md:5:**Why deprecated:** auto-merge produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1. See `memory/failure_28_commits_2026_05_03.md` and `memory/forbidden_admin_merge.md`.
+.\docs\demo_e2e_verification_2026_05_04.md:7:**Why deprecated:** auto-merge produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1. See `memory/failure_28_commits_2026_05_03.md`.
+.\docs\mission_status.md:5:**Why deprecated:** the May-4 work was produced via `gh pr merge --admin` from Claude's account in violation of CHARTER §1 (the 28-commits failure pattern, see `memory/failure_28_commits_2026_05_03.md`). The actual code is preserved in tag `pre_restart_2026_05_05` for forensic recovery but does NOT reflect the canonical state.
+.\docs\walkthroughs\2B.7\test_inputs.md:11:> Charts derived from `frame_coverage` (forest_plot + comparison_table rows
+.\outputs\forensic_report_PG_TEST_060.md:331:- [success] https://pfas-1.itrcweb.org/4-physical-and-chemical-properties/ (30000 chars, 39.4s)
+.\outputs\forensic_report_PG_TEST_060.md:367:- [success] https://lavie.bio/en/blog/reverse-osmosis-pfas/ (27787 chars, 19.4s)
+.\outputs\forensic_report_PG_TEST_060.md:490:- MF + CCRO (3 MGD plant): $345M capital, $3.07M annual O&M, $99.4M total lifecycle (Source 9)
+.\outputs\forensic_report_PG_TEST_060.md:1732:- [structured] structured:StormAnswer in=1,490 out=790 19.4s
+.\outputs\forensic_report_PG_TEST_060.md:1844:- [llm] generate in=1,349 out=760 39.4s
+.\outputs\forensic_report_PG_TEST_060.md:1960:- [llm] generate in=3,341 out=421 19.4s
+.\outputs\forensic_report_PG_TEST_060.md:2034:- [structured] structured:SourceAnalysisBatch in=5,962 out=2,081 59.4s
+.\outputs\forensic_report_PG_TEST_060.md:2227:- **[log_errors]** Log CRITICAL: 2026-02-26 12:40:19,263 | CRITICAL | src.agents.search_agent | [FIX-121] _serper_search_sync ENTERED, API key present: True (2026-02-26T20:40:19.402872+00:00)
+.\outputs\consensus_features_research.md:332:### 9.4 Publication Filters
+.\outputs\google_ai_product_ui_patterns_2025_2026.md:419:### 9.4 Grounding and Verification Visualization
+.\docs\walkthroughs\2B.7\briefing.md:22:| F10b Chart provenance | Click datum on charts whose spec emits an evidence-id-keyed identifier (per `src/polaris_v6/charts/from_bundle.py` evidence-keyed paths) → opens source span. Frame-coverage-derived charts (forest_plot / comparison_table rows from frame_coverage) emit `frame_id` and intentionally do NOT resolve through `evidenceById` in this phase. |
+.\docs\walkthroughs\2B.7\briefing.md:43:  identifiers (e.g., comparison_table / forest_plot rows derived from
+.\outputs\audits\I-ecg-001\claude_audit.md:14:## §9.4 compliance
+.\outputs\audits\I-ecg-001\claude_audit.md:25:## CHARTER §1 LOC cap
+.\outputs\audits\I-bug-082\claude_audit.md:17:## §9.4 compliance
+.\outputs\audits\I-bug-082\claude_audit.md:20:## CHARTER §1 LOC cap
+.\outputs\audits\continuous\bb60495_audit.md:6:Six-commit window: `9fe4de9` (SSE) → `8ae03b6` (Throttle) → `cc10303` (StickyConnection §9.4) → `dbe62e0` (OtelPropagate) → `3cf4737` (F-7+F-8+cycle-2 audit) → `bb60495` (F-7b a11y guardrail). Local re-run on the running 8000+3738 servers: 228 v6 tests (221 pass + 7 xfail) in 19.3s; 30/30 e2e in 35.1s; 9/9 a11y in 14.2s; 4/4 visual in 5.3s.
+.\outputs\audits\continuous\bb60495_audit.md:22:- C7 [Sticky connection §9.4 fix]: NONE for the bug fix. WARNING log + cleared `_local.client` on failure. See **P2.1** for `# pragma: no cover` mismatch.
+.\outputs\audits\I-f3-006\claude_audit.md:4:**LOC:** 144 net (under CHARTER §1 200-cap by 56)
+.\outputs\audits\I-f3-006\claude_audit.md:32:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-006\claude_audit.md:33:- CHARTER §1 200-cap: 144 net. ✓
+.\outputs\audits\I-f3-005\claude_audit.md:4:**LOC:** 258 net — **58 over CHARTER §1 200-cap. Explicit exemption requested below.**
+.\outputs\audits\I-f3-005\claude_audit.md:6:## CHARTER §1 LOC-cap exemption request
+.\outputs\audits\I-f3-005\claude_audit.md:9:- Breakdown LOC budget = 150; CHARTER cap = 200; binding multi-scenario test coverage (3 tests covering drop-pdf, drop-oversize, drop-multi) requires the upload component + page + tests.
+.\outputs\audits\I-f3-005\claude_audit.md:40:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-004\claude_audit.md:4:**LOC:** 64 net (under CHARTER §1 200-cap by 136; under breakdown 80 budget by 16)
+.\outputs\audits\I-f3-003\claude_audit.md:4:**LOC:** 155 net (under CHARTER §1 200-cap by 45)
+.\outputs\audits\I-f3-003\claude_audit.md:35:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-003\claude_audit.md:36:- CHARTER §1 200-cap: 155 net. ✓
+.\outputs\audits\I-f3-002\claude_audit.md:4:**LOC:** 111 net (under CHARTER §1 200-cap by 89)
+.\outputs\audits\I-f3-002\claude_audit.md:28:- **§9.4:** No `unittest.mock`. ✓
+.\outputs\audits\I-f3-002\claude_audit.md:29:- **CHARTER §1 200-cap:** 111 net. ✓
+.\outputs\audits\I-f3-001\claude_audit.md:4:**LOC:** 166 net (under CHARTER §1 200-cap by 34)
+.\outputs\audits\I-f3-001\claude_audit.md:41:- **§9.4:** No `unittest.mock`; tests use `StubIngester` regular class + `monkeypatch.setattr`. ✓
+.\outputs\audits\I-f3-001\claude_audit.md:43:- **CHARTER §1 200-cap:** 166 net. ✓
+.\outputs\audits\I-f2-008\claude_audit.md:4:**LOC:** 335 net insertions — **OVER CHARTER §1 200-cap by 135 lines.** Explicit exemption requested below.
+.\outputs\audits\I-f2-008\claude_audit.md:7:## CHARTER §1 LOC-cap exemption request
+.\outputs\audits\I-f2-008\claude_audit.md:52:- **§9.4:** No `unittest.mock`; Playwright `page.route` only. ✓
+.\outputs\audits\I-f2-008\claude_audit.md:54:- **CHARTER §1 200-cap:** 335 — exemption requested above.
+.\outputs\audits\I-f2-007\claude_audit.md:4:**LOC:** 141 net insertions / 3 deletions (under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-007\claude_audit.md:48:- **§9.4:** No `unittest.mock`; tests use `page.route` + `page.evaluate`. ✓
+.\outputs\audits\I-f2-007\claude_audit.md:50:- **CHARTER §1 200-cap:** 141 net insertions; well under. ✓
+.\outputs\audits\I-f2-006\claude_audit.md:4:**LOC:** 104 net (well under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-006\claude_audit.md:38:- **§9.4:** No `unittest.mock`; tests use Playwright's built-in `page.route()`. ✓
+.\outputs\audits\I-f2-006\claude_audit.md:40:- **CHARTER §1 200-cap:** 104 net. ✓
+.\outputs\audits\I-f2-005\claude_audit.md:4:**LOC:** 155 net insertions / 23 deletions (well under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-005\claude_audit.md:45:- **§9.4:** No `unittest.mock`; FakeClient harness pattern reused. ✓
+.\outputs\audits\I-f2-005\claude_audit.md:47:- **CHARTER §1 200-cap:** 155 net insertions; well under. ✓
+.\outputs\audits\I-f2-004\claude_audit.md:4:**LOC:** 161 net (under CHARTER §1 200-cap by 39 lines)
+.\outputs\audits\I-f2-004\claude_audit.md:48:- **CHARTER §1 (200 LOC cap):** 161. ✓
+.\outputs\audits\I-f2-003\claude_audit.md:4:**LOC:** 200 net (at CHARTER §1 200-cap, exact)
+.\outputs\audits\I-f2-003\claude_audit.md:41:- **§9.4:** No `unittest.mock` in `src/`; tests use regular `FakeClient` class + `app.dependency_overrides`. ✓
+.\outputs\audits\I-f2-003\claude_audit.md:43:- **CHARTER §1 200 LOC cap:** 200 exact. ✓
+.\outputs\audits\I-f2-002\claude_audit.md:6:**LOC:** 192 net (under CHARTER §1 200-cap)
+.\outputs\audits\I-f2-002\claude_audit.md:15:1. **Protocol-based LLM client.** `ClusterLabelClient(Protocol)` decouples this module from the async `OpenRouterClient`. Tests stub with a tiny `FakeClient` (regular class, NOT `unittest.mock` — CLAUDE.md §9.4 forbidden pattern). I-f2-003 will wire the real client via a thin sync adapter (`asyncio.run` per call or persistent loop).
+.\outputs\audits\I-f2-002\claude_audit.md:21:4. **Truncation cap.** ≤ `MAX_LABEL_WORDS` (= 8) words. Defensive against verbose LLM output. Per Carney plan §F2 "one-line description" — 8-word ceiling matches typical UI badge constraints. Module-level constant per CLAUDE.md §9.4 (no magic numbers).
+.\outputs\audits\I-f2-002\claude_audit.md:35:- **CHARTER §1 (200 LOC cap):** 192 net. ✓
+.\outputs\audits\I-f2-002\claude_audit.md:36:- **§9.4 (no magic numbers, no `unittest.mock` in `src/`):** ✓
+.\outputs\audits\I-f2-001\claude_audit.md:35:**Total: +167 net.** Under 180 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f15-006\claude_audit.md:18:## §9.4 compliance
+.\outputs\audits\I-f15-006\claude_audit.md:29:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-005\claude_audit.md:14:## §9.4 compliance
+.\outputs\audits\I-f15-005\claude_audit.md:21:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-004\claude_audit.md:20:## §9.4 compliance
+.\outputs\audits\I-f15-004\claude_audit.md:34:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-003\claude_audit.md:20:## §9.4 compliance
+.\outputs\audits\I-f15-003\claude_audit.md:39:## CHARTER §1 LOC cap
+.\outputs\audits\I-f15-002\claude_audit.md:19:## §9.4 compliance
+.\outputs\audits\I-f15-002\claude_audit.md:34:## CHARTER §1 LOC cap
+.\outputs\audits\I-f10-002\claude_audit.md:1:# Claude architect audit — I-f10-002
+.\outputs\audits\I-f10-002\claude_audit.md:4:**Branch:** bot/I-f10-002
+.\outputs\audits\I-f10-002\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f10-002\claude_audit.md:18:## CHARTER §1 LOC cap
+.\outputs\audits\I-f10-001\claude_audit.md:15:- Demo spec uses valid `ChartType: "forest_plot"` per `@/lib/api`; honest-framed as "demo evidence_ids only; consumed by real forest-plot spec in I-f10-002."
+.\outputs\audits\I-f10-001\claude_audit.md:17:## §9.4 N/A frontend.
+.\outputs\audits\I-f10-001\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f1-006\claude_audit.md:32:**Total: +96 net.** Over 80 issue-budget but under CHARTER §1 200-cap. The +16 overrun came from the iter-3 active-index revision (multi-result tab B setup). Acceptable per CHARTER 200-cap binding ceiling.
+.\outputs\audits\I-f1-005\claude_audit.md:28:**Total: +47/-1 = +46 net.** Under 60 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f1-004\claude_audit.md:31:**Total: +82 net.** Under 100 issue-budget AND CHARTER §1 200-cap.
+.\outputs\audits\I-f1-003\claude_audit.md:41:**Total: +106 / -10 = +96 net additions.** Under 140 LOC issue-budget AND under CHARTER §1 200-LOC hard cap.
+.\outputs\audits\I-f1-002\claude_audit.md:9:Per iter-5 brief (Codex APPROVE), implements ⌘K command palette per CHARTER §1 ≤200 LOC cap:
+.\outputs\audits\I-f1-002\claude_audit.md:30:## LOC accounting (CHARTER §1 binding 200-cap)
+.\outputs\audits\I-f1-002\claude_audit.md:39:**Total: +218 / -20 = +198 net additions.** Under the CHARTER §1 200-LOC hard cap with 2 LOC headroom. Above the 120-LOC issue-breakdown estimate but within the binding ceiling.
+.\outputs\audits\I-f1-002\claude_audit.md:44:- iter 3: 1 P1 + 1 P2 (200-LOC overrun caught — real CHARTER violation; brief trimmed scope)
+.\outputs\audits\I-ecg-004\claude_audit.md:13:## §9.4 compliance
+.\outputs\audits\I-ecg-004\claude_audit.md:23:## CHARTER §1 LOC cap
+.\outputs\audits\I-ecg-003\claude_audit.md:16:## §9.4 N/A (frontend).
+.\outputs\audits\I-ecg-003\claude_audit.md:25:## CHARTER §1 LOC cap
+.\outputs\audits\I-ecg-002\claude_audit.md:21:## §9.4 compliance
+.\outputs\audits\I-ecg-002\claude_audit.md:33:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-002\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-002\claude_audit.md:17:## CHARTER §1 LOC cap
+.\state\restart_instructions.md:6:2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS).
+.\state\restart_instructions.md:7:3. Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
+.\state\restart_instructions.md:48:- `gh pr merge --admin` (REVOKED per CHARTER §1)
+.\state\restart_instructions.md:57:- CHARTER.md OR PLAN.md SHA pin mismatch
+.\outputs\audits\I-f8-001\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-001\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-004\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-004\claude_audit.md:17:## CHARTER §1 LOC cap
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:38:- CHARTER §1 role assignment LOCKED. Claude writes briefs+diffs; Codex reviews; user reads `git log`. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:39:- CHARTER §3 200-LOC PR cap. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:40:- CHARTER §4 immutable-tests-via-polaris-controls. Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:41:- CHARTER §7 visibility (every Issue is GitHub-visible). Unchanged.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:70:5. **Operator-attested signed commit on polaris-controls was Method A `--allow-empty -S` per G2 staging — does that still hold value if we skip the reset?** Yes. G2 anchors the SHA pins regardless of `polaris` history. The pins point to `polaris-controls/CHARTER.md` and `PLAN.md` content, not to any specific `polaris` commit.
+.\state\polaris_restart\plan_amendment_skip_road_b_reset.md:86:If the amendment is APPROVED: I delete the local `backup/pre-reset-2026-05-05` branch (already done after revert), proceed with Cleanup-PR-1 from `polaris` HEAD `85f0c38`. Cleanup-PR-1 substrate authored per cleanup_audit.md iter 21 schedule; submitted to Codex review; then to user merge per CHARTER §1.
+.\state\polaris_restart\plan.md:6:**Pin SHA (polaris-controls HEAD at authoring):** fd86bc68a1c25af44e557118e242973c04894c30 (CHARTER.md, PLAN.md both at this commit) — **HOWEVER per iter 1 finding the commit is unsigned (G?=N), so this SHA is a content reference not a signature anchor.**
+.\state\polaris_restart\plan.md:12:This plan exists because the user diagnosed structural drift across the 2026-05-04 session: 12 PRs shipped under Claude-as-coder + Claude-as-reviewer + Claude-as-merger, all merged via `gh pr merge --admin` with zero Codex review, despite `polaris-controls/CHARTER.md` §1 explicitly assigning roles as Claude=architect+reviewer-only, Codex=executor-only, user=spec-owner+merge-gate. Sister project (`we_commander`) hit the same failure mode, ran a 10-iteration Codex review loop on her restart plan to APPROVE convergence, then surfaced the equivalent of this document for user authorization. This document mirrors that approach for POLARIS, exhaustively, no toothpaste-squeeze.
+.\state\polaris_restart\plan.md:22:| Charter (8 hard rules, role assignment) | `polaris-controls/CHARTER.md` | git blob SHA via `git -C polaris-controls log -1 --format=%H -- CHARTER.md` = `fd86bc68a1c25af44e557118e242973c04894c30` (post-PR-B2: nested path; pre-PR-B2 sibling form was `git -C ../polaris-controls log ...`) |
+.\state\polaris_restart\plan.md:42:### §2.1 Memory contradicts CHARTER
+.\state\polaris_restart\plan.md:44:`memory/autonomous_merge_tradeoff.md` (in user's auto-memory, file path `C:\Users\msn\.claude\projects\C--POLARIS\memory\autonomous_merge_tradeoff.md`) records a user directive from 2026-05-04: "I will ask you to do everything autonomously. Branch protection on polaris relaxed (enforce_admins=false, no PR review required); I have effective merge authority via gh pr merge --squash --admin." This contradicts CHARTER §1 ("Claude Code is architect + reviewer ONLY") and CHARTER "Out of Scope for Claude" ("Sign any commit. Merge any PR."). CHARTER §8 says: "If any document conflicts with this Charter, this Charter wins." The memory loses. The memory must be deprecated.
+.\state\polaris_restart\plan.md:48:Files exist at `.codex/slices/slice_00{2,3,4,5}/golden_drafts/test_*.json`. They were written by me in prior sessions as draft fixtures for integration tests. CHARTER §4 says "Tests are immutable to Claude and Codex (admin-only repo, CODEOWNERS-protected)" and §"Out of Scope" says "Claude does NOT mutate any test." The drafts have no legitimacy as fitness functions because the user did not author them. They cannot be promoted to `polaris-controls/golden/slice_NNN/`. They are evidence of authorship-rule violation, not evidence of slice progress.
+.\state\polaris_restart\plan.md:52:Reviewing `git log --oneline | grep "slice 00[2345]"` shows 50+ PRs across slices 002-005 implementing schemas, fetchers, routes, UI pages, integration tests. None has a corresponding `.codex/<task>/codex_verdict.json` showing Codex independently audited the diff before merge. Per CHARTER §1 these were Codex's job, not mine. Same shape as sister's 95-PR speculative pile. Cannot be retroactively legitimized by self-author audit (sister's iter-3 finding: triage by self-author IS self-validation).
+.\state\polaris_restart\plan.md:79:This contradicts §1 foundation claim and CHARTER §4. CHARTER §4 says "Tests are immutable to Claude and Codex (admin-only repo, CODEOWNERS-protected)". The goldens were created by Claude. The polaris-controls repo claiming to be admin-only governance is itself a Claude-authored repo with unsigned commits.
+.\state\polaris_restart\plan.md:82:- `polaris-controls/CHARTER.md` — content is Claude's draft of charter rules, committed unsigned
+.\state\polaris_restart\plan.md:133:Verified via `gh api repos/aldrinor/polaris` and CHARTER §1:
+.\state\polaris_restart\plan.md:143:CHARTER §1 also says "Codex CLI is executor ONLY". This means: when there is code to write, Codex writes it. Claude's role is to brief Codex and review Codex's output. **This inverts the 2026-05-04 session pattern where Claude both wrote and reviewed.** It also means Codex must be invoked to write code, not just to review. Sister's session shipped many issues with Claude writing code and Codex reviewing — that's a softer interpretation. The strict interpretation per CHARTER §1 is Codex writes, Claude reviews. **This is a user decision (§7 below).**
+.\state\polaris_restart\plan.md:151:The 15 features F1-F15 + Phase 0 substrate + Phase 4 sovereign migration + Phase 5 handover decompose into atomic issues. CHARTER §3 caps each PR at 200 LOC, so each feature decomposes into multiple issues.
+.\state\polaris_restart\plan.md:395:- **Halt on polish**: per CHARTER §4 "Slice is done when golden tests pass — then STOP." Issue is done when its acceptance criteria pass. No "while we're at it" subsequent work in the same PR.
+.\state\polaris_restart\plan.md:401:CHARTER §1 says "Codex CLI is executor ONLY". Two interpretations of that. Both detailed below as user decision §7.A.
+.\state\polaris_restart\plan.md:407:Step 2.  I write .codex/I-X-NNN/brief.md per CHARTER §7 visibility:
+.\state\polaris_restart\plan.md:410:         - Foundation refs (CHARTER §, PLAN §, substrate path, slice spec path)
+.\state\polaris_restart\plan.md:416:Step 7.  I review the diff (architect role per CHARTER §1)
+.\state\polaris_restart\plan.md:430:Same flow, but Step 5 is "I write code on bot/I-X-NNN branch" instead of "Codex writes". Step 6-9 unchanged (Codex still independently audits the diff). This matches sister's actual session pattern. Strict interpretation matches CHARTER §1 verbatim.
+.\state\polaris_restart\plan.md:455:- CHARTER §1 "user is merge gate" is satisfied via the morning review, not per-PR click
+.\state\polaris_restart\plan.md:516:LOCKED: G2. User reviews + approves Claude-drafted slice 001 goldens via signed re-commit in `polaris-controls`. The 5 existing JSON test files stay byte-for-byte identical. The `_drafting_notes` field per JSON gets a co-signature line: "Operator-approved by aldrinor on 2026-05-05 via signed commit." A NEW signed commit on `polaris-controls` (signed by user with hardware token per CHARTER §"Plan Edit Path") transfers ownership semantically without rewriting content.
+.\state\polaris_restart\plan.md:518:Why G2 satisfies CHARTER §4: §4 says "Tests are immutable to Claude and Codex (admin-only repo, CODEOWNERS-protected)." The operative invariant is that neither Claude nor Codex can modify the goldens after the fact. G2 establishes that invariant going forward via signed commit + CODEOWNERS protection. Pre-G2 origin (Claude drafted, user did not sign) is acknowledged as a one-time exception logged in §2.8.
+.\state\polaris_restart\plan.md:557:Cleanup scope is the entire `C:\POLARIS\` tree EXCEPT the do-not-touch list §8.1. CHARTER §6 says "Code in `POLARIS/.legacy/` is read-only reference" and CLAUDE.md §5 defines standard layout. Cleanup must classify every file/folder as KEEP / ARCHIVE / DELETE / RENAME with reason.
+.\state\polaris_restart\plan.md:605:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | per CHARTER §4 immutable |
+.\state\polaris_restart\plan.md:607:| `.legacy/` if exists | per CHARTER §6 read-only |
+.\state\polaris_restart\plan.md:611:- **KEEP**: in active production code path (imported from `scripts/live_server.py` or `src/polaris_v6/api/app.py` import closure), or referenced from CHARTER/PLAN/v6.2/architecture.md, or in standard layout per CLAUDE.md §5
+.\state\polaris_restart\plan.md:626:- `.codex/slices/slice_00{2,3,4,5}/golden_drafts/` — ARCHIVE (not delete) because they are evidence of CHARTER §4 violation (Codex auditor needs to see what I wrote). Path: `archive/2026-05-05/claude_authored_golden_drafts/slice_00X/`.
+.\state\polaris_restart\plan.md:650:| `.codex/slices/slice_00{2,3,4,5}/golden_drafts/` | ARCHIVE | CHARTER §4 violation evidence |
+.\state\polaris_restart\plan.md:654:| `.codex/loop_log.jsonl` | KEEP per CHARTER §7 visibility |
+.\state\polaris_restart\plan.md:657:| `.legacy/` | KEEP per CHARTER §6 read-only |
+.\state\polaris_restart\plan.md:661:| `archive/` | KEEP per CHARTER §6 (this is where new ARCHIVE goes) |
+.\state\polaris_restart\plan.md:707:| `outputs/audits/codex_consultation_2026-05-03_round{2..9}.md` (8 files) | KEEP (audit trail per CHARTER §7) |
+.\state\polaris_restart\plan.md:744:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | KEEP per CHARTER §4 |
+.\state\polaris_restart\plan.md:801:Update §3.1 startup protocol step 0 to also verify `polaris-controls/CHARTER.md` SHA against current `state/polaris_restart/charter_sha_pin.txt`.
+.\state\polaris_restart\plan.md:805:Add §10 to CLAUDE.md "Session boot ritual" mirroring sister's CHARTER session-start ritual:
+.\state\polaris_restart\plan.md:806:1. Read polaris-controls CHARTER.md and PLAN.md
+.\state\polaris_restart\plan.md:820:- ADD memory entry `polaris_restart_2026_05_05.md`: "Cage tightened. Claude-as-coder pattern revoked. Codex executes per CHARTER §1. Per-Issue triple required. gh pr merge --admin revoked. Read state/polaris_restart/plan.md at session resume."
+.\state\polaris_restart\plan.md:823:### §9.4 docs/ updates
+.\state\polaris_restart\plan.md:838:- Replace: `state/restart_instructions.md` — points to issue_breakdown.md and CHARTER.md ritual
+.\state\polaris_restart\plan.md:846:1. ALWAYS verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` blob hashes (`git hash-object`, not `gh api`) against `state/polaris_restart/charter_sha_pin.txt` on EVERY tool call. There is NO same-day-stamp shortcut.
+.\state\polaris_restart\plan.md:848:3. If either SHA mismatches OR pin missing OR file missing: emit `{"hookSpecificOutput": {"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SHA pin drift detected: <details>. Halt per Plan §10. Resolution requires user-side reconciliation: user reads polaris-controls/CHARTER.md + PLAN.md, decides whether the live SHAs are the new canonical, then signs a commit updating state/polaris_restart/charter_sha_pin.txt. Hook will allow tool calls again on next invocation after reconciliation. Claude must NOT write the stamp file directly."}}` and exit 0 (Claude Code reads `permissionDecision: deny` from stdout JSON regardless of exit code).
+.\state\polaris_restart\plan.md:896:- Edit `polaris-controls/CHARTER.md` to weaken charter §4
+.\state\polaris_restart\plan.md:902:3. `polaris-controls/` repo branch protection requires signed commits. Claude has no signing key (per CHARTER "Out of Scope": "Sign any commit"). User signs all governance changes with hardware token.
+.\state\polaris_restart\plan.md:986:Authoritative implementation in §9.6a. This subsection is a pointer only: the hook is wired via `.claude/settings.json` (TRACKED, project-scoped per memory `stop_hook_must_be_project_scoped.md`) using `$CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py` as the command. Verifies BOTH CHARTER.md AND PLAN.md SHAs via `git hash-object` against `state/polaris_restart/charter_sha_pin.txt` on every tool call. No same-day-stamp shortcut. Stamp is informational only; deny payload is the JSON in §9.6a.
+.\state\polaris_restart\plan.md:1003:- Author slice specs in `polaris-controls/slices/slice_00{2,3,4,5}_*.md` (per CHARTER §"Out of Scope" — only user can)
+.\state\polaris_restart\plan.md:1004:- Author goldens in `polaris-controls/golden/slice_NNN/` (per CHARTER §4 immutable to me)
+.\state\polaris_restart\plan.md:1079:- Trust-model contradiction §7.B: pure auto-merge contradicts CHARTER §1 "user is merge gate". Hybrid contradicts the same with carve-outs. Pure user-merge matches CHARTER but slowest. Verify there is no fourth option.
+.\state\polaris_restart\iteration_trajectory.md:57:| 5 | 0 | 0 | 1 | 3 | ~? | continue | **PRB5-P1-001:** core PR-B files untracked — I'd been editing without `git add`. Plus 3 P2 (bash comment overstatement, handover header CHARTER-only, runtime audit log not in scope). |
+.\state\polaris_restart\issue_breakdown.md:7:This document expands plan §4 into the canonical Issue list. Each Issue has `id`, `title`, `scope`, `acceptance_criteria`, `foundation_refs`, `addBlockedBy`, `phase`, `feature`, plus LOC estimate per CHARTER §3. The `addBlockedBy` chain enforces military-order sequential execution.
+.\state\polaris_restart\issue_breakdown.md:9:Issues are atomic per CHARTER §3 (≤200 LOC PR cap). Multi-PR features decompose to N Issues, each with its own brief→APPROVE→diff→APPROVE→merge cycle.
+.\state\polaris_restart\issue_breakdown.md:53:2. **§9.6a session-start hook deployed** — `scripts/hooks/session_start_check.py` (canonical, cross-platform) + `scripts/hooks/session_start_check.sh` (fallback) + `.claude/settings.json` (TRACKED, project-shared) wire the PreToolUse matcher with `python $CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py`. Hook verifies BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` blob hashes against `state/polaris_restart/charter_sha_pin.txt` on every tool call (no same-day-stamp shortcut; stamp is informational only). Verification: any Bash/Edit/Write/MultiEdit call with mismatched or missing pin emits PreToolUse deny payload with reconciliation instructions.
+.\state\polaris_restart\issue_breakdown.md:54:3. **§7.G G2 signed commit on polaris-controls** — operator-approval commit exists with body acknowledging slice 001 goldens + CHARTER + PLAN SHAs.
+.\state\polaris_restart\issue_breakdown.md:62:## §3 Issue body template (CHARTER §7 visibility — FIXED iter 2 P1-VISIBILITY-GAP)
+.\state\polaris_restart\issue_breakdown.md:71:- CHARTER §<N> (`polaris-controls/CHARTER.md`)
+.\state\polaris_restart\issue_breakdown.md:87:<integer; must be ≤200 per CHARTER §3>
+.\state\polaris_restart\issue_breakdown.md:89:## Per-Issue artifacts required at PR open (CHARTER §7 visibility)
+.\state\polaris_restart\issue_breakdown.md:126:- **Foundation refs:** every Issue references (a) `state/polaris_restart/plan.md` §4 (the master breakdown), (b) `polaris-controls/CHARTER.md` §1+§3+§4+§7 (role assignment + LOC cap + immutable tests + visibility), (c) `polaris-controls/PLAN.md` (slice progression context), (d) `docs/carney_delivery_plan_v6_2.md` §<feature or phase>. Issue-specific foundation refs (e.g., specific substrate paths) appear ONLY when the Issue depends on a non-default reference; these are listed inline in the Issue.
+.\state\polaris_restart\issue_breakdown.md:801:- **Blocks:** I-f10-002
+.\state\polaris_restart\issue_breakdown.md:803:### I-f10-002 — Forest plot chart spec
+.\state\polaris_restart\issue_breakdown.md:814:- **Blocked by:** I-f10-002
+.\state\polaris_restart\issue_breakdown.md:1343:Carney v6.2 §"Phase plan" gives calendar windows for each phase (Phase 1 May 13-31, etc.). These are historical context from the v6.2 document, not execution commitments. Per CHARTER §3 (200-LOC PR cap) + §5 (reviewer-fatigue halt at >3 PRs/24h) + per-Issue Codex iteration cycles, real velocity will diverge from calendar. Execution rate is measured by Issue throughput per day post-execution-start, not by calendar dates.
+.\state\polaris_restart\issue_breakdown.md:1347:## §35 Halt conditions (CHARTER §5 + plan §10 — FIXED iter 2 P1-VISIBILITY-GAP)
+.\state\polaris_restart\issue_breakdown.md:1351:- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
+.\state\polaris_restart\issue_breakdown.md:1354:- PR > 200 net additions (per CHARTER §3)
+.\state\polaris_restart\issue_breakdown.md:1363:- SHA pin drift: polaris-controls/CHARTER.md SHA changes between sessions → halt session-start hook
+.\state\polaris_restart\g2_acknowledgement.md:6:**Authority:** CHARTER §"Plan Edit Path" — hardware-token-signed commit on admin-only `polaris-controls` repo.
+.\state\polaris_restart\g2_acknowledgement.md:14:f4935571ed8fff4ba20a945a45ab990206d624f7  polaris-controls/CHARTER.md
+.\state\polaris_restart\g2_acknowledgement.md:18:These are `git hash-object` blob hashes, computed against the working-tree contents of `polaris-controls/CHARTER.md` and `polaris-controls/PLAN.md` as of 2026-05-05.
+.\state\polaris_restart\g2_acknowledgement.md:32:- Adopts CHARTER §4 invariant going forward: **tests are immutable to Claude and Codex** (admin-only `polaris-controls/` repo, CODEOWNERS-protected).
+.\state\polaris_restart\g2_acknowledgement.md:75:git commit --allow-empty -S -m "G2: anchor CHARTER+PLAN SHAs
+.\state\polaris_restart\g2_acknowledgement.md:77:f4935571ed8fff4ba20a945a45ab990206d624f7  CHARTER.md
+.\state\polaris_restart\g2_acknowledgement.md:91:git commit -S -m "G2: anchor CHARTER+PLAN SHAs (per g2_acknowledgement_2026_05_05.md)"
+.\state\polaris_restart\codex_iter_4_brief.md:15:The G2 signed re-commit transfers ownership semantically (operator approval) without rewriting content. CHARTER §4 invariant ("Tests are immutable to Claude and Codex") holds going forward via signed commit + CODEOWNERS protection. Pre-G2 origin (Claude drafted, user did not sign) is acknowledged as a one-time exception logged in §2.8.
+.\state\polaris_restart\codex_iter_4_brief.md:19:The user's signed re-commit acknowledging the goldens AND the prior charter+plan establishes governance anchor. Specifically the signed commit body should also explicitly state "Operator confirms `polaris-controls/CHARTER.md` (SHA fd86bc68) and `polaris-controls/PLAN.md` (SHA fd86bc68) reviewed and approved." — this single signed commit covers all three artifacts that were unsigned.
+.\state\polaris_restart\codex_iter_3_focused_brief.md:12:4. `polaris-controls/CHARTER.md` SHA: `fd86bc68a1c25af44e557118e242973c04894c30` — confirmed
+.\state\polaris_restart\codex_iter_3_focused_brief.md:67:6. §7.G recommendation G2: is "user-approved-not-user-authored via signed re-commit" sufficient per CHARTER §4 spirit?
+.\outputs\audits\I-f7-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-002\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-002\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f7-001\claude_audit.md:10:- Schema field + UI consumer; live generator does NOT yet populate `frame_coverage` — substrate target for next Issue. Demo page is the only render path today; honest framing per CLAUDE.md §9.4 + substrate-honesty memory.
+.\outputs\audits\I-f7-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f7-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\state\polaris_restart\cleanup_audit.md:26:- `polaris-controls/` directory in `C:\POLARIS\`: **EXISTS as nested admin-only sister repo** at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05 night. Gitignored from POLARIS via `.gitignore` so its files are not tracked by POLARIS git (they belong to its own git history with origin `aldrinor/polaris-controls`). DO NOT TOUCH from PR-C cleanup execution: any classification action attempting to delete, archive, or rename `polaris-controls/<anything>` is a CHARTER §1 violation and fails Codex APPROVE.
+.\state\polaris_restart\cleanup_audit.md:53:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | per CHARTER §4 immutable |
+.\state\polaris_restart\cleanup_audit.md:55:| `archive/` itself | per CHARTER §6 read-only (cleanup destination, not source) |
+.\state\polaris_restart\cleanup_audit.md:56:| `.legacy/` | **iter 14 CLEAN-LEGACY-DNT-INCONSISTENT-1 fix:** per CHARTER §6 immutable historical content; never touched. |
+.\state\polaris_restart\cleanup_audit.md:100:| `.codex/loop_log.jsonl` | K | — | per CHARTER §7 visibility log |
+.\state\polaris_restart\cleanup_audit.md:123:| `.legacy/` (tracked subtree at reset target) | K | — | **iter 14 CLEAN-LEGACY-DNT-INCONSISTENT-1 fix:** explicitly added to §2 do-not-touch list (was previously missing). Added to all rename-gate exclusions and draft-preflight excludes. KEEP per CHARTER §6 immutability. |
+.\state\polaris_restart\cleanup_audit.md:725:| `tests/polaris_graph/golden/test_slice_001_goldens.py` | K | per CHARTER §4 immutable |
+.\state\polaris_restart\cleanup_audit.md:936:Cleanup is NOT one PR. Per plan §10 (CHARTER §3 200-LOC cap on PRs translated to file-count cap for moves) and to enable per-batch Codex audit, cleanup splits into N PRs. **All run AFTER ROAD B reset.**
+.\state\polaris_restart\cleanup_audit.md:938:Cleanup is NOT one PR. Per plan §10 (CHARTER §3 200-LOC cap on PRs translated to file-count cap for moves) and to enable per-batch Codex audit, cleanup splits into N PRs.
+.\state\polaris_restart\cleanup_audit.md:1414:Canonical Cleanup-PR-3 was ~372 files in iter 16 — violates audit's own file-count batching rule (200-LOC cap translated to ~200-file cap for moves). Iter-17 splits PR-3 into PR-3a/3b/3c each ~120-200 files. Final canonical schedule = **10 PRs**:
+.\state\polaris_restart\cleanup_audit.md:1921:2. §3.2 ARCHIVE for 200+ Codex briefs: any of the briefs actively imported or referenced from current docs (CHARTER, PLAN, agent_architecture, substrate_audit, Carney v6.2)?
+.\outputs\audits\I-f6-005\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-005\claude_audit.md:18:## CHARTER §1 LOC cap
+.\outputs\audits\I-f6-004\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-004\claude_audit.md:18:## CHARTER §1 LOC cap exemption (justified in diff brief)
+.\state\MORNING_2026_05_05.md:28:- `fd86bc6` — initial commit: CHARTER + PLAN + slice_001 spec + golden manifest
+.\outputs\audits\I-f6-003\claude_audit.md:16:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-003\claude_audit.md:18:## CHARTER §1 LOC cap
+.\state\handover.md:5:**That pattern was REVOKED 2026-05-05** per CHARTER §1 + polaris-restart Plan §9.1 after the 28-commits failure (`memory/failure_28_commits_2026_05_03.md`).
+.\state\handover.md:17:- `gh pr merge --admin` REVOKED from Claude (CHARTER §1)
+.\outputs\audits\I-f6-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f6-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f6-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-011\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-011\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-010\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-010\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-009\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-009\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-008\claude_audit.md:17:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-008\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-007\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-007\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-006\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-006\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-005\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-005\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-004\claude_audit.md:19:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-004\claude_audit.md:21:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-003\claude_audit.md:15:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-003\claude_audit.md:17:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f5-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f5-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-005\claude_audit.md:14:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-004\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-004\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-003\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-003\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-002\claude_audit.md:19:## CHARTER §1 LOC cap
+.\outputs\audits\I-f4-001\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f4-001\claude_audit.md:22:## CHARTER §1 LOC cap
+.\outputs\audits\I-f3-009\claude_audit.md:31:4. **§9.4 compliance:** No `unittest.mock`. FastAPI TestClient + real route.
+.\outputs\audits\I-f3-008\claude_audit.md:4:**LOC:** 145 net (under CHARTER §1 200-cap by 55)
+.\outputs\audits\I-f3-008\claude_audit.md:28:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-f3-008\claude_audit.md:29:- CHARTER §1 200-cap: 145 net. ✓
+.\outputs\audits\I-f3-007\claude_audit.md:4:**LOC:** 230 net — **30 over CHARTER §1 200-cap. Exemption requested.**
+.\outputs\audits\I-f3-007\claude_audit.md:6:## CHARTER §1 LOC-cap exemption ask
+.\outputs\audits\I-f3-007\claude_audit.md:37:- §9.4: No `unittest.mock`. ✓
+.\outputs\audits\I-phase0-005\claude_audit.md:30:Brief budgeted 200 LOC at the CHARTER §3 cap. Actual diff:
+.\outputs\audits\I-phase0-005\claude_audit.md:43:1. `run_store.py` ended up larger because each function carries a parent-dir-makedirs guard, a context-manager close, and a docstring. Trimming would mean removing context managers (resource leak) or docstrings (loses CHARTER §7 visibility into the function contracts). I judged keeping them defensively over hitting the budget.
+.\outputs\audits\I-phase0-005\claude_audit.md:48:**My recommendation to Codex:** accept the overrun for this Issue with the documented rationale. Note in plan §3.0 that "200-LOC cap" is a target not a hard ceiling for Phase-0 substrate Issues that introduce both a new module AND its integration tests in one PR; future Issues split substrate-vs-tests across two PRs.
+.\outputs\audits\I-phase0-005\claude_audit.md:52:- **CHARTER §3 LOC cap overrun:** disclosed above. Mitigation: Codex final-say.
+.\outputs\audits\I-f9-003\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-003\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f9-002\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-002\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f9-001\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f9-001\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-006\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-006\claude_audit.md:16:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-005\claude_audit.md:13:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-005\claude_audit.md:15:## CHARTER §1 LOC cap
+.\outputs\audits\I-f8-004\claude_audit.md:14:## §9.4 N/A frontend.
+.\outputs\audits\I-f8-004\claude_audit.md:16:## CHARTER §1 LOC cap
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 1090ms:
+web\CLAUDE.md
+CLAUDE.md
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+2026-05-08T01:22:21.329374Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+web\CLAUDE.md
+CLAUDE.md
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path -Path web/node_modules; Test-Path -Path web/package-lock.json; Test-Path -Path web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"playwright\\.config|package-lock|pnpm-lock|yarn\\.lock\"" in C:\POLARIS
+ succeeded in 890ms:
+True
+True
+True
+
+ succeeded in 916ms:
+web\playwright.config.ts
+web\package-lock.json
+
+codex
+I’m going one level deeper on the only weak point: checking the actual Vega SVG output for a bar spec, so the Playwright-risk classification is based on runtime behavior instead of guesswork.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+const vega = require('vega');
+const vl = require('vega-lite');
+const spec = {
+  "'$schema: '"'https://vega.github.io/schema/vega-lite/v5.json',
+  title: 't',
+  data: { values: [
+    {entity:'A', metric:'m1', value: 1, evidence_id:'e1'},
+    {entity:'B', metric:'m1', value: 2, evidence_id:'e2'},
+    {entity:'A', metric:'m2', value: 3, evidence_id:'e3'},
+    {entity:'B', metric:'m2', value: 4, evidence_id:'e4'},
+  ] },
+  mark: {type:'bar'},
+  encoding: {
+    y: {field:'entity', type:'nominal', axis:{title:null}},
+    x: {field:'value', type:'quantitative'},
+    color: {field:'metric', type:'nominal'},
+    tooltip: [{field:'entity'}, {field:'metric'}, {field:'value'}, {field:'evidence_id'}]
+  }
+};
+const runtime = vega.parse(vl.compile(spec).spec);
+new vega.View(runtime, {renderer:'none'}).toSVG().then(svg => {
+  console.log((svg.match(/role=\"graphics-symbol\"/g)||[]).length);
+  console.log((svg.match(/aria-roledescription=\"["'^"]*bar[''^"]*"/g)||[]).slice(0,8).join('"'\\n'));
+  console.log((svg.match(/<path/g)||[]).length);
+}).catch(e => { console.error(e); process.exit(1); });
+'@ | node -" in C:\POLARIS\web
+2026-05-08T01:22:49.789441Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+node:internal/modules/esm/module_job:432
+      throw new ERR_REQUIRE_ASYNC_MODULE(filename, parentFilename);
+      ^
+
+Error [ERR_REQUIRE_ASYNC_MODULE]: require() cannot be used on an ESM graph with top-level await. Use import() instead. To see where the top-level await comes from, use --experimental-print-required-tla.
+  From C:\POLARIS\web\[stdin] 
+  Requiring C:\POLARIS\web\node_modules\vega\build\vega.module.js 
+    at ModuleJobSync.runSync (node:internal/modules/esm/module_job:432:13)
+    at ModuleLoader.importSyncForRequire (node:internal/modules/esm/loader:427:47)
+    at loadESMFromCJS (node:internal/modules/cjs/loader:1561:24)
+    at Module._compile (node:internal/modules/cjs/loader:1712:5)
+    at Object..js (node:internal/modules/cjs/loader:1895:10)
+    at Module.load (node:internal/modules/cjs/loader:1465:32)
+    at Function._load (node:internal/modules/cjs/loader:1282:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+    at Module.require (node:internal/modules/cjs/loader:1487:12) {
+  code: 'ERR_REQUIRE_ASYNC_MODULE'
+}
+
+Node.js v22.17.1
+
+ exited 1 in 1282ms:
+node:internal/modules/esm/module_job:432
+      throw new ERR_REQUIRE_ASYNC_MODULE(filename, parentFilename);
+      ^
+
+Error [ERR_REQUIRE_ASYNC_MODULE]: require() cannot be used on an ESM graph with top-level await. Use import() instead. To see where the top-level await comes from, use --experimental-print-required-tla.
+  From C:\POLARIS\web\[stdin] 
+  Requiring C:\POLARIS\web\node_modules\vega\build\vega.module.js 
+    at ModuleJobSync.runSync (node:internal/modules/esm/module_job:432:13)
+    at ModuleLoader.importSyncForRequire (node:internal/modules/esm/loader:427:47)
+    at loadESMFromCJS (node:internal/modules/cjs/loader:1561:24)
+    at Module._compile (node:internal/modules/cjs/loader:1712:5)
+    at Object..js (node:internal/modules/cjs/loader:1895:10)
+    at Module.load (node:internal/modules/cjs/loader:1465:32)
+    at Function._load (node:internal/modules/cjs/loader:1282:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+    at Module.require (node:internal/modules/cjs/loader:1487:12) {
+  code: 'ERR_REQUIRE_ASYNC_MODULE'
+}
+
+Node.js v22.17.1
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+const vega = await import('vega');
+const vl = await import('vega-lite');
+const spec = {
+  "'$schema: '"'https://vega.github.io/schema/vega-lite/v5.json',
+  title: 't',
+  data: { values: [
+    {entity:'A', metric:'m1', value: 1, evidence_id:'e1'},
+    {entity:'B', metric:'m1', value: 2, evidence_id:'e2'},
+    {entity:'A', metric:'m2', value: 3, evidence_id:'e3'},
+    {entity:'B', metric:'m2', value: 4, evidence_id:'e4'},
+  ] },
+  mark: {type:'bar'},
+  encoding: {
+    y: {field:'entity', type:'nominal', axis:{title:null}},
+    x: {field:'value', type:'quantitative'},
+    color: {field:'metric', type:'nominal'},
+    tooltip: [{field:'entity'}, {field:'metric'}, {field:'value'}, {field:'evidence_id'}]
+  }
+};
+const runtime = vega.parse(vl.compile(spec).spec);
+const svg = await new vega.View(runtime, {renderer:'none'}).toSVG();
+console.log((svg.match(/role=\"graphics-symbol\"/g)||[]).length);
+console.log((svg.match(/aria-roledescription=\"["'^"]*bar[''^"]*"/g)||[]).slice(0,8).join('"'\\n'));
+console.log((svg.match(/<path/g)||[]).length);
+'@ | node --input-type=module -" in C:\POLARIS\web
+ succeeded in 1375ms:
+8
+aria-roledescription="bar"
+aria-roledescription="bar"
+aria-roledescription="bar"
+aria-roledescription="bar"
+24
+
+codex
+Criterion 1: PASS — backend N=2/N=5 tests plus existing N=3 cover acceptance.
+Criterion 2: PASS — TS helper plan mirrors the Python spec shape field-for-field.
+Criterion 3: PASS — demo route with scoped section testids handles three charts cleanly.
+Criterion 4: PASS — Playwright mark-count plan is viable; runtime probe confirmed bar SVG emits `graphics-symbol` roles.
+Criterion 5: PASS — empty-row throw mirrors Python behavior.
+Criterion 6: PASS — LOC is at cap but executable if kept compact.
+
+Completeness check — files actually read:
+`src/polaris_v6/charts/spec_builder.py`, `tests/v6/test_charts.py`, `web/lib/forest_plot_spec.ts`, `web/app/charts_test/forest_plot/page.tsx`, `web/tests/e2e/forest_plot_chart.spec.ts`, `web/components/ui/vega-chart.tsx`, `web/lib/api.ts`, `web/app/charts_test/page.tsx`, `web/tests/e2e/vega_lite_chart.spec.ts`, `web/package.json`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+80,206
+Criterion 1: PASS — backend N=2/N=5 tests plus existing N=3 cover acceptance.
+Criterion 2: PASS — TS helper plan mirrors the Python spec shape field-for-field.
+Criterion 3: PASS — demo route with scoped section testids handles three charts cleanly.
+Criterion 4: PASS — Playwright mark-count plan is viable; runtime probe confirmed bar SVG emits `graphics-symbol` roles.
+Criterion 5: PASS — empty-row throw mirrors Python behavior.
+Criterion 6: PASS — LOC is at cap but executable if kept compact.
+
+Completeness check — files actually read:
+`src/polaris_v6/charts/spec_builder.py`, `tests/v6/test_charts.py`, `web/lib/forest_plot_spec.ts`, `web/app/charts_test/forest_plot/page.tsx`, `web/tests/e2e/forest_plot_chart.spec.ts`, `web/components/ui/vega-chart.tsx`, `web/lib/api.ts`, `web/app/charts_test/page.tsx`, `web/tests/e2e/vega_lite_chart.spec.ts`, `web/package.json`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
