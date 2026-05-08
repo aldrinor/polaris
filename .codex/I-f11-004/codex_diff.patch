@@ -1,0 +1,207 @@
+diff --git a/src/polaris_graph/followup/inheritance.py b/src/polaris_graph/followup/inheritance.py
+index 59c7f33..ef1ad43 100644
+--- a/src/polaris_graph/followup/inheritance.py
++++ b/src/polaris_graph/followup/inheritance.py
+@@ -13,6 +13,7 @@ from polaris_graph.followup.agent import (
+     FollowUpAgent,
+     ParentRunContext,
+ )
++from polaris_graph.followup.refusal import RefusalDecision, compose_or_refuse
+ from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+ 
+ 
+@@ -42,3 +43,27 @@ def compose_with_inheritance(
+     composed = agent.compose(parent, follow_up)
+     inherited = inherit_evidence_pool(parent_contract)
+     return composed, inherited
++
++
++def compose_with_inheritance_or_refuse(
++    agent: FollowUpAgent,
++    parent_contract: EvidenceContract,
++    follow_up: str,
++) -> tuple[ComposedQuery | RefusalDecision, list[SourceSpan]]:
++    """Inheritance-aware compose that routes through out-of-scope refusal.
++
++    Returns (RefusalDecision, []) when the follow-up is out-of-scope, or
++    (ComposedQuery, inherited_spans) when in-scope.
++    """
++    parent = ParentRunContext(
++        parent_run_id=parent_contract.run_id,
++        template=parent_contract.template,
++        parent_question=parent_contract.question,
++        known_evidence_ids=[s.evidence_id for s in parent_contract.evidence_pool],
++        parent_summary=None,
++    )
++    decision = compose_or_refuse(agent, parent, follow_up)
++    if isinstance(decision, RefusalDecision):
++        return decision, []
++    inherited = inherit_evidence_pool(parent_contract)
++    return decision, inherited
+diff --git a/src/polaris_graph/followup/refusal.py b/src/polaris_graph/followup/refusal.py
+new file mode 100644
+index 0000000..4ea4fd8
+--- /dev/null
++++ b/src/polaris_graph/followup/refusal.py
+@@ -0,0 +1,56 @@
++"""Out-of-scope refusal handling for follow-up runs (I-f11-004).
++
++Heuristic: a follow-up is out-of-scope when zero of its tokens
++(case-insensitive, punctuation-stripped) appear in the parent
++template's `_`-separated keyword list. MVP debt: single-token templates
++over-refuse; LLM-augmented intent matching is post-MVP.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass
++
++from polaris_graph.followup.agent import (
++    ComposedQuery,
++    FollowUpAgent,
++    ParentRunContext,
++)
++
++
++_PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
++
++
++@dataclass(frozen=True)
++class RefusalDecision:
++    is_refused: bool
++    reason: str | None
++    template_keywords: list[str]
++    question_overlap: list[str]
++
++
++def detect_out_of_scope(
++    parent_template: str, follow_up: str, *, min_overlap: int = 1
++) -> RefusalDecision:
++    keywords = [t for t in parent_template.lower().split("_") if t]
++    if parent_template == "general":
++        return RefusalDecision(False, None, keywords, [])
++    words = _PUNCT_RE.sub(" ", follow_up.lower()).split()
++    kw_set = set(keywords)
++    overlap = [w for w in words if w in kw_set]
++    if len(overlap) < min_overlap:
++        reason = (
++            f"follow-up has {len(overlap)} shared keyword(s) with parent "
++            f"template '{parent_template}' (need >= {min_overlap}); out-of-scope"
++        )
++        return RefusalDecision(True, reason, keywords, overlap)
++    return RefusalDecision(False, None, keywords, overlap)
++
++
++def compose_or_refuse(
++    agent: FollowUpAgent, parent: ParentRunContext, follow_up: str
++) -> ComposedQuery | RefusalDecision:
++    decision = detect_out_of_scope(parent.template, follow_up)
++    if decision.is_refused:
++        return decision
++    return agent.compose(parent, follow_up)
+diff --git a/tests/polaris_graph/followup/test_refusal.py b/tests/polaris_graph/followup/test_refusal.py
+new file mode 100644
+index 0000000..b933307
+--- /dev/null
++++ b/tests/polaris_graph/followup/test_refusal.py
+@@ -0,0 +1,97 @@
++"""I-f11-004 — refusal handling tests."""
++
++from __future__ import annotations
++
++from polaris_graph.followup.agent import (
++    ComposedQuery,
++    FollowUpAgent,
++    ParentRunContext,
++)
++from polaris_graph.followup.inheritance import compose_with_inheritance_or_refuse
++from polaris_graph.followup.refusal import (
++    RefusalDecision,
++    compose_or_refuse,
++    detect_out_of_scope,
++)
++from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
++
++
++def _ctx(template: str = "clinical_summary") -> ParentRunContext:
++    return ParentRunContext(
++        parent_run_id="run_42", template=template,
++        parent_question="What is the efficacy of drug X?",
++        known_evidence_ids=["ev_a"], parent_summary=None,
++    )
++
++
++def _contract(template: str = "clinical_summary") -> EvidenceContract:
++    return EvidenceContract(
++        run_id="run_42", template=template,
++        question="What is the efficacy of drug X?",
++        queued_at="2026-05-08T00:00:00Z", finished_at="2026-05-08T00:00:30Z",
++        pipeline_status="success",
++        evidence_pool=[SourceSpan(evidence_id="ev_a", source_url="https://example.test/a",
++                                  source_tier="T1", span_start=0, span_end=5, span_text="alpha")],
++        verified_sentences=[], frame_coverage=[], contradictions=[],
++        cost_usd=0.0, generator_model="g", verifier_model="v",
++        family_segregation_passed=True,
++    )
++
++
++def test_refuses_zero_overlap_specific_template() -> None:
++    decision = detect_out_of_scope("clinical_summary", "Why is the sky blue?")
++    assert decision.is_refused is True
++    assert decision.reason is not None
++    assert "clinical_summary" in decision.reason
++    assert decision.template_keywords == ["clinical", "summary"]
++    assert decision.question_overlap == []
++
++
++def test_accepts_one_keyword_overlap() -> None:
++    decision = detect_out_of_scope(
++        "clinical_summary", "What about the summary statistics?"
++    )
++    assert decision.is_refused is False
++    assert decision.question_overlap == ["summary"]
++
++
++def test_general_template_never_refuses() -> None:
++    decision = detect_out_of_scope("general", "random topic completely off")
++    assert decision.is_refused is False
++
++
++def test_compose_or_refuse_returns_composed_when_in_scope() -> None:
++    result = compose_or_refuse(
++        FollowUpAgent(), _ctx(), "Tell me more about the clinical efficacy"
++    )
++    assert isinstance(result, ComposedQuery)
++    assert "clinical efficacy" in result.effective_question
++
++
++def test_compose_or_refuse_returns_refusal_when_out_of_scope() -> None:
++    result = compose_or_refuse(FollowUpAgent(), _ctx(), "Why is the sky blue?")
++    assert isinstance(result, RefusalDecision)
++    assert result.is_refused is True
++    assert result.reason is not None
++
++
++def test_adversarial_punctuation_and_case() -> None:
++    decision = detect_out_of_scope("clinical_summary", "WHAT ABOUT THE SUMMARY?!")
++    assert decision.is_refused is False
++    assert decision.question_overlap == ["summary"]
++
++
++def test_compose_with_inheritance_or_refuse_routes_refusal() -> None:
++    refused, spans = compose_with_inheritance_or_refuse(
++        FollowUpAgent(), _contract(), "Why is the sky blue?"
++    )
++    assert isinstance(refused, RefusalDecision)
++    assert refused.is_refused is True
++    assert spans == []
++
++    composed, inherited = compose_with_inheritance_or_refuse(
++        FollowUpAgent(), _contract(), "Tell me more about the clinical findings"
++    )
++    assert isinstance(composed, ComposedQuery)
++    assert len(inherited) == 1
++    assert inherited[0].evidence_id == "ev_a"
+
+# canonical-diff-sha256: 412465afa51e9e6bd5e81fe56f40aecbbf5c94bfd815dd2014debe67b52e7c3e
