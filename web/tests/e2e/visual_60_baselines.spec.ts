@@ -109,7 +109,10 @@ for (const viewport of VIEWPORTS) {
           await route.fulfill({
             status: 200,
             contentType: "application/json",
-            body: JSON.stringify({ runs: [] }),
+            body: JSON.stringify({
+              available_benchmarks: [],
+              results_root: "/seeded/benchmarks",
+            }),
           });
         });
       }
