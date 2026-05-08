@@ -11,3 +11,17 @@ Each chart spec includes a `polaris_provenance` extension that maps
 each datum to the originating evidence_id so the F10b click-through-
 to-source is wired by construction.
 """
+
+from polaris_v6.charts.provenance import (
+    ChartProvenance,
+    ChartType,
+    TimelinePeriodKind,
+    validate_chart_provenance,
+)
+
+__all__ = [
+    "ChartProvenance",
+    "ChartType",
+    "TimelinePeriodKind",
+    "validate_chart_provenance",
+]
