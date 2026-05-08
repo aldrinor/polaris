@@ -55,6 +55,47 @@ def test_comparison_table_basic_shape():
     json.dumps(spec)
 
 
+def test_comparison_table_n2_renders_correctly():
+    """I-f10-003: 2-entity × 1-metric comparison table covers acceptance N=2."""
+    spec = build_comparison_table(
+        title="Q3 housing starts (N=2)",
+        rows=[
+            ComparisonRow("Ontario", "starts_thousands", 18.4, "ev_h_on"),
+            ComparisonRow("Quebec", "starts_thousands", 9.7, "ev_h_qc"),
+        ],
+    )
+    assert spec["mark"]["type"] == "bar"
+    assert len(spec["data"]["values"]) == 2
+    assert spec["encoding"]["y"]["field"] == "entity"
+    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+    assert len(spec["polaris_provenance"]["evidence_ids"]) == 2
+    json.dumps(spec)
+
+
+def test_comparison_table_n5_renders_correctly():
+    """I-f10-003: 5-entity × 2-metric comparison table covers acceptance N=5."""
+    rows = [
+        ComparisonRow("Ontario", "starts_thousands", 18.4, "ev_h_on"),
+        ComparisonRow("Quebec", "starts_thousands", 9.7, "ev_h_qc"),
+        ComparisonRow("BC", "starts_thousands", 7.2, "ev_h_bc"),
+        ComparisonRow("Alberta", "starts_thousands", 5.8, "ev_h_ab"),
+        ComparisonRow("Manitoba", "starts_thousands", 1.4, "ev_h_mb"),
+        ComparisonRow("Ontario", "completions_thousands", 14.1, "ev_c_on"),
+        ComparisonRow("Quebec", "completions_thousands", 8.0, "ev_c_qc"),
+        ComparisonRow("BC", "completions_thousands", 5.9, "ev_c_bc"),
+        ComparisonRow("Alberta", "completions_thousands", 4.7, "ev_c_ab"),
+        ComparisonRow("Manitoba", "completions_thousands", 1.1, "ev_c_mb"),
+    ]
+    spec = build_comparison_table(title="Q3 housing N=5 × 2 metrics", rows=rows)
+    assert len(spec["data"]["values"]) == 10
+    assert spec["encoding"]["color"]["field"] == "metric"
+    # Every datum carries evidence_id (click-through-to-source contract).
+    for row in spec["data"]["values"]:
+        assert "evidence_id" in row and row["evidence_id"]
+    assert len(spec["polaris_provenance"]["evidence_ids"]) == 10
+    json.dumps(spec)
+
+
 def test_timeline_quarter_kind():
     spec = build_timeline(
         title="Oil-sands GHG intensity per barrel",
