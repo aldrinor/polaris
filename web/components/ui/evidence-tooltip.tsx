@@ -19,6 +19,12 @@ interface EvidenceTooltipProps {
    * the requested side would clip the viewport.
    */
   side?: "top" | "right" | "bottom" | "left";
+  /**
+   * I-f6-005: opt-in perf-test override. When defined, drives Tooltip.Root's
+   * `open` directly, bypassing the internal hover/focus/touch state machine.
+   * Default `undefined` → no behavior change for existing callers.
+   */
+  openOverride?: boolean;
   onClickToInspect?: () => void;
   children: React.ReactNode;
 }
@@ -43,6 +49,7 @@ export function EvidenceTooltip({
   sourceTier,
   publishedDate,
   side = "top",
+  openOverride,
   onClickToInspect,
   children,
 }: EvidenceTooltipProps) {
@@ -126,8 +133,9 @@ export function EvidenceTooltip({
     [clearHoverDebounce, clearTouchAutoClose],
   );
 
+  const final_open = openOverride ?? open;
   return (
-    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
+    <Tooltip.Root open={final_open} onOpenChange={handleOpenChange}>
       <Tooltip.Trigger
         closeOnClick={false}
         render={
