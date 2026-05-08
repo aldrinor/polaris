@@ -1,0 +1,128 @@
+diff --git a/web/app/generation/components/follow_up_append_view.tsx b/web/app/generation/components/follow_up_append_view.tsx
+new file mode 100644
+index 0000000..ebda799
+--- /dev/null
++++ b/web/app/generation/components/follow_up_append_view.tsx
+@@ -0,0 +1,35 @@
++"use client";
++
++import type { VerifiedReport } from "@/lib/api";
++
++import { VerifiedReportView } from "./verified_report_view";
++
++// I-f11-002: Append-to-existing-report rendering. Renders the original
++// verified report, a labeled separator, then the appended (follow-up)
++// verified report. Production wiring (graph_v4 generating the appended
++// report from FollowUpAgent.compose) is follow-up I-f11-002b.
++
++export function FollowUpAppendView({
++  original,
++  appended,
++}: {
++  original: VerifiedReport;
++  appended: VerifiedReport;
++}) {
++  return (
++    <div>
++      <VerifiedReportView report={original} />
++      <div data-testid="follow-up-separator" className="my-6">
++        <hr className="border-border" />
++        <p
++          data-testid="follow-up-separator-caption"
++          className="text-muted-foreground mt-2 text-center text-xs tracking-widest uppercase"
++        >
++          Follow-up appended below
++        </p>
++        <hr className="border-border mt-2" />
++      </div>
++      <VerifiedReportView report={appended} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/follow_up_append/page.tsx b/web/app/sentence_hover_test/follow_up_append/page.tsx
+new file mode 100644
+index 0000000..672e91c
+--- /dev/null
++++ b/web/app/sentence_hover_test/follow_up_append/page.tsx
+@@ -0,0 +1,61 @@
++"use client";
++
++import { FollowUpAppendView } from "@/app/generation/components/follow_up_append_view";
++import type { VerifiedReport } from "@/lib/api";
++
++const ISO = "2026-05-08T00:00:00Z";
++
++function _report(report_id: string, sentence_text: string): VerifiedReport {
++  return {
++    report_id,
++    pool_id: `p-${report_id}`,
++    decision_id: `d-${report_id}`,
++    sections: [
++      {
++        section_id: "sec_a",
++        section_title: "Demo section",
++        verified_sentences: [
++          {
++            section_id: "sec_a",
++            sentence_text,
++            provenance_tokens: ["[#ev:src-1:0-30]"],
++            verifier_pass: true,
++            drop_reason: null,
++            evaluator_agrees: true,
++          },
++        ],
++        section_verify_pass_rate: 1.0,
++        section_status: "verified",
++      },
++    ],
++    overall_verify_pass_rate: 1.0,
++    pipeline_verdict: "success",
++    generator_model: "demo-generator",
++    evaluator_model: "demo-evaluator",
++    family_segregation_passed: true,
++    verifier_pass_threshold: 0.4,
++    started_at_utc: ISO,
++    finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++}
++
++const ORIGINAL = _report("r-original", "Original report sentence about CMHC.");
++const APPENDED = _report(
++  "r-appended",
++  "Follow-up sentence elaborating on Q4 housing-starts.",
++);
++
++export default function FollowUpAppendPage() {
++  return (
++    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
++      <h1 className="text-2xl font-semibold tracking-tight">
++        Follow-up append fixture (I-f11-002)
++      </h1>
++      <div className="mt-4">
++        <FollowUpAppendView original={ORIGINAL} appended={APPENDED} />
++      </div>
++    </main>
++  );
++}
+diff --git a/web/tests/e2e/follow_up_append.spec.ts b/web/tests/e2e/follow_up_append.spec.ts
+new file mode 100644
+index 0000000..25fde17
+--- /dev/null
++++ b/web/tests/e2e/follow_up_append.spec.ts
+@@ -0,0 +1,12 @@
++import { expect, test } from "@playwright/test";
++
++test("follow-up append renders 2 reports + visible separator caption", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/follow_up_append");
++  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
++  await expect(page.getByTestId("follow-up-separator")).toBeVisible();
++  await expect(page.getByTestId("follow-up-separator-caption")).toContainText(
++    "Follow-up appended below",
++  );
++});
+
+# canonical-diff-sha256: 4aa2c39d0cd9098e3b84520b834cec441c1df3cdd6de0bfd227e3458a5c32067
