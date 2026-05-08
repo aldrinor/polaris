@@ -96,4 +96,4 @@ index 0000000..b01aaa3
 +    q = _q(keywords=[], anchors=[])
 +    assert score_response_coverage(q, "anything goes") == 0.0
 
-# canonical-diff-sha256: 0585b7f7cb5f6b923d2e3425d0d1c2890bbba17e0402d75db8013e25848e4ad5
+# canonical-diff-sha256: 0700fed903cdd9e27fa9a89fff21c28cc6d4ff10549d02ecdb8be2e517f4895d
