@@ -204,4 +204,4 @@ index 0000000..4b54715
 +  expect(stateDuringHold).not.toBe("inactive");
 +});
 
-# canonical-diff-sha256: 72cd39b5e01ae71ba376d1d354f5f54d5932fd8807e87d7eb4f212c62ffa68ea
+# canonical-diff-sha256: b55161fe124dc039b28dfb6ea68dd2dfcc9c35f7e429c7f7bd6b67aa40c7dac3
