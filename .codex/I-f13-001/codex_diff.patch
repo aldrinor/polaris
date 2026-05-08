@@ -1,0 +1,230 @@
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+new file mode 100644
+index 0000000..e308b70
+--- /dev/null
++++ b/web/app/pin_replay/page.tsx
+@@ -0,0 +1,135 @@
++"use client";
++
++import { useState } from "react";
++
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
++
++const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
++
++function SnapshotCard({
++  testid,
++  label,
++  selected_date,
++  on_change,
++  snapshot,
++}: {
++  testid: string;
++  label: string;
++  selected_date: string;
++  on_change: (next: string) => void;
++  snapshot: PinSnapshot;
++}) {
++  return (
++    <Card data-testid={testid}>
++      <CardHeader className="flex flex-row items-center justify-between gap-3">
++        <CardTitle className="text-base">{label}</CardTitle>
++        <select
++          data-testid={`${testid}-date`}
++          value={selected_date}
++          onChange={(e) => on_change(e.target.value)}
++          className="border-border bg-background rounded border px-2 py-1 text-sm"
++        >
++          {PIN_DATES.map((d) => (
++            <option key={d} value={d}>
++              {d}
++            </option>
++          ))}
++        </select>
++      </CardHeader>
++      <CardContent className="text-sm">
++        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
++          <dt className="text-muted-foreground">Query</dt>
++          <dd
++            data-testid={`${testid}-query`}
++            className="text-foreground truncate"
++          >
++            {snapshot.query}
++          </dd>
++          <dt className="text-muted-foreground">Verdict</dt>
++          <dd data-testid={`${testid}-verdict`} className="text-foreground">
++            {snapshot.verdict}
++          </dd>
++          <dt className="text-muted-foreground">Sections kept / dropped</dt>
++          <dd data-testid={`${testid}-sections`} className="text-foreground">
++            {snapshot.section_count_kept} / {snapshot.section_count_dropped}
++          </dd>
++          <dt className="text-muted-foreground">Verified sentences</dt>
++          <dd data-testid={`${testid}-sentences`} className="text-foreground">
++            {snapshot.verified_sentence_count}
++          </dd>
++          <dt className="text-muted-foreground">Pass rate</dt>
++          <dd data-testid={`${testid}-pass-rate`} className="text-foreground">
++            {Math.round(snapshot.pass_rate * 100)}%
++          </dd>
++        </dl>
++      </CardContent>
++    </Card>
++  );
++}
++
++export default function PinReplayPage() {
++  const [date_a, set_date_a] = useState(PIN_DATES[0]);
++  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
++  const snap_a = DEMO_PIN_REGISTRY[date_a];
++  const snap_b = DEMO_PIN_REGISTRY[date_b];
++
++  const delta_pass_rate =
++    Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
++  const delta_sentences =
++    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
++
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-5xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Pin replay — same query on different dates
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Sample pin-replay (demo data); production fetch from{" "}
++          <code>
++            /runs/{"{run_id}"}/pins/{"{date}"}
++          </code>{" "}
++          per M-INT-0b post-Carney.
++        </p>
++        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
++          <SnapshotCard
++            testid="pin-snapshot-a"
++            label="Snapshot A"
++            selected_date={date_a}
++            on_change={set_date_a}
++            snapshot={snap_a}
++          />
++          <SnapshotCard
++            testid="pin-snapshot-b"
++            label="Snapshot B"
++            selected_date={date_b}
++            on_change={set_date_b}
++            snapshot={snap_b}
++          />
++        </div>
++        <Card data-testid="pin-replay-delta" className="mt-4">
++          <CardHeader>
++            <CardTitle className="text-base">Delta (B − A)</CardTitle>
++          </CardHeader>
++          <CardContent className="text-sm">
++            <p>
++              Pass rate:{" "}
++              <span data-testid="pin-replay-delta-pass-rate">
++                {delta_pass_rate >= 0 ? "+" : ""}
++                {delta_pass_rate}%
++              </span>
++            </p>
++            <p>
++              Verified sentences:{" "}
++              <span data-testid="pin-replay-delta-sentences">
++                {delta_sentences >= 0 ? "+" : ""}
++                {delta_sentences}
++              </span>
++            </p>
++          </CardContent>
++        </Card>
++      </div>
++    </main>
++  );
++}
+diff --git a/web/lib/pin_replay_demo.ts b/web/lib/pin_replay_demo.ts
+new file mode 100644
+index 0000000..56f8e97
+--- /dev/null
++++ b/web/lib/pin_replay_demo.ts
+@@ -0,0 +1,36 @@
++/**
++ * I-f13-001: Pin replay demo registry. In production this would fetch from
++ * `/runs/{run_id}/pins/{date}` per M-INT-0b post-Carney; today the registry
++ * is hand-authored frontend demo data.
++ */
++
++export interface PinSnapshot {
++  pin_date: string;
++  query: string;
++  verdict: "success" | "abort_no_verified_sections";
++  section_count_kept: number;
++  section_count_dropped: number;
++  verified_sentence_count: number;
++  pass_rate: number;
++}
++
++export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
++  "2026-01-15": {
++    pin_date: "2026-01-15",
++    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
++    verdict: "success",
++    section_count_kept: 4,
++    section_count_dropped: 1,
++    verified_sentence_count: 18,
++    pass_rate: 0.72,
++  },
++  "2026-04-30": {
++    pin_date: "2026-04-30",
++    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
++    verdict: "success",
++    section_count_kept: 5,
++    section_count_dropped: 0,
++    verified_sentence_count: 23,
++    pass_rate: 0.85,
++  },
++};
+diff --git a/web/tests/e2e/pin_replay.spec.ts b/web/tests/e2e/pin_replay.spec.ts
+new file mode 100644
+index 0000000..e3bc059
+--- /dev/null
++++ b/web/tests/e2e/pin_replay.spec.ts
+@@ -0,0 +1,40 @@
++import { expect, test } from "@playwright/test";
++
++test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
++  page,
++}) => {
++  await page.goto("/pin_replay");
++
++  await expect(page.getByTestId("pin-snapshot-a")).toBeVisible();
++  await expect(page.getByTestId("pin-snapshot-b")).toBeVisible();
++  await expect(page.getByTestId("pin-replay-delta")).toBeVisible();
++
++  // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
++  await expect(page.getByTestId("pin-snapshot-a-date")).toHaveValue(
++    "2026-01-15",
++  );
++  await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
++    "2026-04-30",
++  );
++  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
++    "72%",
++  );
++  await expect(page.getByTestId("pin-snapshot-b-pass-rate")).toContainText(
++    "85%",
++  );
++  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
++    "+13%",
++  );
++
++  // Switch A to the later date — A and B now identical, delta should be 0.
++  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
++    "85%",
++  );
++  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
++    "0%",
++  );
++  await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
++    "0",
++  );
++});
+# canonical-diff-sha256: 8cf506c1c718b4a1d4abbaeacd6e68f4bfe33f489b3656c9471969bfe9995442
