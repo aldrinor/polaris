@@ -178,4 +178,4 @@ index 0000000..91ff80e
 +        assert out.span_end == parent.span_end
 +        assert out.span_text == parent.span_text
 
-# canonical-diff-sha256: 5df44434fb7e0c503d7bb90fe526e44f64a793e8cd550e3b1ff0793721c2a3e8
+# canonical-diff-sha256: ad2edc32ee535bd10f3bdd784b0fd54ec61c0dc64ee83d8bdfa0f12175ce2303
