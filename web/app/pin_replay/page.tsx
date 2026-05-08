@@ -5,6 +5,9 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
 
+import { DiffSidePanel } from "./components/diff_side_panel";
+import { PinTimeseries } from "./components/pin_timeseries";
+
 const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
 
 function SnapshotCard({
@@ -71,8 +74,10 @@ function SnapshotCard({
 export default function PinReplayPage() {
   const [date_a, set_date_a] = useState(PIN_DATES[0]);
   const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
+  const [diff_open, set_diff_open] = useState(false);
   const snap_a = DEMO_PIN_REGISTRY[date_a];
   const snap_b = DEMO_PIN_REGISTRY[date_b];
+  const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
 
   const delta_pass_rate =
     Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
@@ -108,6 +113,23 @@ export default function PinReplayPage() {
             snapshot={snap_b}
           />
         </div>
+        <div className="mt-6">
+          <PinTimeseries snapshots={all_snapshots} />
+        </div>
+        <button
+          type="button"
+          data-testid="pin-show-diff"
+          onClick={() => set_diff_open(true)}
+          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
+        >
+          Show snapshot diff
+        </button>
+        <DiffSidePanel
+          open={diff_open}
+          onOpenChange={set_diff_open}
+          snapshot_a={snap_a}
+          snapshot_b={snap_b}
+        />
         <Card data-testid="pin-replay-delta" className="mt-4">
           <CardHeader>
             <CardTitle className="text-base">Delta (B − A)</CardTitle>
