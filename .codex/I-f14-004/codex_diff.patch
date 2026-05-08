@@ -1,0 +1,195 @@
+diff --git a/src/polaris_v6/adapters/evidence_pool_merger.py b/src/polaris_v6/adapters/evidence_pool_merger.py
+index 6cc7c44..3ad38da 100644
+--- a/src/polaris_v6/adapters/evidence_pool_merger.py
++++ b/src/polaris_v6/adapters/evidence_pool_merger.py
+@@ -34,6 +34,15 @@ class UploadedChunk:
+     source_url: str = "upload://"  # placeholder; real upload-uri scheme in Phase 1
+ 
+ 
++@dataclass
++class MemoryDerivedSummary:
++    """One workspace-memory prior_run_summary entry surfaced as evidence (I-f14-004)."""
++
++    entry_id: str
++    content: str
++    created_at: str
++
++
+ def _evidence_id_for_chunk(chunk: UploadedChunk) -> str:
+     """Stable id derived from document_id + chunk_index + content hash."""
+     payload = f"{chunk.document_id}:{chunk.chunk_index}:{chunk.text}".encode()
+@@ -41,6 +50,13 @@ def _evidence_id_for_chunk(chunk: UploadedChunk) -> str:
+     return f"ev_upload_{digest}"
+ 
+ 
++def _evidence_id_for_memory(summary: MemoryDerivedSummary) -> str:
++    """Stable id derived from entry_id + content hash."""
++    payload = f"{summary.entry_id}:{summary.content}".encode()
++    digest = hashlib.sha256(payload).hexdigest()[:12]
++    return f"ev_memory_{digest}"
++
++
+ def _evidence_id_for_retrieval(span: SourceSpan) -> str:
+     """Pass-through for already-id'd spans; ensure prefix consistency."""
+     if span.evidence_id.startswith("ev_"):
+@@ -52,12 +68,17 @@ def merge_evidence_pool(
+     *,
+     retrieval_spans: list[SourceSpan],
+     uploaded_chunks: list[UploadedChunk],
++    memory_summaries: list[MemoryDerivedSummary] | None = None,
+ ) -> list[SourceSpan]:
+-    """Merge retrieval-side + upload-side into a unified deduplicated pool.
+-
+-    Dedup key: (source_url, span_text) — same text from same source
+-    appears once. Uploaded chunks always shipped first so retrieval-side
+-    duplicates are dropped (the user's uploads take priority).
++    """Merge retrieval-side + upload-side + workspace-memory into a unified
++    deduplicated pool.
++
++    Dedup priority by append order: upload > retrieval > memory.
++    Upload + retrieval dedup by (source_url, normalized_text) — same text
++    from the same source appears once. Memory entries dedup against the
++    ENTIRE existing pool by normalized text only (per I-f14-004 plan), so
++    a prior_run_summary that repeats text already surfaced via upload or
++    retrieval is dropped.
+     """
+     pool: list[SourceSpan] = []
+     seen: set[tuple[str, str]] = set()
+@@ -96,6 +117,23 @@ def merge_evidence_pool(
+             )
+         )
+ 
++    text_seen = {_normalize_for_dedup(s.span_text) for s in pool}
++    for summary in memory_summaries or []:
++        normalized = _normalize_for_dedup(summary.content)
++        if normalized in text_seen:
++            continue
++        text_seen.add(normalized)
++        pool.append(
++            SourceSpan(
++                evidence_id=_evidence_id_for_memory(summary),
++                source_url=f"memory://{summary.entry_id}",
++                source_tier="T3",
++                span_start=0,
++                span_end=len(summary.content),
++                span_text=summary.content,
++            )
++        )
++
+     return pool
+ 
+ 
+diff --git a/tests/v6/test_evidence_pool_memory.py b/tests/v6/test_evidence_pool_memory.py
+new file mode 100644
+index 0000000..d11d72d
+--- /dev/null
++++ b/tests/v6/test_evidence_pool_memory.py
+@@ -0,0 +1,106 @@
++"""Tests for I-f14-004 — memory-as-corpus injection into evidence pool."""
++
++from __future__ import annotations
++
++from polaris_v6.adapters.evidence_pool_merger import (
++    MemoryDerivedSummary,
++    UploadedChunk,
++    merge_evidence_pool,
++)
++from polaris_v6.schemas.evidence_contract import SourceSpan
++
++
++def _retrieval_span(evidence_id: str, text: str, url: str = "https://gc.ca") -> SourceSpan:
++    return SourceSpan(
++        evidence_id=evidence_id,
++        source_url=url,
++        source_tier="T1",
++        span_start=0,
++        span_end=len(text),
++        span_text=text,
++    )
++
++
++def test_memory_summaries_appear_in_pool():
++    summary = MemoryDerivedSummary(
++        entry_id="abc123",
++        content="Prior CMHC housing-starts review.",
++        created_at="2026-04-30T00:00:00Z",
++    )
++    pool = merge_evidence_pool(
++        retrieval_spans=[],
++        uploaded_chunks=[],
++        memory_summaries=[summary],
++    )
++    assert len(pool) == 1
++    span = pool[0]
++    assert span.evidence_id.startswith("ev_memory_")
++    assert span.source_tier == "T3"
++    assert span.source_url == "memory://abc123"
++    assert span.span_start == 0
++    assert span.span_end == len(summary.content)
++    assert span.span_text == summary.content
++
++
++def test_memory_summaries_dedup_internal():
++    s1 = MemoryDerivedSummary(entry_id="a", content="Same text.", created_at="x")
++    s2 = MemoryDerivedSummary(entry_id="b", content=" SAME TEXT. ", created_at="y")
++    pool = merge_evidence_pool(
++        retrieval_spans=[],
++        uploaded_chunks=[],
++        memory_summaries=[s1, s2],
++    )
++    assert len(pool) == 1
++
++
++def test_uploaded_takes_priority_over_memory():
++    pool = merge_evidence_pool(
++        retrieval_spans=[],
++        uploaded_chunks=[
++            UploadedChunk(document_id="doc1", chunk_index=0, text="Shared content."),
++        ],
++        memory_summaries=[
++            MemoryDerivedSummary(
++                entry_id="m1", content="Shared content.", created_at="z"
++            ),
++        ],
++    )
++    assert len(pool) == 1
++    assert pool[0].evidence_id.startswith("ev_upload_")
++
++
++def test_retrieval_takes_priority_over_memory():
++    pool = merge_evidence_pool(
++        retrieval_spans=[_retrieval_span("ret1", "Shared retrieval text.")],
++        uploaded_chunks=[],
++        memory_summaries=[
++            MemoryDerivedSummary(
++                entry_id="m1", content="Shared retrieval text.", created_at="z"
++            ),
++        ],
++    )
++    assert len(pool) == 1
++    span = pool[0]
++    assert span.source_tier == "T1"
++    assert not span.evidence_id.startswith("ev_memory_")
++
++
++def test_pool_with_all_three_kinds():
++    pool = merge_evidence_pool(
++        retrieval_spans=[_retrieval_span("ret1", "Retrieval-only text.")],
++        uploaded_chunks=[
++            UploadedChunk(document_id="doc1", chunk_index=0, text="Uploaded-only text."),
++        ],
++        memory_summaries=[
++            MemoryDerivedSummary(
++                entry_id="m1", content="Memory-only summary.", created_at="z"
++            ),
++        ],
++    )
++    assert len(pool) == 3
++    tiers = [s.source_tier for s in pool]
++    assert tiers.count("T2") == 1
++    assert tiers.count("T1") == 1
++    assert tiers.count("T3") == 1
++    urls = [s.source_url for s in pool]
++    assert "memory://m1" in urls
+
+# canonical-diff-sha256: 4f075d31082ed6fbf131f49cd4756cdca43a21bc0f25bec2fd658a1643e1239d

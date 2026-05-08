@@ -34,11 +34,27 @@ class UploadedChunk:
     source_url: str = "upload://"  # placeholder; real upload-uri scheme in Phase 1
 
 
+@dataclass
+class MemoryDerivedSummary:
+    """One workspace-memory prior_run_summary entry surfaced as evidence (I-f14-004)."""
+
+    entry_id: str
+    content: str
+    created_at: str
+
+
 def _evidence_id_for_chunk(chunk: UploadedChunk) -> str:
     """Stable id derived from document_id + chunk_index + content hash."""
     payload = f"{chunk.document_id}:{chunk.chunk_index}:{chunk.text}".encode()
     digest = hashlib.sha256(payload).hexdigest()[:12]
     return f"ev_upload_{digest}"
+
+
+def _evidence_id_for_memory(summary: MemoryDerivedSummary) -> str:
+    """Stable id derived from entry_id + content hash."""
+    payload = f"{summary.entry_id}:{summary.content}".encode()
+    digest = hashlib.sha256(payload).hexdigest()[:12]
+    return f"ev_memory_{digest}"
 
 
 def _evidence_id_for_retrieval(span: SourceSpan) -> str:
@@ -52,12 +68,17 @@ def merge_evidence_pool(
     *,
     retrieval_spans: list[SourceSpan],
     uploaded_chunks: list[UploadedChunk],
+    memory_summaries: list[MemoryDerivedSummary] | None = None,
 ) -> list[SourceSpan]:
-    """Merge retrieval-side + upload-side into a unified deduplicated pool.
+    """Merge retrieval-side + upload-side + workspace-memory into a unified
+    deduplicated pool.
 
-    Dedup key: (source_url, span_text) — same text from same source
-    appears once. Uploaded chunks always shipped first so retrieval-side
-    duplicates are dropped (the user's uploads take priority).
+    Dedup priority by append order: upload > retrieval > memory.
+    Upload + retrieval dedup by (source_url, normalized_text) — same text
+    from the same source appears once. Memory entries dedup against the
+    ENTIRE existing pool by normalized text only (per I-f14-004 plan), so
+    a prior_run_summary that repeats text already surfaced via upload or
+    retrieval is dropped.
     """
     pool: list[SourceSpan] = []
     seen: set[tuple[str, str]] = set()
@@ -93,6 +114,23 @@ def merge_evidence_pool(
                 span_start=span.span_start,
                 span_end=span.span_end,
                 span_text=span.span_text,
+            )
+        )
+
+    text_seen = {_normalize_for_dedup(s.span_text) for s in pool}
+    for summary in memory_summaries or []:
+        normalized = _normalize_for_dedup(summary.content)
+        if normalized in text_seen:
+            continue
+        text_seen.add(normalized)
+        pool.append(
+            SourceSpan(
+                evidence_id=_evidence_id_for_memory(summary),
+                source_url=f"memory://{summary.entry_id}",
+                source_tier="T3",
+                span_start=0,
+                span_end=len(summary.content),
+                span_text=summary.content,
             )
         )
 
