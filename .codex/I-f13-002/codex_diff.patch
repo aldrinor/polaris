@@ -1,0 +1,312 @@
+diff --git a/web/app/pin_replay/components/diff_side_panel.tsx b/web/app/pin_replay/components/diff_side_panel.tsx
+new file mode 100644
+index 0000000..eb18cdc
+--- /dev/null
++++ b/web/app/pin_replay/components/diff_side_panel.tsx
+@@ -0,0 +1,127 @@
++"use client";
++
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import type { PinSnapshot } from "@/lib/pin_replay_demo";
++
++type FieldKind = "numeric" | "string";
++
++const FIELDS: { key: keyof PinSnapshot; label: string; kind: FieldKind }[] = [
++  { key: "query", label: "Query", kind: "string" },
++  { key: "verdict", label: "Verdict", kind: "string" },
++  { key: "section_count_kept", label: "Sections kept", kind: "numeric" },
++  { key: "section_count_dropped", label: "Sections dropped", kind: "numeric" },
++  {
++    key: "verified_sentence_count",
++    label: "Verified sentences",
++    kind: "numeric",
++  },
++  { key: "pass_rate", label: "Pass rate (%)", kind: "numeric" },
++];
++
++function formatValue(value: unknown, kind: FieldKind, key: string): string {
++  if (kind === "numeric" && typeof value === "number") {
++    if (key === "pass_rate") return `${Math.round(value * 100)}%`;
++    return String(value);
++  }
++  return String(value ?? "");
++}
++
++function computeDelta(
++  a: unknown,
++  b: unknown,
++  kind: FieldKind,
++  key: string,
++): string {
++  if (kind === "numeric" && typeof a === "number" && typeof b === "number") {
++    const delta =
++      key === "pass_rate" ? Math.round(b * 100) - Math.round(a * 100) : b - a;
++    const prefix = delta > 0 ? "+" : "";
++    return key === "pass_rate" ? `${prefix}${delta}%` : `${prefix}${delta}`;
++  }
++  // String/categorical: report changed/unchanged.
++  return a === b ? "(unchanged)" : "(changed)";
++}
++
++export function DiffSidePanel({
++  open,
++  onOpenChange,
++  snapshot_a,
++  snapshot_b,
++}: {
++  open: boolean;
++  onOpenChange: (next: boolean) => void;
++  snapshot_a: PinSnapshot | null;
++  snapshot_b: PinSnapshot | null;
++}) {
++  return (
++    <Sheet open={open} onOpenChange={onOpenChange}>
++      <SheetContent
++        data-testid="pin-diff-pane"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle>Snapshot diff (B − A)</SheetTitle>
++          <SheetDescription>
++            Per-field comparison of snapshot A and snapshot B.
++          </SheetDescription>
++        </SheetHeader>
++        {snapshot_a && snapshot_b ? (
++          <div className="px-4 pb-4 text-sm">
++            <table className="w-full text-xs">
++              <thead>
++                <tr className="border-border border-b">
++                  <th className="py-1 text-left">Field</th>
++                  <th className="py-1 text-left">A</th>
++                  <th className="py-1 text-left">B</th>
++                  <th className="py-1 text-left">Δ</th>
++                </tr>
++              </thead>
++              <tbody>
++                {FIELDS.map(({ key, label, kind }) => (
++                  <tr
++                    key={key}
++                    data-testid={`pin-diff-row-${String(key)}`}
++                    className="border-border border-b"
++                  >
++                    <td className="py-1 font-medium">{label}</td>
++                    <td className="truncate py-1">
++                      {formatValue(snapshot_a[key], kind, String(key))}
++                    </td>
++                    <td className="truncate py-1">
++                      {formatValue(snapshot_b[key], kind, String(key))}
++                    </td>
++                    <td
++                      data-testid={`pin-diff-delta-${String(key)}`}
++                      className="py-1"
++                    >
++                      {computeDelta(
++                        snapshot_a[key],
++                        snapshot_b[key],
++                        kind,
++                        String(key),
++                      )}
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        ) : (
++          <p
++            data-testid="pin-diff-pane-empty"
++            className="text-muted-foreground px-4 pb-4 text-sm italic"
++          >
++            Select both snapshots to view diff.
++          </p>
++        )}
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/app/pin_replay/components/pin_timeseries.tsx b/web/app/pin_replay/components/pin_timeseries.tsx
+new file mode 100644
+index 0000000..f98c96b
+--- /dev/null
++++ b/web/app/pin_replay/components/pin_timeseries.tsx
+@@ -0,0 +1,56 @@
++"use client";
++
++import { VegaChart } from "@/components/ui/vega-chart";
++import { buildTimelineSpec, type TimelinePoint } from "@/lib/timeline_spec";
++
++import type { PinSnapshot } from "@/lib/pin_replay_demo";
++
++export function PinTimeseries({ snapshots }: { snapshots: PinSnapshot[] }) {
++  const sorted = [...snapshots].sort((a, b) =>
++    a.pin_date.localeCompare(b.pin_date),
++  );
++
++  const pass_rate_points: TimelinePoint[] = sorted.map((s) => ({
++    period: s.pin_date,
++    value: Math.round(s.pass_rate * 100),
++    series: "pass_rate_pct",
++    evidence_id: `demo-pin-${s.pin_date}-pass`,
++  }));
++
++  const sentences_points: TimelinePoint[] = sorted.map((s) => ({
++    period: s.pin_date,
++    value: s.verified_sentence_count,
++    series: "verified_sentences",
++    evidence_id: `demo-pin-${s.pin_date}-sentences`,
++  }));
++
++  const pass_rate_spec = buildTimelineSpec(
++    "Pass rate over time (%)",
++    pass_rate_points,
++    "date",
++  );
++  const sentences_spec = buildTimelineSpec(
++    "Verified sentences over time",
++    sentences_points,
++    "date",
++  );
++
++  return (
++    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
++      <section
++        data-testid="pin-timeseries-pass-rate"
++        className="flex flex-col gap-2"
++      >
++        <h3 className="text-sm font-medium">Pass rate (%)</h3>
++        <VegaChart spec={pass_rate_spec} />
++      </section>
++      <section
++        data-testid="pin-timeseries-sentence-count"
++        className="flex flex-col gap-2"
++      >
++        <h3 className="text-sm font-medium">Verified sentence count</h3>
++        <VegaChart spec={sentences_spec} />
++      </section>
++    </div>
++  );
++}
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index e308b70..8657c44 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -5,6 +5,9 @@ import { useState } from "react";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+ 
++import { DiffSidePanel } from "./components/diff_side_panel";
++import { PinTimeseries } from "./components/pin_timeseries";
++
+ const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
+ 
+ function SnapshotCard({
+@@ -71,8 +74,10 @@ function SnapshotCard({
+ export default function PinReplayPage() {
+   const [date_a, set_date_a] = useState(PIN_DATES[0]);
+   const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
++  const [diff_open, set_diff_open] = useState(false);
+   const snap_a = DEMO_PIN_REGISTRY[date_a];
+   const snap_b = DEMO_PIN_REGISTRY[date_b];
++  const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+ 
+   const delta_pass_rate =
+     Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
+@@ -108,6 +113,23 @@ export default function PinReplayPage() {
+             snapshot={snap_b}
+           />
+         </div>
++        <div className="mt-6">
++          <PinTimeseries snapshots={all_snapshots} />
++        </div>
++        <button
++          type="button"
++          data-testid="pin-show-diff"
++          onClick={() => set_diff_open(true)}
++          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
++        >
++          Show snapshot diff
++        </button>
++        <DiffSidePanel
++          open={diff_open}
++          onOpenChange={set_diff_open}
++          snapshot_a={snap_a}
++          snapshot_b={snap_b}
++        />
+         <Card data-testid="pin-replay-delta" className="mt-4">
+           <CardHeader>
+             <CardTitle className="text-base">Delta (B − A)</CardTitle>
+diff --git a/web/lib/pin_replay_demo.ts b/web/lib/pin_replay_demo.ts
+index 56f8e97..96ecd78 100644
+--- a/web/lib/pin_replay_demo.ts
++++ b/web/lib/pin_replay_demo.ts
+@@ -24,6 +24,15 @@ export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+     verified_sentence_count: 18,
+     pass_rate: 0.72,
+   },
++  "2026-03-01": {
++    pin_date: "2026-03-01",
++    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
++    verdict: "success",
++    section_count_kept: 5,
++    section_count_dropped: 0,
++    verified_sentence_count: 21,
++    pass_rate: 0.79,
++  },
+   "2026-04-30": {
+     pin_date: "2026-04-30",
+     query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+diff --git a/web/tests/e2e/pin_replay_diff.spec.ts b/web/tests/e2e/pin_replay_diff.spec.ts
+new file mode 100644
+index 0000000..45c7e5a
+--- /dev/null
++++ b/web/tests/e2e/pin_replay_diff.spec.ts
+@@ -0,0 +1,41 @@
++import { expect, test } from "@playwright/test";
++
++test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
++  page,
++}) => {
++  await page.goto("/pin_replay");
++
++  // Two timeseries charts render with svg.
++  const pass_rate_section = page.getByTestId("pin-timeseries-pass-rate");
++  const sentence_section = page.getByTestId("pin-timeseries-sentence-count");
++  await expect(pass_rate_section).toBeVisible();
++  await expect(sentence_section).toBeVisible();
++  await expect(pass_rate_section.locator("svg").first()).toBeVisible({
++    timeout: 10_000,
++  });
++  await expect(sentence_section.locator("svg").first()).toBeVisible({
++    timeout: 10_000,
++  });
++
++  // Open the diff side-panel.
++  await page.getByTestId("pin-show-diff").click();
++  await expect(page.getByTestId("pin-diff-pane")).toBeVisible();
++
++  // Per-field rows visible.
++  await expect(page.getByTestId("pin-diff-row-pass_rate")).toBeVisible();
++  await expect(
++    page.getByTestId("pin-diff-row-verified_sentence_count"),
++  ).toBeVisible();
++  await expect(page.getByTestId("pin-diff-row-query")).toBeVisible();
++
++  // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
++  await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
++    "+13%",
++  );
++  // String field delta is "(unchanged)" since same query string.
++  await expect(page.getByTestId("pin-diff-delta-query")).toContainText(
++    "unchanged",
++  );
++
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: 691b17e1b6bdcbe24e2198bec67a1c92e899e08fda0a4bfa9ee16cd282121dec
