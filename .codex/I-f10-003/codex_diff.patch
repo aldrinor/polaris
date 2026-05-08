@@ -1,0 +1,289 @@
+diff --git a/tests/v6/test_charts.py b/tests/v6/test_charts.py
+index 8a3fef2..ecfe76c 100644
+--- a/tests/v6/test_charts.py
++++ b/tests/v6/test_charts.py
+@@ -55,6 +55,47 @@ def test_comparison_table_basic_shape():
+     json.dumps(spec)
+ 
+ 
++def test_comparison_table_n2_renders_correctly():
++    """I-f10-003: 2-entity × 1-metric comparison table covers acceptance N=2."""
++    spec = build_comparison_table(
++        title="Q3 housing starts (N=2)",
++        rows=[
++            ComparisonRow("Ontario", "starts_thousands", 18.4, "ev_h_on"),
++            ComparisonRow("Quebec", "starts_thousands", 9.7, "ev_h_qc"),
++        ],
++    )
++    assert spec["mark"]["type"] == "bar"
++    assert len(spec["data"]["values"]) == 2
++    assert spec["encoding"]["y"]["field"] == "entity"
++    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
++    assert len(spec["polaris_provenance"]["evidence_ids"]) == 2
++    json.dumps(spec)
++
++
++def test_comparison_table_n5_renders_correctly():
++    """I-f10-003: 5-entity × 2-metric comparison table covers acceptance N=5."""
++    rows = [
++        ComparisonRow("Ontario", "starts_thousands", 18.4, "ev_h_on"),
++        ComparisonRow("Quebec", "starts_thousands", 9.7, "ev_h_qc"),
++        ComparisonRow("BC", "starts_thousands", 7.2, "ev_h_bc"),
++        ComparisonRow("Alberta", "starts_thousands", 5.8, "ev_h_ab"),
++        ComparisonRow("Manitoba", "starts_thousands", 1.4, "ev_h_mb"),
++        ComparisonRow("Ontario", "completions_thousands", 14.1, "ev_c_on"),
++        ComparisonRow("Quebec", "completions_thousands", 8.0, "ev_c_qc"),
++        ComparisonRow("BC", "completions_thousands", 5.9, "ev_c_bc"),
++        ComparisonRow("Alberta", "completions_thousands", 4.7, "ev_c_ab"),
++        ComparisonRow("Manitoba", "completions_thousands", 1.1, "ev_c_mb"),
++    ]
++    spec = build_comparison_table(title="Q3 housing N=5 × 2 metrics", rows=rows)
++    assert len(spec["data"]["values"]) == 10
++    assert spec["encoding"]["color"]["field"] == "metric"
++    # Every datum carries evidence_id (click-through-to-source contract).
++    for row in spec["data"]["values"]:
++        assert "evidence_id" in row and row["evidence_id"]
++    assert len(spec["polaris_provenance"]["evidence_ids"]) == 10
++    json.dumps(spec)
++
++
+ def test_timeline_quarter_kind():
+     spec = build_timeline(
+         title="Oil-sands GHG intensity per barrel",
+diff --git a/web/app/charts_test/comparison_table/page.tsx b/web/app/charts_test/comparison_table/page.tsx
+new file mode 100644
+index 0000000..a9f5348
+--- /dev/null
++++ b/web/app/charts_test/comparison_table/page.tsx
+@@ -0,0 +1,137 @@
++import { VegaChart } from "@/components/ui/vega-chart";
++import {
++  buildComparisonTableSpec,
++  type ComparisonRow,
++} from "@/lib/comparison_table_spec";
++
++const ROWS_N2: ComparisonRow[] = [
++  {
++    entity: "Ontario",
++    metric: "starts_thousands",
++    value: 18.4,
++    evidence_id: "demo-h-on",
++  },
++  {
++    entity: "Quebec",
++    metric: "starts_thousands",
++    value: 9.7,
++    evidence_id: "demo-h-qc",
++  },
++];
++
++const ROWS_N3: ComparisonRow[] = [
++  ...ROWS_N2,
++  {
++    entity: "BC",
++    metric: "starts_thousands",
++    value: 7.2,
++    evidence_id: "demo-h-bc",
++  },
++];
++
++const ROWS_N5: ComparisonRow[] = [
++  {
++    entity: "Ontario",
++    metric: "starts_thousands",
++    value: 18.4,
++    evidence_id: "demo-h-on",
++  },
++  {
++    entity: "Quebec",
++    metric: "starts_thousands",
++    value: 9.7,
++    evidence_id: "demo-h-qc",
++  },
++  {
++    entity: "BC",
++    metric: "starts_thousands",
++    value: 7.2,
++    evidence_id: "demo-h-bc",
++  },
++  {
++    entity: "Alberta",
++    metric: "starts_thousands",
++    value: 5.8,
++    evidence_id: "demo-h-ab",
++  },
++  {
++    entity: "Manitoba",
++    metric: "starts_thousands",
++    value: 1.4,
++    evidence_id: "demo-h-mb",
++  },
++  {
++    entity: "Ontario",
++    metric: "completions_thousands",
++    value: 14.1,
++    evidence_id: "demo-c-on",
++  },
++  {
++    entity: "Quebec",
++    metric: "completions_thousands",
++    value: 8.0,
++    evidence_id: "demo-c-qc",
++  },
++  {
++    entity: "BC",
++    metric: "completions_thousands",
++    value: 5.9,
++    evidence_id: "demo-c-bc",
++  },
++  {
++    entity: "Alberta",
++    metric: "completions_thousands",
++    value: 4.7,
++    evidence_id: "demo-c-ab",
++  },
++  {
++    entity: "Manitoba",
++    metric: "completions_thousands",
++    value: 1.1,
++    evidence_id: "demo-c-mb",
++  },
++];
++
++export default function ComparisonTablePage() {
++  const spec_n2 = buildComparisonTableSpec("Q3 housing starts (N=2)", ROWS_N2);
++  const spec_n3 = buildComparisonTableSpec("Q3 housing starts (N=3)", ROWS_N3);
++  const spec_n5 = buildComparisonTableSpec(
++    "Q3 housing starts + completions (N=5 entities × 2 metrics)",
++    ROWS_N5,
++  );
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-4xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Comparison table — N=2/3/5 demos
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Sample comparison tables (demo data, demo evidence_ids); same
++          Vega-Lite structure produced by{" "}
++          <code>polaris_v6.charts.spec_builder.build_comparison_table</code>.
++        </p>
++        <section
++          data-testid="comparison-table-n2"
++          className="mt-6 flex flex-col gap-2"
++        >
++          <h2 className="text-sm font-medium">N=2 entities × 1 metric</h2>
++          <VegaChart spec={spec_n2} />
++        </section>
++        <section
++          data-testid="comparison-table-n3"
++          className="mt-6 flex flex-col gap-2"
++        >
++          <h2 className="text-sm font-medium">N=3 entities × 1 metric</h2>
++          <VegaChart spec={spec_n3} />
++        </section>
++        <section
++          data-testid="comparison-table-n5"
++          className="mt-6 flex flex-col gap-2"
++        >
++          <h2 className="text-sm font-medium">N=5 entities × 2 metrics</h2>
++          <VegaChart spec={spec_n5} />
++        </section>
++      </div>
++    </main>
++  );
++}
+diff --git a/web/lib/comparison_table_spec.ts b/web/lib/comparison_table_spec.ts
+new file mode 100644
+index 0000000..ccc3b4a
+--- /dev/null
++++ b/web/lib/comparison_table_spec.ts
+@@ -0,0 +1,54 @@
++/**
++ * I-f10-003: TypeScript helper that mirrors `polaris_v6.charts.spec_builder.build_comparison_table`
++ * for client-side visualization demos. Canonical spec generator remains the
++ * Python builder; the backend route `/runs/{run_id}/charts/comparison_table`
++ * returns specs of the same shape this helper produces.
++ */
++
++import type { VegaLiteSpec } from "@/lib/api";
++
++export const VEGA_LITE_SCHEMA_URL =
++  "https://vega.github.io/schema/vega-lite/v5.json";
++
++export interface ComparisonRow {
++  entity: string;
++  metric: string;
++  value: number;
++  evidence_id: string;
++}
++
++export function buildComparisonTableSpec(
++  title: string,
++  rows: ComparisonRow[],
++): VegaLiteSpec {
++  if (rows.length === 0) {
++    throw new Error("comparison table requires at least one row");
++  }
++  const data_values = rows.map((r) => ({
++    entity: r.entity,
++    metric: r.metric,
++    value: r.value,
++    evidence_id: r.evidence_id,
++  }));
++  return {
++    $schema: VEGA_LITE_SCHEMA_URL,
++    title,
++    data: { values: data_values },
++    mark: { type: "bar" },
++    encoding: {
++      y: { field: "entity", type: "nominal", axis: { title: null } },
++      x: { field: "value", type: "quantitative" },
++      color: { field: "metric", type: "nominal" },
++      tooltip: [
++        { field: "entity" },
++        { field: "metric" },
++        { field: "value" },
++        { field: "evidence_id" },
++      ],
++    },
++    polaris_provenance: {
++      chart_type: "comparison_table",
++      evidence_ids: rows.map((r) => r.evidence_id),
++    },
++  };
++}
+diff --git a/web/tests/e2e/comparison_table_chart.spec.ts b/web/tests/e2e/comparison_table_chart.spec.ts
+new file mode 100644
+index 0000000..2ebf678
+--- /dev/null
++++ b/web/tests/e2e/comparison_table_chart.spec.ts
+@@ -0,0 +1,27 @@
++import { expect, test } from "@playwright/test";
++
++test("Comparison table demo route renders N=2/3/5 charts correctly", async ({
++  page,
++}) => {
++  await page.goto("/charts_test/comparison_table");
++
++  for (const [n_id, expected_min] of [
++    ["comparison-table-n2", 2],
++    ["comparison-table-n3", 3],
++    ["comparison-table-n5", 5],
++  ] as const) {
++    const section = page.getByTestId(n_id);
++    await expect(section).toBeVisible();
++    const chart = section.getByTestId("vega-chart");
++    await expect(chart).toBeVisible();
++    const svg = chart.locator("svg");
++    await expect(svg.first()).toBeVisible({ timeout: 10_000 });
++    // role-aware mark count: at least N graphics-symbol marks per chart
++    // (one bar per entity × metric; conservative lower bound = N).
++    const marks = chart.locator('svg [role="graphics-symbol"]');
++    const count = await marks.count();
++    expect(count).toBeGreaterThanOrEqual(expected_min);
++  }
++
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: 10fa82505f28eba44ac29435194a4210a2dd4e35678fd0b8195c233a29e56a76
