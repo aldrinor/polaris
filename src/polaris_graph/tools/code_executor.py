@@ -11,6 +11,7 @@ write arbitrary Python analysis scripts that run on real evidence data,
 producing custom statistical analyses, charts, and tables.
 """
 
+import ast
 import asyncio
 import base64
 import json
@@ -55,6 +56,7 @@ _BLOCKED_IMPORTS = frozenset({
     "subprocess",
     "shutil",
     "socket",
+    "_socket",
     "requests",
     "urllib",
     "http",
@@ -128,10 +130,10 @@ _ALLOWED_IMPORTS = frozenset({
     "re",
     "datetime",
     "decimal",
+    "time",
     "fractions",
     "itertools",
     "functools",
-    "operator",
     "copy",
     "io",
     "base64",
@@ -188,6 +190,119 @@ def get_sandbox_paths() -> dict:
 # Script validation
 # ---------------------------------------------------------------------------
 
+# I-f10-007: AST-level validators close the regex bypasses (comma-separated
+# imports, indirect __builtins__ access, frame reflection, numpy ctypeslib,
+# ctypes attribute chains). Acknowledged: complete sovereignty requires
+# OS-level isolation per follow-up Issue I-f10-007b.
+
+_BLOCKED_REFLECTION_ATTRS = frozenset({
+    # __builtins__ and direct builtin access
+    "__builtins__",
+    "__import__",
+    "__class__",
+    "__subclasses__",
+    "__globals__",
+    "__bases__",
+    "__mro__",
+    "__dict__",
+    "__getattribute__",
+    "__getattr__",
+    "__base__",
+    # Frame reflection paths
+    "_getframe",
+    "f_builtins",
+    "f_globals",
+    "f_locals",
+    "f_code",
+    "gi_frame",
+    "cr_frame",
+    "ag_frame",
+    "tb_frame",
+    # numpy/scipy native FFI escape vectors
+    "ctypeslib",
+    "ctypes",
+    # sys.modules subscript escape
+    "modules",
+})
+
+
+def _validate_ast(script: str) -> tuple[bool, str]:
+    """AST-based validation: import allowlist + reflection-attribute blocklist.
+
+    Closes the regex bypasses found in Codex iter-1..5 review:
+    - comma-separated imports (`import json, socket`)
+    - indirect __builtins__ reflection
+    - frame-reflection (`sys._getframe().f_builtins`)
+    - numpy.ctypeslib FFI escape
+
+    Residual surface (documented in I-f10-007b follow-up):
+    - dangerous builtins as first-class values: `list(map(eval, ...))`
+    - `__class__.__bases__[0].__subclasses__()` chain (mitigated by
+      blocking `__subclasses__` attr but the `__class__` chain start is
+      caught too)
+    """
+    try:
+        tree = ast.parse(script)
+    except SyntaxError as exc:
+        return False, f"Script syntax error: {str(exc)[:200]}"
+
+    for node in ast.walk(tree):
+        # Import allowlist enforcement
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top_module = alias.name.split(".")[0]
+                if top_module in _BLOCKED_IMPORTS:
+                    return False, (
+                        f"Blocked import '{top_module}' "
+                        f"(security restriction)"
+                    )
+                if top_module not in _ALLOWED_IMPORTS:
+                    return False, (
+                        f"Module '{top_module}' is not in the allowed "
+                        f"import list (security restriction)"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                top_module = node.module.split(".")[0]
+                if top_module in _BLOCKED_IMPORTS:
+                    return False, (
+                        f"Blocked import 'from {top_module}' "
+                        f"(security restriction)"
+                    )
+                if top_module not in _ALLOWED_IMPORTS:
+                    return False, (
+                        f"Module 'from {top_module}' is not in the "
+                        f"allowed import list (security restriction)"
+                    )
+        # Direct __builtins__ name reference
+        elif isinstance(node, ast.Name) and node.id in _BLOCKED_REFLECTION_ATTRS:
+            return False, (
+                f"Reference to '{node.id}' is not allowed "
+                f"(reflection-bypass guard)"
+            )
+        # Attribute access matching the blocked reflection set
+        elif isinstance(node, ast.Attribute) and node.attr in _BLOCKED_REFLECTION_ATTRS:
+            return False, (
+                f"Attribute access to '.{node.attr}' is not allowed "
+                f"(reflection-bypass guard)"
+            )
+        # I-f10-007 iter-3 diff fix: reject Name references (not just Call)
+        # to dangerous reflection/exec builtins. This catches first-class
+        # aliasing: `e = eval; e('...')`, `v = vars; v(sys)['modules']`, etc.
+        # AST `ast.Name` in Load context covers both bare reference and call.
+        elif isinstance(node, ast.Name) and node.id in {
+            "vars", "dir", "globals", "locals",
+            "eval", "exec", "open", "compile",
+            "getattr", "setattr", "delattr",
+        }:
+            return False, (
+                f"Reference to dangerous builtin '{node.id}' is not allowed "
+                f"(reflection/exec-bypass guard)"
+            )
+
+    return True, ""
+
+
 def validate_script(script: str) -> tuple[bool, str]:
     """Check a script for blocked imports and dangerous patterns.
 
@@ -210,6 +325,12 @@ def validate_script(script: str) -> tuple[bool, str]:
         return False, (
             f"Script exceeds maximum size ({len(script)} > {_MAX_SCRIPT_SIZE} bytes)"
         )
+
+    # I-f10-007: AST validation runs first; closes comma-separated import,
+    # __builtins__ reflection, frame-reflection, and ctypeslib bypasses.
+    ast_ok, ast_reason = _validate_ast(script)
+    if not ast_ok:
+        return False, ast_reason
 
     # Normalize line continuations for analysis
     normalized = script.replace("\\\n", " ")
@@ -327,6 +448,38 @@ async def execute_analysis_script(
             "[code_executor] Script validation failed: %s", safety_reason
         )
         return {**empty_result, "error": f"Validation failed: {safety_reason}"}
+
+    # I-f10-007: runtime socket monkey-patch preamble injected before user
+    # script. Even when allowlisted libraries (pandas/numpy/etc.) attempt
+    # network egress via socket APIs, the patched callable raises and the
+    # call fails. This is defense-in-depth on top of validate_script;
+    # complete sovereignty still requires OS-level isolation per
+    # I-f10-007b follow-up.
+    socket_kill_preamble = (
+        "def _polaris_block(*args, **kwargs):\n"
+        "    raise RuntimeError('network egress blocked by polaris sandbox')\n"
+        "import socket as _polaris_socket\n"
+        "for _polaris_attr in ('socket','create_connection','getaddrinfo',\n"
+        "                     'gethostbyname','gethostbyname_ex','gethostbyaddr',\n"
+        "                     'create_server','fromfd','socketpair','SocketType'):\n"
+        "    setattr(_polaris_socket, _polaris_attr, _polaris_block)\n"
+        "try:\n"
+        "    import _socket as _polaris_socket_raw\n"
+        "    for _polaris_attr in ('socket','SocketType','getaddrinfo',\n"
+        "                          'gethostbyname','gethostbyname_ex',\n"
+        "                          'gethostbyaddr','fromfd','socketpair'):\n"
+        "        try:\n"
+        "            setattr(_polaris_socket_raw, _polaris_attr, _polaris_block)\n"
+        "        except (AttributeError, TypeError):\n"
+        "            pass\n"
+        "    del _polaris_socket_raw\n"
+        "except ImportError:\n"
+        "    pass\n"
+        # Remove sandbox-internal names from user-visible globals.
+        "del _polaris_socket\n"
+        "del _polaris_attr\n"
+    )
+    script = socket_kill_preamble + script
 
     # Unconditionally enforce Agg backend -- prevents Windows Tk display hangs
     agg_preamble = "import matplotlib\nmatplotlib.use('Agg')\n"
