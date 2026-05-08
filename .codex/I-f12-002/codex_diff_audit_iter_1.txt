@@ -1,0 +1,303 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e08e6-c8f3-74b0-878d-4f5b2f19284b
+--------
+user
+# Codex Diff Review — I-f12-002 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-f12-002 — Split-screen view with shadcn ResizablePanels. Brief APPROVE iter 2.
+- **Net LOC:** 178.
+- **Branch:** `bot/I-f12-002`.
+
+## What changed
+
+1. `web/app/generation/components/split_screen.tsx` (NEW, 100 LOC, `"use client"`):
+   - Module-level constants `MIN_PCT=20`, `MAX_PCT=80`, `STEP_PCT=5`. `clamp()` helper.
+   - `SplitScreen({ left, right, initialPercent=50 })` clamps `initialPercent` on init.
+   - Pointer drag via global `pointermove`/`pointerup` listeners; keyboard resize via ArrowLeft/ArrowRight on the divider button (with `preventDefault`).
+   - `role="separator"`, `aria-orientation="vertical"`, `aria-valuenow/min/max`, `aria-label="Resize divider"`.
+
+2. `web/app/sentence_hover_test/split_screen/page.tsx` (NEW, 21 LOC, `"use client"`):
+   - Hosts `<SplitScreen>` with LEFT-CONTENT / RIGHT-CONTENT divs for Playwright targeting.
+
+3. `web/tests/e2e/split_screen.spec.ts` (NEW, 57 LOC, 5 specs):
+   - `renders both panels with initial 50/50 split` — `aria-valuenow="50"`.
+   - `divider has resize semantics` — `aria-valuemin="20"`, `aria-valuemax="80"`.
+   - `left panel content visible`.
+   - `right panel content visible`.
+   - **`pointer drag changes panel widths`** — captures initial `bounding box`, performs `page.mouse.down()/move()/up()`, asserts `aria-valuenow` ≠ "50" AND new bounding-box width > initial.
+
+## Test results (local chromium)
+
+```
+$ npx playwright test --project=chromium tests/e2e/split_screen.spec.ts --reporter=line
+5 passed (2.6s)
+```
+
+## Risks for Codex Red-Team
+
+1. **Pointer drag correctness.** `onPointerDown` sets `dragging.current = true`; global `pointermove` listener clamps and applies. The test verifies width AND aria-valuenow change.
+2. **Keyboard resize.** ArrowLeft/ArrowRight steps `±5%`, clamped, with `preventDefault` to avoid page scroll.
+3. **WAI-ARIA Window Splitter.** Role + orientation + valuemin/max/now present.
+4. **§9.4 hygiene.** No magic numbers — `MIN_PCT/MAX_PCT/STEP_PCT` are module-level named constants.
+5. **CHARTER §3 LOC cap.** 178 net.
+
+## Acceptance criteria — forced enumeration
+
+1. ✅ `web/app/generation/components/split_screen.tsx` (`"use client"`) with `SplitScreen`, pointer drag + keyboard resize + clamped initialPercent.
+2. ✅ Standalone fixture at `/sentence_hover_test/split_screen`.
+3. ✅ Playwright spec at `web/tests/e2e/split_screen.spec.ts` with 5 specs including pointer-drag assertion.
+4. ✅ CHARTER §3 LOC cap (178 ≤ 200).
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Diff (appended below)
+diff --git a/web/app/generation/components/split_screen.tsx b/web/app/generation/components/split_screen.tsx
+new file mode 100644
+index 0000000..3b5c67a
+--- /dev/null
++++ b/web/app/generation/components/split_screen.tsx
+@@ -0,0 +1,104 @@
++"use client";
++
++// I-f12-002: split-screen view for two-run compare. MVP substrate using
++// pointer + keyboard with WAI-ARIA Window Splitter pattern. Real shadcn
++// <ResizablePanelGroup> from `react-resizable-panels` is a post-MVP
++// drop-in replacement at the call site (ditto Tailwind container styles).
++
++import {
++  useCallback,
++  useEffect,
++  useRef,
++  useState,
++  type ReactNode,
++} from "react";
++
++const MIN_PCT = 20;
++const MAX_PCT = 80;
++const STEP_PCT = 5;
++
++function clamp(v: number): number {
++  return Math.min(MAX_PCT, Math.max(MIN_PCT, v));
++}
++
++export function SplitScreen({
++  left,
++  right,
++  initialPercent = 50,
++}: {
++  left: ReactNode;
++  right: ReactNode;
++  initialPercent?: number;
++}) {
++  const [pct, setPct] = useState<number>(clamp(initialPercent));
++  const containerRef = useRef<HTMLDivElement>(null);
++  const dragging = useRef<boolean>(false);
++
++  const onPointerMove = useCallback((e: PointerEvent) => {
++    if (!dragging.current || !containerRef.current) return;
++    const rect = containerRef.current.getBoundingClientRect();
++    setPct(clamp(((e.clientX - rect.left) / rect.width) * 100));
++  }, []);
++
++  const onPointerUp = useCallback(() => {
++    dragging.current = false;
++  }, []);
++
++  useEffect(() => {
++    window.addEventListener("pointermove", onPointerMove);
++    window.addEventListener("pointerup", onPointerUp);
++    return () => {
++      window.removeEventListener("pointermove", onPointerMove);
++      window.removeEventListener("pointerup", onPointerUp);
++    };
++  }, [onPointerMove, onPointerUp]);
++
++  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
++    if (e.key === "ArrowLeft") {
++      e.preventDefault();
++      setPct((p) => clamp(p - STEP_PCT));
++    } else if (e.key === "ArrowRight") {
++      e.preventDefault();
++      setPct((p) => clamp(p + STEP_PCT));
++    }
++  }
++
++  return (
++    <div
++      ref={containerRef}
++      data-testid="split-screen"
++      className="flex h-full w-full"
++    >
++      <section
++        data-testid="split-left"
++        style={{ width: `${pct}%` }}
++        className="overflow-auto"
++      >
++        {left}
++      </section>
++      <button
++        type="button"
++        role="separator"
++        aria-orientation="vertical"
++        aria-label="Resize divider"
++        aria-valuenow={Math.round(pct)}
++        aria-valuemin={MIN_PCT}
++        aria-valuemax={MAX_PCT}
++        data-testid="split-divider"
++        onPointerDown={(e) => {
++          dragging.current = true;
++          e.preventDefault();
++        }}
++        onKeyDown={onKeyDown}
++        className="bg-border hover:bg-primary focus:bg-primary w-1 cursor-col-resize touch-none focus:outline-none"
++      />
++      <section
++        data-testid="split-right"
++        style={{ width: `${100 - pct}%` }}
++        className="overflow-auto"
++      >
++        {right}
++      </section>
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/split_screen/page.tsx b/web/app/sentence_hover_test/split_screen/page.tsx
+new file mode 100644
+index 0000000..98943e4
+--- /dev/null
++++ b/web/app/sentence_hover_test/split_screen/page.tsx
+@@ -0,0 +1,22 @@
++"use client";
++
++import { SplitScreen } from "@/app/generation/components/split_screen";
++
++export default function SplitScreenFixturePage() {
++  return (
++    <main className="bg-background text-foreground h-screen w-screen">
++      <SplitScreen
++        left={
++          <div data-testid="left-content" className="p-6">
++            LEFT-CONTENT
++          </div>
++        }
++        right={
++          <div data-testid="right-content" className="p-6">
++            RIGHT-CONTENT
++          </div>
++        }
++      />
++    </main>
++  );
++}
+diff --git a/web/tests/e2e/split_screen.spec.ts b/web/tests/e2e/split_screen.spec.ts
+new file mode 100644
+index 0000000..26b48ed
+--- /dev/null
++++ b/web/tests/e2e/split_screen.spec.ts
+@@ -0,0 +1,52 @@
++import { expect, test } from "@playwright/test";
++
++const URL = "/sentence_hover_test/split_screen";
++
++test("renders both panels with initial 50/50 split", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("split-left")).toBeVisible();
++  await expect(page.getByTestId("split-right")).toBeVisible();
++  await expect(page.getByTestId("split-divider")).toHaveAttribute(
++    "aria-valuenow",
++    "50",
++  );
++});
++
++test("divider has resize semantics", async ({ page }) => {
++  await page.goto(URL);
++  const divider = page.getByRole("separator");
++  await expect(divider).toHaveAttribute("aria-valuemin", "20");
++  await expect(divider).toHaveAttribute("aria-valuemax", "80");
++});
++
++test("left panel content visible", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("left-content")).toContainText("LEFT-CONTENT");
++});
++
++test("right panel content visible", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("right-content")).toContainText(
++    "RIGHT-CONTENT",
++  );
++});
++
++test("pointer drag changes panel widths", async ({ page }) => {
++  await page.goto(URL);
++  const initial = await page.getByTestId("split-left").boundingBox();
++  expect(initial).not.toBeNull();
++  const divider = page.getByTestId("split-divider");
++  const dividerBox = await divider.boundingBox();
++  expect(dividerBox).not.toBeNull();
++  const startX = dividerBox!.x + dividerBox!.width / 2;
++  const startY = dividerBox!.y + dividerBox!.height / 2;
++  await page.mouse.move(startX, startY);
++  await page.mouse.down();
++  await page.mouse.move(startX + 200, startY, { steps: 10 });
++  await page.mouse.up();
++  const after = await page.getByTestId("split-left").boundingBox();
++  expect(after).not.toBeNull();
++  expect(after!.width).toBeGreaterThan(initial!.width);
++  const valueAfter = await divider.getAttribute("aria-valuenow");
++  expect(valueAfter).not.toBe("50");
++});
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/generation/components/split_screen.tsx:3: The implementation does not use shadcn ResizablePanels / react-resizable-panels despite the issue being explicitly scoped as split-screen view with shadcn ResizablePanels. The comment marks that as post-MVP, so the core requested implementation path is deferred rather than delivered."
+p2:
+  - "web/app/generation/components/split_screen.tsx:37: Drag state is cleared only on pointerup. A pointercancel or lost pointer capture during touch/pen interaction can leave dragging.current true until a later pointerup, causing unintended resizing on subsequent pointer movement."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace the custom flex/button splitter with the intended shadcn ResizablePanels/react-resizable-panels implementation, or confirm the ticket scope has officially changed to permit the custom MVP splitter."
+```
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/generation/components/split_screen.tsx:3: The implementation does not use shadcn ResizablePanels / react-resizable-panels despite the issue being explicitly scoped as split-screen view with shadcn ResizablePanels. The comment marks that as post-MVP, so the core requested implementation path is deferred rather than delivered."
+p2:
+  - "web/app/generation/components/split_screen.tsx:37: Drag state is cleared only on pointerup. A pointercancel or lost pointer capture during touch/pen interaction can leave dragging.current true until a later pointerup, causing unintended resizing on subsequent pointer movement."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace the custom flex/button splitter with the intended shadcn ResizablePanels/react-resizable-panels implementation, or confirm the ticket scope has officially changed to permit the custom MVP splitter."
+```
+tokens used
+4,797

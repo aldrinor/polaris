@@ -1,0 +1,2530 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e08f8-dc94-7ee0-8342-00ce8025b3e8
+--------
+user
+# Codex Diff Review — I-f12-002 (ITER 2 of 5)
+
+## Iter 2 changes per Codex iter 1
+
+- **P1 fix (custom impl rejected):** Replaced custom flex-based splitter with `react-resizable-panels` (the engine behind shadcn/ui's `<Resizable*>` primitives). `SplitScreen` now wraps `Group` + `Panel` + `Separator` from the lib.
+- **P2 (pointer-cancel handling):** No longer needed — the lib handles its own pointer state internally; we no longer track our own dragging ref.
+- **Pointer-drag assertion changed:** Playwright's `mouse.*` synthesis vs the lib's `PointerEvent` capture path is empirically unstable. The drag test now asserts `data-separator` state changes from `"inactive"` when pointer-down occurs (covers the same handler chain without the brittle width-delta assertion). Documented in spec comment.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-f12-002 — Split-screen view with shadcn ResizablePanels. Brief APPROVE iter 2.
+- **Net LOC:** 90 added / 118 removed (replaced custom impl with lib-backed impl).
+- **Branch:** `bot/I-f12-002`.
+
+## What changed
+
+1. `web/app/generation/components/split_screen.tsx` (REWROTE, 60 LOC):
+   - Imports `Group, Panel, Separator` from `react-resizable-panels`.
+   - `useId()`-derived unique panel IDs per `SplitScreen` instance — avoids ID collision when multiple SplitScreens render on the same page.
+   - `Group` `defaultLayout={{ [leftId]: leftDefault, [rightId]: rightDefault }}`.
+   - `Panel` minSize/maxSize at `MIN_PCT`=20, `MAX_PCT`=80 module constants.
+   - Separator with our class wrappers (lib supplies role + aria-orientation + tabindex).
+
+2. `web/package.json` + `web/package-lock.json`: `react-resizable-panels: ^4.11.0` added.
+
+3. `web/app/sentence_hover_test/split_screen/page.tsx` (32 LOC, `"use client"`):
+   - Hosts a single `<SplitScreen>` with LEFT-CONTENT / RIGHT-CONTENT divs.
+
+4. `web/tests/e2e/split_screen.spec.ts` (REWROTE, 56 LOC, 5 specs):
+   - All 5 pass locally on chromium.
+   - Spec 5 changed to `divider responds to pointer interaction` — verifies `data-separator` state toggles from `"inactive"` on pointer-down (covers the resize handler chain reliably).
+
+## Test results (local chromium)
+
+```
+$ npx playwright test --project=chromium tests/e2e/split_screen.spec.ts --reporter=line
+5 passed (2.4s)
+```
+
+## Risks for Codex Red-Team
+
+1. **Real-lib usage.** No more custom MVP — the path forward is `react-resizable-panels` exactly as shadcn/ui scaffolds it.
+2. **Drag pixel-delta vs state-toggle test.** Drag pixel-delta proved brittle in Playwright (lib's pointer-capture path); state-toggle hits the same handler chain. The lib transitions `data-separator="inactive"` → other state on pointer-down.
+3. **§9.4 hygiene.** `MIN_PCT`/`MAX_PCT` named constants. No magic numbers.
+4. **CHARTER §3 LOC cap.** 90 added / 118 removed = -28 net (under 200 by a wide margin).
+
+## Acceptance criteria — forced enumeration
+
+1. ✅ `web/app/generation/components/split_screen.tsx` (`"use client"`) wraps `react-resizable-panels` with min/max bounds.
+2. ✅ Standalone fixture at `/sentence_hover_test/split_screen`.
+3. ✅ Playwright spec at `web/tests/e2e/split_screen.spec.ts` with 5 specs incl. resize-handler interaction.
+4. ✅ CHARTER §3 LOC cap (90 ≤ 200).
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Diff (appended below)
+diff --git a/web/app/generation/components/split_screen.tsx b/web/app/generation/components/split_screen.tsx
+new file mode 100644
+index 0000000..080509a
+--- /dev/null
++++ b/web/app/generation/components/split_screen.tsx
+@@ -0,0 +1,54 @@
++"use client";
++
++// I-f12-002: split-screen view backed by react-resizable-panels
++// (the engine behind shadcn/ui's <Resizable*> primitives). The library
++// emits its own data-testid + role="separator" + aria-orientation so we
++// expose stable testids only on outer wrappers and content divs; the
++// divider itself is queried by role="separator".
++
++import { Group, Panel, Separator } from "react-resizable-panels";
++import { useId, type ReactNode } from "react";
++
++const MIN_PCT = 20;
++const MAX_PCT = 80;
++
++function clamp(v: number): number {
++  return Math.min(MAX_PCT, Math.max(MIN_PCT, v));
++}
++
++export function SplitScreen({
++  left,
++  right,
++  initialPercent = 50,
++}: {
++  left: ReactNode;
++  right: ReactNode;
++  initialPercent?: number;
++}) {
++  const leftDefault = clamp(initialPercent);
++  const rightDefault = 100 - leftDefault;
++  const reactId = useId();
++  const leftId = `${reactId}-left`;
++  const rightId = `${reactId}-right`;
++  return (
++    <div data-testid="split-screen" className="h-full w-full">
++      <Group
++        orientation="horizontal"
++        className="h-full w-full"
++        defaultLayout={{ [leftId]: leftDefault, [rightId]: rightDefault }}
++      >
++        <Panel id={leftId} minSize={MIN_PCT} maxSize={MAX_PCT}>
++          <div data-testid="split-left" className="h-full overflow-auto">
++            {left}
++          </div>
++        </Panel>
++        <Separator className="bg-border hover:bg-primary focus:bg-primary w-1 cursor-col-resize touch-none focus:outline-none" />
++        <Panel id={rightId} minSize={MIN_PCT} maxSize={MAX_PCT}>
++          <div data-testid="split-right" className="h-full overflow-auto">
++            {right}
++          </div>
++        </Panel>
++      </Group>
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/split_screen/page.tsx b/web/app/sentence_hover_test/split_screen/page.tsx
+new file mode 100644
+index 0000000..55f2033
+--- /dev/null
++++ b/web/app/sentence_hover_test/split_screen/page.tsx
+@@ -0,0 +1,28 @@
++"use client";
++
++import { SplitScreen } from "@/app/generation/components/split_screen";
++
++export default function SplitScreenFixturePage() {
++  return (
++    <main
++      data-testid="page-root"
++      className="bg-background text-foreground h-screen w-screen"
++    >
++      <div className="h-1/2">
++        <SplitScreen
++          initialPercent={50}
++          left={
++            <div data-testid="left-content" className="p-6">
++              LEFT-CONTENT
++            </div>
++          }
++          right={
++            <div data-testid="right-content" className="p-6">
++              RIGHT-CONTENT
++            </div>
++          }
++        />
++      </div>
++    </main>
++  );
++}
+diff --git a/web/package-lock.json b/web/package-lock.json
+index 7c59e6c..8edd27a 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -16,6 +16,7 @@
+         "next-themes": "^0.4.6",
+         "react": "19.2.4",
+         "react-dom": "19.2.4",
++        "react-resizable-panels": "^4.11.0",
+         "shadcn": "^4.6.0",
+         "sonner": "^2.0.7",
+         "tailwind-merge": "^3.5.0",
+@@ -8451,6 +8452,16 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/react-resizable-panels": {
++      "version": "4.11.0",
++      "resolved": "https://registry.npmjs.org/react-resizable-panels/-/react-resizable-panels-4.11.0.tgz",
++      "integrity": "sha512-LPk/AkFDGkg7SsbOyL93ojrE6E7lhrxxDwnYNjfmnSeI6BE7Sje6dB24PXgZk8DeugdeXNk1LO+ohRqIjhxiLw==",
++      "license": "MIT",
++      "peerDependencies": {
++        "react": "^18.0.0 || ^19.0.0",
++        "react-dom": "^18.0.0 || ^19.0.0"
++      }
++    },
+     "node_modules/recast": {
+       "version": "0.23.11",
+       "resolved": "https://registry.npmjs.org/recast/-/recast-0.23.11.tgz",
+diff --git a/web/package.json b/web/package.json
+index 8a1ad98..240330f 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -23,6 +23,7 @@
+     "next-themes": "^0.4.6",
+     "react": "19.2.4",
+     "react-dom": "19.2.4",
++    "react-resizable-panels": "^4.11.0",
+     "shadcn": "^4.6.0",
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.5.0",
+diff --git a/web/tests/e2e/split_screen.spec.ts b/web/tests/e2e/split_screen.spec.ts
+new file mode 100644
+index 0000000..c1af216
+--- /dev/null
++++ b/web/tests/e2e/split_screen.spec.ts
+@@ -0,0 +1,56 @@
++import { expect, test } from "@playwright/test";
++
++const URL = "/sentence_hover_test/split_screen";
++
++test("renders both panels with initial split", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("split-left").first()).toBeVisible();
++  await expect(page.getByTestId("split-right").first()).toBeVisible();
++  const leftBox = await page.getByTestId("split-left").first().boundingBox();
++  const rightBox = await page.getByTestId("split-right").first().boundingBox();
++  expect(leftBox).not.toBeNull();
++  expect(rightBox).not.toBeNull();
++  expect(leftBox!.width).toBeGreaterThan(0);
++  expect(rightBox!.width).toBeGreaterThan(0);
++});
++
++test("divider has WAI-ARIA separator semantics", async ({ page }) => {
++  await page.goto(URL);
++  const divider = page.getByRole("separator").first();
++  await expect(divider).toBeVisible();
++  await expect(divider).toHaveAttribute("aria-orientation", "vertical");
++  await expect(divider).toHaveAttribute("tabindex", "0");
++});
++
++test("left panel content visible", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("left-content")).toContainText("LEFT-CONTENT");
++});
++
++test("right panel content visible", async ({ page }) => {
++  await page.goto(URL);
++  await expect(page.getByTestId("right-content")).toContainText(
++    "RIGHT-CONTENT",
++  );
++});
++
++test("divider responds to pointer interaction", async ({ page }) => {
++  // Verify the resize divider is interactive: it accepts pointer down/up
++  // and does not throw, the data-separator state attribute toggles to
++  // active/dragging when held. This proves the resize wiring is live
++  // without depending on Playwright's pointer-event capture/move
++  // synthesis matching the library's PointerEvent path on every browser
++  // version (a known fragility of mouse.* with libraries that use
++  // setPointerCapture).
++  await page.goto(URL);
++  const divider = page.getByRole("separator").first();
++  const box = await divider.boundingBox();
++  expect(box).not.toBeNull();
++  await divider.hover();
++  await page.mouse.down();
++  // Library transitions data-separator from "inactive" to a non-inactive
++  // state when pointer is held; verify it is no longer inactive.
++  const stateDuringHold = await divider.getAttribute("data-separator");
++  await page.mouse.up();
++  expect(stateDuringHold).not.toBe("inactive");
++});
+
+# canonical-diff-sha256: 73ec63863c6066e7b4e402d7277d9c89da18bb2dd6210a5dbcdc117cd00c7cb6
+
+codex
+I’ll verify the diff as a review, focusing on whether the new wrapper actually matches the installed library API and whether the tests prove the acceptance criteria without masking a build/runtime issue.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "react-resizable-panels|SplitScreen|split_screen" web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "if (Test-Path web\\node_modules\\react-resizable-panels) { Get-ChildItem web\\node_modules\\react-resizable-panels -Force } else { Write-Output 'NO_NODE_MODULES_PACKAGE' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+ succeeded in 1106ms:
+## bot/I-f12-002...origin/bot/I-f12-002
+?? .claude/hooks/__pycache__/
+?? .codex/I-f12-002/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 1266ms:
+web\app\generation\components\split_screen.tsx:3:// I-f12-002: split-screen view backed by react-resizable-panels
+web\app\generation\components\split_screen.tsx:9:import { Group, Panel, Separator } from "react-resizable-panels";
+web\app\generation\components\split_screen.tsx:19:export function SplitScreen({
+web\package.json:26:    "react-resizable-panels": "^4.11.0",
+web\package-lock.json:19:        "react-resizable-panels": "^4.11.0",
+web\package-lock.json:8455:    "node_modules/react-resizable-panels": {
+web\package-lock.json:8457:      "resolved": "https://registry.npmjs.org/react-resizable-panels/-/react-resizable-panels-4.11.0.tgz",
+web\app\sentence_hover_test\split_screen\page.tsx:3:import { SplitScreen } from "@/app/generation/components/split_screen";
+web\app\sentence_hover_test\split_screen\page.tsx:5:export default function SplitScreenFixturePage() {
+web\app\sentence_hover_test\split_screen\page.tsx:12:        <SplitScreen
+web\tests\e2e\split_screen.spec.ts:3:const URL = "/sentence_hover_test/split_screen";
+
+ succeeded in 1407ms:
+
+    Directory: C:\POLARIS\web\node_modules\react-resizable-panels
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-08 11:43 AM                dist
+-a---          2026-05-08 11:43 AM           1079 LICENSE.md
+-a---          2026-05-08 11:43 AM           4411 package.json
+-a---          2026-05-08 11:43 AM          12438 README.md
+
+
+codex
+The workspace is already on `bot/I-f12-002`. I found the new files and the installed package locally, so I’m checking the package’s actual exports/types rather than relying on the changelog text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"export .*Group|export .*Separator|PanelGroup|PanelResizeHandle|interface.*defaultLayout|defaultLayout\" web\\node_modules\\react-resizable-panels -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\dist\\react-resizable-panels.d.ts" in C:\POLARIS
+ succeeded in 994ms:
+{
+  "name": "react-resizable-panels",
+  "version": "4.11.0",
+  "type": "module",
+  "author": "Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)",
+  "contributors": [
+    "Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)"
+  ],
+  "license": "MIT",
+  "homepage": "https://react-resizable-panels.vercel.app/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bvaughn/react-resizable-panels.git"
+  },
+  "main": "dist/react-resizable-panels.cjs",
+  "module": "dist/react-resizable-panels.js",
+  "types": "dist/react-resizable-panels.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "dev:integrations": "pnpm run /^dev:integrations:.*/",
+    "dev:integrations:next": "pnpm -C integrations/next/ run dev",
+    "dev:integrations:vike": "pnpm -C integrations/vike/ run dev",
+    "dev:integrations:vite": "pnpm -C integrations/vite/ run dev",
+    "build": "pnpm run /^build:.*/",
+    "build:docs": "cross-env TARGET=docs vite build",
+    "build:lib": "cross-env TARGET=lib vite build",
+    "compile": "pnpm run --sequential /^compile:.*/",
+    "compile:docs": "tsx ./scripts/compile-docs",
+    "compile:examples": "tsx ./scripts/compile-examples",
+    "compile:search-index": "tsx ./scripts/compile-search-index",
+    "compress:og-image": "tsx ./scripts/compress-og-image",
+    "e2e:install": "pnpm -C integrations/tests exec playwright install --with-deps",
+    "e2e:test": "pnpm -C integrations/tests run test",
+    "e2e:test:main": "pnpm -C integrations/tests run test --project=chromium",
+    "e2e:test:popup": "pnpm -C integrations/tests run test --project=chromium:popup",
+    "lint": "eslint .",
+    "prerelease": "rimraf dist && pnpm run build:lib",
+    "prettier": "prettier --write \"**/*.{css,html,js,json,jsx,ts,tsx}\"",
+    "prettier:ci": "prettier --check \"**/*.{css,html,js,json,jsx,ts,tsx}\"",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ci": "vitest run",
+    "test:debug": "vitest --inspect-brk=127.0.0.1:3000 --no-file-parallelism",
+    "tsc": "tsc -b"
+  },
+  "lint-staged": {
+    "**/*": "prettier --write --ignore-unknown"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@csstools/postcss-oklab-function": "^4.0.11",
+    "@eslint/js": "^9.30.1",
+    "@headlessui/react": "^2.2.4",
+    "@headlessui/tailwindcss": "^0.2.2",
+    "@heroicons/react": "^2.2.0",
+    "@tailwindcss/vite": "^4.1.11",
+    "@tailwindplus/elements": "^1.0.5",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/bytes": "^3.1.5",
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.5",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.2.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react-swc": "^3.10.2",
+    "bytes": "^3.1.2",
+    "clsx": "^2.1.1",
+    "compression": "^1.8.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "csstype": "^3.1.3",
+    "eslint": "^9.30.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "eslint-plugin-sonarjs": "^3.0.6",
+    "express": "^5.1.0",
+    "globals": "^16.3.0",
+    "husky": "^9.1.7",
+    "jsdom": "^26.1.0",
+    "lint-staged": "^16.1.4",
+    "markdown-it": "^14.1.0",
+    "marked": "^16.4.1",
+    "postcss": "^8.5.6",
+    "prettier": "3.6.2",
+    "prettier-plugin-tailwindcss": "^0.7.1",
+    "puppeteer": "^24.38.0",
+    "react": "^19.2.3",
+    "react-docgen-typescript": "^2.4.0",
+    "react-dom": "^19.2.3",
+    "react-error-boundary": "^6.0.0",
+    "react-lib-tools": "0.0.53",
+    "react-router-dom": "^7.6.3",
+    "rimraf": "^6.1.2",
+    "rollup-plugin-terser": "^7.0.2",
+    "rollup-plugin-visualizer": "^6.0.3",
+    "rollup-preserve-directives": "^1.1.3",
+    "sharp": "^0.34.5",
+    "sirv": "^3.0.2",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4.1.11",
+    "terser": "^5.43.1",
+    "ts-blank-space": "^0.6.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.35.1",
+    "typescript-json-schema": "^0.65.1",
+    "vite": "^7.0.4",
+    "vite-plugin-dts": "^4.5.4",
+    "vite-plugin-svgr": "^4.3.0",
+    "vitest": "^3.2.4",
+    "vitest-fail-on-console": "^0.10.1",
+    "zustand": "^5.0.7"
+  }
+}
+
+ succeeded in 1136ms:
+web\node_modules\react-resizable-panels\README.md:89:      <td>defaultLayout</td>
+
+ succeeded in 1365ms:
+import { CSSProperties } from 'react';
+import { Dispatch } from 'react';
+import { HTMLAttributes } from 'react';
+import { JSX } from 'react/jsx-runtime';
+import { ReactNode } from 'react';
+import { Ref } from 'react';
+import { RefObject } from 'react';
+import { SetStateAction } from 'react';
+
+declare type BasePanelAttributes = Omit<HTMLAttributes<HTMLDivElement>, "onResize">;
+
+declare type BaseSeparatorAttributes = Omit<HTMLAttributes<HTMLDivElement>, "role" | "tabIndex">;
+
+/**
+ * A Group wraps a set of resizable Panel components.
+ * Group content can be resized _horizontally_ or _vertically_.
+ *
+ * Group elements always include the following attributes:
+ *
+ * ```html
+ * <div data-group data-testid="group-id-prop" id="group-id-prop">
+ * ```
+ *
+ * ℹ️ [Test id](https://testing-library.com/docs/queries/bytestid/) can be used to narrow selection when unit testing.
+ */
+export declare function Group({ children, className, defaultLayout, disableCursor, disabled, elementRef: elementRefProp, groupRef, id: idProp, onLayoutChange: onLayoutChangeUnstable, onLayoutChanged: onLayoutChangedUnstable, orientation, resizeTargetMinimumSize, style, ...rest }: GroupProps): JSX.Element;
+
+export declare namespace Group {
+    var displayName: string;
+}
+
+/**
+ * Imperative Group API.
+ *
+ * ℹ️ The `useGroupRef` and `useGroupCallbackRef` hooks are exported for convenience use in TypeScript projects.
+ */
+export declare interface GroupImperativeHandle {
+    /**
+     * Get the Group's current layout as a map of Panel id to percentage (0..100)
+     *
+     * @return Map of Panel id to percentages (specified as numbers ranging between 0..100)
+     */
+    getLayout: () => {
+        [panelId: string]: number;
+    };
+    /**
+     * Set a new layout for the Group
+     *
+     * @param layout Map of Panel id to percentage (a number between 0..100)
+     * @return Applied layout (after validation)
+     */
+    setLayout: (layout: {
+        [panelId: string]: number;
+    }) => Layout;
+}
+
+export declare type GroupProps = HTMLAttributes<HTMLDivElement> & {
+    /**
+     * Panel and Separator components that comprise this group.
+     */
+    children?: ReactNode | undefined;
+    /**
+     * CSS class name.
+     */
+    className?: string | undefined;
+    /**
+     * Default layout for the Group.
+     *
+     * ℹ️ This value allows layouts to be remembered between page reloads.
+     *
+     * ⚠️ Slight layout shift may occur when server-rendering panels with percentage-based default sizes.
+     * Refer to the documentation for suggestions on how to minimize the impact of this.
+     */
+    defaultLayout?: Layout | undefined;
+    /**
+     * This library sets custom mouse cursor styles to indicate drag state.
+     * Use this prop to disable that behavior for Panels and Separators in this group.
+     */
+    disableCursor?: boolean | undefined;
+    /**
+     * Disable resize functionality.
+     */
+    disabled?: boolean | undefined;
+    /**
+     * Ref attached to the root `HTMLDivElement`.
+     */
+    elementRef?: Ref<HTMLDivElement | null> | undefined;
+    /**
+     * Exposes the following imperative API:
+     * - `getLayout(): Layout`
+     * - `setLayout(layout: Layout): void`
+     *
+     * ℹ️ The `useGroupRef` and `useGroupCallbackRef` hooks are exported for convenience use in TypeScript projects.
+     */
+    groupRef?: Ref<GroupImperativeHandle | null> | undefined;
+    /**
+     * Uniquely identifies this group within an application.
+     * Falls back to `useId` when not provided.
+     *
+     * ℹ️ This value will also be assigned to the `data-group` attribute.
+     */
+    id?: string | number | undefined;
+    /**
+     * Called when the Group's layout is changing.
+     *
+     * ⚠️ For layout changes caused by pointer events, this method is called each time the pointer is moved.
+     * For most cases, it is recommended to use the `onLayoutChanged` callback instead.
+     */
+    onLayoutChange?: (layout: Layout) => void | undefined;
+    /**
+     * Called after the Group's layout has  been changed.
+     *
+     * ℹ️ For layout changes caused by pointer events, this method is not called until the pointer has been released.
+     * This method is recommended when saving layouts to some storage api.
+     */
+    onLayoutChanged?: (layout: Layout) => void | undefined;
+    /**
+     * Minimum size of the resizable hit target area (either `Separator` or `Panel` edge)
+     * This threshold ensures are large enough to avoid mis-clicks.
+     *
+     * - Coarse inputs (typically a finger on a touchscreen) have reduced accuracy;
+     * to ensure accessibility and ease of use, hit targets should be larger to prevent mis-clicks.
+     * - Fine inputs (typically a mouse) can be smaller
+     *
+     * ℹ️ [Apple interface guidelines](https://developer.apple.com/design/human-interface-guidelines/accessibility) suggest `20pt` (`27px`) on desktops and `28pt` (`37px`) for touch devices
+     * In practice this seems to be much larger than many of their own applications use though.
+     */
+    resizeTargetMinimumSize?: {
+        coarse: number;
+        fine: number;
+    };
+    /**
+     * Specifies the resizable orientation ("horizontal" or "vertical"); defaults to "horizontal"
+     */
+    orientation?: "horizontal" | "vertical" | undefined;
+    /**
+     * CSS properties.
+     *
+     * ⚠️ The following styles cannot be overridden: `display`, `flex-direction`, `flex-wrap`, and `overflow`.
+     */
+    style?: CSSProperties | undefined;
+};
+
+/**
+ * Caches and returns matchMedia()'s computed value for "pointer:coarse"
+ */
+export declare function isCoarsePointer(): boolean;
+
+/**
+ * Map of Panel id to flexGrow value;
+ */
+export declare type Layout = {
+    [id: string]: number;
+};
+
+export declare type LayoutStorage = Pick<Storage, "getItem" | "setItem">;
+
+export declare type OnGroupLayoutChange = GroupProps["onLayoutChange"];
+
+export declare type OnPanelResize = PanelProps["onResize"];
+
+/**
+ * Panel group orientation loosely relates to the `aria-orientation` attribute.
+ * It determines how panels are are laid out within the group group and the direction they can be resized in.
+ */
+export declare type Orientation = "horizontal" | "vertical";
+
+/**
+ * A Panel wraps resizable content and can be configured with min/max size constraints and collapsible behavior.
+ *
+ * Panel size props can be in the following formats:
+ * - Percentage of the parent Group (0..100)
+ * - Pixels
+ * - Relative font units (em, rem)
+ * - Viewport relative units (vh, vw)
+ *
+ * ℹ️ Numeric values are assumed to be pixels.
+ * Strings without explicit units are assumed to be percentages (0%..100%).
+ * Percentages may also be specified as strings ending with "%" (e.g. "33%")
+ * Pixels may also be specified as strings ending with the unit "px".
+ * Other units should be specified as strings ending with their CSS property units (e.g. 1rem, 50vh)
+ *
+ * Panel elements always include the following attributes:
+ *
+ * ```html
+ * <div data-panel data-testid="panel-id-prop" id="panel-id-prop">
+ * ```
+ *
+ * ℹ️ [Test id](https://testing-library.com/docs/queries/bytestid/) can be used to narrow selection when unit testing.
+ *
+ * ⚠️ Panel elements must be direct DOM children of their parent Group elements.
+ */
+export declare function Panel({ children, className, collapsedSize, collapsible, defaultSize, disabled, elementRef: elementRefProp, groupResizeBehavior, id: idProp, maxSize, minSize, onResize: onResizeUnstable, panelRef, style, ...rest }: PanelProps): JSX.Element;
+
+export declare namespace Panel {
+    var displayName: string;
+}
+
+/**
+ * Imperative Panel API
+ *
+ * ℹ️ The `usePanelRef` and `usePanelCallbackRef` hooks are exported for convenience use in TypeScript projects.
+ */
+export declare interface PanelImperativeHandle {
+    /**
+     * Collapse the Panel to it's `collapsedSize`.
+     *
+     * ⚠️ This method will do nothing if the Panel is not `collapsible` or if it is already collapsed.
+     */
+    collapse: () => void;
+    /**
+     * Expand a collapsed Panel to its most recent size.
+     *
+     * ⚠️ This method will do nothing if the Panel is not currently collapsed.
+     */
+    expand: () => void;
+    /**
+     * Get the current size of the Panel in pixels as well as a percentage of the parent group (0..100).
+     *
+     * @return Panel size (in pixels and as a percentage of the parent group)
+     */
+    getSize: () => {
+        asPercentage: number;
+        inPixels: number;
+    };
+    /**
+     * The Panel is currently collapsed.
+     */
+    isCollapsed: () => boolean;
+    /**
+     * Update the Panel's size.
+     *
+     * Size can be in the following formats:
+     * - Percentage of the parent Group (0..100)
+     * - Pixels
+     * - Relative font units (em, rem)
+     * - Viewport relative units (vh, vw)
+     *
+     * ℹ️ Numeric values are assumed to be pixels.
+     * Strings without explicit units are assumed to be percentages (0%..100%).
+     * Percentages may also be specified as strings ending with "%" (e.g. "33%")
+     * Pixels may also be specified as strings ending with the unit "px".
+     * Other units should be specified as strings ending with their CSS property units (e.g. 1rem, 50vh)
+     *
+     * @param size New panel size
+     * @return Applied size (after validation)
+     */
+    resize: (size: number | string) => void;
+}
+
+export declare type PanelProps = BasePanelAttributes & {
+    /**
+     * CSS class name.
+     *
+     * ⚠️ Class is applied to nested `HTMLDivElement` to avoid styles that interfere with Flex layout.
+     */
+    className?: string | undefined;
+    /**
+     * Panel size when collapsed; defaults to 0%.
+     */
+    collapsedSize?: number | string | undefined;
+    /**
+     * This panel can be collapsed.
+     *
+     * ℹ️ A collapsible panel will collapse when it's size is less than of the specified `minSize`
+     */
+    collapsible?: boolean | undefined;
+    /**
+     * Default size of Panel within its parent group; default is auto-assigned based on the total number of Panels.
+     *
+     * ⚠️ Percentage based sizes may cause slight layout shift when server-rendering.
+     * For more information see the documentation.
+     */
+    defaultSize?: number | string | undefined;
+    /**
+     * When disabled, a panel cannot be resized either directly or indirectly (by resizing another panel).
+     */
+    disabled?: boolean | undefined;
+    /**
+     * Ref attached to the root `HTMLDivElement`.
+     */
+    elementRef?: Ref<HTMLDivElement | null> | undefined;
+    /**
+     * How should this Panel behave if the parent Group is resized?
+     * Defaults to `preserve-relative-size`.
+     *
+     * - `preserve-relative-size`: Retain the current relative size (as a percentage of the Group)
+     * - `preserve-pixel-size`: Retain its current size (in pixels)
+     *
+     * ℹ️ Panel min/max size constraints may impact this behavior.
+     *
+     * ⚠️ A Group must contain at least one Panel with `preserve-relative-size` resize behavior.
+     */
+    groupResizeBehavior?: "preserve-relative-size" | "preserve-pixel-size" | undefined;
+    /**
+     * Uniquely identifies this panel within the parent group.
+     * Falls back to `useId` when not provided.
+     *
+     * ℹ️ This prop is used to associate persisted group layouts with the original panel.
+     *
+     * ℹ️ This value will also be assigned to the `data-panel` attribute.
+     */
+    id?: string | number | undefined;
+    /**
+     * Maximum size of Panel within its parent group; defaults to 100%.
+     */
+    maxSize?: number | string | undefined;
+    /**
+     * Minimum size of Panel within its parent group; defaults to 0%.
+     */
+    minSize?: number | string | undefined;
+    /**
+     * Called when panel sizes change.
+     *
+     * @param panelSize Panel size (both as a percentage of the parent Group and in pixels)
+     * @param id Panel id (if one was provided as a prop)
+     * @param prevPanelSize Previous panel size (will be undefined on mount)
+     */
+    onResize?: ((panelSize: PanelSize, id: string | number | undefined, prevPanelSize: PanelSize | undefined) => void) | undefined;
+    /**
+     * Exposes the following imperative API:
+     * - `collapse(): void`
+     * - `expand(): void`
+     * - `getSize(): number`
+     * - `isCollapsed(): boolean`
+     * - `resize(size: number): void`
+     *
+     * ℹ️ The `usePanelRef` and `usePanelCallbackRef` hooks are exported for convenience use in TypeScript projects.
+     */
+    panelRef?: Ref<PanelImperativeHandle | null> | undefined;
+    /**
+     * CSS properties.
+     *
+     * ⚠️ Style is applied to nested `HTMLDivElement` to avoid styles that interfere with Flex layout.
+     */
+    style?: CSSProperties | undefined;
+};
+
+export declare type PanelSize = {
+    asPercentage: number;
+    inPixels: number;
+};
+
+/**
+ * Separators are not _required_ but they are _recommended_ as they improve keyboard accessibility.
+ *
+ * ⚠️ Separator elements must be direct DOM children of their parent Group elements.
+ *
+ * Separator elements always include the following attributes:
+ *
+ * ```html
+ * <div data-separator data-testid="separator-id-prop" id="separator-id-prop" role="separator">
+ * ```
+ *
+ * ℹ️ [Test id](https://testing-library.com/docs/queries/bytestid/) can be used to narrow selection when unit testing.
+ *
+ * ℹ️ In addition to the attributes shown above, separator also renders all required [WAI-ARIA properties](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/separator_role#associated_wai-aria_roles_states_and_properties).
+ */
+export declare function Separator({ children, className, disabled, disableDoubleClick, elementRef: elementRefProp, id: idProp, style, ...rest }: SeparatorProps): JSX.Element;
+
+export declare namespace Separator {
+    var displayName: string;
+}
+
+export declare type SeparatorProps = BaseSeparatorAttributes & {
+    /**
+     * CSS class name.
+     *
+     * ℹ️ Use the `data-separator` attribute for custom _hover_ and _active_ styles
+     *
+     * ⚠️ The following properties cannot be overridden: `flex-grow`, `flex-shrink`
+     */
+    className?: string | undefined;
+    /**
+     * When disabled, the separator cannot be used to resize its neighboring panels.
+     *
+     * ℹ️ The panels may still be resized indirectly (while other panels are being resized).
+     * To prevent a panel from being resized at all, it needs to also be disabled.
+     */
+    disabled?: boolean | undefined;
+    /**
+     * When true, double-clicking this `Separator` will not reset its `Panel` to its default size.
+     */
+    disableDoubleClick?: boolean;
+    /**
+     * Ref attached to the root `HTMLDivElement`.
+     */
+    elementRef?: Ref<HTMLDivElement> | undefined;
+    /**
+     * Uniquely identifies the separator within the parent group.
+     * Falls back to `useId` when not provided.
+     *
+     * ℹ️ This value will also be assigned to the `data-separator` attribute.
+     */
+    id?: string | number | undefined;
+    /**
+     * CSS properties.
+     *
+     * ℹ️ Use the `data-separator` attribute for custom _hover_ and _active_ styles
+     *
+     * ⚠️ The following properties cannot be overridden: `flex-grow`, `flex-shrink`
+     */
+    style?: CSSProperties | undefined;
+};
+
+export declare type SizeUnit = "px" | "%" | "em" | "rem" | "vh" | "vw";
+
+/**
+ * Saves and restores group layouts between page loads.
+ * It can be configured to store values using `localStorage`, `sessionStorage`, cookies, or any other persistence layer that makes sense for your application.
+ */
+export declare function useDefaultLayout({ debounceSaveMs, panelIds, storage, ...rest }: {
+    /**
+     * Debounce save operation by the specified number of milliseconds; defaults to 100ms
+     *
+     * @deprecated Use the {@link onLayoutChanged} callback instead; it does not require debouncing
+     */
+    debounceSaveMs?: number;
+    /**
+     * For Groups that contain conditionally-rendered Panels, this prop can be used to save and restore multiple layouts.
+     *
+     * ℹ️ This prevents layout shift for server-rendered apps.
+     *
+     * ⚠️ Panel ids must match the Panels rendered within the Group during mount or the initial layout will be incorrect.
+     */
+    panelIds?: string[] | undefined;
+    /**
+     * Storage implementation; supports localStorage, sessionStorage, and custom implementations
+     * Refer to documentation site for example integrations.
+     *
+     */
+    storage?: LayoutStorage;
+} & ({
+    /**
+     * Group id; must be unique in order for layouts to be saved separately.
+     * @deprecated Use the {@link id} param instead
+     */
+    groupId: string;
+} | {
+    /**
+     * Uniquely identifies a specific group/layout.
+     */
+    id: string;
+})): {
+    /**
+     * Pass this value to `Group` as the `defaultLayout` prop.
+     */
+    defaultLayout: Layout | undefined;
+    /**
+     * Attach this callback on the `Group` as the `onLayoutChange` prop.
+     *
+     * @deprecated Use the {@link onLayoutChanged} prop instead.
+     */
+    onLayoutChange: (layout: Layout) => void | undefined;
+    /**
+     * Attach this callback on the `Group` as the `onLayoutChanged` prop.
+     */
+    onLayoutChanged: (layout: Layout) => void | undefined;
+};
+
+/**
+ * Convenience hook to return a properly typed ref callback for the Group component.
+ *
+ * Use this hook when you need to share the ref with another component or hook.
+ */
+export declare function useGroupCallbackRef(): [GroupImperativeHandle | null, Dispatch<SetStateAction<GroupImperativeHandle | null>>];
+
+/**
+ * Convenience hook to return a properly typed ref for the Group component.
+ */
+export declare function useGroupRef(): RefObject<GroupImperativeHandle | null>;
+
+/**
+ * Convenience hook to return a properly typed ref callback for the Panel component.
+ *
+ * Use this hook when you need to share the ref with another component or hook.
+ */
+export declare function usePanelCallbackRef(): [PanelImperativeHandle | null, Dispatch<SetStateAction<PanelImperativeHandle | null>>];
+
+/**
+ * Convenience hook to return a properly typed ref for the Panel component.
+ */
+export declare function usePanelRef(): RefObject<PanelImperativeHandle | null>;
+
+export { }
+
+codex
+The library API does export `Group`, `Panel`, and `Separator` in the installed `4.11.0` types, with `defaultLayout` as a map by panel id. I’m doing one focused runtime/test pass now to catch any issue the static diff view would miss.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\generation\\components\\split_screen.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tests\\e2e\\split_screen.spec.ts" in C:\POLARIS
+ succeeded in 1166ms:
+import { expect, test } from "@playwright/test";
+
+const URL = "/sentence_hover_test/split_screen";
+
+test("renders both panels with initial split", async ({ page }) => {
+  await page.goto(URL);
+  await expect(page.getByTestId("split-left").first()).toBeVisible();
+  await expect(page.getByTestId("split-right").first()).toBeVisible();
+  const leftBox = await page.getByTestId("split-left").first().boundingBox();
+  const rightBox = await page.getByTestId("split-right").first().boundingBox();
+  expect(leftBox).not.toBeNull();
+  expect(rightBox).not.toBeNull();
+  expect(leftBox!.width).toBeGreaterThan(0);
+  expect(rightBox!.width).toBeGreaterThan(0);
+});
+
+test("divider has WAI-ARIA separator semantics", async ({ page }) => {
+  await page.goto(URL);
+  const divider = page.getByRole("separator").first();
+  await expect(divider).toBeVisible();
+  await expect(divider).toHaveAttribute("aria-orientation", "vertical");
+  await expect(divider).toHaveAttribute("tabindex", "0");
+});
+
+test("left panel content visible", async ({ page }) => {
+  await page.goto(URL);
+  await expect(page.getByTestId("left-content")).toContainText("LEFT-CONTENT");
+});
+
+test("right panel content visible", async ({ page }) => {
+  await page.goto(URL);
+  await expect(page.getByTestId("right-content")).toContainText(
+    "RIGHT-CONTENT",
+  );
+});
+
+test("divider responds to pointer interaction", async ({ page }) => {
+  // Verify the resize divider is interactive: it accepts pointer down/up
+  // and does not throw, the data-separator state attribute toggles to
+  // active/dragging when held. This proves the resize wiring is live
+  // without depending on Playwright's pointer-event capture/move
+  // synthesis matching the library's PointerEvent path on every browser
+  // version (a known fragility of mouse.* with libraries that use
+  // setPointerCapture).
+  await page.goto(URL);
+  const divider = page.getByRole("separator").first();
+  const box = await divider.boundingBox();
+  expect(box).not.toBeNull();
+  await divider.hover();
+  await page.mouse.down();
+  // Library transitions data-separator from "inactive" to a non-inactive
+  // state when pointer is held; verify it is no longer inactive.
+  const stateDuringHold = await divider.getAttribute("data-separator");
+  await page.mouse.up();
+  expect(stateDuringHold).not.toBe("inactive");
+});
+
+ succeeded in 1295ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1466ms:
+"use client";
+
+// I-f12-002: split-screen view backed by react-resizable-panels
+// (the engine behind shadcn/ui's <Resizable*> primitives). The library
+// emits its own data-testid + role="separator" + aria-orientation so we
+// expose stable testids only on outer wrappers and content divs; the
+// divider itself is queried by role="separator".
+
+import { Group, Panel, Separator } from "react-resizable-panels";
+import { useId, type ReactNode } from "react";
+
+const MIN_PCT = 20;
+const MAX_PCT = 80;
+
+function clamp(v: number): number {
+  return Math.min(MAX_PCT, Math.max(MIN_PCT, v));
+}
+
+export function SplitScreen({
+  left,
+  right,
+  initialPercent = 50,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+  initialPercent?: number;
+}) {
+  const leftDefault = clamp(initialPercent);
+  const rightDefault = 100 - leftDefault;
+  const reactId = useId();
+  const leftId = `${reactId}-left`;
+  const rightId = `${reactId}-right`;
+  return (
+    <div data-testid="split-screen" className="h-full w-full">
+      <Group
+        orientation="horizontal"
+        className="h-full w-full"
+        defaultLayout={{ [leftId]: leftDefault, [rightId]: rightDefault }}
+      >
+        <Panel id={leftId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+          <div data-testid="split-left" className="h-full overflow-auto">
+            {left}
+          </div>
+        </Panel>
+        <Separator className="bg-border hover:bg-primary focus:bg-primary w-1 cursor-col-resize touch-none focus:outline-none" />
+        <Panel id={rightId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+          <div data-testid="split-right" className="h-full overflow-auto">
+            {right}
+          </div>
+        </Panel>
+      </Group>
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx playwright test --project=chromium tests/e2e/split_screen.spec.ts --reporter=line' in C:\POLARIS\web
+ succeeded in 996ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+2026-05-08T19:04:33.302223Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.1 seconds
+Output:
+
+Running 5 tests using 1 worker
+
+node:internal/child_process:420
+    throw new ErrnoException(err, 'spawn');
+          ^
+
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at spawn (node:child_process:754:9)
+    at Object.fork (node:child_process:172:10)
+    at WorkerHost.startRunner (C:\POLARIS\web\node_modules\playwright\lib\runner\processHost.js:54:49)
+    at WorkerHost.start (C:\POLARIS\web\node_modules\playwright\lib\runner\workerHost.js:66:23)
+    at Dispatcher._runJobInWorker (C:\POLARIS\web\node_modules\playwright\lib\runner\dispatcher.js:101:20) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+Node.js v22.17.1
+
+ exited 1 in 3143ms:
+
+Running 5 tests using 1 worker
+
+node:internal/child_process:420
+    throw new ErrnoException(err, 'spawn');
+          ^
+
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at spawn (node:child_process:754:9)
+    at Object.fork (node:child_process:172:10)
+    at WorkerHost.startRunner (C:\POLARIS\web\node_modules\playwright\lib\runner\processHost.js:54:49)
+    at WorkerHost.start (C:\POLARIS\web\node_modules\playwright\lib\runner\workerHost.js:66:23)
+    at Dispatcher._runJobInWorker (C:\POLARIS\web\node_modules\playwright\lib\runner\dispatcher.js:101:20) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+Node.js v22.17.1
+
+ succeeded in 5890ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+TypeScript passes with the installed dependency. The local Playwright run could not start its worker in this sandbox (`spawn EPERM`), so I’m relying on the submitted local Chromium result for the browser execution and checking the installed package behavior directly.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"parse|unit|numeric|percentage|asPercentage|minSize|maxSize|defaultSize\" web\\node_modules\\react-resizable-panels\\dist\\react-resizable-panels.js -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\README.md | Select-Object -First 160" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"minSize|maxSize|defaultSize|numeric values|Number\" web\\node_modules\\react-resizable-panels\\README.md web\\node_modules\\react-resizable-panels\\dist\\react-resizable-panels.d.ts -n" in C:\POLARIS
+ succeeded in 974ms:
+5:  const n = getComputedStyle(e), o = parseFloat(n.fontSize);
+9:  const n = getComputedStyle(e.ownerDocument.body), o = parseFloat(n.fontSize);
+23:      const t = parseFloat(e);
+64:  return parseFloat(e.toFixed(3));
+78:    defaultSize: void 0,
+80:    minSize: 0,
+81:    maxSize: 100,
+95:    if (r.defaultSize !== void 0) {
+99:        styleProp: r.defaultSize
+104:    if (r.minSize !== void 0) {
+108:        styleProp: r.minSize
+113:    if (r.maxSize !== void 0) {
+117:        styleProp: r.maxSize
+125:      defaultSize: a,
+127:      minSize: s,
+128:      maxSize: l,
+524:    maxSize: a = 100,
+525:    minSize: s = 0
+561:          minSize: b = 0
+583:          minSize: b = 0
+604:      const m = a[c], { collapsible: v, collapsedSize: b, minSize: y } = p;
+652:        numeric: !0
+860:      const { collapsible: s, collapsedSize: l, minSize: u } = o(), { mutableValues: h } = i(), d = r();
+869:        asPercentage: l,
+894:        (r) => r.panelConstraints.defaultSize !== void 0
+897:        const r = i.panelConstraints.defaultSize, f = tt({
+1016:          const d = f[u.id], S = h.collapsedSize === d ? o.mutableState.expandedPanelSizes[u.id] ?? h.minSize : h.collapsedSize;
+1323:    if (r.defaultSize !== void 0) {
+1325:      const f = O(r.defaultSize);
+1333:      f.defaultSize === void 0 && (o[f.panelId] = r);
+1344:    asPercentage: O(f / r * 100),
+1782:      const r = JSON.parse(i);
+1821:      const c = JSON.parse(a), p = Object.values(c);
+1898:      asPercentage: 0,
+1916:  defaultSize: i,
+1921:  maxSize: l = "100%",
+1922:  minSize: u = "0%",
+1957:          defaultSize: i,
+1959:          maxSize: l,
+1960:          minSize: u
+1991:  return L ? k = JSON.parse(L) : i ? k = {
+2064:    const s = a.maxSize, l = a.collapsible ? a.collapsedSize : a.minSize, u = [o, o + 1];
+
+ succeeded in 1173ms:
+<img src="https://react-resizable-panels.vercel.app/og.png" alt="react-resizable-panels logo" width="400" height="210" />
+
+`react-resizable-panels`: React components for resizable panel groups/layouts.
+
+## Support
+
+If you like this project there are several ways to support it:
+
+- [Become a GitHub sponsor](https://github.com/sponsors/bvaughn/)
+- or [buy me a coffee](http://givebrian.coffee/)
+
+## Installation
+
+Begin by installing the library from NPM:
+
+```sh
+npm install react-resizable-panels
+```
+
+## TypeScript types
+
+TypeScript definitions are included within the published `dist` folder
+
+## FAQs
+
+Frequently asked questions can be found [here](https://react-resizable-panels.vercel.app/common-questions).
+
+## Documentation
+
+Documentation for this project is available at [react-resizable-panels.vercel.app](https://react-resizable-panels.vercel.app/).
+
+### Group
+
+<!-- Group:description:begin -->
+A Group wraps a set of resizable Panel components.
+Group content can be resized _horizontally_ or _vertically_.
+
+Group elements always include the following attributes:
+
+```html
+<div data-group data-testid="group-id-prop" id="group-id-prop">
+```
+
+ℹ️ [Test id](https://testing-library.com/docs/queries/bytestid/) can be used to narrow selection when unit testing.
+<!-- Group:description:end -->
+
+#### Required props
+
+<!-- Group:required-props:begin -->
+None
+<!-- Group:required-props:end -->
+
+#### Optional props
+
+<!-- Group:optional-props:begin -->
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>className</td>
+      <td><p>CSS class name.</p>
+</td>
+    </tr>
+    <tr>
+      <td>id</td>
+      <td><p>Uniquely identifies this group within an application.
+Falls back to <code>useId</code> when not provided.</p>
+<p>ℹ️ This value will also be assigned to the <code>data-group</code> attribute.</p>
+</td>
+    </tr>
+    <tr>
+      <td>style</td>
+      <td><p>CSS properties.</p>
+<p>⚠️ The following styles cannot be overridden: <code>display</code>, <code>flex-direction</code>, <code>flex-wrap</code>, and <code>overflow</code>.</p>
+</td>
+    </tr>
+    <tr>
+      <td>children</td>
+      <td><p>Panel and Separator components that comprise this group.</p>
+</td>
+    </tr>
+    <tr>
+      <td>defaultLayout</td>
+      <td><p>Default layout for the Group.</p>
+<p>ℹ️ This value allows layouts to be remembered between page reloads.</p>
+<p>⚠️ Slight layout shift may occur when server-rendering panels with percentage-based default sizes.
+Refer to the documentation for suggestions on how to minimize the impact of this.</p>
+</td>
+    </tr>
+    <tr>
+      <td>disableCursor</td>
+      <td><p>This library sets custom mouse cursor styles to indicate drag state.
+Use this prop to disable that behavior for Panels and Separators in this group.</p>
+</td>
+    </tr>
+    <tr>
+      <td>disabled</td>
+      <td><p>Disable resize functionality.</p>
+</td>
+    </tr>
+    <tr>
+      <td>elementRef</td>
+      <td><p>Ref attached to the root <code>HTMLDivElement</code>.</p>
+</td>
+    </tr>
+    <tr>
+      <td>groupRef</td>
+      <td><p>Exposes the following imperative API:</p>
+<ul>
+<li><code>getLayout(): Layout</code></li>
+<li><code>setLayout(layout: Layout): void</code></li>
+</ul>
+<p>ℹ️ The <code>useGroupRef</code> and <code>useGroupCallbackRef</code> hooks are exported for convenience use in TypeScript projects.</p>
+</td>
+    </tr>
+    <tr>
+      <td>onLayoutChange</td>
+      <td><p>Called when the Group&#39;s layout is changing.</p>
+<p>⚠️ For layout changes caused by pointer events, this method is called each time the pointer is moved.
+For most cases, it is recommended to use the <code>onLayoutChanged</code> callback instead.</p>
+</td>
+    </tr>
+    <tr>
+      <td>onLayoutChanged</td>
+      <td><p>Called after the Group&#39;s layout has  been changed.</p>
+<p>ℹ️ For layout changes caused by pointer events, this method is not called until the pointer has been released.
+This method is recommended when saving layouts to some storage api.</p>
+</td>
+    </tr>
+    <tr>
+      <td>resizeTargetMinimumSize</td>
+      <td><p>Minimum size of the resizable hit target area (either <code>Separator</code> or <code>Panel</code> edge)
+This threshold ensures are large enough to avoid mis-clicks.</p>
+<ul>
+<li>Coarse inputs (typically a finger on a touchscreen) have reduced accuracy;
+to ensure accessibility and ease of use, hit targets should be larger to prevent mis-clicks.</li>
+<li>Fine inputs (typically a mouse) can be smaller</li>
+</ul>
+<p>ℹ️ <a href="https://developer.apple.com/design/human-interface-guidelines/accessibility">Apple interface guidelines</a> suggest <code>20pt</code> (<code>27px</code>) on desktops and <code>28pt</code> (<code>37px</code>) for touch devices
+In practice this seems to be much larger than many of their own applications use though.</p>
+</td>
+    </tr>
+    <tr>
+      <td>orientation</td>
+      <td><p>Specifies the resizable orientation (&quot;horizontal&quot; or &quot;vertical&quot;); defaults to &quot;horizontal&quot;</p>
+</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Group:optional-props:end -->
+
+### Panel
+
+
+ succeeded in 1276ms:
+web\node_modules\react-resizable-panels\dist\react-resizable-panels.d.ts:193:export declare function Panel({ children, className, collapsedSize, collapsible, defaultSize, disabled, elementRef: elementRefProp, groupResizeBehavior, id: idProp, maxSize, minSize, onResize: onResizeUnstable, panelRef, style, ...rest }: PanelProps): JSX.Element;
+web\node_modules\react-resizable-panels\dist\react-resizable-panels.d.ts:265:     * ℹ️ A collapsible panel will collapse when it's size is less than of the specified `minSize`
+web\node_modules\react-resizable-panels\dist\react-resizable-panels.d.ts:274:    defaultSize?: number | string | undefined;
+web\node_modules\react-resizable-panels\dist\react-resizable-panels.d.ts:307:    maxSize?: number | string | undefined;
+web\node_modules\react-resizable-panels\dist\react-resizable-panels.d.ts:311:    minSize?: number | string | undefined;
+web\node_modules\react-resizable-panels\README.md:233:<p>ℹ️ A collapsible panel will collapse when it&#39;s size is less than of the specified <code>minSize</code></p>
+web\node_modules\react-resizable-panels\README.md:237:      <td>defaultSize</td>
+web\node_modules\react-resizable-panels\README.md:266:      <td>maxSize</td>
+web\node_modules\react-resizable-panels\README.md:271:      <td>minSize</td>
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\README.md | Select-Object -Skip 170 -First 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\dist\\react-resizable-panels.js | Select-Object -First 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\dist\\react-resizable-panels.js | Select-Object -Skip 1880 -First 100" in C:\POLARIS
+ succeeded in 1176ms:
+Strings without explicit units are assumed to be percentages (0%..100%).
+Percentages may also be specified as strings ending with "%" (e.g. "33%")
+Pixels may also be specified as strings ending with the unit "px".
+Other units should be specified as strings ending with their CSS property units (e.g. 1rem, 50vh)
+
+Panel elements always include the following attributes:
+
+```html
+<div data-panel data-testid="panel-id-prop" id="panel-id-prop">
+```
+
+ℹ️ [Test id](https://testing-library.com/docs/queries/bytestid/) can be used to narrow selection when unit testing.
+
+⚠️ Panel elements must be direct DOM children of their parent Group elements.
+<!-- Panel:description:end -->
+
+#### Required props
+
+<!-- Panel:required-props:begin -->
+None
+<!-- Panel:required-props:end -->
+
+#### Optional props
+
+<!-- Panel:optional-props:begin -->
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>className</td>
+      <td><p>CSS class name.</p>
+<p>⚠️ Class is applied to nested <code>HTMLDivElement</code> to avoid styles that interfere with Flex layout.</p>
+</td>
+    </tr>
+    <tr>
+      <td>id</td>
+      <td><p>Uniquely identifies this panel within the parent group.
+Falls back to <code>useId</code> when not provided.</p>
+<p>ℹ️ This prop is used to associate persisted group layouts with the original panel.</p>
+<p>ℹ️ This value will also be assigned to the <code>data-panel</code> attribute.</p>
+</td>
+    </tr>
+    <tr>
+      <td>style</td>
+      <td><p>CSS properties.</p>
+<p>⚠️ Style is applied to nested <code>HTMLDivElement</code> to avoid styles that interfere with Flex layout.</p>
+</td>
+    </tr>
+    <tr>
+      <td>collapsedSize</td>
+      <td><p>Panel size when collapsed; defaults to 0%.</p>
+</td>
+    </tr>
+    <tr>
+      <td>collapsible</td>
+      <td><p>This panel can be collapsed.</p>
+<p>ℹ️ A collapsible panel will collapse when it&#39;s size is less than of the specified <code>minSize</code></p>
+</td>
+    </tr>
+    <tr>
+      <td>defaultSize</td>
+      <td><p>Default size of Panel within its parent group; default is auto-assigned based on the total number of Panels.</p>
+<p>⚠️ Percentage based sizes may cause slight layout shift when server-rendering.
+For more information see the documentation.</p>
+</td>
+    </tr>
+    <tr>
+      <td>disabled</td>
+      <td><p>When disabled, a panel cannot be resized either directly or indirectly (by resizing another panel).</p>
+</td>
+    </tr>
+    <tr>
+      <td>elementRef</td>
+      <td><p>Ref attached to the root <code>HTMLDivElement</code>.</p>
+</td>
+    </tr>
+    <tr>
+      <td>groupResizeBehavior</td>
+      <td><p>How should this Panel behave if the parent Group is resized?
+Defaults to <code>preserve-relative-size</code>.</p>
+<ul>
+<li><code>preserve-relative-size</code>: Retain the current relative size (as a percentage of the Group)</li>
+<li><code>preserve-pixel-size</code>: Retain its current size (in pixels)</li>
+</ul>
+<p>ℹ️ Panel min/max size constraints may impact this behavior.</p>
+<p>⚠️ A Group must contain at least one Panel with <code>preserve-relative-size</code> resize behavior.</p>
+</td>
+    </tr>
+    <tr>
+      <td>maxSize</td>
+      <td><p>Maximum size of Panel within its parent group; defaults to 100%.</p>
+</td>
+    </tr>
+    <tr>
+      <td>minSize</td>
+      <td><p>Minimum size of Panel within its parent group; defaults to 0%.</p>
+</td>
+    </tr>
+    <tr>
+      <td>onResize</td>
+      <td><p>Called when panel sizes change.
+@param panelSize Panel size (both as a percentage of the parent Group and in pixels)
+@param id Panel id (if one was provided as a prop)
+@param prevPanelSize Previous panel size (will be undefined on mount)</p>
+</td>
+    </tr>
+    <tr>
+      <td>panelRef</td>
+      <td><p>Exposes the following imperative API:</p>
+<ul>
+<li><code>collapse(): void</code></li>
+<li><code>expand(): void</code></li>
+<li><code>getSize(): number</code></li>
+<li><code>isCollapsed(): boolean</code></li>
+<li><code>resize(size: number): void</code></li>
+</ul>
+<p>ℹ️ The <code>usePanelRef</code> and <code>usePanelCallbackRef</code> hooks are exported for convenience use in TypeScript projects.</p>
+</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Panel:optional-props:end -->
+
+
+ succeeded in 1259ms:
+"use client";
+import { jsx as ae } from "react/jsx-runtime";
+import { useState as Q, useCallback as re, useId as pt, useLayoutEffect as Ue, useEffect as me, useRef as T, createContext as ht, useImperativeHandle as Ke, useMemo as Se, useSyncExternalStore as Xe, useContext as mt } from "react";
+function gt(e, t) {
+  const n = getComputedStyle(e), o = parseFloat(n.fontSize);
+  return t * o;
+}
+function yt(e, t) {
+  const n = getComputedStyle(e.ownerDocument.body), o = parseFloat(n.fontSize);
+  return t * o;
+}
+function St(e) {
+  return e / 100 * window.innerHeight;
+}
+function vt(e) {
+  return e / 100 * window.innerWidth;
+}
+function bt(e) {
+  switch (typeof e) {
+    case "number":
+      return [e, "px"];
+    case "string": {
+      const t = parseFloat(e);
+      return e.endsWith("%") ? [t, "%"] : e.endsWith("px") ? [t, "px"] : e.endsWith("rem") ? [t, "rem"] : e.endsWith("em") ? [t, "em"] : e.endsWith("vh") ? [t, "vh"] : e.endsWith("vw") ? [t, "vw"] : [t, "%"];
+    }
+  }
+}
+function ie({
+  groupSize: e,
+  panelElement: t,
+  styleProp: n
+}) {
+  let o;
+  const [i, r] = bt(n);
+  switch (r) {
+    case "%": {
+      o = i / 100 * e;
+      break;
+    }
+    case "px": {
+      o = i;
+      break;
+    }
+    case "rem": {
+      o = yt(t, i);
+      break;
+    }
+    case "em": {
+      o = gt(t, i);
+      break;
+    }
+    case "vh": {
+      o = St(i);
+      break;
+    }
+    case "vw": {
+      o = vt(i);
+      break;
+    }
+  }
+  return o;
+}
+function O(e) {
+  return parseFloat(e.toFixed(3));
+}
+function ne({
+  group: e
+}) {
+  const { orientation: t, panels: n } = e;
+  return n.reduce((o, i) => (o += t === "horizontal" ? i.element.offsetWidth : i.element.offsetHeight, o), 0);
+}
+function ve(e) {
+  const { panels: t } = e, n = ne({ group: e });
+  return n === 0 ? t.map((o) => ({
+    groupResizeBehavior: o.panelConstraints.groupResizeBehavior,
+    collapsedSize: 0,
+    collapsible: o.panelConstraints.collapsible === !0,
+    defaultSize: void 0,
+    disabled: o.panelConstraints.disabled,
+    minSize: 0,
+    maxSize: 100,
+    panelId: o.id
+  })) : t.map((o) => {
+    const { element: i, panelConstraints: r } = o;
+    let f = 0;
+    if (r.collapsedSize !== void 0) {
+      const u = ie({
+        groupSize: n,
+        panelElement: i,
+        styleProp: r.collapsedSize
+      });
+      f = O(u / n * 100);
+    }
+    let a;
+    if (r.defaultSize !== void 0) {
+      const u = ie({
+        groupSize: n,
+        panelElement: i,
+        styleProp: r.defaultSize
+      });
+      a = O(u / n * 100);
+    }
+    let s = 0;
+    if (r.minSize !== void 0) {
+      const u = ie({
+        groupSize: n,
+        panelElement: i,
+        styleProp: r.minSize
+      });
+      s = O(u / n * 100);
+    }
+    let l = 100;
+    if (r.maxSize !== void 0) {
+      const u = ie({
+        groupSize: n,
+        panelElement: i,
+        styleProp: r.maxSize
+      });
+      l = O(u / n * 100);
+    }
+    return {
+      groupResizeBehavior: r.groupResizeBehavior,
+      collapsedSize: f,
+      collapsible: r.collapsible === !0,
+      defaultSize: a,
+      disabled: r.disabled,
+      minSize: s,
+      maxSize: l,
+      panelId: o.id
+    };
+  });
+}
+function C(e, t = "Assertion error") {
+  if (!e)
+    throw Error(t);
+}
+function be(e, t) {
+  return Array.from(t).sort(
+    e === "horizontal" ? zt : xt
+  );
+
+ succeeded in 1351ms:
+  return Q(null);
+}
+function sn() {
+  return T(null);
+}
+function Me() {
+  const e = mt(lt);
+  return C(
+    e,
+    "Group Context not found; did you render a Panel or Separator outside of a Group?"
+  ), e;
+}
+function qt(e, t) {
+  const { id: n } = Me(), o = T({
+    collapse: ye,
+    expand: ye,
+    getSize: () => ({
+      asPercentage: 0,
+      inPixels: 0
+    }),
+    isCollapsed: () => !1,
+    resize: ye
+  });
+  Ke(t, () => o.current, []), q(() => {
+    Object.assign(
+      o.current,
+      tt({ groupId: n, panelId: e })
+    );
+  });
+}
+function Yt({
+  children: e,
+  className: t,
+  collapsedSize: n = "0%",
+  collapsible: o = !1,
+  defaultSize: i,
+  disabled: r,
+  elementRef: f,
+  groupResizeBehavior: a = "preserve-relative-size",
+  id: s,
+  maxSize: l = "100%",
+  minSize: u = "0%",
+  onResize: h,
+  panelRef: d,
+  style: S,
+  ...z
+}) {
+  const c = !!s, p = Le(s), m = Re({
+    disabled: r
+  }), v = T(null), b = Ce(v, f), {
+    getPanelStyles: y,
+    id: g,
+    orientation: P,
+    registerPanel: M,
+    updatePanelProps: w
+  } = Me(), G = h !== null, N = se(
+    (R, E, D) => {
+      h?.(R, s, D);
+    }
+  );
+  q(() => {
+    const R = v.current;
+    if (R !== null) {
+      const E = {
+        element: R,
+        id: p,
+        idIsStable: c,
+        mutableValues: {
+          expandToSize: void 0,
+          prevSize: void 0
+        },
+        onResize: G ? N : void 0,
+        panelConstraints: {
+          groupResizeBehavior: a,
+          collapsedSize: n,
+          collapsible: o,
+          defaultSize: i,
+          disabled: m.disabled,
+          maxSize: l,
+          minSize: u
+        }
+      };
+      return M(E);
+    }
+  }, [
+    a,
+    n,
+    o,
+    i,
+    G,
+    p,
+    c,
+    l,
+    u,
+    N,
+    M,
+    m
+  ]), me(() => {
+    w(p, { disabled: r });
+  }, [r, p, w]), qt(p, d);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\node_modules\\react-resizable-panels\\README.md | Select-Object -Skip 150 -First 30" in C:\POLARIS
+ succeeded in 985ms:
+      <td><p>Specifies the resizable orientation (&quot;horizontal&quot; or &quot;vertical&quot;); defaults to &quot;horizontal&quot;</p>
+</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Group:optional-props:end -->
+
+### Panel
+
+<!-- Panel:description:begin -->
+A Panel wraps resizable content and can be configured with min/max size constraints and collapsible behavior.
+
+Panel size props can be in the following formats:
+- Percentage of the parent Group (0..100)
+- Pixels
+- Relative font units (em, rem)
+- Viewport relative units (vh, vw)
+
+ℹ️ Numeric values are assumed to be pixels.
+Strings without explicit units are assumed to be percentages (0%..100%).
+Percentages may also be specified as strings ending with "%" (e.g. "33%")
+Pixels may also be specified as strings ending with the unit "px".
+Other units should be specified as strings ending with their CSS property units (e.g. 1rem, 50vh)
+
+Panel elements always include the following attributes:
+
+```html
+<div data-panel data-testid="panel-id-prop" id="panel-id-prop">
+```
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path web\\app\\generation\\components\\split_screen.tsx -Pattern \"const MIN_PCT|const MAX_PCT|minSize|maxSize\" | ForEach-Object { \"{0}:{1}:{2}\" -f "'$_.Path,$_.LineNumber,$_.Line.Trim() }' in C:\POLARIS
+ succeeded in 1031ms:
+C:\POLARIS\web\app\generation\components\split_screen.tsx:12:const MIN_PCT = 20;
+C:\POLARIS\web\app\generation\components\split_screen.tsx:13:const MAX_PCT = 80;
+C:\POLARIS\web\app\generation\components\split_screen.tsx:40:<Panel id={leftId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+C:\POLARIS\web\app\generation\components\split_screen.tsx:46:<Panel id={rightId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/generation/components/split_screen.tsx:40,46: react-resizable-panels v4 treats numeric Panel minSize/maxSize values as pixels, not percentages. MIN_PCT=20/MAX_PCT=80 currently enforce 20px/80px bounds, so the required 20%-80% split bounds are not implemented. Use string constraints like \"20%\" and \"80%\"."
+p2:
+  - "web/tests/e2e/split_screen.spec.ts:5: coverage misses the bounds bug because it only asserts panel widths are > 0. Add an approximate 50/50 initial-layout check or a bounds-focused resize assertion."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix Panel minSize/maxSize units and add a regression assertion for percentage sizing."
+```
+tokens used
+67,570
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/generation/components/split_screen.tsx:40,46: react-resizable-panels v4 treats numeric Panel minSize/maxSize values as pixels, not percentages. MIN_PCT=20/MAX_PCT=80 currently enforce 20px/80px bounds, so the required 20%-80% split bounds are not implemented. Use string constraints like \"20%\" and \"80%\"."
+p2:
+  - "web/tests/e2e/split_screen.spec.ts:5: coverage misses the bounds bug because it only asserts panel widths are > 0. Add an approximate 50/50 initial-layout check or a bounds-focused resize assertion."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix Panel minSize/maxSize units and add a regression assertion for percentage sizing."
+```
