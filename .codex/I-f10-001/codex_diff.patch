@@ -1,0 +1,151 @@
+diff --git a/web/app/charts_test/page.tsx b/web/app/charts_test/page.tsx
+new file mode 100644
+index 0000000..19c1654
+--- /dev/null
++++ b/web/app/charts_test/page.tsx
+@@ -0,0 +1,43 @@
++import { VegaChart } from "@/components/ui/vega-chart";
++import type { VegaLiteSpec } from "@/lib/api";
++
++const SAMPLE_SPEC: VegaLiteSpec = {
++  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
++  title: "Sample bar chart — POLARIS vs ChatGPT vs Gemini (demo only)",
++  data: {
++    values: [
++      { dimension: "Sourcing", system: "POLARIS", score: 0.92 },
++      { dimension: "Sourcing", system: "ChatGPT DR", score: 0.78 },
++      { dimension: "Sourcing", system: "Gemini DR", score: 0.74 },
++    ],
++  },
++  mark: "bar",
++  encoding: {
++    x: { field: "system", type: "nominal" },
++    y: { field: "score", type: "quantitative" },
++    color: { field: "system", type: "nominal" },
++  },
++  polaris_provenance: {
++    chart_type: "forest_plot",
++    evidence_ids: ["demo-1", "demo-2", "demo-3"],
++  },
++};
++
++export default function ChartsTestPage() {
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-4xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Charts substrate test
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Sample chart — demo evidence_ids only; renders the Vega-Lite v5
++          substrate (consumed by the real forest-plot spec in I-f10-002).
++        </p>
++        <div className="mt-6">
++          <VegaChart spec={SAMPLE_SPEC} />
++        </div>
++      </div>
++    </main>
++  );
++}
+diff --git a/web/components/ui/vega-chart.tsx b/web/components/ui/vega-chart.tsx
+index 657ee24..f416a43 100644
+--- a/web/components/ui/vega-chart.tsx
++++ b/web/components/ui/vega-chart.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import vegaEmbed from "vega-embed";
+-import { useEffect, useRef } from "react";
++import { useEffect, useRef, useState } from "react";
+ 
+ import type { VegaLiteSpec } from "@/lib/api";
+ 
+@@ -19,15 +19,22 @@ interface VegaChartProps {
+  * polaris_provenance extension. Click events on datums fire onPointClick
+  * with the datum (which includes evidence_id) so the host page can
+  * surface the source span.
++ *
++ * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
++ * pane (LAW II — fail loudly, no silent empty chart). Mount div remains
++ * present so future spec changes can re-trigger the embed.
+  */
+ export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+   const ref = useRef<HTMLDivElement | null>(null);
++  const [error, setError] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     if (!ref.current) return;
+     let cancelled = false;
+     let viewToFinalize: { finalize: () => void } | null = null;
+ 
++    setError(null);
++
+     // VegaLiteSpec from our API types is intentionally permissive; vega-embed
+     // narrows to its full TopLevelSpec type. Casting through unknown is the
+     // documented bridge.
+@@ -51,6 +58,9 @@ export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+       })
+       .catch((err) => {
+         console.error("vega-embed render failed", err);
++        if (!cancelled) {
++          setError(err instanceof Error ? err.message : String(err));
++        }
+       });
+ 
+     return () => {
+@@ -60,9 +70,21 @@ export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+   }, [spec, onPointClick]);
+ 
+   return (
+-    <div
+-      ref={ref}
+-      className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+-    />
++    <>
++      {error !== null ? (
++        <div
++          data-testid="vega-chart-error"
++          role="alert"
++          className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300"
++        >
++          Vega-Lite render failed: {error}
++        </div>
++      ) : null}
++      <div
++        ref={ref}
++        data-testid="vega-chart"
++        className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
++      />
++    </>
+   );
+ }
+diff --git a/web/tests/e2e/vega_lite_chart.spec.ts b/web/tests/e2e/vega_lite_chart.spec.ts
+new file mode 100644
+index 0000000..fcad886
+--- /dev/null
++++ b/web/tests/e2e/vega_lite_chart.spec.ts
+@@ -0,0 +1,23 @@
++import { expect, test } from "@playwright/test";
++
++test("Charts test route renders the Vega-Lite v5 sample bar chart", async ({
++  page,
++}) => {
++  await page.goto("/charts_test");
++
++  const chart = page.getByTestId("vega-chart");
++  await expect(chart).toBeVisible();
++
++  // vega-embed uses { renderer: "svg" } so the chart content is an SVG root.
++  const svg = chart.locator("svg");
++  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
++
++  // Vega rect (bar) marks render as <path> elements (vega-scenegraph
++  // SVGRenderer maps `rect` mark to SVG `path`). Three demo data points →
++  // at least three mark <path> elements.
++  const paths = chart.locator("svg path");
++  expect(await paths.count()).toBeGreaterThan(0);
++
++  // No error pane should render on a valid spec.
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: a564baa6fb1f5b87269f010fe377d39ce0fde9e6fa4ad23e2ef215db0f14bfc7

@@ -1,7 +1,7 @@
 "use client";
 
 import vegaEmbed from "vega-embed";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { VegaLiteSpec } from "@/lib/api";
 
@@ -19,14 +19,21 @@ interface VegaChartProps {
  * polaris_provenance extension. Click events on datums fire onPointClick
  * with the datum (which includes evidence_id) so the host page can
  * surface the source span.
+ *
+ * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+ * pane (LAW II — fail loudly, no silent empty chart). Mount div remains
+ * present so future spec changes can re-trigger the embed.
  */
 export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ref.current) return;
     let cancelled = false;
     let viewToFinalize: { finalize: () => void } | null = null;
+
+    setError(null);
 
     // VegaLiteSpec from our API types is intentionally permissive; vega-embed
     // narrows to its full TopLevelSpec type. Casting through unknown is the
@@ -51,6 +58,9 @@ export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
       })
       .catch((err) => {
         console.error("vega-embed render failed", err);
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       });
 
     return () => {
@@ -60,9 +70,21 @@ export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
   }, [spec, onPointClick]);
 
   return (
-    <div
-      ref={ref}
-      className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
-    />
+    <>
+      {error !== null ? (
+        <div
+          data-testid="vega-chart-error"
+          role="alert"
+          className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300"
+        >
+          Vega-Lite render failed: {error}
+        </div>
+      ) : null}
+      <div
+        ref={ref}
+        data-testid="vega-chart"
+        className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+      />
+    </>
   );
 }
