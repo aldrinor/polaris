@@ -1,0 +1,204 @@
+diff --git a/web/app/charts_test/timeline/page.tsx b/web/app/charts_test/timeline/page.tsx
+new file mode 100644
+index 0000000..59ae456
+--- /dev/null
++++ b/web/app/charts_test/timeline/page.tsx
+@@ -0,0 +1,101 @@
++import { VegaChart } from "@/components/ui/vega-chart";
++import { buildTimelineSpec, type TimelinePoint } from "@/lib/timeline_spec";
++
++const QUARTERLY: TimelinePoint[] = [
++  {
++    period: "2010-Q1",
++    value: 0.08,
++    series: "Suncor",
++    evidence_id: "demo-q-010",
++  },
++  {
++    period: "2015-Q1",
++    value: 0.075,
++    series: "Suncor",
++    evidence_id: "demo-q-015",
++  },
++  {
++    period: "2020-Q1",
++    value: 0.07,
++    series: "Suncor",
++    evidence_id: "demo-q-020",
++  },
++  {
++    period: "2023-Q4",
++    value: 0.066,
++    series: "Suncor",
++    evidence_id: "demo-q-023",
++  },
++];
++
++const MONTHLY: TimelinePoint[] = [
++  {
++    period: "2024-01-01",
++    value: 14.2,
++    series: "ECCC",
++    evidence_id: "demo-m-jan",
++  },
++  {
++    period: "2024-02-01",
++    value: 13.8,
++    series: "ECCC",
++    evidence_id: "demo-m-feb",
++  },
++  {
++    period: "2024-03-01",
++    value: 13.4,
++    series: "ECCC",
++    evidence_id: "demo-m-mar",
++  },
++  {
++    period: "2024-04-01",
++    value: 13.0,
++    series: "ECCC",
++    evidence_id: "demo-m-apr",
++  },
++];
++
++export default function TimelinePage() {
++  const spec_quarter = buildTimelineSpec(
++    "Oil-sands GHG intensity per barrel (quarter)",
++    QUARTERLY,
++    "quarter",
++  );
++  const spec_date = buildTimelineSpec(
++    "ECCC monthly emissions (date)",
++    MONTHLY,
++    "date",
++  );
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-4xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Timeline charts — sample time-series
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Sample timelines (demo data, demo evidence_ids); same Vega-Lite
++          structure produced by{" "}
++          <code>polaris_v6.charts.spec_builder.build_timeline</code>.
++        </p>
++        <section
++          data-testid="timeline-quarter"
++          className="mt-6 flex flex-col gap-2"
++        >
++          <h2 className="text-sm font-medium">
++            period_kind = &quot;quarter&quot; (ordinal X)
++          </h2>
++          <VegaChart spec={spec_quarter} />
++        </section>
++        <section
++          data-testid="timeline-date"
++          className="mt-6 flex flex-col gap-2"
++        >
++          <h2 className="text-sm font-medium">
++            period_kind = &quot;date&quot; (temporal X)
++          </h2>
++          <VegaChart spec={spec_date} />
++        </section>
++      </div>
++    </main>
++  );
++}
+diff --git a/web/lib/timeline_spec.ts b/web/lib/timeline_spec.ts
+new file mode 100644
+index 0000000..468915c
+--- /dev/null
++++ b/web/lib/timeline_spec.ts
+@@ -0,0 +1,63 @@
++/**
++ * I-f10-004: TypeScript helper that mirrors `polaris_v6.charts.spec_builder.build_timeline`
++ * for client-side visualization demos. Canonical spec generator remains the
++ * Python builder; the backend route `/runs/{run_id}/charts/timeline` returns
++ * specs of the same shape this helper produces.
++ */
++
++import type { VegaLiteSpec } from "@/lib/api";
++
++export const VEGA_LITE_SCHEMA_URL =
++  "https://vega.github.io/schema/vega-lite/v5.json";
++
++export type TimelinePeriodKind = "date" | "quarter" | "year";
++
++export interface TimelinePoint {
++  period: string;
++  value: number;
++  series: string;
++  evidence_id: string;
++}
++
++export function buildTimelineSpec(
++  title: string,
++  points: TimelinePoint[],
++  period_kind: TimelinePeriodKind = "quarter",
++): VegaLiteSpec {
++  if (points.length === 0) {
++    throw new Error("timeline requires at least one point");
++  }
++  const temporal_type = period_kind === "date" ? "temporal" : "ordinal";
++  const data_values = points.map((p) => ({
++    period: p.period,
++    value: p.value,
++    series: p.series,
++    evidence_id: p.evidence_id,
++  }));
++  return {
++    $schema: VEGA_LITE_SCHEMA_URL,
++    title,
++    data: { values: data_values },
++    mark: { type: "line", point: true },
++    encoding: {
++      x: {
++        field: "period",
++        type: temporal_type,
++        axis: { title: "Period" },
++      },
++      y: { field: "value", type: "quantitative" },
++      color: { field: "series", type: "nominal" },
++      tooltip: [
++        { field: "period" },
++        { field: "value" },
++        { field: "series" },
++        { field: "evidence_id" },
++      ],
++    },
++    polaris_provenance: {
++      chart_type: "timeline",
++      period_kind,
++      evidence_ids: points.map((p) => p.evidence_id),
++    },
++  };
++}
+diff --git a/web/tests/e2e/timeline_chart.spec.ts b/web/tests/e2e/timeline_chart.spec.ts
+new file mode 100644
+index 0000000..178cee3
+--- /dev/null
++++ b/web/tests/e2e/timeline_chart.spec.ts
+@@ -0,0 +1,21 @@
++import { expect, test } from "@playwright/test";
++
++test("Timeline demo route renders quarter + date period_kind charts", async ({
++  page,
++}) => {
++  await page.goto("/charts_test/timeline");
++
++  for (const n_id of ["timeline-quarter", "timeline-date"] as const) {
++    const section = page.getByTestId(n_id);
++    await expect(section).toBeVisible();
++    const chart = section.getByTestId("vega-chart");
++    await expect(chart).toBeVisible();
++    const svg = chart.locator("svg");
++    await expect(svg.first()).toBeVisible({ timeout: 10_000 });
++    // 4 datums × line+point mark → at least 4 graphics-symbol marks per chart.
++    const marks = chart.locator('svg [role="graphics-symbol"]');
++    expect(await marks.count()).toBeGreaterThanOrEqual(4);
++  }
++
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: f49f5e0727a5143a28d5af98456a51b43468133cac14b9be9fc390bb80fb3ed1
