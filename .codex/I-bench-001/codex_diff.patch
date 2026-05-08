@@ -209,4 +209,4 @@ index 0000000..59e815a
 +    assert rc.returncode == 0
 +    assert (out / "proof_package.json").exists()
 
-# canonical-diff-sha256: bad2f17aa5fc7b476b66108095ec8e7ed3f71a22bbfdd105beb56b7a7bcc7741
+# canonical-diff-sha256: 3b00e5f037582f88df4fe51aa8b6f4a1ae87f54ce868e1e13bcaba11bf70ff83
