@@ -435,6 +435,22 @@ const REPORT: VerifiedReport = {
             ],
           },
         },
+        // sec_x:31 — multi-source corroboration (I-f6-004). 5 distinct sources.
+        {
+          section_id: "sec_x",
+          sentence_text:
+            "Multi-source corroboration: five independent T1 reviews concur on Drug X efficacy.",
+          provenance_tokens: [
+            `[#ev:src-0:0-20]`,
+            `[#ev:src-1:0-20]`,
+            `[#ev:src-2:0-20]`,
+            `[#ev:src-3:0-20]`,
+            `[#ev:src-4:0-20]`,
+          ],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",

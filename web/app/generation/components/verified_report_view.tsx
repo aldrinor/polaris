@@ -17,8 +17,11 @@ import {
   type VerifiedReportSection,
 } from "@/lib/api";
 
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
 import { ContradictionPane } from "./contradiction_pane";
 import { EvaluatorPane } from "./evaluator_pane";
+import { MultiSourcePanel } from "./multi_source_panel";
 
 const ASSERTION_SURFACES: AssertionSurface[] = [
   "prose",
@@ -79,6 +82,8 @@ function VerdictBadge({
   );
 }
 
+const MULTI_SOURCE_THRESHOLD = 3;
+
 function SentenceRow({
   sentence,
   show_dropped,
@@ -87,6 +92,7 @@ function SentenceRow({
   onSelect,
   onSelectContradiction,
   onSelectEvaluator,
+  onSelectMultiSource,
   pool,
 }: {
   sentence: ReportVerifiedSentence;
@@ -96,10 +102,20 @@ function SentenceRow({
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
   onSelectContradiction: (signal: ContradictionSignal) => void;
   onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
   pool: EvidencePool | null;
 }) {
   const dropped = !sentence.verifier_pass;
   if (dropped && !show_dropped) return null;
+
+  // I-f6-004: parse provenance tokens once; reused for both T1-conflict
+  // detection and multi-source badge threshold.
+  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+  const distinct_source_count = new Set(parsed_tokens.map((t) => t.source_id))
+    .size;
 
   // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
   // for one sentence, surface a "may conflict — review Inspector" caption.
@@ -234,6 +250,33 @@ function SentenceRow({
           ⚠ T1 sources may conflict — review Inspector
         </span>
       ) : null}
+      {!dropped && distinct_source_count >= MULTI_SOURCE_THRESHOLD ? (
+        <button
+          type="button"
+          data-testid={`multi-source-${sentence_id}`}
+          title="Multi-source claim — open the cross-ref panel to see all cited sources side-by-side."
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectMultiSource({
+              tokens: parsed_tokens,
+              sentence_text: sentence.sentence_text,
+            });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              onSelectMultiSource({
+                tokens: parsed_tokens,
+                sentence_text: sentence.sentence_text,
+              });
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-blue-700 uppercase hover:bg-blue-500/10 focus:ring-2 focus:ring-blue-400 focus:outline-none dark:text-blue-300"
+        >
+          📚 {distinct_source_count} sources
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -245,6 +288,7 @@ function SectionCard({
   onSelect,
   onSelectContradiction,
   onSelectEvaluator,
+  onSelectMultiSource,
   pool,
 }: {
   section: VerifiedReportSection;
@@ -253,6 +297,10 @@ function SectionCard({
   onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
   onSelectContradiction: (signal: ContradictionSignal) => void;
   onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
   pool: EvidencePool | null;
 }) {
   const kept = keptSentences(section);
@@ -294,6 +342,7 @@ function SectionCard({
                 onSelect={onSelect}
                 onSelectContradiction={onSelectContradiction}
                 onSelectEvaluator={onSelectEvaluator}
+                onSelectMultiSource={onSelectMultiSource}
                 pool={pool}
               />
             ))}
@@ -328,6 +377,10 @@ export function VerifiedReportView({
     useState<ContradictionSignal | null>(null);
   const [evaluator_open, set_evaluator_open] =
     useState<EvaluatorDisagreement | null>(null);
+  const [multi_source_open, set_multi_source_open] = useState<{
+    tokens: ParsedToken[];
+    sentence_text: string;
+  } | null>(null);
   return (
     <div
       ref={root_ref}
@@ -411,6 +464,7 @@ export function VerifiedReportView({
           onSelect={(id, sentence) => setInspector({ id, sentence })}
           onSelectContradiction={(signal) => set_contradiction_open(signal)}
           onSelectEvaluator={(d) => set_evaluator_open(d)}
+          onSelectMultiSource={(payload) => set_multi_source_open(payload)}
           pool={pool}
         />
       ))}
@@ -426,6 +480,15 @@ export function VerifiedReportView({
         disagreement={evaluator_open}
         onOpenChange={(open) => {
           if (!open) set_evaluator_open(null);
+        }}
+      />
+      <MultiSourcePanel
+        open={multi_source_open !== null}
+        tokens={multi_source_open?.tokens ?? []}
+        sentence_text={multi_source_open?.sentence_text ?? ""}
+        pool={pool}
+        onOpenChange={(open) => {
+          if (!open) set_multi_source_open(null);
         }}
       />
       <SentenceInspector
