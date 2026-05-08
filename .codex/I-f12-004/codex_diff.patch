@@ -135,4 +135,4 @@ index 0000000..93a16b9
 +    with pytest.raises(ValueError, match=">= 2"):
 +        compute_jurisdictional_diff({"canada": _c("c", "Q?", [])})
 
-# canonical-diff-sha256: ab5b218f3111db96d7c74c5a287db82b302b00f2b0b911798cc658f21c9fc7f4
+# canonical-diff-sha256: eab47a61f73033d5ac02327cbf8c64d652fb8aa6faff7157cd163f8e1e24047e
