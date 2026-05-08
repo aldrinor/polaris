@@ -204,4 +204,4 @@ index 0000000..b933307
 +    assert len(inherited) == 1
 +    assert inherited[0].evidence_id == "ev_a"
 
-# canonical-diff-sha256: 412465afa51e9e6bd5e81fe56f40aecbbf5c94bfd815dd2014debe67b52e7c3e
+# canonical-diff-sha256: 5748f33ef2603811eac911de0194d7d772a993bc78344c8b95ae276002473546
