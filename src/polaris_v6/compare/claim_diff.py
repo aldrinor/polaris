@@ -61,7 +61,7 @@ def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> Claim
         return out
 
     def _toks(t: str) -> set[str]:
-        return set(_WORD_RE.findall(t.lower()))
+        return set(_WORD_RE.findall(_PROV_RE.sub(" ", t).lower()))
 
     def _jac(a: set[str], b: set[str]) -> float:
         return len(a & b) / len(a | b) if (a or b) else 0.0

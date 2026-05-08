@@ -78,6 +78,14 @@ def test_counts_aggregated() -> None:
     assert rep.counts_by_verdict["disagreement"] == 1
 
 
+def test_provenance_tokens_in_text_stripped_before_jaccard() -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "alpha [#ev:a:0-10]", ["a"])]),
+        _c("R", [_vs("S1", "omega [#ev:b:0-10]", ["b"])]),
+    )
+    assert rep.entries[0].verdict == "disagreement"
+
+
 def test_dropped_sentences_excluded_and_same_run_id_rejected() -> None:
     t = "Drug X reduced HbA1c by 1.5 percent"
     rep = compute_claim_diff(
