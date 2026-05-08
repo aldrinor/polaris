@@ -1,0 +1,170 @@
+diff --git a/src/polaris_graph/followup/__init__.py b/src/polaris_graph/followup/__init__.py
+new file mode 100644
+index 0000000..96432a9
+--- /dev/null
++++ b/src/polaris_graph/followup/__init__.py
+@@ -0,0 +1,6 @@
++"""F11 follow-up agent substrate (I-f11-001).
++
++Phase-1 standalone agent module per CLAUDE.md §9.4. Production wiring
++(graph_v4 calling FollowUpAgent on follow-up questions, UI surface,
++scope-gate routing) is follow-up I-f11-001b.
++"""
+diff --git a/src/polaris_graph/followup/agent.py b/src/polaris_graph/followup/agent.py
+new file mode 100644
+index 0000000..2ca8264
+--- /dev/null
++++ b/src/polaris_graph/followup/agent.py
+@@ -0,0 +1,62 @@
++"""Follow-up agent — preserves parent-run context (I-f11-001).
++
++Pure deterministic substrate: no LLM call. LLM-augmented follow-up
++disambiguation is follow-up I-f11-002.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++
++@dataclass(frozen=True)
++class ParentRunContext:
++    """Snapshot of the parent run that a follow-up will inherit from."""
++
++    parent_run_id: str
++    template: str
++    parent_question: str
++    known_evidence_ids: list[str] = field(default_factory=list)
++    parent_summary: str | None = None
++
++
++@dataclass(frozen=True)
++class ComposedQuery:
++    """A follow-up question composed with parent-run context."""
++
++    effective_question: str
++    inherited_template: str
++    parent_run_id: str
++    inherited_evidence_ids: list[str]
++
++
++def _dedup_preserve_order(items: list[str]) -> list[str]:
++    """Return a fresh list with duplicates removed, preserving first-seen order."""
++    seen: set[str] = set()
++    out: list[str] = []
++    for item in items:
++        if item in seen:
++            continue
++        seen.add(item)
++        out.append(item)
++    return out
++
++
++class FollowUpAgent:
++    """Compose a follow-up question with parent-run context preserved."""
++
++    def compose(
++        self, parent: ParentRunContext, follow_up: str
++    ) -> ComposedQuery:
++        if not follow_up or not follow_up.strip():
++            raise ValueError("follow_up question must be non-blank")
++        effective = (
++            f"Follow-up to '{parent.parent_question}': {follow_up.strip()}"
++        )
++        inherited = _dedup_preserve_order(parent.known_evidence_ids)
++        return ComposedQuery(
++            effective_question=effective,
++            inherited_template=parent.template,
++            parent_run_id=parent.parent_run_id,
++            inherited_evidence_ids=inherited,
++        )
+diff --git a/tests/polaris_graph/followup/__init__.py b/tests/polaris_graph/followup/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/polaris_graph/followup/test_agent.py b/tests/polaris_graph/followup/test_agent.py
+new file mode 100644
+index 0000000..cb34fdc
+--- /dev/null
++++ b/tests/polaris_graph/followup/test_agent.py
+@@ -0,0 +1,79 @@
++"""Tests for FollowUpAgent (I-f11-001)."""
++
++from __future__ import annotations
++
++import pytest
++
++from polaris_graph.followup.agent import (
++    ComposedQuery,
++    FollowUpAgent,
++    ParentRunContext,
++)
++
++
++def _ctx(
++    *,
++    parent_run_id: str = "run-parent-1",
++    template: str = "clinical",
++    parent_question: str = "Tirzepatide vs semaglutide cardiovascular outcomes?",
++    known_evidence_ids: list[str] | None = None,
++    parent_summary: str | None = "Parent summary text.",
++) -> ParentRunContext:
++    return ParentRunContext(
++        parent_run_id=parent_run_id,
++        template=template,
++        parent_question=parent_question,
++        known_evidence_ids=known_evidence_ids or [],
++        parent_summary=parent_summary,
++    )
++
++
++def test_compose_preserves_parent_template():
++    agent = FollowUpAgent()
++    composed = agent.compose(_ctx(template="trade"), "What about CETA?")
++    assert composed.inherited_template == "trade"
++
++
++def test_compose_preserves_parent_run_id():
++    agent = FollowUpAgent()
++    composed = agent.compose(_ctx(parent_run_id="run-x"), "Any updates?")
++    assert composed.parent_run_id == "run-x"
++
++
++def test_compose_inherits_known_evidence_ids_deduped():
++    agent = FollowUpAgent()
++    composed = agent.compose(
++        _ctx(known_evidence_ids=["A", "B", "A", "C", "B"]), "details please"
++    )
++    assert composed.inherited_evidence_ids == ["A", "B", "C"]
++
++
++def test_compose_returns_fresh_list_not_aliased():
++    agent = FollowUpAgent()
++    parent = _ctx(known_evidence_ids=["A", "B"])
++    composed = agent.compose(parent, "more")
++    assert composed.inherited_evidence_ids is not parent.known_evidence_ids
++
++
++def test_compose_effective_question_format():
++    agent = FollowUpAgent()
++    composed = agent.compose(
++        _ctx(parent_question="What is BPEI?"), "Why does it matter?"
++    )
++    assert "What is BPEI?" in composed.effective_question
++    assert "Why does it matter?" in composed.effective_question
++    assert composed.effective_question.startswith("Follow-up to '")
++
++
++@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
++def test_compose_rejects_blank_follow_up(blank: str):
++    agent = FollowUpAgent()
++    with pytest.raises(ValueError, match="non-blank"):
++        agent.compose(_ctx(), blank)
++
++
++def test_compose_handles_no_parent_summary():
++    agent = FollowUpAgent()
++    composed = agent.compose(_ctx(parent_summary=None), "more")
++    assert isinstance(composed, ComposedQuery)
++    assert composed.effective_question.endswith("more")
+
+# canonical-diff-sha256: 7c0c13aa46e0b38fe944cd3594625876625c8faa786d37f335b278eeec50e517
