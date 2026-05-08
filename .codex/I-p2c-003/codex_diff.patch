@@ -1,0 +1,58 @@
+diff --git a/web/tests/e2e/cross_browser_smoke.spec.ts b/web/tests/e2e/cross_browser_smoke.spec.ts
+new file mode 100644
+index 0000000..26c8998
+--- /dev/null
++++ b/web/tests/e2e/cross_browser_smoke.spec.ts
+@@ -0,0 +1,50 @@
++/**
++ * I-p2c-003: Cross-browser smoke matrix — chromium / firefox / webkit.
++ *
++ * Five stable pages × 3 browsers = 15 page-render tests. Asserts each
++ * page boots and the primary testid renders. NO visual baselines, NO
++ * complex interactions; this is "does Polaris boot in all browsers."
++ *
++ * Run: `npx playwright test tests/e2e/cross_browser_smoke.spec.ts`
++ * (no `--project` flag — exercises the 3 browsers configured in
++ * playwright.config.ts:37-49).
++ *
++ * Comprehensive cross-browser visual baselines: I-p2c-002d.
++ * Vega chart cross-browser parity: I-p2c-003c.
++ * PDF.js cross-browser: I-p2c-003d.
++ */
++
++import { expect, test } from "@playwright/test";
++
++const STABLE_PAGES = [
++  { feature: "F1", path: "/intake", testid: "intake-form" },
++  { feature: "F3", path: "/upload", testid: "upload-dropzone" },
++  { feature: "F4", path: "/sse", testid: "sse-harness" },
++  { feature: "F11", path: "/contracts", testid: "contract-form" },
++  { feature: "F12", path: "/sentence_hover_test/perf", testid: "perf-trigger" },
++];
++
++for (const p of STABLE_PAGES) {
++  test(`${p.feature} ${p.path}`, async ({ page }) => {
++    // Stub /api/audit/stream so SSE harness doesn't hold the page open
++    // waiting on a real backend (Codex iter-1 P2).
++    await page.route("**/api/audit/stream**", (route) => {
++      route.fulfill({
++        status: 200,
++        contentType: "text/event-stream",
++        body: "",
++      });
++    });
++    await page.goto(p.path, { waitUntil: "domcontentloaded" });
++    await expect(page.getByTestId(p.testid)).toBeVisible();
++    // Codex iter-1 P2: error surfaces use suffixed ids; check the well-known ones.
++    for (const err_id of [
++      "intake-error",
++      "contract-errors",
++      "preview-error",
++      "vega-chart-error",
++    ]) {
++      await expect(page.getByTestId(err_id)).toHaveCount(0);
++    }
++  });
++}
+
+# canonical-diff-sha256: 189a2500f64817accdc79e35bf979ed8a4d9c8843055ae1313e26e8abd273f74
