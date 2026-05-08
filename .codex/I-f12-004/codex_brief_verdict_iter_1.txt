@@ -1,0 +1,2491 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e093d-744b-7fd2-aee1-a7d376ca1a40
+--------
+user
+# Codex Brief Review — I-f12-004 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-f12-004 — F12 functional: jurisdictional diff. Same query different jurisdictions. Acceptance: show jurisdictional differences. LOC estimate 100.
+- **Substrate today:** `compute_claim_diff` (I-f12-003) does pairwise claim diff. `Jurisdiction = Literal["canada", "us", "eu", "uk", ...]` lives in `src/polaris_graph/generator2/verified_report.py`. EvidenceContract does not currently carry a jurisdiction field — but `template` and per-section content can be tagged.
+- **Honest framing per CLAUDE.md §9.4:** ship a deterministic aggregator that takes a mapping `{jurisdiction: EvidenceContract}` and produces a `JurisdictionalDiffReport` containing pairwise `ClaimDiffReport`s. The contracts are produced upstream as separate runs of the SAME question across different jurisdictions; the aggregator does NOT classify jurisdiction-source relationships, just surfaces the per-pair diffs labeled by jurisdiction.
+
+## Plan
+
+### `src/polaris_v6/compare/jurisdictional_diff.py` (NEW, ~50 LOC)
+
+```python
+from dataclasses import dataclass
+from itertools import combinations
+
+from polaris_v6.compare.claim_diff import ClaimDiffReport, compute_claim_diff
+from polaris_v6.schemas.evidence_contract import EvidenceContract
+
+
+@dataclass(frozen=True)
+class JurisdictionalDiffPair:
+    left_jurisdiction: str
+    right_jurisdiction: str
+    claim_diff: ClaimDiffReport
+
+
+@dataclass(frozen=True)
+class JurisdictionalDiffReport:
+    question: str
+    jurisdictions: list[str]
+    pairs: list[JurisdictionalDiffPair]
+
+
+def compute_jurisdictional_diff(
+    contracts: dict[str, EvidenceContract],
+) -> JurisdictionalDiffReport:
+    """Pairwise claim_diff across jurisdictions sharing the same question.
+
+    Raises ValueError if fewer than 2 jurisdictions or if questions diverge.
+    """
+    if len(contracts) < 2:
+        raise ValueError("jurisdictional diff requires >= 2 contracts")
+    questions = {c.question.strip() for c in contracts.values()}
+    if len(questions) != 1:
+        raise ValueError(
+            "jurisdictional diff requires identical question across contracts; "
+            f"got {len(questions)} distinct"
+        )
+    jurisdictions = sorted(contracts.keys())
+    pairs: list[JurisdictionalDiffPair] = []
+    for left, right in combinations(jurisdictions, 2):
+        pairs.append(
+            JurisdictionalDiffPair(
+                left_jurisdiction=left,
+                right_jurisdiction=right,
+                claim_diff=compute_claim_diff(contracts[left], contracts[right]),
+            )
+        )
+    return JurisdictionalDiffReport(
+        question=next(iter(questions)),
+        jurisdictions=jurisdictions,
+        pairs=pairs,
+    )
+```
+
+### Tests `tests/v6/compare/test_jurisdictional_diff.py` (NEW, ~50 LOC, 5 tests)
+
+1. `test_two_jurisdictions_one_pair` — `{canada, us}` → `pairs` length 1.
+2. `test_three_jurisdictions_three_pairs` — `{canada, us, eu}` → C(3,2)=3 pairs.
+3. `test_pairs_sorted_alphabetically_by_jurisdiction` — pair order is canonical (sorted).
+4. `test_question_mismatch_rejected` — different `question` strings raise `ValueError`.
+5. `test_single_jurisdiction_rejected` — 1-entry input raises `ValueError`.
+
+## Risks for Codex Red-Team
+
+1. **Question normalization.** `c.question.strip()` for whitespace-insensitive equality. Anything beyond strip is post-MVP.
+2. **Same-run-id is unlikely** for two different jurisdictions (different runs); compute_claim_diff already raises if collision happens.
+3. **§9.4 hygiene.** Clean.
+4. **CHARTER §3 LOC cap.** ~100 LOC net (50 src + 50 test). Well under 200.
+
+## Acceptance criteria
+
+1. New `src/polaris_v6/compare/jurisdictional_diff.py` with `JurisdictionalDiffPair`, `JurisdictionalDiffReport`, `compute_jurisdictional_diff`.
+2. Pairwise compute via existing `compute_claim_diff`.
+3. Question-mismatch + single-jurisdiction rejected via `ValueError`.
+4. 5 tests pass.
+5. CHARTER §3 LOC cap respected.
+
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll check the existing diff implementation, schema shape, and nearby tests before giving the requested review verdict. I’m treating this as a red-team review of the proposed change, not an implementation task.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g 'claim_diff.py' -g 'evidence_contract.py' -g 'test_claim_diff*.py' -g 'CLAUDE.md' -g 'CHARTER*'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class EvidenceContract|dataclass\\(|compute_claim_diff|ClaimDiffReport|Jurisdiction\" src tests CLAUDE.md CHARTER*" in C:\POLARIS
+2026-05-08T20:18:16.190013Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+src\polaris_graph\generator2\verified_report.py:188:Jurisdiction = Literal[
+src\polaris_graph\generator2\verified_report.py:245:    jurisdiction: Jurisdiction = Field(default="unspecified")
+src\polaris_graph\generator2\section_blueprint.py:17:@dataclass(frozen=True)
+src\polaris_graph\generator2\section_blueprint.py:26:@dataclass(frozen=True)
+src\polaris_graph\generator2\provenance.py:36:@dataclass(frozen=True)
+src\polaris_v6\schemas\evidence_contract.py:83:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\__init__.py:26:    Jurisdiction,
+src\polaris_graph\evidence_contract\__init__.py:39:    "Jurisdiction",
+src\polaris_graph\evidence_contract\schema.py:11:Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+src\polaris_graph\evidence_contract\schema.py:26:class Jurisdiction(str, Enum):
+src\polaris_graph\evidence_contract\schema.py:51:    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:71:    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\evidence_contract\gate.py:14:from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+src\polaris_graph\evidence_contract\gate.py:19:JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
+src\polaris_graph\evidence_contract\gate.py:20:    Jurisdiction.CA: frozenset({"canada.ca", "gc.ca", "cochrane.org", "hc-sc.gc.ca"}),
+src\polaris_graph\evidence_contract\gate.py:21:    Jurisdiction.US: frozenset({"fda.gov", "nih.gov", "cdc.gov", "nlm.nih.gov"}),
+src\polaris_graph\evidence_contract\gate.py:22:    Jurisdiction.EU: frozenset({"ema.europa.eu", "efsa.europa.eu", "europa.eu"}),
+src\polaris_graph\evidence_contract\gate.py:23:    Jurisdiction.UK: frozenset({"nice.org.uk", "gov.uk", "mhra.gov.uk"}),
+src\polaris_graph\evidence_contract\gate.py:24:    Jurisdiction.GLOBAL: frozenset({"who.int", "cochrane.org"}),
+src\polaris_graph\evidence_contract\gate.py:98:def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> bool:
+src\polaris_graph\sovereignty\router.py:19:@dataclass(frozen=True)
+src\polaris_graph\scope\clinical_classifier.py:39:@dataclass(frozen=True)
+src\polaris_graph\scope\clinical_classifier.py:46:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:65:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:79:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:89:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_fill.py:73:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_fill.py:86:@dataclass(frozen=True)
+src\polaris_graph\benchmark\external_loader.py:34:@dataclass(frozen=True)
+src\polaris_graph\generator\regulatory_synthesizer.py:225:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:34:@dataclass(frozen=True)
+src\polaris_graph\generator\multi_section_generator.py:642:11. **Jurisdictional precision (M-29, for multi-authority synthesis)**: When citing regulatory, standards-setting, or governance sources from more than one jurisdiction (different countries, agencies, courts, or rulemaking bodies), attribute every specific assertion to the ONE jurisdiction whose source supports it. Do NOT use generic plural language like "both agencies", "all regulators", "authorities generally", "regulators require", "jurisdictions mandate", or similar when the evidence you cite comes from a single jurisdiction. A boxed warning in one jurisdiction is not the same legal instrument as a precaution in another jurisdiction; a formal contraindication in one framework is not automatically equivalent to a warning in another. If the evidence supports only one jurisdiction's position, write: "Jurisdiction A's framework classifies X as a contraindication [ev_A]. Jurisdiction B's framework addresses X through warnings and precautions [ev_B]." Only collapse to "both" / "all" / "generally" when you have a citation from each referenced jurisdiction in the SAME sentence proving the shared position.
+src\polaris_graph\generator\multi_section_generator.py:643:11b. **Jurisdictional coverage (M-37, for multi-authority completeness)**: When this section's evidence subset contains sources from MULTIPLE regulatory jurisdictions (examples of distinct jurisdictions: US FDA, European EMA, UK NICE/MHRA, Health Canada, Australian TGA, Japanese PMDA, Chinese NMPA, WHO), you MUST cite at least ONE source from EACH jurisdiction whose content appears in your evidence subset. Do not cite US and EU sources while silently skipping a Canadian Product Monograph, a Japanese PMDA decision, or an Australian TGA action that is present in your evidence. Jurisdiction-specific facts that appear in only one jurisdiction's source (e.g., KwikPen pen-device warnings, counterfeit-product communications, or jurisdiction-only approval indications) are the MOST valuable sentences in a regulatory section — name them explicitly with the jurisdiction attributed. This rule fires only when a jurisdiction's evidence is actually present in your subset; it does not require you to invent coverage.
+src\polaris_graph\generator\frame_manifest.py:62:@dataclass(frozen=True)
+src\polaris_graph\generator\frame_manifest.py:106:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:76:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:127:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:271:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:32:1. INPUT: a list of `JurisdictionFinding` records (one per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:59:is templated from the JurisdictionFinding records. This is
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:105:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:106:class JurisdictionFinding:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:135:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:159:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:160:class CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:167:def synthesis_to_dict(s: CrossJurisdictionSynthesis) -> dict[str, Any]:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:476:    finding: JurisdictionFinding,
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:502:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:540:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:542:    """Jurisdictions surface materially different prose. Emit a
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:571:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:645:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:647:) -> CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:651:    Returns a CrossJurisdictionSynthesis with one paragraph per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:671:    groups: dict[str, list[JurisdictionFinding]] = {}
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:689:    return CrossJurisdictionSynthesis(
+src\polaris_graph\generator\contradiction_hedging.py:145:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\clinical_source_registry.py:36:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\clinical_retriever.py:56:@dataclass(frozen=True)
+src\polaris_graph\followup\refusal.py:24:@dataclass(frozen=True)
+src\polaris_graph\followup\multi_turn.py:21:@dataclass(frozen=True)
+src\polaris_graph\followup\agent.py:12:@dataclass(frozen=True)
+src\polaris_graph\followup\agent.py:23:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:54:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:116:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:190:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:129:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:155:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:486:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\keyword_inductor.py:63:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\keyword_inductor.py:217:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\contract_compare.py:39:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\benchmark_loader.py:44:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\benchmark_loader.py:60:@dataclass(frozen=True)
+src\polaris_graph\retrieval\evidence_selector.py:86:# Jurisdiction detection is by URL host suffix. A row maps to exactly
+src\polaris_graph\retrieval\crag_retriever.py:43:@dataclass(frozen=True)
+src\polaris_graph\retrieval\source_registry.py:27:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:93:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:157:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:401:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:105:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:124:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:135:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_store.py:99:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_store.py:118:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_memory.py:62:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:79:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:98:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:109:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_catalog.py:20:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:85:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:115:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:127:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\support_ticket_store.py:102:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\support_ticket_store.py:128:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:57:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:88:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:99:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:119:@dataclass(frozen=True)
+src\polaris_graph\nodes\frame_compiler.py:94:@dataclass(frozen=True)
+src\polaris_graph\nodes\frame_compiler.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\serializer.py:32:    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+src\polaris_graph\audit_ir\security_audit_log.py:88:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:131:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:291:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier.py:187:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier.py:262:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:71:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:95:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:109:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:54:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:70:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:81:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:95:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:105:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\review_store.py:78:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\retrieval_cache.py:104:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:120:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:130:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:144:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:159:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:174:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:105:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:116:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\registry.py:43:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:34:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:47:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:61:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:78:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:93:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\progress_surfaces.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\private_corpus_sync.py:76:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\private_corpus_sync.py:104:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:111:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:132:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:150:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:148:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:173:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parser_runner.py:37:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:83:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:121:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\model_pin.py:178:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:43:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:59:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:68:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:97:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:132:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:151:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:162:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:190:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:216:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:226:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:257:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:267:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:288:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:306:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:316:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:337:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:354:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:375:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:403:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\job_queue.py:81:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_monitor.py:139:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_monitor.py:154:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_aggregates.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\domain_router.py:63:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\domain_router.py:231:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\decision_telemetry.py:219:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\decision_aggregates.py:72:@dataclass(frozen=True)
+src\polaris_graph\intake\disambiguation_clusterer.py:29:@dataclass(frozen=True)
+src\polaris_graph\intake\cluster_labeler.py:20:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_retriever.py:54:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:62:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:72:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:87:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\contract_draft_store.py:199:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\contract_draft_store.py:223:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:75:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:93:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:106:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:141:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:129:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:142:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:396:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:416:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:438:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:439:class _JurisdictionalPrecisionScorer:
+src\polaris_graph\audit_ir\beat_both_scoring.py:461:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:517:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:566:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:608:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:638:    _JurisdictionalPrecisionScorer(),
+src\polaris_graph\audit_ir\beat_both_scoring.py:691:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:712:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:145:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:153:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:174:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_middleware.py:64:@dataclass(frozen=True)
+tests\v6\compare\test_claim_diff.py:7:from polaris_v6.compare.claim_diff import compute_claim_diff
+tests\v6\compare\test_claim_diff.py:32:    rep = compute_claim_diff(_c("L", [_vs("S1", t, ["a"])]), _c("R", [_vs("S1", t, ["a"])]))
+tests\v6\compare\test_claim_diff.py:38:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:46:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:54:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:62:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:72:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:82:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:91:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:97:        compute_claim_diff(_c("X", []), _c("X", []))
+src\polaris_graph\api\intake.py:56:@dataclass(frozen=True)
+tests\polaris_graph\test_m_int_6_inductor_integration.py:139:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:465:@dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:494:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:512:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:530:    @dataclass(frozen=True)
+tests\polaris_graph\test_md6_phase1_domain_router.py:349:    @dataclass(frozen=True)
+tests\polaris_graph\test_md5_scope_classifier.py:266:    @dataclass(frozen=True)
+tests\polaris_graph\test_md1_auto_induction_harness.py:50:@dataclass(frozen=True)
+tests\polaris_graph\test_md1_auto_induction_harness.py:59:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:18:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:30:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:31:class ClaimDiffReport:
+src\polaris_v6\compare\claim_diff.py:52:def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> ClaimDiffReport:
+src\polaris_v6\compare\claim_diff.py:54:        raise ValueError("compute_claim_diff requires two distinct runs")
+src\polaris_v6\compare\claim_diff.py:111:    return ClaimDiffReport(left.run_id, right.run_id, entries, counts)
+tests\polaris_graph\test_m41_v24_regression_fixes.py:4:Regulatory BEAT_ONE -> LOSE_BOTH and Jurisdictional BEAT_ONE ->
+tests\polaris_graph\test_m41_v24_regression_fixes.py:337:class TestM41dJurisdictionDetection:
+tests\polaris_graph\test_m41_v24_regression_fixes.py:379:class TestM41dJurisdictionalFloor:
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:9:    CrossJurisdictionSynthesis,
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:11:    JurisdictionFinding,
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:19:# Jurisdiction validation
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:36:    f = JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:48:            JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:61:    findings = [JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:90:        JurisdictionFinding("FDA", "indications", common, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:91:        JurisdictionFinding("EMA", "indications", common, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:92:        JurisdictionFinding("MHRA", "indications", common, "ev_mhra"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:116:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:118:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:138:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:143:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:148:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:175:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:179:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:209:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:210:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:211:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:214:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:230:        JurisdictionFinding("FDA", "Indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:231:        JurisdictionFinding("EMA", "INDICATIONS", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:240:        JurisdictionFinding("FDA", "warnings", "x", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:241:        JurisdictionFinding("FDA", "indications", "y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:242:        JurisdictionFinding("FDA", "boxed_warning", "z", "ev_3"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:259:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:260:        JurisdictionFinding("EMA", "indications", "", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:271:        JurisdictionFinding("FDA", "indications", "", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:272:        JurisdictionFinding("EMA", "indications", "   ", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:293:        JurisdictionFinding("FDA", "x", "y", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:294:        JurisdictionFinding("EMA", "x", "y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:307:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:309:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:320:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:323:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:357:        JurisdictionFinding("FDA", "boxed_warning", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:358:        JurisdictionFinding("EMA", "boxed_warning", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:372:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:376:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:389:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:393:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:407:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:411:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:425:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:429:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:443:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:446:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:449:        JurisdictionFinding("MHRA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:463:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:465:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:467:        JurisdictionFinding("MHRA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:487:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:492:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:513:        JurisdictionFinding("FDA", "x", "approved for X", "ev_id_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:514:        JurisdictionFinding("EMA", "x", "approved for X", "ev_id_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:567:        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:568:        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:597:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:600:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:636:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:640:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:678:        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:679:        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:692:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:696:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:715:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_a"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:716:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_b"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:734:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:735:        JurisdictionFinding("EMA", "indications", "approved for Y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:749:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:750:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:773:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:778:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:783:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:788:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:795:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:800:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:805:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:811:        JurisdictionFinding(
+tests\polaris_graph\test_m38_trial_framed_claims.py:191:        assert "Jurisdictional coverage (M-37" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:140:class TestSectionPromptJurisdictionalCoverage:
+tests\polaris_graph\test_m37_health_canada.py:151:        assert "Jurisdictional coverage" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:171:        assert "Jurisdictional precision" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:179:        m29_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional precision")
+tests\polaris_graph\test_m37_health_canada.py:180:        m37_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
+tests\polaris_graph\test_m37_health_canada.py:206:        # Extract the #11b rule body: from "Jurisdictional coverage"
+tests\polaris_graph\test_m37_health_canada.py:208:        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
+tests\polaris_graph\test_m29_jurisdictional_precision.py:37:        # Rule is keyed by the phrase "Jurisdictional precision".
+tests\polaris_graph\test_m29_jurisdictional_precision.py:38:        assert "Jurisdictional precision" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:62:        assert "Jurisdiction A" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:63:        assert "Jurisdiction B" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:79:        """The rule illustrates with "Jurisdiction A / Jurisdiction B"
+tests\polaris_graph\test_m29_jurisdictional_precision.py:132:        idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional precision")
+tests\polaris_graph\test_m42_preservation.py:16:- Jurisdiction counts: FDA=7, EMA=3, HC=1, NICE=4
+tests\polaris_graph\test_m42_preservation.py:139:# Jurisdiction preservation (M-42d preservation guard validation)
+tests\polaris_graph\test_m42_preservation.py:143:class TestJurisdictionPreservation:
+tests\polaris_graph\evidence_contract\test_schema.py:13:    Jurisdiction,
+tests\polaris_graph\evidence_contract\test_schema.py:22:           jurs: list[Jurisdiction] | None = None) -> ExpectedClaim:
+tests\polaris_graph\evidence_contract\test_schema.py:27:        required_jurisdictions=jurs or [Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:41:        jurisdictions=overrides.pop("jurisdictions", [Jurisdiction.CA]),
+tests\polaris_graph\evidence_contract\test_schema.py:54:    for j in [Jurisdiction.CA, Jurisdiction.US, Jurisdiction.EU, Jurisdiction.UK, Jurisdiction.GLOBAL]:
+tests\polaris_graph\evidence_contract\test_schema.py:87:            jurisdictions=[Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:112:            jurisdictions=[Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:113:            expected_claims=[_claim(jurs=[Jurisdiction.US])],
+tests\polaris_graph\evidence_contract\test_gate.py:15:    Jurisdiction,
+tests\polaris_graph\evidence_contract\test_gate.py:96:    jurs: list[Jurisdiction] | None = None,
+tests\polaris_graph\evidence_contract\test_gate.py:99:    jurs = jurs or [Jurisdiction.CA]
+tests\polaris_graph\evidence_contract\test_gate.py:180:        _contract(jurs=[Jurisdiction.US]),
+tests\polaris_graph\test_m32_claim_frame_prompt.py:110:        assert "11. **Jurisdictional precision (M-29" in SECTION_SYSTEM_PROMPT_TEMPLATE
+rg: CHARTER*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1063ms:
+src\polaris_graph\generator2\verified_report.py:188:Jurisdiction = Literal[
+src\polaris_graph\generator2\verified_report.py:245:    jurisdiction: Jurisdiction = Field(default="unspecified")
+src\polaris_graph\generator2\section_blueprint.py:17:@dataclass(frozen=True)
+src\polaris_graph\generator2\section_blueprint.py:26:@dataclass(frozen=True)
+src\polaris_graph\generator2\provenance.py:36:@dataclass(frozen=True)
+src\polaris_v6\schemas\evidence_contract.py:83:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\__init__.py:26:    Jurisdiction,
+src\polaris_graph\evidence_contract\__init__.py:39:    "Jurisdiction",
+src\polaris_graph\evidence_contract\schema.py:11:Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+src\polaris_graph\evidence_contract\schema.py:26:class Jurisdiction(str, Enum):
+src\polaris_graph\evidence_contract\schema.py:51:    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:71:    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\evidence_contract\gate.py:14:from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+src\polaris_graph\evidence_contract\gate.py:19:JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
+src\polaris_graph\evidence_contract\gate.py:20:    Jurisdiction.CA: frozenset({"canada.ca", "gc.ca", "cochrane.org", "hc-sc.gc.ca"}),
+src\polaris_graph\evidence_contract\gate.py:21:    Jurisdiction.US: frozenset({"fda.gov", "nih.gov", "cdc.gov", "nlm.nih.gov"}),
+src\polaris_graph\evidence_contract\gate.py:22:    Jurisdiction.EU: frozenset({"ema.europa.eu", "efsa.europa.eu", "europa.eu"}),
+src\polaris_graph\evidence_contract\gate.py:23:    Jurisdiction.UK: frozenset({"nice.org.uk", "gov.uk", "mhra.gov.uk"}),
+src\polaris_graph\evidence_contract\gate.py:24:    Jurisdiction.GLOBAL: frozenset({"who.int", "cochrane.org"}),
+src\polaris_graph\evidence_contract\gate.py:98:def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> bool:
+src\polaris_graph\sovereignty\router.py:19:@dataclass(frozen=True)
+src\polaris_graph\scope\clinical_classifier.py:39:@dataclass(frozen=True)
+src\polaris_graph\scope\clinical_classifier.py:46:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:65:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:79:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_validator.py:89:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_fill.py:73:@dataclass(frozen=True)
+src\polaris_graph\generator\slot_fill.py:86:@dataclass(frozen=True)
+src\polaris_graph\benchmark\external_loader.py:34:@dataclass(frozen=True)
+src\polaris_graph\generator\regulatory_synthesizer.py:225:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:34:@dataclass(frozen=True)
+src\polaris_graph\generator\multi_section_generator.py:642:11. **Jurisdictional precision (M-29, for multi-authority synthesis)**: When citing regulatory, standards-setting, or governance sources from more than one jurisdiction (different countries, agencies, courts, or rulemaking bodies), attribute every specific assertion to the ONE jurisdiction whose source supports it. Do NOT use generic plural language like "both agencies", "all regulators", "authorities generally", "regulators require", "jurisdictions mandate", or similar when the evidence you cite comes from a single jurisdiction. A boxed warning in one jurisdiction is not the same legal instrument as a precaution in another jurisdiction; a formal contraindication in one framework is not automatically equivalent to a warning in another. If the evidence supports only one jurisdiction's position, write: "Jurisdiction A's framework classifies X as a contraindication [ev_A]. Jurisdiction B's framework addresses X through warnings and precautions [ev_B]." Only collapse to "both" / "all" / "generally" when you have a citation from each referenced jurisdiction in the SAME sentence proving the shared position.
+src\polaris_graph\generator\multi_section_generator.py:643:11b. **Jurisdictional coverage (M-37, for multi-authority completeness)**: When this section's evidence subset contains sources from MULTIPLE regulatory jurisdictions (examples of distinct jurisdictions: US FDA, European EMA, UK NICE/MHRA, Health Canada, Australian TGA, Japanese PMDA, Chinese NMPA, WHO), you MUST cite at least ONE source from EACH jurisdiction whose content appears in your evidence subset. Do not cite US and EU sources while silently skipping a Canadian Product Monograph, a Japanese PMDA decision, or an Australian TGA action that is present in your evidence. Jurisdiction-specific facts that appear in only one jurisdiction's source (e.g., KwikPen pen-device warnings, counterfeit-product communications, or jurisdiction-only approval indications) are the MOST valuable sentences in a regulatory section — name them explicitly with the jurisdiction attributed. This rule fires only when a jurisdiction's evidence is actually present in your subset; it does not require you to invent coverage.
+src\polaris_graph\generator\frame_manifest.py:62:@dataclass(frozen=True)
+src\polaris_graph\generator\frame_manifest.py:106:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:76:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:127:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_trial_synthesis.py:271:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:32:1. INPUT: a list of `JurisdictionFinding` records (one per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:59:is templated from the JurisdictionFinding records. This is
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:105:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:106:class JurisdictionFinding:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:135:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:159:@dataclass(frozen=True)
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:160:class CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:167:def synthesis_to_dict(s: CrossJurisdictionSynthesis) -> dict[str, Any]:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:476:    finding: JurisdictionFinding,
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:502:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:540:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:542:    """Jurisdictions surface materially different prose. Emit a
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:571:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:645:    findings: list[JurisdictionFinding],
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:647:) -> CrossJurisdictionSynthesis:
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:651:    Returns a CrossJurisdictionSynthesis with one paragraph per
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:671:    groups: dict[str, list[JurisdictionFinding]] = {}
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:689:    return CrossJurisdictionSynthesis(
+src\polaris_graph\generator\contradiction_hedging.py:145:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\clinical_source_registry.py:36:@dataclass(frozen=True)
+src\polaris_graph\retrieval2\clinical_retriever.py:56:@dataclass(frozen=True)
+src\polaris_graph\followup\refusal.py:24:@dataclass(frozen=True)
+src\polaris_graph\followup\multi_turn.py:21:@dataclass(frozen=True)
+src\polaris_graph\followup\agent.py:12:@dataclass(frozen=True)
+src\polaris_graph\followup\agent.py:23:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:54:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:116:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\precision_metrics.py:190:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:129:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:155:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\llm_inductor.py:486:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\keyword_inductor.py:63:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\keyword_inductor.py:217:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\contract_compare.py:39:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\benchmark_loader.py:44:@dataclass(frozen=True)
+src\polaris_graph\auto_induction\benchmark_loader.py:60:@dataclass(frozen=True)
+src\polaris_graph\retrieval\evidence_selector.py:86:# Jurisdiction detection is by URL host suffix. A row maps to exactly
+src\polaris_graph\retrieval\crag_retriever.py:43:@dataclass(frozen=True)
+src\polaris_graph\retrieval\source_registry.py:27:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:93:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:157:@dataclass(frozen=True)
+src\polaris_graph\retrieval\human_gap_completion.py:401:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:105:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:124:@dataclass(frozen=True)
+src\polaris_graph\retrieval\frame_fetcher.py:135:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_store.py:99:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_store.py:118:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\workspace_memory.py:62:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:79:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:98:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_classifier.py:109:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\template_catalog.py:20:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:85:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:115:@dataclass(frozen=True)
+src\polaris_graph\nodes\report_contract.py:127:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\support_ticket_store.py:102:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\support_ticket_store.py:128:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:57:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:88:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:99:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\slide_deck.py:119:@dataclass(frozen=True)
+src\polaris_graph\nodes\frame_compiler.py:94:@dataclass(frozen=True)
+src\polaris_graph\nodes\frame_compiler.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\serializer.py:32:    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+src\polaris_graph\audit_ir\security_audit_log.py:88:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:131:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier_llm.py:291:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier.py:187:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\scope_classifier.py:262:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:71:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:95:@dataclass(frozen=True)
+src\polaris_graph\nodes\contract_outline.py:109:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:54:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:70:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:81:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:95:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\run_diff.py:105:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\review_store.py:78:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\retrieval_cache.py:104:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:120:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:130:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:144:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:159:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_lab.py:174:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:105:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\regression_alerts.py:116:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\registry.py:43:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:34:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:47:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:61:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:78:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\provenance.py:93:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\progress_surfaces.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\private_corpus_sync.py:76:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\private_corpus_sync.py:104:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:111:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:132:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_trends.py:150:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:148:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\pin_replay.py:173:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parser_runner.py:37:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:83:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:121:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\parallel_fetch.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\model_pin.py:178:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:43:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:59:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:68:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:97:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:132:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:151:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:162:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:190:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:216:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:226:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:257:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:267:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:288:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:306:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:316:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:337:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:354:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:375:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\loader.py:403:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\job_queue.py:81:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_monitor.py:139:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_monitor.py:154:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\freshness_aggregates.py:73:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\domain_router.py:63:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\domain_router.py:231:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\decision_telemetry.py:219:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\decision_aggregates.py:72:@dataclass(frozen=True)
+src\polaris_graph\intake\disambiguation_clusterer.py:29:@dataclass(frozen=True)
+src\polaris_graph\intake\cluster_labeler.py:20:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_retriever.py:54:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:62:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:72:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\corpus_brief.py:87:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\contract_draft_store.py:199:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\contract_draft_store.py:223:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:75:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:93:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\citation_health.py:106:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:85:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:141:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\cache_warming.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:129:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\billing_quota_store.py:142:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:115:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:396:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:416:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:438:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:439:class _JurisdictionalPrecisionScorer:
+src\polaris_graph\audit_ir\beat_both_scoring.py:461:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:517:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:566:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:608:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:638:    _JurisdictionalPrecisionScorer(),
+src\polaris_graph\audit_ir\beat_both_scoring.py:691:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\beat_both_scoring.py:712:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:145:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:153:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:163:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_store.py:174:@dataclass(frozen=True)
+src\polaris_graph\audit_ir\auth_middleware.py:64:@dataclass(frozen=True)
+tests\v6\compare\test_claim_diff.py:7:from polaris_v6.compare.claim_diff import compute_claim_diff
+tests\v6\compare\test_claim_diff.py:32:    rep = compute_claim_diff(_c("L", [_vs("S1", t, ["a"])]), _c("R", [_vs("S1", t, ["a"])]))
+tests\v6\compare\test_claim_diff.py:38:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:46:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:54:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:62:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:72:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:82:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:91:    rep = compute_claim_diff(
+tests\v6\compare\test_claim_diff.py:97:        compute_claim_diff(_c("X", []), _c("X", []))
+src\polaris_graph\api\intake.py:56:@dataclass(frozen=True)
+tests\polaris_graph\test_m_int_6_inductor_integration.py:139:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:465:@dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:494:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:512:    @dataclass(frozen=True)
+tests\polaris_graph\test_md9_phase2_beat_both.py:530:    @dataclass(frozen=True)
+tests\polaris_graph\test_md6_phase1_domain_router.py:349:    @dataclass(frozen=True)
+tests\polaris_graph\test_md5_scope_classifier.py:266:    @dataclass(frozen=True)
+tests\polaris_graph\test_md1_auto_induction_harness.py:50:@dataclass(frozen=True)
+tests\polaris_graph\test_md1_auto_induction_harness.py:59:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:18:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:30:@dataclass(frozen=True)
+src\polaris_v6\compare\claim_diff.py:31:class ClaimDiffReport:
+src\polaris_v6\compare\claim_diff.py:52:def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> ClaimDiffReport:
+src\polaris_v6\compare\claim_diff.py:54:        raise ValueError("compute_claim_diff requires two distinct runs")
+src\polaris_v6\compare\claim_diff.py:111:    return ClaimDiffReport(left.run_id, right.run_id, entries, counts)
+tests\polaris_graph\test_m41_v24_regression_fixes.py:4:Regulatory BEAT_ONE -> LOSE_BOTH and Jurisdictional BEAT_ONE ->
+tests\polaris_graph\test_m41_v24_regression_fixes.py:337:class TestM41dJurisdictionDetection:
+tests\polaris_graph\test_m41_v24_regression_fixes.py:379:class TestM41dJurisdictionalFloor:
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:9:    CrossJurisdictionSynthesis,
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:11:    JurisdictionFinding,
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:19:# Jurisdiction validation
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:36:    f = JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:48:            JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:61:    findings = [JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:90:        JurisdictionFinding("FDA", "indications", common, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:91:        JurisdictionFinding("EMA", "indications", common, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:92:        JurisdictionFinding("MHRA", "indications", common, "ev_mhra"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:116:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:118:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:138:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:143:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:148:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:175:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:179:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:209:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:210:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:211:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:214:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:230:        JurisdictionFinding("FDA", "Indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:231:        JurisdictionFinding("EMA", "INDICATIONS", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:240:        JurisdictionFinding("FDA", "warnings", "x", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:241:        JurisdictionFinding("FDA", "indications", "y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:242:        JurisdictionFinding("FDA", "boxed_warning", "z", "ev_3"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:259:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:260:        JurisdictionFinding("EMA", "indications", "", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:271:        JurisdictionFinding("FDA", "indications", "", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:272:        JurisdictionFinding("EMA", "indications", "   ", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:293:        JurisdictionFinding("FDA", "x", "y", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:294:        JurisdictionFinding("EMA", "x", "y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:307:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:309:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:320:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:323:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:357:        JurisdictionFinding("FDA", "boxed_warning", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:358:        JurisdictionFinding("EMA", "boxed_warning", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:372:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:376:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:389:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:393:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:407:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:411:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:425:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:429:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:443:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:446:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:449:        JurisdictionFinding("MHRA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:463:        JurisdictionFinding("FDA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:465:        JurisdictionFinding("EMA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:467:        JurisdictionFinding("MHRA", "indications",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:487:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:492:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:513:        JurisdictionFinding("FDA", "x", "approved for X", "ev_id_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:514:        JurisdictionFinding("EMA", "x", "approved for X", "ev_id_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:567:        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:568:        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:597:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:600:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:636:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:640:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:678:        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:679:        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:692:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:696:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:715:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_a"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:716:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_b"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:734:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:735:        JurisdictionFinding("EMA", "indications", "approved for Y", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:749:        JurisdictionFinding("FDA", "indications", "approved for X", "ev_1"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:750:        JurisdictionFinding("EMA", "indications", "approved for X", "ev_2"),
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:773:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:778:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:783:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:788:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:795:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:800:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:805:        JurisdictionFinding(
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:811:        JurisdictionFinding(
+tests\polaris_graph\test_m38_trial_framed_claims.py:191:        assert "Jurisdictional coverage (M-37" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:140:class TestSectionPromptJurisdictionalCoverage:
+tests\polaris_graph\test_m37_health_canada.py:151:        assert "Jurisdictional coverage" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:171:        assert "Jurisdictional precision" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m37_health_canada.py:179:        m29_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional precision")
+tests\polaris_graph\test_m37_health_canada.py:180:        m37_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
+tests\polaris_graph\test_m37_health_canada.py:206:        # Extract the #11b rule body: from "Jurisdictional coverage"
+tests\polaris_graph\test_m37_health_canada.py:208:        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
+tests\polaris_graph\test_m29_jurisdictional_precision.py:37:        # Rule is keyed by the phrase "Jurisdictional precision".
+tests\polaris_graph\test_m29_jurisdictional_precision.py:38:        assert "Jurisdictional precision" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:62:        assert "Jurisdiction A" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:63:        assert "Jurisdiction B" in SECTION_SYSTEM_PROMPT_TEMPLATE
+tests\polaris_graph\test_m29_jurisdictional_precision.py:79:        """The rule illustrates with "Jurisdiction A / Jurisdiction B"
+tests\polaris_graph\test_m29_jurisdictional_precision.py:132:        idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional precision")
+tests\polaris_graph\test_m42_preservation.py:16:- Jurisdiction counts: FDA=7, EMA=3, HC=1, NICE=4
+tests\polaris_graph\test_m42_preservation.py:139:# Jurisdiction preservation (M-42d preservation guard validation)
+tests\polaris_graph\test_m42_preservation.py:143:class TestJurisdictionPreservation:
+tests\polaris_graph\evidence_contract\test_schema.py:13:    Jurisdiction,
+tests\polaris_graph\evidence_contract\test_schema.py:22:           jurs: list[Jurisdiction] | None = None) -> ExpectedClaim:
+tests\polaris_graph\evidence_contract\test_schema.py:27:        required_jurisdictions=jurs or [Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:41:        jurisdictions=overrides.pop("jurisdictions", [Jurisdiction.CA]),
+tests\polaris_graph\evidence_contract\test_schema.py:54:    for j in [Jurisdiction.CA, Jurisdiction.US, Jurisdiction.EU, Jurisdiction.UK, Jurisdiction.GLOBAL]:
+tests\polaris_graph\evidence_contract\test_schema.py:87:            jurisdictions=[Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:112:            jurisdictions=[Jurisdiction.CA],
+tests\polaris_graph\evidence_contract\test_schema.py:113:            expected_claims=[_claim(jurs=[Jurisdiction.US])],
+tests\polaris_graph\evidence_contract\test_gate.py:15:    Jurisdiction,
+tests\polaris_graph\evidence_contract\test_gate.py:96:    jurs: list[Jurisdiction] | None = None,
+tests\polaris_graph\evidence_contract\test_gate.py:99:    jurs = jurs or [Jurisdiction.CA]
+tests\polaris_graph\evidence_contract\test_gate.py:180:        _contract(jurs=[Jurisdiction.US]),
+tests\polaris_graph\test_m32_claim_frame_prompt.py:110:        assert "11. **Jurisdictional precision (M-29" in SECTION_SYSTEM_PROMPT_TEMPLATE
+rg: CHARTER*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+2026-05-08T20:18:16.368562Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web\CLAUDE.md
+tests\v6\compare\test_claim_diff.py
+CLAUDE.md
+src\polaris_v6\schemas\evidence_contract.py
+src\polaris_v6\compare\claim_diff.py
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+
+ exited 1 in 1247ms:
+web\CLAUDE.md
+tests\v6\compare\test_claim_diff.py
+CLAUDE.md
+src\polaris_v6\schemas\evidence_contract.py
+src\polaris_v6\compare\claim_diff.py
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+
+codex
+The first pass found the v6 diff files and some unrelated protected scratch directories that make broad `rg` noisy. I’m narrowing to the source and test files that define the surface this brief would touch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\compare\\claim_diff.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\schemas\\evidence_contract.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\compare\\test_claim_diff.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path src\\polaris_v6\\compare, tests\\v6\\compare -Force | Select-Object FullName,Name,Mode,Length" in C:\POLARIS
+ succeeded in 1165ms:
+"""Evidence Contract — Phase 1 Task 1.4 canonical JSON schema.
+
+Per docs/carney_delivery_plan_v6_2.md F15 (audit bundle export with
+embedded source spans), every research run emits a single canonical
+artifact described by this schema. Phase 1 milestone 1.4 (Evidence
+Contract Gate) ships:
+
+1. This schema (durable contract for run artifact JSON).
+2. A golden corpus (5 hand-curated runs that conform to this schema).
+3. A sample artifact (one full real run validated against the schema).
+
+Schema is versioned; v1 is what we deliver to Carney's office. Future
+versions track via the `contract_version` field.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class SourceSpan(BaseModel):
+    """A verbatim span lifted from a cited source document."""
+
+    evidence_id: str = Field(..., description="Stable id for this evidence pool member.")
+    source_url: str = Field(..., description="Canonical URL to the source.")
+    source_tier: Literal["T1", "T2", "T3"] = Field(
+        ...,
+        description="Source admissibility tier per CLAUDE.md §9 corpus adequacy gate.",
+    )
+    span_start: int = Field(..., ge=0, description="Inclusive char offset within source body.")
+    span_end: int = Field(..., gt=0, description="Exclusive char offset within source body.")
+    span_text: str = Field(..., min_length=1, description="Verbatim span text.")
+
+
+class VerifiedSentence(BaseModel):
+    """A generator sentence that passed strict_verify Local + Global."""
+
+    section_id: str
+    sentence_text: str
+    provenance_tokens: list[str] = Field(
+        ...,
+        description=(
+            "List of [#ev:<evidence_id>:<start>-<end>] tokens per CLAUDE.md "
+            "§9.1 invariant 2."
+        ),
+    )
+    verifier_local_pass: bool
+    verifier_global_pass: bool
+    drop_reason: str | None = Field(
+        default=None,
+        description=(
+            "Null if sentence shipped. Otherwise one of "
+            "evidence_id_not_in_pool | span_oob | numeric_mismatch | "
+            "content_word_overlap_lt_2 | numeric_consistency_violation | "
+            "frame_imbalance | contradiction_unresolved."
+        ),
+    )
+
+
+class FrameCoverage(BaseModel):
+    """Frame-coverage panel data — F7 above-the-fold UI surface."""
+
+    frame_id: str
+    frame_name: str
+    sources_assigned: int
+    coverage_percent: float = Field(..., ge=0.0, le=100.0)
+
+
+class ContradictionRecord(BaseModel):
+    """A claim-level contradiction surfaced by audit_ir."""
+
+    contradiction_id: str
+    section_id: str
+    claim_a: str
+    claim_b: str
+    evidence_a: list[str]
+    evidence_b: list[str]
+    resolution: Literal["unresolved", "claim_a_preferred", "claim_b_preferred", "noted_both"]
+
+
+class EvidenceContract(BaseModel):
+    """The canonical run artifact JSON, contract version 1."""
+
+    contract_version: Literal["1.0"] = "1.0"
+    run_id: str
+    template: str
+    question: str
+    queued_at: str
+    finished_at: str
+    pipeline_status: str = Field(
+        ...,
+        description="One of CLAUDE.md §9.3 statuses (success | abort_* | error_*).",
+    )
+    evidence_pool: list[SourceSpan]
+    verified_sentences: list[VerifiedSentence]
+    frame_coverage: list[FrameCoverage]
+    contradictions: list[ContradictionRecord]
+    cost_usd: float = Field(..., ge=0.0)
+    generator_model: str
+    verifier_model: str
+    family_segregation_passed: bool = Field(
+        ...,
+        description="CLAUDE.md §9.1 invariant 1 cross-check at run time.",
+    )
+
+ succeeded in 1323ms:
+"""I-f12-003 — claim-level diff. Per-section best-Jaccard pairing of shipped sentences; classify on text-overlap × evidence-id-overlap. MVP thresholds (F12 calibration debt)."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Literal
+
+from polaris_v6.schemas.evidence_contract import EvidenceContract, VerifiedSentence
+
+ClaimVerdict = Literal["agreement", "partial", "disagreement", "only_left", "only_right"]
+AGREEMENT_TOKEN_OVERLAP = 0.7
+PARTIAL_TOKEN_OVERLAP = 0.3
+_PROV_RE = re.compile(r"\[#ev:([^:\]]+):\d+-\d+\]")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+@dataclass(frozen=True)
+class ClaimDiffEntry:
+    section_id: str
+    verdict: ClaimVerdict
+    left_sentence: str | None
+    right_sentence: str | None
+    shared_evidence_ids: list[str]
+    only_left_evidence_ids: list[str]
+    only_right_evidence_ids: list[str]
+    text_overlap_ratio: float
+
+
+@dataclass(frozen=True)
+class ClaimDiffReport:
+    left_run_id: str
+    right_run_id: str
+    entries: list[ClaimDiffEntry]
+    counts_by_verdict: dict[ClaimVerdict, int]
+
+
+def _eids(s: VerifiedSentence) -> set[str]:
+    return {m for tok in s.provenance_tokens for m in _PROV_RE.findall(tok)}
+
+
+def _entry(sid: str, v: ClaimVerdict, ls: VerifiedSentence | None, rs: VerifiedSentence | None, ov: float) -> ClaimDiffEntry:
+    le = _eids(ls) if ls else set()
+    re_ = _eids(rs) if rs else set()
+    return ClaimDiffEntry(
+        sid, v,
+        ls.sentence_text if ls else None, rs.sentence_text if rs else None,
+        sorted(le & re_), sorted(le - re_), sorted(re_ - le), ov,
+    )
+
+
+def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> ClaimDiffReport:
+    if left.run_id == right.run_id:
+        raise ValueError("compute_claim_diff requires two distinct runs")
+
+    def _by_section(c: EvidenceContract) -> dict[str, list[VerifiedSentence]]:
+        out: dict[str, list[VerifiedSentence]] = {}
+        for s in c.verified_sentences:
+            if s.drop_reason is None and s.verifier_local_pass and s.verifier_global_pass:
+                out.setdefault(s.section_id, []).append(s)
+        return out
+
+    def _toks(t: str) -> set[str]:
+        return set(_WORD_RE.findall(_PROV_RE.sub(" ", t).lower()))
+
+    def _jac(a: set[str], b: set[str]) -> float:
+        return len(a & b) / len(a | b) if (a or b) else 0.0
+
+    def _classify(ov: float, shared: int) -> ClaimVerdict:
+        if shared >= 1 and ov >= AGREEMENT_TOKEN_OVERLAP:
+            return "agreement"
+        if shared == 0 and ov < PARTIAL_TOKEN_OVERLAP:
+            return "disagreement"
+        return "partial"
+
+    lb, rb = _by_section(left), _by_section(right)
+    entries: list[ClaimDiffEntry] = []
+    counts: dict[ClaimVerdict, int] = {
+        "agreement": 0, "partial": 0, "disagreement": 0, "only_left": 0, "only_right": 0,
+    }
+
+    def _add(v: ClaimVerdict, ls: VerifiedSentence | None, rs: VerifiedSentence | None, ov: float) -> None:
+        entries.append(_entry(sid, v, ls, rs, ov))
+        counts[v] += 1
+
+    for sid in sorted(set(lb) | set(rb)):
+        lss, rss = lb.get(sid, []), list(rb.get(sid, []))
+        consumed: set[int] = set()
+        for ls in lss:
+            if not rss:
+                _add("only_left", ls, None, 0.0)
+                continue
+            lt = _toks(ls.sentence_text)
+            best, best_ov = -1, -1.0
+            for i, rs in enumerate(rss):
+                if i in consumed:
+                    continue
+                ov = _jac(lt, _toks(rs.sentence_text))
+                if ov > best_ov:
+                    best, best_ov = i, ov
+            if best < 0:
+                _add("only_left", ls, None, 0.0)
+                continue
+            rs = rss[best]
+            consumed.add(best)
+            _add(_classify(best_ov, len(_eids(ls) & _eids(rs))), ls, rs, best_ov)
+        for i, rs in enumerate(rss):
+            if i not in consumed:
+                _add("only_right", None, rs, 0.0)
+
+    return ClaimDiffReport(left.run_id, right.run_id, entries, counts)
+
+ succeeded in 1461ms:
+
+FullName                                        Name               Mode  Length
+--------                                        ----               ----  ------
+C:\POLARIS\src\polaris_v6\compare\__pycache__   __pycache__        d---- 
+C:\POLARIS\src\polaris_v6\compare\__init__.py   __init__.py        -a--- 371
+C:\POLARIS\src\polaris_v6\compare\claim_diff.py claim_diff.py      -a--- 4138
+C:\POLARIS\src\polaris_v6\compare\differ.py     differ.py          -a--- 2357
+C:\POLARIS\tests\v6\compare\__pycache__         __pycache__        d---- 
+C:\POLARIS\tests\v6\compare\__init__.py         __init__.py        -a--- 0
+C:\POLARIS\tests\v6\compare\test_claim_diff.py  test_claim_diff.py -a--- 3821
+
+
+ succeeded in 1572ms:
+"""I-f12-003 — claim-level diff tests."""
+
+from __future__ import annotations
+
+import pytest
+
+from polaris_v6.compare.claim_diff import compute_claim_diff
+from polaris_v6.schemas.evidence_contract import EvidenceContract, VerifiedSentence
+
+
+def _vs(sid: str, text: str, eids: list[str], drop: str | None = None) -> VerifiedSentence:
+    return VerifiedSentence(
+        section_id=sid, sentence_text=text,
+        provenance_tokens=[f"[#ev:{e}:0-10]" for e in eids],
+        verifier_local_pass=drop is None, verifier_global_pass=drop is None,
+        drop_reason=drop,
+    )
+
+def _c(rid: str, sents: list[VerifiedSentence]) -> EvidenceContract:
+    return EvidenceContract(
+        run_id=rid, template="t", question="q?",
+        queued_at="2026-05-08T00:00:00Z", finished_at="2026-05-08T00:00:30Z",
+        pipeline_status="success", evidence_pool=[],
+        verified_sentences=sents, frame_coverage=[], contradictions=[],
+        cost_usd=0.0, generator_model="g", verifier_model="v",
+        family_segregation_passed=True,
+    )
+
+
+def test_agreement_high_overlap_shared_evidence() -> None:
+    t = "Drug X reduced HbA1c by 1.5 percent"
+    rep = compute_claim_diff(_c("L", [_vs("S1", t, ["a"])]), _c("R", [_vs("S1", t, ["a"])]))
+    assert rep.entries[0].verdict == "agreement"
+
+
+@pytest.mark.parametrize("ev", [["a"], ["b"]])
+def test_partial_mid_overlap_either_evidence(ev: list[str]) -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "Drug X reduced HbA1c 1.5 percent in trial A", ["a"])]),
+        _c("R", [_vs("S1", "Drug X improved HbA1c trial A by some amount", ev)]),
+    )
+    assert rep.entries[0].verdict == "partial"
+
+
+def test_partial_low_overlap_shared_evidence() -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "alpha beta gamma", ["a"])]),
+        _c("R", [_vs("S1", "completely different words", ["a"])]),
+    )
+    assert rep.entries[0].verdict == "partial"
+
+
+def test_disagreement_low_overlap_disjoint_evidence() -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "alpha beta gamma", ["a"])]),
+        _c("R", [_vs("S1", "completely different words", ["b"])]),
+    )
+    assert rep.entries[0].verdict == "disagreement"
+
+
+def test_only_left_section_missing_right() -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "shared", ["a"]), _vs("S2", "left-only", ["x"])]),
+        _c("R", [_vs("S1", "shared", ["a"])]),
+    )
+    s2 = [e for e in rep.entries if e.section_id == "S2"]
+    assert len(s2) == 1 and s2[0].verdict == "only_left"
+
+
+def test_counts_aggregated() -> None:
+    same = "Drug X reduced HbA1c by 1.5 percent"
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", same, ["a"]), _vs("S2", "alpha beta gamma", ["x"])]),
+        _c("R", [_vs("S1", same, ["a"]), _vs("S2", "completely different", ["y"])]),
+    )
+    assert sum(rep.counts_by_verdict.values()) == len(rep.entries)
+    assert rep.counts_by_verdict["agreement"] == 1
+    assert rep.counts_by_verdict["disagreement"] == 1
+
+
+def test_provenance_tokens_in_text_stripped_before_jaccard() -> None:
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", "alpha [#ev:a:0-10]", ["a"])]),
+        _c("R", [_vs("S1", "omega [#ev:b:0-10]", ["b"])]),
+    )
+    assert rep.entries[0].verdict == "disagreement"
+
+
+def test_dropped_sentences_excluded_and_same_run_id_rejected() -> None:
+    t = "Drug X reduced HbA1c by 1.5 percent"
+    rep = compute_claim_diff(
+        _c("L", [_vs("S1", t, ["a"]), _vs("S1", "dropped", ["z"], drop="numeric_mismatch")]),
+        _c("R", [_vs("S1", t, ["a"])]),
+    )
+    assert all("dropped" not in (e.left_sentence or "") for e in rep.entries)
+    with pytest.raises(ValueError):
+        compute_claim_diff(_c("X", []), _c("X", []))
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path . -Force -Filter '*CHARTER*' | Select-Object FullName,Name,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\compare\\__init__.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\compare\\differ.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path CLAUDE.md -Pattern \"9\\.4|CHARTER|LOC|line|jurisdictional|F12\" -Context 3,8" in C:\POLARIS
+ succeeded in 1053ms:
+"""Compare two EvidenceContract bundles side-by-side."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from polaris_v6.schemas.evidence_contract import EvidenceContract
+
+
+@dataclass
+class ReportComparison:
+    left_run_id: str
+    right_run_id: str
+    same_template: bool
+    same_question: bool
+    shared_evidence_ids: list[str]
+    only_left_evidence_ids: list[str]
+    only_right_evidence_ids: list[str]
+    shared_evidence_pct: float  # |shared| / |left ∪ right|
+    frame_coverage_overlap: list[str]  # frame_ids present in both
+    only_left_frames: list[str]
+    only_right_frames: list[str]
+    left_contradictions: int
+    right_contradictions: int
+    pipeline_status_match: bool
+    family_segregation_both_pass: bool
+
+
+def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+    if left.run_id == right.run_id:
+        raise ValueError("compare_reports requires two distinct runs")
+
+    left_ev = {s.evidence_id for s in left.evidence_pool}
+    right_ev = {s.evidence_id for s in right.evidence_pool}
+    shared = sorted(left_ev & right_ev)
+    union = left_ev | right_ev
+    shared_pct = len(shared) / len(union) if union else 0.0
+
+    left_frames = {f.frame_id for f in left.frame_coverage}
+    right_frames = {f.frame_id for f in right.frame_coverage}
+    frame_overlap = sorted(left_frames & right_frames)
+
+    return ReportComparison(
+        left_run_id=left.run_id,
+        right_run_id=right.run_id,
+        same_template=left.template == right.template,
+        same_question=left.question.strip() == right.question.strip(),
+        shared_evidence_ids=shared,
+        only_left_evidence_ids=sorted(left_ev - right_ev),
+        only_right_evidence_ids=sorted(right_ev - left_ev),
+        shared_evidence_pct=shared_pct,
+        frame_coverage_overlap=frame_overlap,
+        only_left_frames=sorted(left_frames - right_frames),
+        only_right_frames=sorted(right_frames - left_frames),
+        left_contradictions=len(left.contradictions),
+        right_contradictions=len(right.contradictions),
+        pipeline_status_match=left.pipeline_status == right.pipeline_status,
+        family_segregation_both_pass=(
+            left.family_segregation_passed and right.family_segregation_passed
+        ),
+    )
+
+ succeeded in 1342ms:
+ succeeded in 1555ms:
+
+  CLAUDE.md:3:CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and 
+immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. 
+See §3 for the mandatory startup protocol.
+  CLAUDE.md:4:
+  CLAUDE.md:5:Document Class: Operational, Binding, Project-Specific
+> CLAUDE.md:6:Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+  CLAUDE.md:7:
+  CLAUDE.md:8:---
+  CLAUDE.md:9:
+  CLAUDE.md:10:## §0. Core Identity and Operational Mode
+  CLAUDE.md:11:
+> CLAUDE.md:12:**0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a 
+production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully 
+documented, and production-ready systems.
+  CLAUDE.md:13:
+  CLAUDE.md:14:**0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+  CLAUDE.md:15:- **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do 
+not simplify. Do not silently degrade functionality or quality.
+  CLAUDE.md:16:- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to 
+clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+  CLAUDE.md:17:
+  CLAUDE.md:18:**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking 
+capabilities for planning. Every task requires this rigorous process:
+  CLAUDE.md:19:1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+> CLAUDE.md:20:2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW 
+III).
+  CLAUDE.md:21:3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+  CLAUDE.md:22:4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+  CLAUDE.md:23:5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+  CLAUDE.md:24:6. **Record:** Update all mandatory documentation and state files (§2).
+  CLAUDE.md:25:
+  CLAUDE.md:26:The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log 
+(§2.2).
+  CLAUDE.md:27:
+  CLAUDE.md:28:---
+  CLAUDE.md:41:4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt 
+conditions, mechanical gates.
+  CLAUDE.md:42:5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via 
+`docs/canonical_pin.txt`. Re-read at every session-resume.
+  CLAUDE.md:43:6. Recent `logs/session_log.md` (The History).
+> CLAUDE.md:44:7. `architecture.md` (The Baseline).
+  CLAUDE.md:45:8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; 
+matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+  CLAUDE.md:46:
+  CLAUDE.md:47:**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the 
+lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization 
+must occur before execution proceeds and must be logged (§2.2).
+  CLAUDE.md:48:
+  CLAUDE.md:49:**1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or 
+omitted without following the protocols in §6.
+  CLAUDE.md:50:
+  CLAUDE.md:51:### LAW II — No Fake Working (Evidence Required)
+  CLAUDE.md:52:- **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" 
+hacks.
+  CLAUDE.md:55:  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker 
+outside tests/fixtures/.
+  CLAUDE.md:56:  - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+  CLAUDE.md:57:  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+> CLAUDE.md:58:  - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+  CLAUDE.md:59:  - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that 
+now passes AND artifacts demonstrating the fix.
+  CLAUDE.md:60:
+  CLAUDE.md:61:### LAW III — Proactive Information Seeking
+  CLAUDE.md:62:Do not rely on stale internalized knowledge. You must proactively search the internet for the latest 
+official documentation, best practices, and solutions for every library, API, and function used.
+  CLAUDE.md:63:Log all consulted resources in `logs/session_log.md`.
+  CLAUDE.md:64:
+  CLAUDE.md:65:### LAW IV — Persistence of State (Never Forget)
+  CLAUDE.md:66:The session must be resumable without loss of context.
+  CLAUDE.md:90:- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session 
+boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+  CLAUDE.md:91:- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE 
+iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+  CLAUDE.md:92:- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt 
+conditions, mechanical gates.
+> CLAUDE.md:93:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND 
+`polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+  CLAUDE.md:94:- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential 
+schedule.
+  CLAUDE.md:95:- `logs/session_log.md`: A chronological, append-only audit trail.
+  CLAUDE.md:96:- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). 
+Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use 
+`state/active_issue.json` for current issue state.
+  CLAUDE.md:97:- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 
+Step 0.
+> CLAUDE.md:98:- `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+  CLAUDE.md:99:- `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of 
+each.
+  CLAUDE.md:100:- `state/restart_instructions.md`: Precise instructions on how to resume the session from the last 
+executed task.
+> CLAUDE.md:101:- `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+  CLAUDE.md:102:- `state/last_pointer.json`: Resume point after crash/restart.
+  CLAUDE.md:103:- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+  CLAUDE.md:104:
+  CLAUDE.md:105:### 2.2 Session Log Format (MANDATORY)
+  CLAUDE.md:106:Every action must be appended to `logs/session_log.md` using this structure:
+  CLAUDE.md:107:
+  CLAUDE.md:108:```
+  CLAUDE.md:109:[YYYY-MM-DD HH:MM:SS]
+  CLAUDE.md:126:**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate 
+workflow; pre-PR-D, this is enforced by Codex review at PR time):
+  CLAUDE.md:127:- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+  CLAUDE.md:128:- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+> CLAUDE.md:129:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews 
+it — per plan §7.A LOCKED A2)
+  CLAUDE.md:130:- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+  CLAUDE.md:131:- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+  CLAUDE.md:132:
+  CLAUDE.md:133:**Forbidden patterns:**
+> CLAUDE.md:134:- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+  CLAUDE.md:135:- PR opened without all 5 artifacts above
+  CLAUDE.md:136:- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+  CLAUDE.md:137:- "While we're at it" polish in same PR
+> CLAUDE.md:138:- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+  CLAUDE.md:139:
+  CLAUDE.md:140:**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+  CLAUDE.md:141:- canonical pin SHA mismatch
+> CLAUDE.md:142:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+  CLAUDE.md:143:- issue jump attempt
+  CLAUDE.md:144:- PR opened with missing artifact triple
+  CLAUDE.md:145:- Codex unavailable >1h
+  CLAUDE.md:146:- 2-cycle repeated root cause
+> CLAUDE.md:147:- 200-LOC PR cap exceeded
+  CLAUDE.md:148:- 3+ PRs queued for user in 24h (reviewer fatigue)
+  CLAUDE.md:149:
+> CLAUDE.md:150:**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+  CLAUDE.md:151:- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and 
+`.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+  CLAUDE.md:152:- **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria 
+correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+  CLAUDE.md:153:- **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact 
+human-at-merge surface (B1 pure auto-merge).
+  CLAUDE.md:154:- Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses 
+Codex's verdict file and gates merge.
+  CLAUDE.md:155:
+  CLAUDE.md:156:---
+  CLAUDE.md:157:
+  CLAUDE.md:158:## §3. Mandatory Session Protocol (Startup/Restart)
+  CLAUDE.md:163:
+  CLAUDE.md:164:**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 
+§A.**
+  CLAUDE.md:165:
+> CLAUDE.md:166:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read 
+`docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show 
+HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit 
+`state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally 
+verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against 
+`state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit 
+`state/halt_<ts>_charter_pin_drift.md`.
+  CLAUDE.md:167:
+  CLAUDE.md:168:1. **Read CLAUDE.md:** This file completely.
+  CLAUDE.md:169:2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step 
+retained for non-Issue context):**
+  CLAUDE.md:170:   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+  CLAUDE.md:171:   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source 
+for issue-driven workflow)
+  CLAUDE.md:172:   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+  CLAUDE.md:173:   - `docs/carney_delivery_plan_v6_2.md` (mission)
+> CLAUDE.md:174:   - `architecture.md` (current-state baseline)
+> CLAUDE.md:175:   - `docs/blockers.md` (10 user-side decisions)
+  CLAUDE.md:176:   - `docs/agent_architecture.md`
+  CLAUDE.md:177:   - `docs/substrate_audit_2026-05-01.md`
+  CLAUDE.md:178:   - `.codex/codex_red_team_checklist.md`
+  CLAUDE.md:179:   - `.codex/REVIEW_BRIEF_FORMAT.md`
+  CLAUDE.md:180:   - `.codex/AUDIT_CYCLE_PROTOCOL.md`
+  CLAUDE.md:181:   - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. 
+Re-read the actual file every session-resume.
+  CLAUDE.md:182:   - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue 
+context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR 
+per cleanup_audit.md.
+> CLAUDE.md:183:3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the 
+in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart 
+Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` 
+(Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+  CLAUDE.md:184:4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+  CLAUDE.md:185:5. **Review Bug Log:** `logs/bug_log.md`.
+  CLAUDE.md:186:6. **Review File Directory:** `docs/file_directory.md`.
+  CLAUDE.md:187:7. **Read Restart Instructions:** `state/restart_instructions.md`.
+  CLAUDE.md:188:8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
+  CLAUDE.md:189:9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
+  CLAUDE.md:190:10. **Execute Recovery:** If restart_instructions has instructions, execute them.
+  CLAUDE.md:191:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, 
+resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via 
+TaskCreate per CLAUDE.md §3.0 + §10.
+  CLAUDE.md:192:12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: 
+canonical_pin SHA256 (computed in step 0), date/time, next action.
+  CLAUDE.md:193:
+> CLAUDE.md:194:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 
+min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read 
+`state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts 
+on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference 
+task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+  CLAUDE.md:195:
+  CLAUDE.md:196:### 3.2 Enforcement
+  CLAUDE.md:197:If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an 
+entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
+  CLAUDE.md:198:
+  CLAUDE.md:199:---
+  CLAUDE.md:200:
+  CLAUDE.md:201:## §4. Code Standards and Hygiene
+  CLAUDE.md:202:
+  CLAUDE.md:212:
+  CLAUDE.md:213:### 4.3 Import/Export Management
+  CLAUDE.md:214:- **Explicit Imports:** Never use wildcard imports (`from module import *`).
+> CLAUDE.md:215:- **Standardized Organization:** Group imports at the top: Standard Library, Third-Party Libraries, 
+Local Modules.
+  CLAUDE.md:216:- **Dependency Tracking:** Ensure all dependencies are immediately recorded in `requirements.txt` or 
+`pyproject.toml`.
+  CLAUDE.md:217:
+  CLAUDE.md:218:---
+  CLAUDE.md:219:
+  CLAUDE.md:220:## §5. POLARIS Repository Layout
+  CLAUDE.md:221:
+  CLAUDE.md:222:**Current state as of 2026-04-18 cleanup. See `architecture.md` and
+  CLAUDE.md:223:`docs/file_directory.md` for full detail.** POLARIS currently hosts
+> CLAUDE.md:224:**three parallel pipelines** (A: honest-rebuild sweep, B: UI web
+  CLAUDE.md:225:server, C: frozen legacy CLI). This is honest repo state, not ideal
+> CLAUDE.md:226:state — retirement of pipeline C is tracked in `docs/todo_list.md`.
+  CLAUDE.md:227:
+  CLAUDE.md:228:```
+  CLAUDE.md:229:POLARIS/
+  CLAUDE.md:230:├── CLAUDE.md              # This file (Project directives)
+  CLAUDE.md:231:├── architecture.md        # Current-state architecture (rewritten 2026-04-18)
+  CLAUDE.md:232:├── ground_rules.md        # Engineering ground rules
+> CLAUDE.md:233:├── README.md              # Three-pipeline overview
+  CLAUDE.md:234:├── .env                   # Environment variables (API keys) — gitignored
+  CLAUDE.md:235:├── requirements.txt       # Python dependencies
+  CLAUDE.md:236:│
+  CLAUDE.md:237:├── src/
+> CLAUDE.md:238:│   ├── polaris_graph/     # ACTIVE. Pipelines A + B. 159 commits in last 60 days.
+  CLAUDE.md:239:│   │   ├── nodes/         # Pre-generation gates (scope, approval, adequacy, completeness)
+  CLAUDE.md:240:│   │   ├── retrieval/     # live_retriever, tier_classifier, domain_backends, ...
+  CLAUDE.md:241:│   │   ├── generator/     # multi_section, live_deepseek, provenance (strict_verify)
+  CLAUDE.md:242:│   │   ├── evaluator/     # external_evaluator, live_qwen_judge
+  CLAUDE.md:243:│   │   ├── llm/           # openrouter_client + two-family segregation
+> CLAUDE.md:244:│   │   ├── graph.py, graph_v2.py, graph_v3.py  # LangGraph variants (pipeline B)
+> CLAUDE.md:245:│   │   ├── memory/        # campaign/cross-vector/content cache (pipeline B)
+  CLAUDE.md:246:│   │   └── ...
+> CLAUDE.md:247:│   ├── orchestration/     # FROZEN 2026-03-16 (pipeline C). See folder README.
+> CLAUDE.md:248:│   ├── auth/              # Auth middleware (pipeline B UI)
+  CLAUDE.md:249:│   ├── tools/             # Active tool clients
+  CLAUDE.md:250:│   ├── audit/             # Automated deep audit
+  CLAUDE.md:251:│   ├── config/            # Config loaders
+  CLAUDE.md:252:│   └── ...                # See docs/file_directory.md for full inventory
+  CLAUDE.md:253:│
+  CLAUDE.md:254:├── config/
+  CLAUDE.md:255:│   ├── settings/          # YAML configuration files
+  CLAUDE.md:256:│   ├── scope_templates/   # Per-domain scope protocols
+  CLAUDE.md:257:│   └── completeness_checklists/
+  CLAUDE.md:258:│
+  CLAUDE.md:259:├── tests/
+> CLAUDE.md:260:│   └── polaris_graph/     # 305 tests, all passing against pipeline A
+  CLAUDE.md:261:│
+  CLAUDE.md:262:├── outputs/               # Runtime artifacts (gitignored, except codex_findings/)
+> CLAUDE.md:263:│   ├── honest_sweep_*/    # Pipeline A sweep artifacts
+  CLAUDE.md:264:│   └── codex_findings/    # 5-round Codex↔Claude audit record (tracked)
+  CLAUDE.md:265:│
+> CLAUDE.md:266:├── state/                 # Pipeline state files (gitignored)
+  CLAUDE.md:267:├── logs/                  # Runtime logs (gitignored)
+  CLAUDE.md:268:│   ├── session_log.md
+  CLAUDE.md:269:│   ├── bug_log.md
+  CLAUDE.md:270:│   └── pg_cost_ledger.jsonl
+  CLAUDE.md:271:│
+  CLAUDE.md:272:├── docs/
+  CLAUDE.md:273:│   ├── todo_list.md       # Prioritized backlog
+  CLAUDE.md:274:│   ├── file_directory.md  # Inventory of active code
+> CLAUDE.md:275:│   ├── runbook.md         # How to run each pipeline end-to-end
+  CLAUDE.md:276:│   ├── live_code_audit.md # Static import-closure analysis
+  CLAUDE.md:277:│   └── compliance/        # Compliance references
+  CLAUDE.md:278:│
+  CLAUDE.md:279:├── scripts/
+> CLAUDE.md:280:│   ├── run_honest_sweep_r3.py    # Pipeline A main entry
+> CLAUDE.md:281:│   ├── run_r6_validation.py      # Pipeline A 4-query revalidation
+> CLAUDE.md:282:│   ├── live_server.py            # Pipeline B FastAPI UI (Docker default)
+> CLAUDE.md:283:│   ├── full_cycle.py             # Pipeline C (FROZEN, has broken imports)
+  CLAUDE.md:284:│   ├── audit_live_code.py        # Static import-closure analysis
+  CLAUDE.md:285:│   ├── codex_loop_parse.py       # Codex verdict parser
+  CLAUDE.md:286:│   ├── pg_preflight.py        # Environment check (Docker `preflight` subcommand)
+  CLAUDE.md:287:│   └── ...                       # 130 total scripts; many are one-off tools
+  CLAUDE.md:288:│
+  CLAUDE.md:289:├── .codex/                # Codex↔Claude audit loop infrastructure
+  CLAUDE.md:290:├── Dockerfile             # python:3.11-slim + WeasyPrint, ENTRYPOINT → live_server
+  CLAUDE.md:291:├── docker-compose.yml     # web + chromadb (+ searxng + vllm in sovereign profile)
+  CLAUDE.md:305:- `outputs/P{0..12}/` — no longer the output layout
+  CLAUDE.md:306:- `state/work_queue.json` with "175 vectors exactly" — deprecated invariant
+  CLAUDE.md:307:- `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced by
+> CLAUDE.md:308:  pipeline C but do not exist; pipeline C is broken until these are
+> CLAUDE.md:309:  either restored or pipeline C is retired
+  CLAUDE.md:310:
+  CLAUDE.md:311:---
+  CLAUDE.md:312:
+  CLAUDE.md:313:## §6. Clarification and Anti-Degradation Protocols
+  CLAUDE.md:314:
+> CLAUDE.md:315:You must not cut corners, simplify requirements, or make assumptions when the APD is ambiguous or 
+blocked.
+  CLAUDE.md:316:
+  CLAUDE.md:317:### 6.1 Handling Ambiguity (Clarification Protocol)
+  CLAUDE.md:318:If the APD is unclear, underspecified, or seems counter-productive:
+  CLAUDE.md:319:1. Halt Implementation.
+  CLAUDE.md:320:2. Create Clarification Request in `logs/bug_log.md` titled "Clarification Request: [Topic]".
+  CLAUDE.md:321:3. Detail the Issue with proposed interpretations or solutions.
+  CLAUDE.md:322:4. Explicitly state "USER INPUT REQUIRED."
+  CLAUDE.md:323:5. Await Clarification before proceeding.
+  CLAUDE.md:324:
+> CLAUDE.md:325:### 6.2 Handling Blockers (Anti-Degradation Protocol)
+> CLAUDE.md:326:If a clear requirement cannot be met due to external blockers:
+  CLAUDE.md:327:1. Halt Implementation.
+  CLAUDE.md:328:2. Create Degradation Proposal in `logs/bug_log.md` titled "Degradation Proposal: [Feature Name]".
+> CLAUDE.md:329:3. Detail the blocker, proposed fallback, and expected impact.
+  CLAUDE.md:330:4. Explicitly state "USER APPROVAL REQUIRED."
+  CLAUDE.md:331:5. Proceed ONLY after explicit written approval.
+  CLAUDE.md:332:
+  CLAUDE.md:333:---
+  CLAUDE.md:334:
+  CLAUDE.md:335:## §7. Pre-Action Reasoning Protocol
+  CLAUDE.md:336:
+  CLAUDE.md:337:CRITICAL: Before taking any significant action, apply this reasoning framework:
+  CLAUDE.md:338:
+  CLAUDE.md:339:### 7.1 Logical Dependencies & Constraints
+  CLAUDE.md:340:- Analyze the intended action against policy rules, prerequisites, and constraints.
+> CLAUDE.md:341:- Ensure the action does not block a subsequent necessary action (Order of Operations).
+  CLAUDE.md:342:- Resolve conflicts by prioritizing policy/mandatory rules first.
+  CLAUDE.md:343:
+  CLAUDE.md:344:### 7.2 Risk Assessment
+  CLAUDE.md:345:- Ask: "Will this action cause future issues?"
+  CLAUDE.md:346:- For exploratory tasks, prefer calling tools with available info rather than asking the user, unless 
+logical dependency analysis proves missing info is critical.
+  CLAUDE.md:347:
+  CLAUDE.md:348:### 7.3 Abductive Reasoning
+  CLAUDE.md:349:- Identify the most logical reason for problems, looking beyond obvious causes.
+  CLAUDE.md:357:
+  CLAUDE.md:358:## §8. Status Reporting Format
+  CLAUDE.md:359:
+> CLAUDE.md:360:After completing significant tasks, emit a status block:
+  CLAUDE.md:361:
+  CLAUDE.md:362:```
+  CLAUDE.md:363:STATUS
+  CLAUDE.md:364:task: <name>
+  CLAUDE.md:365:result: success|failed
+  CLAUDE.md:366:artifacts: [exact file paths...]
+  CLAUDE.md:367:tests_passed: <int>/<int>
+  CLAUDE.md:368:next_actions: [short list]
+  CLAUDE.md:369:```
+  CLAUDE.md:370:
+> CLAUDE.md:371:### 8.1 No status blocks mid-batch (DEPRECATED 2026-05-05 per polaris-restart §9.1)
+  CLAUDE.md:372:
+> CLAUDE.md:373:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes 
+briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required 
+check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT 
+click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose 
+anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+  CLAUDE.md:374:
+  CLAUDE.md:375:The original 2026-05-04 §8.1 text is preserved below for historical context.
+  CLAUDE.md:376:
+  CLAUDE.md:377:---
+  CLAUDE.md:378:
+  CLAUDE.md:379:~~Original 2026-05-04 §8.1:~~
+  CLAUDE.md:380:
+  CLAUDE.md:381:During an authorized **batched run** (e.g. "ship slice 002 to completion" =
+> CLAUDE.md:382:14 PRs; or any explicit multi-PR plan), STATUS blocks are FORBIDDEN at
+  CLAUDE.md:383:PR-merge boundaries. After `gh pr merge <N> --squash --delete-branch
+  CLAUDE.md:384:--admin` succeeds, the IMMEDIATE next action MUST be `git checkout -b
+  CLAUDE.md:385:bot/<next-pr-name>`. Not a wrap-up. Not a "next actions" list. Not a
+  CLAUDE.md:386:"continuing" sentence followed by silence.
+  CLAUDE.md:387:
+> CLAUDE.md:388:**Why:** STATUS blocks function as turn-closure signals. Even when followed
+  CLAUDE.md:389:by "Continuing to PR X", the closure has already happened in output, and
+  CLAUDE.md:390:the next iteration does not fire reliably. User has flagged this failure
+  CLAUDE.md:391:3+ times across 2026-05-04 sessions ("you always said you continue, but you
+  CLAUDE.md:392:always stop"). Promising harder doesn't fix it; structural avoidance does.
+  CLAUDE.md:393:
+  CLAUDE.md:394:**Allowed mid-batch transitions:**
+  CLAUDE.md:395:- One brief sentence: "PR 25 merged; opening PR 7 branch."
+  CLAUDE.md:396:- A `git checkout -b ...` command in the same response.
+  CLAUDE.md:397:- Tests + commits + push + merge for the next PR.
+  CLAUDE.md:398:
+  CLAUDE.md:399:**FORBIDDEN mid-batch:**
+> CLAUDE.md:400:- Any STATUS block.
+  CLAUDE.md:401:- Bullet lists titled "next actions:", "remaining:", "shipped this stretch".
+  CLAUDE.md:402:- "Slice progression: N of M PRs shipped" tallies.
+  CLAUDE.md:403:- Per-PR wrap-up summaries.
+  CLAUDE.md:404:
+> CLAUDE.md:405:**STATUS blocks are reserved for:**
+  CLAUDE.md:406:1. The MISSION is fully complete — for POLARIS, that means slice 005
+  CLAUDE.md:407:   (BEAT-BOTH benchmark + demo polish) merged AND the demo run end-to-end
+  CLAUDE.md:408:   produces correct output. Until then, every slice boundary (002→003,
+  CLAUDE.md:409:   003→004, etc.) is an internal transition, NOT an end-of-batch.
+  CLAUDE.md:410:2. A genuine halt condition has fired: asymptoting / scope decision /
+  CLAUDE.md:411:   primary-source conflict / cost concern / fetch-backend keys missing /
+> CLAUDE.md:412:   user-input genuinely required (not invented blocker per
+  CLAUDE.md:413:   `feedback_dont_pause_autoloop` and `feedback_substrate_is_not_product`).
+  CLAUDE.md:414:
+  CLAUDE.md:415:**Slice boundaries are NOT batch boundaries.** When slice N's last PR
+  CLAUDE.md:416:merges, the IMMEDIATE next action is `git checkout -b
+  CLAUDE.md:417:bot/slice-N+1-architecture-proposal` and start drafting. User flagged
+  CLAUDE.md:418:2026-05-04: "Then why you stop here now?" after I declared slice 002
+  CLAUDE.md:419:done. The slice closing is the same kind of internal milestone as a PR
+  CLAUDE.md:420:merge — keep going to slice 003 without asking.
+  CLAUDE.md:421:
+> CLAUDE.md:422:**Self-check:** If you find yourself drafting a STATUS block during a batch
+  CLAUDE.md:423:and the slice isn't done, that's the bug. Delete it; run the next PR's
+  CLAUDE.md:424:branch-creation command instead.
+  CLAUDE.md:425:
+  CLAUDE.md:426:### 8.2 Zero prose between merge and next branch + active_issue.json transition gate (DEPRECATED 
+2026-05-05 + UPDATED per polaris-restart §9.1)
+  CLAUDE.md:427:
+  CLAUDE.md:428:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new 
+active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT 
+pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by 
+user-assignment, not by Claude advancing through the queue.
+  CLAUDE.md:429:
+  CLAUDE.md:430:**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). 
+Preserved below for historical context.
+  CLAUDE.md:433:
+  CLAUDE.md:434:~~Original 2026-05-04 §8.2:~~
+  CLAUDE.md:435:
+> CLAUDE.md:436:Sec 8.1 was insufficient because it banned STATUS blocks (a surface form)
+  CLAUDE.md:437:without banning the underlying behavior (any backward-looking text
+  CLAUDE.md:438:between `gh pr merge` and `git checkout -b`). The agent kept finding new
+  CLAUDE.md:439:surface forms — paragraphs with PR counts, "still on momentum", "X of N
+  CLAUDE.md:440:PRs done" tallies — that are the same closure behavior dressed differently.
+  CLAUDE.md:441:
+  CLAUDE.md:442:**Strict rule:** Between the tool call that completes `gh pr merge` and
+  CLAUDE.md:443:the tool call that creates the next branch (`git checkout -b
+  CLAUDE.md:444:bot/...next-pr-name`), NO assistant prose is allowed. Not a sentence.
+> CLAUDE.md:445:Not a count. Not a "next up" line. Nothing.
+  CLAUDE.md:446:
+  CLAUDE.md:447:**Why:** Any text in that gap functions as a closure signal regardless
+  CLAUDE.md:448:of whether it has a STATUS header. The empirical pattern across this
+  CLAUDE.md:449:session is: agent emits recap → agent stops. Removing the recap
+  CLAUDE.md:450:removes the stop trigger.
+  CLAUDE.md:451:
+  CLAUDE.md:452:**Allowed:** Empty assistant text followed immediately by the next
+  CLAUDE.md:453:branch's first tool call (Edit/Write/Bash for the next PR's content).
+  CLAUDE.md:457:- "Slice X: N/M PRs done" tallies
+  CLAUDE.md:458:- "Total tests: N passing" recaps
+  CLAUDE.md:459:- "Continuing with..." / "Moving to..." / "Next is..." framings
+> CLAUDE.md:460:- "Still on momentum" / "Pattern locked in" cheerleading
+  CLAUDE.md:461:- ANY backward-looking summary, however brief
+  CLAUDE.md:462:
+  CLAUDE.md:463:**Test:** If a reader of the conversation transcript can tell that one
+  CLAUDE.md:464:PR just finished and another is starting, the prose was too much.
+  CLAUDE.md:465:PR boundaries should be visible only in tool calls + commit messages,
+  CLAUDE.md:466:never in assistant prose.
+  CLAUDE.md:467:
+  CLAUDE.md:468:User flagged 2026-05-04 v2: "why all of the previous protocol fail
+  CLAUDE.md:471:
+  CLAUDE.md:472:---
+  CLAUDE.md:473:
+> CLAUDE.md:474:## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+  CLAUDE.md:475:
+  CLAUDE.md:476:When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+  CLAUDE.md:477:
+  CLAUDE.md:478:### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
+  CLAUDE.md:479:
+  CLAUDE.md:480:**Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` 
+after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 
+2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and 
+matches the cycle-time budget needed to ship Carney by Sep 6.
+  CLAUDE.md:481:
+  CLAUDE.md:482:This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but 
+trust is bounded at 5 iterations.
+  CLAUDE.md:483:
+> CLAUDE.md:484:**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every 
+brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+  CLAUDE.md:485:
+  CLAUDE.md:486:```
+  CLAUDE.md:487:HARD ITERATION CAP: 5 per document. This is iter N of 5.
+  CLAUDE.md:488:- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+  CLAUDE.md:489:- Same quality bar regardless of iteration count.
+> CLAUDE.md:490:- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; 
+reserve P0/P1 for real execution risks.
+  CLAUDE.md:491:- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 
+findings; do not bank issues for iter 6.
+  CLAUDE.md:492:- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 
+5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+  CLAUDE.md:493:- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+  CLAUDE.md:494:```
+  CLAUDE.md:495:
+  CLAUDE.md:496:**Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+  CLAUDE.md:497:1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` 
+for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per 
+`.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 
+verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+  CLAUDE.md:498:2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+> CLAUDE.md:499:3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for 
+the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# 
+force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation 
+file lives alongside as documentation but is not parsed by CI.
+  CLAUDE.md:500:4. Proceed to next step (commit, push, PR, merge).
+  CLAUDE.md:501:
+  CLAUDE.md:502:History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at 
+iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time 
+was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual 
+concerns as follow-up Issues.
+  CLAUDE.md:503:
+  CLAUDE.md:504:### 8.3.2 Trust Codex's verdicts
+  CLAUDE.md:505:
+> CLAUDE.md:506:Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB 
+`pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script 
+breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, 
+~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as 
+noise.
+  CLAUDE.md:507:
+  CLAUDE.md:508:### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+  CLAUDE.md:509:
+> CLAUDE.md:510:Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first 
+content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced 
+block byte-for-byte.
+  CLAUDE.md:511:
+> CLAUDE.md:512:`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every 
+subsequent brief automatically inherit the new wording at next authoring.
+  CLAUDE.md:513:
+  CLAUDE.md:514:Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence 
+math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+  CLAUDE.md:515:
+  CLAUDE.md:516:### 8.3.4 No scope-narrowing for false convergence
+  CLAUDE.md:517:
+  CLAUDE.md:518:When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. 
+That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. 
+Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+  CLAUDE.md:519:
+  CLAUDE.md:520:### 8.3.5 Iteration trajectory MUST be logged
+  CLAUDE.md:544:p1: [...]
+  CLAUDE.md:545:p2: [...]
+  CLAUDE.md:546:convergence_call: continue | accept_remaining
+> CLAUDE.md:547:remaining_blockers_for_execution: [...]
+  CLAUDE.md:548:```
+  CLAUDE.md:549:
+  CLAUDE.md:550:Loose verdict prose is rejected — resubmit asking for the schema.
+  CLAUDE.md:551:
+  CLAUDE.md:552:---
+  CLAUDE.md:553:
+  CLAUDE.md:554:## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+  CLAUDE.md:555:
+  CLAUDE.md:558:**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
+  CLAUDE.md:559:- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — 
+not a stop).
+  CLAUDE.md:560:- Codex saying "stop paper, build harness" (§8.3.6).
+> CLAUDE.md:561:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing 
+artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs 
+queued for user in 24h).
+  CLAUDE.md:562:- The user explicitly typing a stop instruction in this conversation turn.
+  CLAUDE.md:563:
+  CLAUDE.md:564:**Forbidden self-initiated stops:**
+  CLAUDE.md:565:- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.
+  CLAUDE.md:566:- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
+> CLAUDE.md:567:- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git 
+log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+  CLAUDE.md:568:- "Halfway through the slice; quality-gate stretch warrants a check-in" — NOT a halt condition. 
+Slice/feature boundaries are internal milestones.
+  CLAUDE.md:569:- "Resource state is clean; appropriate stopping point" — NOT a halt condition. Clean resource state 
+is the precondition for continuing, not the trigger for stopping.
+  CLAUDE.md:570:
+> CLAUDE.md:571:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, 
+OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's 
+`feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the 
+decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+  CLAUDE.md:572:
+  CLAUDE.md:573:**Application:** when an Issue merges, the IMMEDIATE next action is `git checkout polaris && git pull 
+&& git checkout -b bot/<next-issue>` — no prose between the merge response and the branch creation.
+  CLAUDE.md:574:
+  CLAUDE.md:575:---
+  CLAUDE.md:576:
+> CLAUDE.md:577:## §8.4 Computer-resource discipline (CPU / GPU / RAM management) — added 2026-05-06
+  CLAUDE.md:578:
+> CLAUDE.md:579:User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU 
+exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill 
+them when the task completes.**
+  CLAUDE.md:580:
+> CLAUDE.md:581:**Background-process discipline:**
+  CLAUDE.md:582:
+  CLAUDE.md:583:1. **One Codex `exec` at a time.** NEVER run two `codex exec` invocations in parallel. Each Codex call 
+spawns sub-processes (~3 alive concurrently) that linger after exit; multiple in flight = OS-level resource 
+exhaustion. Run codex in foreground with a 9-min timeout, OR if backgrounded, await completion before queuing the next.
+  CLAUDE.md:584:
+  CLAUDE.md:585:2. **Background tool-call audit before exit.** Before yielding back to the user OR scheduling a 
+wakeup, check `Get-Process -Name codex,python,node` and kill orphaned processes from the just-completed task. Use 
+`Stop-Process -Id <pid>` (or `taskkill /PID <pid> /F` if Stop-Process fails). NEVER leave a hung codex process across 
+a turn boundary unless it is genuinely still doing work.
+  CLAUDE.md:586:
+  CLAUDE.md:587:3. **No parallel pytest / npm / playwright runs.** Single test run at a time per workspace. If a 
+previous run is still active (`Get-Process -Name python,node`), wait for it OR kill it before starting a new one.
+  CLAUDE.md:588:
+  CLAUDE.md:589:4. **Heavy ML / vector / CUDA processes are forbidden in autonomous loops.** sentence-transformers, 
+torch, chromadb, sgLang, vllm — these load models that pin GB-scale RAM. Run only on direct user instruction; release 
+immediately after the task. Use `import gc; gc.collect()` + explicit model handle deletion in Python scripts; kill the 
+Python process if the task is complete.
+  CLAUDE.md:590:
+> CLAUDE.md:591:5. **Long-running watch / dev servers must be tracked.** If you start `npm run dev`, `uvicorn`, 
+`playwright test --watch`, or any persistent server, write the PID to `state/active_processes.json` (one-line append) 
+and kill it before the next Issue starts unless it is genuinely still needed.
+  CLAUDE.md:592:
+  CLAUDE.md:593:6. **Pre-task inventory.** At the start of each new Codex iteration or autonomous loop step, run 
+`Get-Process -Name codex,python,node | Format-Table Id, ProcessName, StartTime, CPU` and confirm no leftover processes 
+from prior steps. If found, kill them.
+  CLAUDE.md:594:
+  CLAUDE.md:595:7. **Notify user on resource concern.** If OS-level resource pressure is detected (Task Manager shows 
+>80% RAM or >90% CPU sustained for >2 minutes during an autonomous loop), pause the loop and report to the user before 
+continuing. Do NOT silently continue while the computer is overloaded.
+  CLAUDE.md:596:
+  CLAUDE.md:597:8. **Codex sub-process lingering is real.** Empirically (2026-05-06 incident): `codex exec` spawns 2-3 
+child processes that may persist with low-CPU but accumulated RAM after the main process exits. Always check + kill 
+child processes between iters.
+  CLAUDE.md:598:
+  CLAUDE.md:599:**Apply this in every command:**
+  CLAUDE.md:602:- When yielding to the user: orphans cleaned.
+  CLAUDE.md:603:- When the user reports a slow computer: stop autonomous work; do a process inventory; clean up; 
+report.
+  CLAUDE.md:604:
+> CLAUDE.md:605:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps 
+iteration count; this §8.4 caps OS-level resource footprint per iter.
+  CLAUDE.md:606:
+  CLAUDE.md:607:---
+  CLAUDE.md:608:
+  CLAUDE.md:609:## §9. POLARIS-Specific Invariants
+  CLAUDE.md:610:
+> CLAUDE.md:611:**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+  CLAUDE.md:612:C (frozen legacy) are governed separately — see `architecture.md`.**
+  CLAUDE.md:613:
+  CLAUDE.md:614:### 9.1 Core Invariants (Non-Negotiable)
+  CLAUDE.md:615:
+  CLAUDE.md:616:1. **Two-family evaluator**: generator and evaluator MUST be from
+> CLAUDE.md:617:   different training lineages. `openrouter_client.check_family_segregation`
+  CLAUDE.md:618:   raises `RuntimeError` at construction if violated.
+  CLAUDE.md:619:2. **Provenance tokens**: every generated sentence carries
+  CLAUDE.md:620:   `[#ev:<evidence_id>:<start>-<end>]` tokens. Sentences without valid
+  CLAUDE.md:621:   tokens are dropped by `strict_verify`.
+  CLAUDE.md:622:3. **Strict verify**: per-sentence check enforces (a) evidence-id in pool,
+  CLAUDE.md:623:   (b) span bounds valid, (c) every decimal in sentence appears in span,
+  CLAUDE.md:624:   (d) sentence and span share ≥2 content words
+  CLAUDE.md:625:   (`PG_PROVENANCE_MIN_CONTENT_OVERLAP`). Fabricated claims fail at least
+  CLAUDE.md:626:   one of these.
+  CLAUDE.md:627:4. **Zero-verified abort**: if every section fails strict_verify,
+> CLAUDE.md:628:   `report.md` is a pipeline-verdict artifact (not an empty-findings
+  CLAUDE.md:629:   pseudo-report). Status: `abort_no_verified_sections`.
+  CLAUDE.md:630:5. **Corpus approval enforcement**: a corpus with material tier deviation
+  CLAUDE.md:631:   plus a rubber-stamp note aborts before any generator token is billed.
+  CLAUDE.md:632:   Status: `abort_corpus_approval_denied`.
+  CLAUDE.md:633:6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+  CLAUDE.md:634:   backstops token-only responses. Negative tokens clamp to zero.
+  CLAUDE.md:635:7. **Delimiter sanitization** (prompt-injection defense): evidence text
+  CLAUDE.md:636:   containing `<<<evidence:...>>>` or other delimiter literals —
+  CLAUDE.md:637:   including via NFKD/invisible-char/homoglyph evasions — is neutralized
+  CLAUDE.md:638:   before prompt wrapping. Byte-preserves legitimate multilingual content.
+  CLAUDE.md:639:
+> CLAUDE.md:640:### 9.2 Quality Gates (pipeline A)
+  CLAUDE.md:641:
+  CLAUDE.md:642:| Gate | Threshold | Fail Action |
+  CLAUDE.md:643:|---|---|---|
+  CLAUDE.md:644:| Corpus adequacy | Min sources per tier (template-driven) | `abort_corpus_inadequate` |
+  CLAUDE.md:645:| Corpus approval | Auto-approved OR substantive operator note | `abort_corpus_approval_denied` |
+  CLAUDE.md:646:| Strict verify (per sentence) | Numeric match + ≥2 content-word overlap | Drop sentence |
+  CLAUDE.md:647:| Strict verify (per section) | ≥40% sentences verified | Attempt one regeneration |
+> CLAUDE.md:648:| Strict verify (pipeline) | At least one section with verified prose | `abort_no_verified_sections` |
+  CLAUDE.md:649:| Budget | Accumulated cost ≤ `PG_MAX_COST_PER_RUN` | `BudgetExceededError` |
+  CLAUDE.md:650:
+> CLAUDE.md:651:### 9.3 Pipeline verdict statuses (manifest.json)
+  CLAUDE.md:652:
+  CLAUDE.md:653:| Status | Condition |
+  CLAUDE.md:654:|---|---|
+  CLAUDE.md:655:| `success` | All gates passed, generator produced verified prose |
+  CLAUDE.md:656:| `abort_scope_rejected` | Scope gate rejected the research question |
+  CLAUDE.md:657:| `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+  CLAUDE.md:658:| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material 
+deviation) |
+  CLAUDE.md:659:| `abort_no_verified_sections` | Every generated section failed strict_verify |
+  CLAUDE.md:660:| `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+  CLAUDE.md:661:
+> CLAUDE.md:662:### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+  CLAUDE.md:663:
+  CLAUDE.md:664:**Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+  CLAUDE.md:665:
+  CLAUDE.md:666:- `try: ... except: pass` without logging or re-raise (silent failure)
+  CLAUDE.md:667:- `import unittest.mock` or `from unittest.mock import ...` in `src/`
+  CLAUDE.md:668:  production code
+  CLAUDE.md:669:- Magic numbers (`if score > 0.7` instead of a named constant or env var)
+  CLAUDE.md:670:- `time.sleep()` to simulate work
+  CLAUDE.md:672:- Mocking the live-evidence database in integration tests (per user
+  CLAUDE.md:673:  feedback memory: integration tests must hit real data sources)
+  CLAUDE.md:674:
+> CLAUDE.md:675:Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+  CLAUDE.md:676:currently meet these invariants. It is frozen; see
+  CLAUDE.md:677:`src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+  CLAUDE.md:678:
+  CLAUDE.md:679:---
+  CLAUDE.md:680:
+  CLAUDE.md:681:## §10 Session boot ritual (per polaris-restart Plan §9.1)
+  CLAUDE.md:682:
+> CLAUDE.md:683:Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+  CLAUDE.md:684:
+> CLAUDE.md:685:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at 
+`C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo 
+with its own signed-commits-required protection — Claude has no signing key for it).
+> CLAUDE.md:686:2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 
+step 0.
+  CLAUDE.md:687:3. **Read `state/active_issue.json`** — if shows in_progress issue, resume that issue ONLY (no scope 
+expansion).
+> CLAUDE.md:688:4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. 
+Do NOT pick a task autonomously.
+  CLAUDE.md:689:5. **State to user explicitly:**
+  CLAUDE.md:690:   - active issue ID
+  CLAUDE.md:691:   - current step within issue (brief / diff / audit / merge / complete)
+  CLAUDE.md:692:   - next action
+  CLAUDE.md:693:
+  CLAUDE.md:694:Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES 
+`feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's 
+findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on 
+iterate-vs-restructure" principle remains, bounded at 5 iterations.
+  CLAUDE.md:695:
+> CLAUDE.md:696:Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate 
+enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+  CLAUDE.md:697:
+  CLAUDE.md:698:Per `failure_28_commits_2026_05_03.md`: I have no admin merge authority. CI gate enforces. Promises do 
+not work; structural removal does.
+  CLAUDE.md:699:
+  CLAUDE.md:700:---
+  CLAUDE.md:701:
+  CLAUDE.md:702:THIS IS THE LAW. FOLLOW IT.
+
+
+ succeeded in 1663ms:
+"""F12 side-by-side compare two reports (Phase 3 Task 3.2 substrate).
+
+Differs from F13 (pin replay diff): pin diff compares a pin against its
+own replay (same question, drift detection). Compare compares two
+DIFFERENT runs (possibly different questions, templates, models) and
+surfaces evidence overlap, frame-coverage delta, and contradiction
+intersection.
+"""
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path state\\polaris_restart\\issue_breakdown.md -Pattern \"I-f12-004|F12 functional|jurisdictional diff\" -Context 4,8" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path polaris-controls -Force | Select-Object FullName,Name,Length' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path state\\active_issue.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path polaris-controls\\CHARTER.md -Pattern \"LOC|200|cap|§3|line\" -Context 2,4" in C:\POLARIS
+ succeeded in 1064ms:
+{
+  "active_issue_id": null,
+  "current_step": null,
+  "in_progress_pr": null,
+  "next_pr": "PR-C",
+  "next_pr_task_id": "170",
+  "next_pr_blocked_by": [],
+  "user_actions_complete": {
+    "user_action_1_g2_signed_commit": {
+      "status": "done",
+      "polaris_controls_commit": "7995804910e8c991762186f48ceef682d409e90b",
+      "signature": "ED25519 key SHA256:2aDMjzEV06aiNWDU3RAhuM3DV3wC0t7n/PnQ7PzQO8E",
+      "signer_email": "aldrin.or@c-polarbiotech.com",
+      "verified_locally": true,
+      "github_verification_pending": "user must add the ed25519 public key to https://github.com/settings/ssh/new with type=Signing Key for the GitHub Verified badge to display retroactively. Plan §2 precondition #3 (signed commit exists) is satisfied without this step."
+    },
+    "user_action_2_mechanical_isolation": {
+      "status": "done",
+      "branch_protection_polaris": "applied by user 2026-05-05",
+      "admin_repo_scope_revoked": "verified — gh auth status returns scopes 'gist, read:org, repo, workflow' with no admin:repo",
+      "polaris_controls_signed_commits_required": "verified — push of unverified commit triggered 'Bypassed rule violations: Commits must have verified signatures' warning",
+      "codex_required_yml_workflow": "deferred to PR-D"
+    }
+  },
+  "last_updated_utc": "2026-05-05T22:55:00Z",
+  "session_started_via_ritual": false,
+  "notes": "PR-A1/A2/A3/B/B2 all Codex APPROVE'd. USER ACTION 1 (G2 signed commit on polaris-controls) and USER ACTION 2 (mechanical isolation gates live) both complete as of 2026-05-05 night. Next: PR-C (surgical cleanup execution per state/polaris_restart/cleanup_audit.md Cleanup-PR-1..PR-8 schedule, Codex APPROVE'd iter 21). Active GitHub Issues open at PR-E."
+}
+
+ succeeded in 1285ms:
+
+  state\polaris_restart\issue_breakdown.md:1020:- **Scope:** claims agree/disagree/evidence-pool overlap
+  state\polaris_restart\issue_breakdown.md:1021:- **Acceptance:** diff sample fixtures
+  state\polaris_restart\issue_breakdown.md:1022:- **LOC estimate:** 200
+  state\polaris_restart\issue_breakdown.md:1023:- **Blocked by:** I-f12-002
+> state\polaris_restart\issue_breakdown.md:1024:- **Blocks:** I-f12-004
+  state\polaris_restart\issue_breakdown.md:1025:
+> state\polaris_restart\issue_breakdown.md:1026:### I-f12-004 — F12 functional: jurisdictional diff
+  state\polaris_restart\issue_breakdown.md:1027:- **Scope:** same query different jurisdictions
+> state\polaris_restart\issue_breakdown.md:1028:- **Acceptance:** show jurisdictional differences
+  state\polaris_restart\issue_breakdown.md:1029:- **LOC estimate:** 100
+  state\polaris_restart\issue_breakdown.md:1030:- **Blocked by:** I-f12-003
+  state\polaris_restart\issue_breakdown.md:1031:- **Blocks:** I-bug-084
+  state\polaris_restart\issue_breakdown.md:1032:
+  state\polaris_restart\issue_breakdown.md:1033:---
+  state\polaris_restart\issue_breakdown.md:1034:
+  state\polaris_restart\issue_breakdown.md:1035:## §24 I-bug-084 — coverage scorer keywords (reissued)
+  state\polaris_restart\issue_breakdown.md:1036:
+  state\polaris_restart\issue_breakdown.md:1037:- **Scope:** add `expected_pico_keywords` field; scorer prefers 
+keywords when set
+  state\polaris_restart\issue_breakdown.md:1038:- **Acceptance:** aspirin/migraine with keywords scores 1.0; without 
+keywords falls back
+  state\polaris_restart\issue_breakdown.md:1039:- **Foundation refs:** plan §4.9b
+  state\polaris_restart\issue_breakdown.md:1040:- **LOC estimate:** 90
+> state\polaris_restart\issue_breakdown.md:1041:- **Blocked by:** I-f12-004
+  state\polaris_restart\issue_breakdown.md:1042:- **Blocks:** I-bench-001
+  state\polaris_restart\issue_breakdown.md:1043:
+  state\polaris_restart\issue_breakdown.md:1044:---
+  state\polaris_restart\issue_breakdown.md:1045:
+  state\polaris_restart\issue_breakdown.md:1046:## §25 Benchmark + templates (5 issues)
+  state\polaris_restart\issue_breakdown.md:1047:
+  state\polaris_restart\issue_breakdown.md:1048:### I-bench-001 — 50 questions × 4 systems × 6 dimensions
+  state\polaris_restart\issue_breakdown.md:1049:- **Scope:** benchmark harness `scripts/benchmark_proof_package.py`
+  state\polaris_restart\issue_breakdown.md:1301:  → I-f13-001 → ... → I-f13-004
+  state\polaris_restart\issue_breakdown.md:1302:  → I-f14-001 → ... → I-f14-005
+  state\polaris_restart\issue_breakdown.md:1303:  → I-p2c-001 → ... → I-p2c-005
+  state\polaris_restart\issue_breakdown.md:1304:  → I-f11-001 → ... → I-f11-005
+> state\polaris_restart\issue_breakdown.md:1305:  → I-f12-001 → ... → I-f12-004
+  state\polaris_restart\issue_breakdown.md:1306:  → I-bug-084
+  state\polaris_restart\issue_breakdown.md:1307:  → I-bench-001 → I-bench-002 (USER-BLOCKED)
+  state\polaris_restart\issue_breakdown.md:1308:  → I-tpl-006 → I-tpl-007 → I-tpl-008
+  state\polaris_restart\issue_breakdown.md:1309:  → I-sov-001 → I-sov-002 → I-sov-003 → I-sov-004
+  state\polaris_restart\issue_breakdown.md:1310:  → I-buf-001
+  state\polaris_restart\issue_breakdown.md:1311:  → I-hand-001 → I-hand-002 → I-hand-003
+  state\polaris_restart\issue_breakdown.md:1312:```
+  state\polaris_restart\issue_breakdown.md:1313:
+
+
+ succeeded in 1442ms:
+
+  polaris-controls\CHARTER.md:16:- **User (aldrinor)** is spec owner + merge gate.
+  polaris-controls\CHARTER.md:17:- No agent has signing authority on any commit to POLARIS main.
+> polaris-controls\CHARTER.md:18:- Out-of-order pipeline execution = blocked by Trusted App server-side.
+  polaris-controls\CHARTER.md:19:
+  polaris-controls\CHARTER.md:20:### 2. Slices
+  polaris-controls\CHARTER.md:21:
+  polaris-controls\CHARTER.md:22:Work proceeds in slices. **One slice active at a time.**
+  polaris-controls\CHARTER.md:27:- Slice scope = files explicitly listed; everything else is out of bounds
+  polaris-controls\CHARTER.md:28:
+> polaris-controls\CHARTER.md:29:### 3. PR Size Cap
+  polaris-controls\CHARTER.md:30:
+> polaris-controls\CHARTER.md:31:**200 LOC per pull request. Hard ceiling.**
+  polaris-controls\CHARTER.md:32:
+> polaris-controls\CHARTER.md:33:- Trusted App rejects PRs exceeding 200 net additions
+  polaris-controls\CHARTER.md:34:- Larger work decomposes into multiple slices, not larger PRs
+  polaris-controls\CHARTER.md:35:- No "this PR is special" exceptions
+  polaris-controls\CHARTER.md:36:
+  polaris-controls\CHARTER.md:37:### 4. Golden Tests as Fitness Function
+  polaris-controls\CHARTER.md:53:- More than 2 cycles on the same problem
+  polaris-controls\CHARTER.md:54:- Codex review unavailable for >1 hour
+> polaris-controls\CHARTER.md:55:- PR exceeds 200 LOC
+  polaris-controls\CHARTER.md:56:- Reviewer-fatigue indicators trip (>3 PRs queued for human in 24h per project)
+  polaris-controls\CHARTER.md:57:
+> polaris-controls\CHARTER.md:58:### 6. Archive Discipline
+  polaris-controls\CHARTER.md:59:
+  polaris-controls\CHARTER.md:60:Code in `POLARIS/.legacy/` is read-only reference.
+  polaris-controls\CHARTER.md:61:
+  polaris-controls\CHARTER.md:62:- Never imported into production paths (CI gate enforces)
+
+
+ succeeded in 1612ms:
+
+FullName                               Name       Length
+--------                               ----       ------
+C:\POLARIS\polaris-controls\.git       .git       
+C:\POLARIS\polaris-controls\.github    .github    
+C:\POLARIS\polaris-controls\golden     golden     
+C:\POLARIS\polaris-controls\slices     slices     
+C:\POLARIS\polaris-controls\CHARTER.md CHARTER.md 4997
+C:\POLARIS\polaris-controls\PLAN.md    PLAN.md    7244
+C:\POLARIS\polaris-controls\README.md  README.md  4056
+
+
+codex
+```yaml
+criterion_1: "met: planned new jurisdictional_diff.py defines the required pair/report dataclasses and compute_jurisdictional_diff"
+criterion_2: "met: each jurisdiction pair delegates to existing compute_claim_diff"
+criterion_3: "met: fewer than 2 jurisdictions and question mismatch are rejected with ValueError"
+criterion_4: "met: proposed 5 tests cover pair count/order and rejection cases"
+criterion_5: "met: planned scope is well under the 200 LOC cap"
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test gap: add one assertion that a pair's claim_diff contains an actual computed verdict/count from the underlying contracts, so criterion 2 is protected against accidental stub/empty reports."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+completeness_check:
+  files_read:
+    - "src/polaris_v6/compare/claim_diff.py"
+    - "src/polaris_v6/schemas/evidence_contract.py"
+    - "tests/v6/compare/test_claim_diff.py"
+    - "src/polaris_v6/compare/__init__.py"
+    - "src/polaris_v6/compare/differ.py"
+    - "CLAUDE.md excerpt around §9.4/LOC references"
+    - "state/polaris_restart/issue_breakdown.md excerpt for I-f12-004"
+    - "state/active_issue.json"
+    - "polaris-controls/CHARTER.md excerpt around §3 LOC cap"
+```
+tokens used
+54,567
+```yaml
+criterion_1: "met: planned new jurisdictional_diff.py defines the required pair/report dataclasses and compute_jurisdictional_diff"
+criterion_2: "met: each jurisdiction pair delegates to existing compute_claim_diff"
+criterion_3: "met: fewer than 2 jurisdictions and question mismatch are rejected with ValueError"
+criterion_4: "met: proposed 5 tests cover pair count/order and rejection cases"
+criterion_5: "met: planned scope is well under the 200 LOC cap"
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test gap: add one assertion that a pair's claim_diff contains an actual computed verdict/count from the underlying contracts, so criterion 2 is protected against accidental stub/empty reports."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+completeness_check:
+  files_read:
+    - "src/polaris_v6/compare/claim_diff.py"
+    - "src/polaris_v6/schemas/evidence_contract.py"
+    - "tests/v6/compare/test_claim_diff.py"
+    - "src/polaris_v6/compare/__init__.py"
+    - "src/polaris_v6/compare/differ.py"
+    - "CLAUDE.md excerpt around §9.4/LOC references"
+    - "state/polaris_restart/issue_breakdown.md excerpt for I-f12-004"
+    - "state/active_issue.json"
+    - "polaris-controls/CHARTER.md excerpt around §3 LOC cap"
+```
