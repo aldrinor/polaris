@@ -1,4 +1,4 @@
-# Codex Brief Review — I-f14-002-api (ITER 1 of 5)
+# Codex Brief Review — I-f14-002 (ITER 1 of 5)
 
 ```
 HARD ITERATION CAP: 5 per document. This is iter N of 5.
@@ -11,24 +11,35 @@ HARD ITERATION CAP: 5 per document. This is iter N of 5.
 
 ## Pre-flight
 
-- **Issue:** I-f14-002-api — prerequisite api.ts memory client. Created from Codex iter-1 directive on the over-LOC I-f14-002 PR: "split web/lib/api.ts as a 54-LOC prerequisite PR, then keep page+test together at 197 LOC."
-- **Branch name note:** branch named `bot/I-f14-002-api` (issue ID + suffix per CI regex `I-[a-z0-9]{2,8}-[0-9]{3}[-<NAME>]`); prior `bot/I-f14-002a-api-client` rejected because `002a` is not three digits.
-- **Scope:** add memory client functions to `web/lib/api.ts` only. No UI, no test (page + test land in I-f14-002 follow-up PR with 197 LOC budget).
+- **Issue:** I-f14-002 — Memory page with explicit controls (save+forget UI; pin deferred to follow-up I-f14-002b per CHARTER §1 LOC cap split).
+- **API client:** already merged in PR #305 (I-f14-002-api), provides `listMemory`/`rememberMemory`/`forgetMemory` thin fetchers.
+- **Backend:** existing `/workspaces/{ws}/memory` FastAPI routes (in-memory store today; Chroma swap is I-f14-001b).
+- **Honest framing:** workspace fixed to `ws_demo` (real workspace context lands when auth wires); pin deferred (follow-up I-f14-002b); explicit banner.
 
 ## Plan
 
-1. Add `MemoryKind` type alias mirroring backend (5 values).
-2. Add `MemoryEntry` interface mirroring `src/polaris_v6/memory/schema.py:MemoryEntry` (omits `embedding_vector` — UI-scope).
-3. Add `_ws(ws)` helper for `/workspaces/{ws}/memory` URLs.
-4. Add `listMemory(ws)`, `rememberMemory(ws, payload)`, `forgetMemory(ws, entry_id)` using existing `asJsonOrThrow` helper. `forgetMemory` treats 404 as success (idempotent).
+### `web/app/memory/page.tsx` (NEW, "use client")
+
+1. State: entries (MemoryEntry[]), content/kind for save form. No error/pin state (deferred).
+2. `useEffect` initial-load wrapped in `queueMicrotask` per react-hooks/set-state-in-effect lint rule.
+3. Save form: kind select + content textarea + Save button (disabled if content < 4).
+4. Forget button per row.
+5. List sorted by created_at desc.
+
+### Playwright `web/tests/e2e/memory_page_controls.spec.ts` (NEW)
+
+6. Mock `/workspaces/ws_demo/memory{,/<id>}` via stateful `page.route` (Codex prior-iter P2: must be stateful or optimistic UI breaks).
+7. One test: visit page → save new entry → assert content rendered → forget the new entry → verify removed.
 
 ## Acceptance criteria
 
-1. New types/functions exported from `web/lib/api.ts`.
-2. CHARTER §1 LOC cap respected (54 net, well under 200).
-3. tsc + eslint + prettier clean.
+1. `/memory` page renders save form + list with forget buttons.
+2. Honest banner noting pin deferral to I-f14-002b.
+3. Playwright spec verifies save→forget flow with stateful mock.
+4. CHARTER §1 LOC cap respected (≤200 net; estimated 200 exactly: page 117, test 83).
+5. tsc + eslint + prettier clean.
 
-**Forced enumeration:** before verdict, write one line per criterion 1-3.
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
 **Completeness check:** list files actually read.
 
 ## Output schema
