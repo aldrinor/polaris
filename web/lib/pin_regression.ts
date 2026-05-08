@@ -1,6 +1,8 @@
 /**
  * I-f13-003: Inline regression alerts on the pin-replay page. Hard-coded
  * thresholds; production reads from a regression-config file (post-Carney).
+ *
+ * I-f13-004: source-retraction context attribution for sentence-count drops.
  */
 
 import type { PinSnapshot } from "@/lib/pin_replay_demo";
@@ -17,6 +19,22 @@ export interface RegressionAlert {
   drop: number;
   threshold: number;
   unit: "pct" | "count";
+  attributed_to_retraction?: string[];
+}
+
+export interface RetractionContext {
+  newly_retracted: string[];
+}
+
+export function getRetractionContext(
+  a: PinSnapshot,
+  b: PinSnapshot,
+): RetractionContext {
+  const a_ids = a.retracted_source_ids ?? [];
+  const newly_retracted = (b.retracted_source_ids ?? []).filter(
+    (id) => !a_ids.includes(id),
+  );
+  return { newly_retracted };
 }
 
 export function detectRegressions(
@@ -24,6 +42,7 @@ export function detectRegressions(
   b: PinSnapshot,
 ): RegressionAlert[] {
   const alerts: RegressionAlert[] = [];
+  const retraction = getRetractionContext(a, b);
 
   const a_pass_pct = Math.round(a.pass_rate * 100);
   const b_pass_pct = Math.round(b.pass_rate * 100);
@@ -41,14 +60,18 @@ export function detectRegressions(
 
   const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
   if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
-    alerts.push({
+    const alert: RegressionAlert = {
       metric: "verified_sentence_count",
       a_value: a.verified_sentence_count,
       b_value: b.verified_sentence_count,
       drop: sentence_drop,
       threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
       unit: "count",
-    });
+    };
+    if (retraction.newly_retracted.length > 0) {
+      alert.attributed_to_retraction = retraction.newly_retracted;
+    }
+    alerts.push(alert);
   }
 
   return alerts;

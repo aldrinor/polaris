@@ -74,7 +74,9 @@ function SnapshotCard({
 
 export default function PinReplayPage() {
   const [date_a, set_date_a] = useState(PIN_DATES[0]);
-  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
+  // I-f13-004: pin default-B so adding a later registry date doesn't shift the
+  // initial state and break existing tests.
+  const [date_b, set_date_b] = useState("2026-04-30");
   const [diff_open, set_diff_open] = useState(false);
   const snap_a = DEMO_PIN_REGISTRY[date_a];
   const snap_b = DEMO_PIN_REGISTRY[date_b];
@@ -120,6 +122,16 @@ export default function PinReplayPage() {
                   {alert.unit === "pct" ? "%" : ""}, threshold=
                   {alert.threshold}
                   {alert.unit === "pct" ? " pct" : ""})
+                  {alert.attributed_to_retraction &&
+                  alert.attributed_to_retraction.length > 0 ? (
+                    <span
+                      data-testid="regression-retraction-attribution"
+                      className="text-muted-foreground ml-1"
+                    >
+                      (attributed to retraction of:{" "}
+                      {alert.attributed_to_retraction.join(", ")})
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>
