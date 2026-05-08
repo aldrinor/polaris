@@ -1,0 +1,149 @@
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 8657c44..8e509be 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -4,6 +4,7 @@ import { useState } from "react";
+ 
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
++import { detectRegressions } from "@/lib/pin_regression";
+ 
+ import { DiffSidePanel } from "./components/diff_side_panel";
+ import { PinTimeseries } from "./components/pin_timeseries";
+@@ -78,6 +79,7 @@ export default function PinReplayPage() {
+   const snap_a = DEMO_PIN_REGISTRY[date_a];
+   const snap_b = DEMO_PIN_REGISTRY[date_b];
+   const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
++  const alerts = detectRegressions(snap_a, snap_b);
+ 
+   const delta_pass_rate =
+     Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
+@@ -97,6 +99,32 @@ export default function PinReplayPage() {
+           </code>{" "}
+           per M-INT-0b post-Carney.
+         </p>
++        {alerts.length > 0 ? (
++          <div
++            data-testid="regression-alert"
++            role="alert"
++            className="mt-4 rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
++          >
++            <strong className="block">⚠ Regression detected</strong>
++            <ul className="mt-1 space-y-1 text-xs">
++              {alerts.map((alert) => (
++                <li
++                  key={alert.metric}
++                  data-testid={`regression-alert-${alert.metric}`}
++                >
++                  {alert.metric}: dropped {alert.drop}
++                  {alert.unit === "pct" ? " pct points" : " sentences"} ( A=
++                  {alert.a_value}
++                  {alert.unit === "pct" ? "%" : ""}, B=
++                  {alert.b_value}
++                  {alert.unit === "pct" ? "%" : ""}, threshold=
++                  {alert.threshold}
++                  {alert.unit === "pct" ? " pct" : ""})
++                </li>
++              ))}
++            </ul>
++          </div>
++        ) : null}
+         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+           <SnapshotCard
+             testid="pin-snapshot-a"
+diff --git a/web/lib/pin_regression.ts b/web/lib/pin_regression.ts
+new file mode 100644
+index 0000000..39d6a94
+--- /dev/null
++++ b/web/lib/pin_regression.ts
+@@ -0,0 +1,55 @@
++/**
++ * I-f13-003: Inline regression alerts on the pin-replay page. Hard-coded
++ * thresholds; production reads from a regression-config file (post-Carney).
++ */
++
++import type { PinSnapshot } from "@/lib/pin_replay_demo";
++
++export const REGRESSION_THRESHOLDS = {
++  pass_rate_pct_drop: 5,
++  verified_sentence_count_drop: 3,
++} as const;
++
++export interface RegressionAlert {
++  metric: "pass_rate" | "verified_sentence_count";
++  a_value: number;
++  b_value: number;
++  drop: number;
++  threshold: number;
++  unit: "pct" | "count";
++}
++
++export function detectRegressions(
++  a: PinSnapshot,
++  b: PinSnapshot,
++): RegressionAlert[] {
++  const alerts: RegressionAlert[] = [];
++
++  const a_pass_pct = Math.round(a.pass_rate * 100);
++  const b_pass_pct = Math.round(b.pass_rate * 100);
++  const pass_drop = a_pass_pct - b_pass_pct;
++  if (pass_drop > REGRESSION_THRESHOLDS.pass_rate_pct_drop) {
++    alerts.push({
++      metric: "pass_rate",
++      a_value: a_pass_pct,
++      b_value: b_pass_pct,
++      drop: pass_drop,
++      threshold: REGRESSION_THRESHOLDS.pass_rate_pct_drop,
++      unit: "pct",
++    });
++  }
++
++  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
++  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
++    alerts.push({
++      metric: "verified_sentence_count",
++      a_value: a.verified_sentence_count,
++      b_value: b.verified_sentence_count,
++      drop: sentence_drop,
++      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
++      unit: "count",
++    });
++  }
++
++  return alerts;
++}
+diff --git a/web/tests/e2e/pin_regression_alert.spec.ts b/web/tests/e2e/pin_regression_alert.spec.ts
+new file mode 100644
+index 0000000..d2a2833
+--- /dev/null
++++ b/web/tests/e2e/pin_regression_alert.spec.ts
+@@ -0,0 +1,28 @@
++import { expect, test } from "@playwright/test";
++
++test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
++  page,
++}) => {
++  await page.goto("/pin_replay");
++
++  // Initial load: A=2026-01-15 (72%), B=2026-04-30 (85%) — improvement, no alert.
++  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++
++  // Swap: A=2026-04-30 (85%), B=2026-01-15 (72%) — pass rate dropped 13 pct points.
++  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-01-15");
++
++  await expect(page.getByTestId("regression-alert")).toBeVisible();
++  await expect(page.getByTestId("regression-alert-pass_rate")).toContainText(
++    /dropped 13/,
++  );
++  // Sentence count also dropped 23 → 18 = 5 (> threshold 3).
++  await expect(
++    page.getByTestId("regression-alert-verified_sentence_count"),
++  ).toContainText(/dropped 5/);
++
++  // Switch back to improvement: A=2026-01-15, B=2026-04-30 — alert disappears.
++  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-01-15");
++  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
++  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++});
+# canonical-diff-sha256: 2bd980efadf45bbdbf8284b3a486fa53364ddf6411a5d6836d35478761e48532
