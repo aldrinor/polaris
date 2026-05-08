@@ -1,0 +1,172 @@
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 8e509be..1bf1bfd 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -74,7 +74,9 @@ function SnapshotCard({
+ 
+ export default function PinReplayPage() {
+   const [date_a, set_date_a] = useState(PIN_DATES[0]);
+-  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
++  // I-f13-004: pin default-B so adding a later registry date doesn't shift the
++  // initial state and break existing tests.
++  const [date_b, set_date_b] = useState("2026-04-30");
+   const [diff_open, set_diff_open] = useState(false);
+   const snap_a = DEMO_PIN_REGISTRY[date_a];
+   const snap_b = DEMO_PIN_REGISTRY[date_b];
+@@ -120,6 +122,16 @@ export default function PinReplayPage() {
+                   {alert.unit === "pct" ? "%" : ""}, threshold=
+                   {alert.threshold}
+                   {alert.unit === "pct" ? " pct" : ""})
++                  {alert.attributed_to_retraction &&
++                  alert.attributed_to_retraction.length > 0 ? (
++                    <span
++                      data-testid="regression-retraction-attribution"
++                      className="text-muted-foreground ml-1"
++                    >
++                      (attributed to retraction of:{" "}
++                      {alert.attributed_to_retraction.join(", ")})
++                    </span>
++                  ) : null}
+                 </li>
+               ))}
+             </ul>
+diff --git a/web/lib/pin_regression.ts b/web/lib/pin_regression.ts
+index 39d6a94..2d1d0d9 100644
+--- a/web/lib/pin_regression.ts
++++ b/web/lib/pin_regression.ts
+@@ -1,6 +1,8 @@
+ /**
+  * I-f13-003: Inline regression alerts on the pin-replay page. Hard-coded
+  * thresholds; production reads from a regression-config file (post-Carney).
++ *
++ * I-f13-004: source-retraction context attribution for sentence-count drops.
+  */
+ 
+ import type { PinSnapshot } from "@/lib/pin_replay_demo";
+@@ -17,6 +19,22 @@ export interface RegressionAlert {
+   drop: number;
+   threshold: number;
+   unit: "pct" | "count";
++  attributed_to_retraction?: string[];
++}
++
++export interface RetractionContext {
++  newly_retracted: string[];
++}
++
++export function getRetractionContext(
++  a: PinSnapshot,
++  b: PinSnapshot,
++): RetractionContext {
++  const a_ids = a.retracted_source_ids ?? [];
++  const newly_retracted = (b.retracted_source_ids ?? []).filter(
++    (id) => !a_ids.includes(id),
++  );
++  return { newly_retracted };
+ }
+ 
+ export function detectRegressions(
+@@ -24,6 +42,7 @@ export function detectRegressions(
+   b: PinSnapshot,
+ ): RegressionAlert[] {
+   const alerts: RegressionAlert[] = [];
++  const retraction = getRetractionContext(a, b);
+ 
+   const a_pass_pct = Math.round(a.pass_rate * 100);
+   const b_pass_pct = Math.round(b.pass_rate * 100);
+@@ -41,14 +60,18 @@ export function detectRegressions(
+ 
+   const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+   if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+-    alerts.push({
++    const alert: RegressionAlert = {
+       metric: "verified_sentence_count",
+       a_value: a.verified_sentence_count,
+       b_value: b.verified_sentence_count,
+       drop: sentence_drop,
+       threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+       unit: "count",
+-    });
++    };
++    if (retraction.newly_retracted.length > 0) {
++      alert.attributed_to_retraction = retraction.newly_retracted;
++    }
++    alerts.push(alert);
+   }
+ 
+   return alerts;
+diff --git a/web/lib/pin_replay_demo.ts b/web/lib/pin_replay_demo.ts
+index 96ecd78..fdf04da 100644
+--- a/web/lib/pin_replay_demo.ts
++++ b/web/lib/pin_replay_demo.ts
+@@ -2,6 +2,8 @@
+  * I-f13-001: Pin replay demo registry. In production this would fetch from
+  * `/runs/{run_id}/pins/{date}` per M-INT-0b post-Carney; today the registry
+  * is hand-authored frontend demo data.
++ *
++ * I-f13-004: added `retracted_source_ids` for source-retraction adversarial.
+  */
+ 
+ export interface PinSnapshot {
+@@ -12,6 +14,7 @@ export interface PinSnapshot {
+   section_count_dropped: number;
+   verified_sentence_count: number;
+   pass_rate: number;
++  retracted_source_ids?: string[];
+ }
+ 
+ export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+@@ -41,5 +44,16 @@ export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+     section_count_dropped: 0,
+     verified_sentence_count: 23,
+     pass_rate: 0.85,
++    retracted_source_ids: ["demo-clin-002"],
++  },
++  "2026-05-15": {
++    pin_date: "2026-05-15",
++    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
++    verdict: "success",
++    section_count_kept: 4,
++    section_count_dropped: 1,
++    verified_sentence_count: 17,
++    pass_rate: 0.83,
++    retracted_source_ids: ["demo-clin-002", "demo-clin-005"],
+   },
+ };
+diff --git a/web/tests/e2e/pin_retraction_handled.spec.ts b/web/tests/e2e/pin_retraction_handled.spec.ts
+new file mode 100644
+index 0000000..3d0d3d8
+--- /dev/null
++++ b/web/tests/e2e/pin_retraction_handled.spec.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from "@playwright/test";
++
++test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
++  page,
++}) => {
++  await page.goto("/pin_replay");
++
++  // A=2026-04-30 (retracted: demo-clin-002),
++  // B=2026-05-15 (retracted: demo-clin-002 + demo-clin-005).
++  // Sentence-count drops 23 → 17 = 6 (>3 threshold).
++  // Pass-rate drops 85% → 83% = 2pp (<5pp threshold), so NO pass-rate alert.
++  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-05-15");
++
++  await expect(page.getByTestId("regression-alert")).toBeVisible();
++  await expect(
++    page.getByTestId("regression-alert-verified_sentence_count"),
++  ).toBeVisible();
++
++  // Pass-rate alert must NOT fire (2pp drop is under threshold).
++  await expect(page.getByTestId("regression-alert-pass_rate")).toHaveCount(0);
++
++  // Retraction attribution shows demo-clin-005 (newly retracted between A and B).
++  const attribution = page.getByTestId("regression-retraction-attribution");
++  await expect(attribution).toBeVisible();
++  await expect(attribution).toContainText("demo-clin-005");
++  // demo-clin-002 was already retracted in A, so it must NOT be attributed.
++  await expect(attribution).not.toContainText("demo-clin-002");
++});
+
+# canonical-diff-sha256: eb557dce0182cfd4f12d411600bb053dacf732926e78e968a0995bfc3821b681
