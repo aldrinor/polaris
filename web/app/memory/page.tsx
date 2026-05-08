@@ -9,6 +9,7 @@ import {
   type MemoryEntry,
   type MemoryKind,
 } from "@/lib/api";
+import { formatRelative } from "@/lib/relative_time";
 
 const WS = "ws_demo";
 const KINDS: MemoryKind[] = [
@@ -44,6 +45,7 @@ export default function MemoryPage() {
   const sorted = [...entries].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
+  const recent_runs = sorted.filter((e) => e.kind === "prior_run_summary");
 
   return (
     <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
@@ -57,6 +59,26 @@ export default function MemoryPage() {
         Demo workspace <code>{WS}</code>. Save + forget shipped here; pin
         controls land in I-f14-002b once the localStorage pattern is reviewed.
       </p>
+      {recent_runs.length > 0 ? (
+        <section
+          data-testid="recent-runs"
+          className="border-border mt-4 rounded border p-3"
+        >
+          <h2 className="text-sm font-semibold">Recent research</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {recent_runs.map((e) => (
+              <li
+                key={e.entry_id}
+                data-testid={`recent-run-${e.entry_id}`}
+                className="text-muted-foreground"
+              >
+                <span className="text-foreground">{e.content}</span>{" "}
+                <span>· {formatRelative(e.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <div className="border-border mt-4 space-y-2 rounded border p-3">
         <select
           data-testid="memory-save-kind"
