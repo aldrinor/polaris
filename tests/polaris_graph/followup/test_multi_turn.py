@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from polaris_graph.followup.agent import ComposedQuery, FollowUpAgent
-from polaris_graph.followup.multi_turn import TurnResult, run_multi_turn
-from polaris_graph.followup.refusal import RefusalDecision
+from polaris_graph.followup.multi_turn import run_multi_turn
 from polaris_v6.adapters.evidence_pool_merger import merge_evidence_pool
 from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
 

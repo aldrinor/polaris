@@ -1,0 +1,1789 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0891-8a94-7571-ad37-d9b77668cb2f
+--------
+user
+# Codex Brief Review — I-f11-005 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-f11-005 — F11 multi-turn: 5 sequential follow-ups, all grounded correctly. Acceptance: test. LOC estimate 100.
+- **Substrate today:** I-f11-001 (FollowUpAgent), I-f11-002 (FollowUpAppendView UI), I-f11-003 (Evidence Contract inheritance), I-f11-004 (refusal handling). What's missing: a multi-turn driver that takes a parent EvidenceContract and a chain of follow-ups, applying inheritance + refusal at each turn while preserving lineage of `parent_run_id` and `inherited_evidence_ids`.
+- **Honest framing per CLAUDE.md §9.4:** ship a deterministic substrate that runs N follow-ups against a parent contract, returns a list of per-turn results (composed-or-refused), and proves grounding via the inheritance pass-through to the merger.
+
+## Plan
+
+### `src/polaris_graph/followup/multi_turn.py` (NEW, ~50 LOC)
+
+1. `@dataclass(frozen=True) class TurnResult`: fields `turn_index: int`, `follow_up: str`, `composed: ComposedQuery | None`, `refusal: RefusalDecision | None`, `inherited_spans: list[SourceSpan]`. Exactly one of `composed`/`refusal` is non-None.
+2. `def run_multi_turn(agent: FollowUpAgent, parent_contract: EvidenceContract, follow_ups: list[str]) -> list[TurnResult]`:
+   - For each `(i, fu)` in `enumerate(follow_ups)`, call `compose_with_inheritance_or_refuse(agent, parent_contract, fu)`.
+   - Build `TurnResult(turn_index=i, follow_up=fu, composed=..., refusal=..., inherited_spans=spans)`.
+   - **Crucial invariant:** every turn inherits from THE SAME `parent_contract`. There is no chained-context (turn-2 inheriting from turn-1's composed query) — that is post-MVP. This is "5 sequential follow-ups against the SAME parent" as the issue scope reads.
+
+### Tests `tests/polaris_graph/followup/test_multi_turn.py` (NEW, ~80 LOC, 5 tests)
+
+1. `test_five_sequential_follow_ups_all_grounded` — 5 in-scope follow-ups; all return `composed` not None and inherited spans len match parent pool.
+2. `test_mix_in_scope_and_refusal` — 3 in-scope + 2 out-of-scope; refused turns return `refusal.is_refused=True` with empty `inherited_spans`.
+3. `test_turn_index_preserved` — turn_index goes 0..N-1 in input order.
+4. `test_inherited_spans_pass_through_to_merger_per_turn` — for each accepted turn, feed `inherited_spans` into `merge_evidence_pool`; assert all 6 SourceSpan fields preserved.
+5. `test_empty_follow_ups_returns_empty` — `run_multi_turn(agent, contract, [])` returns `[]`.
+
+## Risks for Codex Red-Team
+
+1. **Lineage clarity.** Per-turn `parent_run_id` is whatever `parent_contract.run_id` says. If a caller wants chained follow-ups (turn-2 inheriting from turn-1), they call `run_multi_turn` again with a new contract. Documented in module docstring.
+2. **Refusal does NOT short-circuit.** The brief intentionally returns `refusal` per turn; subsequent turns still execute. This matches the issue acceptance which is "5 sequential follow-ups."
+3. **§9.4 hygiene.** No `try/except: pass`, no magic numbers, no `time.sleep`, no TODO.
+4. **CHARTER §3 LOC cap.** ~130 LOC net (50 src + 80 test). Under 200.
+
+## Acceptance criteria
+
+1. New `src/polaris_graph/followup/multi_turn.py` with `TurnResult` + `run_multi_turn`.
+2. Each `TurnResult` has exactly one of `composed`/`refusal` populated.
+3. 5 tests pass (including the named "5 sequential follow-ups grounded" test).
+4. CHARTER §3 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-4.
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll check the existing follow-up/evidence interfaces before judging the brief, because the risk here is mostly whether the proposed driver matches the substrate that already landed.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "compose_with_inheritance_or_refuse|FollowUpAgent|EvidenceContract|RefusalDecision|ComposedQuery|merge_evidence_pool|SourceSpan|inherited" src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g 'CLAUDE.md' -g '*CHARTER*' -g 'src/polaris_graph/followup/**' -g 'tests/polaris_graph/followup/**'" in C:\POLARIS
+ succeeded in 1060ms:
+tests\v6\test_compare.py:9:    EvidenceContract,
+tests\v6\test_compare.py:11:    SourceSpan,
+tests\v6\test_compare.py:25:) -> EvidenceContract:
+tests\v6\test_compare.py:26:    return EvidenceContract(
+tests\v6\test_compare.py:35:            SourceSpan(
+tests\v6\test_followup_agent.py:7:    EvidenceContract,
+tests\v6\test_followup_agent.py:8:    SourceSpan,
+tests\v6\test_followup_agent.py:12:def _parent_with_pool(spans: list[SourceSpan]) -> EvidenceContract:
+tests\v6\test_followup_agent.py:13:    return EvidenceContract(
+tests\v6\test_followup_agent.py:32:def _span(eid: str, text: str, start: int = 0) -> SourceSpan:
+tests\v6\test_followup_agent.py:33:    return SourceSpan(
+tests\v6\test_evidence_pool_merger.py:11:    merge_evidence_pool,
+tests\v6\test_evidence_pool_merger.py:13:from polaris_v6.schemas.evidence_contract import SourceSpan
+tests\v6\test_evidence_pool_merger.py:16:def _retrieval_span(evidence_id: str, text: str, url: str = "https://example.gc.ca") -> SourceSpan:
+tests\v6\test_evidence_pool_merger.py:17:    return SourceSpan(
+tests\v6\test_evidence_pool_merger.py:28:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_merger.py:39:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_merger.py:55:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_merger.py:68:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_merger.py:80:    pool_a = merge_evidence_pool(retrieval_spans=[], uploaded_chunks=[chunk])
+tests\v6\test_evidence_pool_merger.py:81:    pool_b = merge_evidence_pool(retrieval_spans=[], uploaded_chunks=[chunk])
+tests\v6\test_evidence_pool_merger.py:86:    assert merge_evidence_pool(retrieval_spans=[], uploaded_chunks=[]) == []
+tests\v6\test_evidence_pool_memory.py:8:    merge_evidence_pool,
+tests\v6\test_evidence_pool_memory.py:10:from polaris_v6.schemas.evidence_contract import SourceSpan
+tests\v6\test_evidence_pool_memory.py:13:def _retrieval_span(evidence_id: str, text: str, url: str = "https://gc.ca") -> SourceSpan:
+tests\v6\test_evidence_pool_memory.py:14:    return SourceSpan(
+tests\v6\test_evidence_pool_memory.py:30:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_memory.py:48:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_memory.py:57:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_memory.py:73:    pool = merge_evidence_pool(
+tests\v6\test_evidence_pool_memory.py:89:    pool = merge_evidence_pool(
+tests\v6\test_evidence_contract_gate.py:4:artifact JSON conforming to EvidenceContract v1.0. The Gate test
+tests\v6\test_evidence_contract_gate.py:38:    from polaris_v6.schemas.evidence_contract import EvidenceContract
+tests\v6\test_evidence_contract_gate.py:40:    return EvidenceContract
+tests\v6\test_charts.py:188:    """Build a minimal valid EvidenceContract for from_bundle tests."""
+tests\v6\test_charts.py:190:        EvidenceContract,
+tests\v6\test_charts.py:191:        SourceSpan,
+tests\v6\test_charts.py:204:            SourceSpan(
+tests\v6\test_charts.py:231:    return EvidenceContract.model_validate(base)
+src\polaris_v6\schemas\evidence_contract.py:23:class SourceSpan(BaseModel):
+src\polaris_v6\schemas\evidence_contract.py:83:class EvidenceContract(BaseModel):
+src\polaris_v6\schemas\evidence_contract.py:96:    evidence_pool: list[SourceSpan]
+src\polaris_graph\evidence_contract\__init__.py:21:    EvidenceContract,
+src\polaris_graph\evidence_contract\__init__.py:22:    EvidenceContractError,
+src\polaris_graph\evidence_contract\__init__.py:32:    "EvidenceContract",
+src\polaris_graph\evidence_contract\__init__.py:33:    "EvidenceContractError",
+src\polaris_graph\evidence_contract\schema.py:7:DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:76:    def _internal_consistency(self) -> "EvidenceContract":
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\evidence_contract\gate.py:14:from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+src\polaris_graph\evidence_contract\gate.py:29:    """Raised when generation is invoked without an EvidenceContract."""
+src\polaris_graph\evidence_contract\gate.py:40:    contract: EvidenceContract | None, *, report_id: str | None = None
+src\polaris_graph\evidence_contract\gate.py:107:    contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
+src\polaris_graph\evaluator\external_evaluator.py:711:    # line (it's inherited from the research question, not a generator
+src\polaris_graph\evaluator\external_evaluator.py:775:        # inherited word AND (b) the prose sentence shares ≥2 content
+src\polaris_v6\followup\__init__.py:3:Once a research run produces an EvidenceContract, the user can ask
+src\polaris_v6\followup\agent.py:5:ships this stub to lock the contract: takes a parent EvidenceContract
+src\polaris_v6\followup\agent.py:15:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\followup\agent.py:26:    parent: EvidenceContract,
+src\polaris_v6\compare\differ.py:1:"""Compare two EvidenceContract bundles side-by-side."""
+src\polaris_v6\compare\differ.py:7:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\compare\differ.py:29:def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+src\polaris_v6\charts\from_bundle.py:1:"""Build chart specs from an EvidenceContract bundle.
+src\polaris_v6\charts\from_bundle.py:24:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\charts\from_bundle.py:29:def chart_from_bundle(*, bundle: EvidenceContract, chart_type: ChartType) -> dict:
+src\polaris_graph\nodes\frame_compiler.py:62:an inherited one.
+src\polaris_graph\nodes\contract_outline.py:35:5. **Intra-slot ordering inherited, not re-asserted.** Within-slot
+src\polaris_v6\api\followup.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\followup.py:31:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\api\compare.py:12:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\compare.py:17:def _load(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\compare.py:24:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\api\charts.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\charts.py:29:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\api\bundle.py:8:Phase 0 ships the endpoint contract that returns an EvidenceContract
+src\polaris_v6\api\bundle.py:22:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\bundle.py:39:@router.get("/{run_id}/bundle", response_model=EvidenceContract)
+src\polaris_v6\api\bundle.py:40:def get_bundle(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\bundle.py:48:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\adapters\evidence_pool_merger.py:11:EvidenceContract output) can reference.
+src\polaris_v6\adapters\evidence_pool_merger.py:24:from polaris_v6.schemas.evidence_contract import SourceSpan
+src\polaris_v6\adapters\evidence_pool_merger.py:60:def _evidence_id_for_retrieval(span: SourceSpan) -> str:
+src\polaris_v6\adapters\evidence_pool_merger.py:67:def merge_evidence_pool(
+src\polaris_v6\adapters\evidence_pool_merger.py:69:    retrieval_spans: list[SourceSpan],
+src\polaris_v6\adapters\evidence_pool_merger.py:72:) -> list[SourceSpan]:
+src\polaris_v6\adapters\evidence_pool_merger.py:83:    pool: list[SourceSpan] = []
+src\polaris_v6\adapters\evidence_pool_merger.py:93:            SourceSpan(
+src\polaris_v6\adapters\evidence_pool_merger.py:110:            SourceSpan(
+src\polaris_v6\adapters\evidence_pool_merger.py:127:            SourceSpan(
+tests\v6\test_schemas.py:39:        EvidenceContract,
+tests\v6\test_schemas.py:41:        SourceSpan,
+tests\v6\test_schemas.py:45:    contract = EvidenceContract(
+tests\v6\test_schemas.py:53:            SourceSpan(
+tests\v6\test_scripts_v6_handover.py:3:  - scripts/v6/cost_summary.py — aggregates EvidenceContract cost_usd
+src\polaris_graph\followup\__init__.py:4:(graph_v4 calling FollowUpAgent on follow-up questions, UI surface,
+src\polaris_graph\followup\refusal.py:15:    ComposedQuery,
+src\polaris_graph\followup\refusal.py:16:    FollowUpAgent,
+src\polaris_graph\followup\refusal.py:25:class RefusalDecision:
+src\polaris_graph\followup\refusal.py:34:) -> RefusalDecision:
+src\polaris_graph\followup\refusal.py:37:        return RefusalDecision(False, None, keywords, [])
+src\polaris_graph\followup\refusal.py:46:        return RefusalDecision(True, reason, keywords, overlap)
+src\polaris_graph\followup\refusal.py:47:    return RefusalDecision(False, None, keywords, overlap)
+src\polaris_graph\followup\refusal.py:51:    agent: FollowUpAgent, parent: ParentRunContext, follow_up: str
+src\polaris_graph\followup\refusal.py:52:) -> ComposedQuery | RefusalDecision:
+src\polaris_graph\followup\inheritance.py:12:    ComposedQuery,
+src\polaris_graph\followup\inheritance.py:13:    FollowUpAgent,
+src\polaris_graph\followup\inheritance.py:16:from polaris_graph.followup.refusal import RefusalDecision, compose_or_refuse
+src\polaris_graph\followup\inheritance.py:17:from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+src\polaris_graph\followup\inheritance.py:20:def inherit_evidence_pool(parent_contract: EvidenceContract) -> list[SourceSpan]:
+src\polaris_graph\followup\inheritance.py:26:    agent: FollowUpAgent,
+src\polaris_graph\followup\inheritance.py:27:    parent_contract: EvidenceContract,
+src\polaris_graph\followup\inheritance.py:29:) -> tuple[ComposedQuery, list[SourceSpan]]:
+src\polaris_graph\followup\inheritance.py:32:    Returns the ComposedQuery (with evidence_id list inherited from the
+src\polaris_graph\followup\inheritance.py:44:    inherited = inherit_evidence_pool(parent_contract)
+src\polaris_graph\followup\inheritance.py:45:    return composed, inherited
+src\polaris_graph\followup\inheritance.py:48:def compose_with_inheritance_or_refuse(
+src\polaris_graph\followup\inheritance.py:49:    agent: FollowUpAgent,
+src\polaris_graph\followup\inheritance.py:50:    parent_contract: EvidenceContract,
+src\polaris_graph\followup\inheritance.py:52:) -> tuple[ComposedQuery | RefusalDecision, list[SourceSpan]]:
+src\polaris_graph\followup\inheritance.py:55:    Returns (RefusalDecision, []) when the follow-up is out-of-scope, or
+src\polaris_graph\followup\inheritance.py:56:    (ComposedQuery, inherited_spans) when in-scope.
+src\polaris_graph\followup\inheritance.py:66:    if isinstance(decision, RefusalDecision):
+src\polaris_graph\followup\inheritance.py:68:    inherited = inherit_evidence_pool(parent_contract)
+src\polaris_graph\followup\inheritance.py:69:    return decision, inherited
+src\polaris_graph\followup\agent.py:24:class ComposedQuery:
+src\polaris_graph\followup\agent.py:28:    inherited_template: str
+src\polaris_graph\followup\agent.py:30:    inherited_evidence_ids: list[str]
+src\polaris_graph\followup\agent.py:45:class FollowUpAgent:
+src\polaris_graph\followup\agent.py:50:    ) -> ComposedQuery:
+src\polaris_graph\followup\agent.py:56:        inherited = _dedup_preserve_order(parent.known_evidence_ids)
+src\polaris_graph\followup\agent.py:57:        return ComposedQuery(
+src\polaris_graph\followup\agent.py:59:            inherited_template=parent.template,
+src\polaris_graph\followup\agent.py:61:            inherited_evidence_ids=inherited,
+src\polaris_graph\api\generation_route.py:24:    EvidenceContract,
+src\polaris_graph\api\generation_route.py:96:    contract: EvidenceContract | None = Field(
+tests\polaris_graph\test_external_evaluator.py:193:def test_pt13_exempts_title_and_question_inherited_superlatives() -> None:
+tests\polaris_graph\test_external_evaluator.py:195:    question-inherited superlatives toward its unhedged count. The
+tests\polaris_graph\test_external_evaluator.py:220:        f"PT13 should pass when 'best' is inherited from the research "
+tests\polaris_graph\test_external_evaluator.py:348:    the research question (lexical echo), so the question-inherited
+tests\polaris_graph\followup\test_refusal.py:6:    ComposedQuery,
+tests\polaris_graph\followup\test_refusal.py:7:    FollowUpAgent,
+tests\polaris_graph\followup\test_refusal.py:10:from polaris_graph.followup.inheritance import compose_with_inheritance_or_refuse
+tests\polaris_graph\followup\test_refusal.py:12:    RefusalDecision,
+tests\polaris_graph\followup\test_refusal.py:16:from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+tests\polaris_graph\followup\test_refusal.py:27:def _contract(template: str = "clinical_summary") -> EvidenceContract:
+tests\polaris_graph\followup\test_refusal.py:28:    return EvidenceContract(
+tests\polaris_graph\followup\test_refusal.py:33:        evidence_pool=[SourceSpan(evidence_id="ev_a", source_url="https://example.test/a",
+tests\polaris_graph\followup\test_refusal.py:65:        FollowUpAgent(), _ctx(), "Tell me more about the clinical efficacy"
+tests\polaris_graph\followup\test_refusal.py:67:    assert isinstance(result, ComposedQuery)
+tests\polaris_graph\followup\test_refusal.py:72:    result = compose_or_refuse(FollowUpAgent(), _ctx(), "Why is the sky blue?")
+tests\polaris_graph\followup\test_refusal.py:73:    assert isinstance(result, RefusalDecision)
+tests\polaris_graph\followup\test_refusal.py:84:def test_compose_with_inheritance_or_refuse_routes_refusal() -> None:
+tests\polaris_graph\followup\test_refusal.py:85:    refused, spans = compose_with_inheritance_or_refuse(
+tests\polaris_graph\followup\test_refusal.py:86:        FollowUpAgent(), _contract(), "Why is the sky blue?"
+tests\polaris_graph\followup\test_refusal.py:88:    assert isinstance(refused, RefusalDecision)
+tests\polaris_graph\followup\test_refusal.py:92:    composed, inherited = compose_with_inheritance_or_refuse(
+tests\polaris_graph\followup\test_refusal.py:93:        FollowUpAgent(), _contract(), "Tell me more about the clinical findings"
+tests\polaris_graph\followup\test_refusal.py:95:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\followup\test_refusal.py:96:    assert len(inherited) == 1
+tests\polaris_graph\followup\test_refusal.py:97:    assert inherited[0].evidence_id == "ev_a"
+tests\polaris_graph\followup\test_inheritance.py:7:from polaris_graph.followup.agent import ComposedQuery, FollowUpAgent
+tests\polaris_graph\followup\test_inheritance.py:12:from polaris_v6.adapters.evidence_pool_merger import merge_evidence_pool
+tests\polaris_graph\followup\test_inheritance.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+tests\polaris_graph\followup\test_inheritance.py:16:def _span(evidence_id: str, text: str) -> SourceSpan:
+tests\polaris_graph\followup\test_inheritance.py:17:    return SourceSpan(
+tests\polaris_graph\followup\test_inheritance.py:27:def _contract(evidence_pool: list[SourceSpan]) -> EvidenceContract:
+tests\polaris_graph\followup\test_inheritance.py:28:    return EvidenceContract(
+tests\polaris_graph\followup\test_inheritance.py:71:        FollowUpAgent(), contract, "What about drug Y?"
+tests\polaris_graph\followup\test_inheritance.py:73:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\followup\test_inheritance.py:75:    assert composed.inherited_template == "clinical_summary"
+tests\polaris_graph\followup\test_inheritance.py:84:        FollowUpAgent(), _contract(pool), "follow-up"
+tests\polaris_graph\followup\test_inheritance.py:86:    assert composed.inherited_evidence_ids == ["ev_a", "ev_b", "ev_c"]
+tests\polaris_graph\followup\test_inheritance.py:100:        FollowUpAgent(), _contract(pool), "What about drug Y?"
+tests\polaris_graph\followup\test_inheritance.py:102:    assert composed.inherited_evidence_ids == ["ev_a"]
+tests\polaris_graph\followup\test_inheritance.py:106:def test_inherited_spans_pass_through_to_merger() -> None:
+tests\polaris_graph\followup\test_inheritance.py:112:    inherited = inherit_evidence_pool(_contract(parent_spans))
+tests\polaris_graph\followup\test_inheritance.py:113:    merged = merge_evidence_pool(
+tests\polaris_graph\followup\test_inheritance.py:114:        retrieval_spans=inherited, uploaded_chunks=[], memory_summaries=[]
+tests\polaris_graph\evidence_contract\test_gate.py:11:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_gate.py:98:) -> EvidenceContract:
+tests\polaris_graph\evidence_contract\test_gate.py:100:    return EvidenceContract(
+tests\polaris_graph\followup\test_agent.py:1:"""Tests for FollowUpAgent (I-f11-001)."""
+tests\polaris_graph\followup\test_agent.py:8:    ComposedQuery,
+tests\polaris_graph\followup\test_agent.py:9:    FollowUpAgent,
+tests\polaris_graph\followup\test_agent.py:32:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:34:    assert composed.inherited_template == "trade"
+tests\polaris_graph\followup\test_agent.py:38:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:44:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:48:    assert composed.inherited_evidence_ids == ["A", "B", "C"]
+tests\polaris_graph\followup\test_agent.py:52:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:55:    assert composed.inherited_evidence_ids is not parent.known_evidence_ids
+tests\polaris_graph\followup\test_agent.py:59:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:70:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:76:    agent = FollowUpAgent()
+tests\polaris_graph\followup\test_agent.py:78:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\evidence_contract\test_migration.py:12:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_migration.py:26:    c = EvidenceContract.model_validate(raw)
+tests\polaris_graph\evidence_contract\test_migration.py:33:    c = EvidenceContract.model_validate(raw)
+tests\polaris_graph\evidence_contract\test_migration.py:64:    parsed = EvidenceContract.model_validate(migrated)
+tests\polaris_graph\evidence_contract\test_schema.py:1:"""Tests for the EvidenceContract pre-generation schema (I-ecg-001)."""
+tests\polaris_graph\evidence_contract\test_schema.py:9:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_schema.py:35:def _contract(**overrides) -> EvidenceContract:
+tests\polaris_graph\evidence_contract\test_schema.py:36:    return EvidenceContract(
+tests\polaris_graph\evidence_contract\test_schema.py:81:        EvidenceContract(
+tests\polaris_graph\evidence_contract\test_schema.py:95:    c2 = EvidenceContract.model_validate_json(raw)
+
+2026-05-08T17:10:30.529744Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web\CLAUDE.md
+src\polaris_graph\followup\__pycache__\__init__.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\refusal.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\inheritance.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\agent.cpython-313.pyc
+src\polaris_graph\followup\__init__.py
+src\polaris_graph\followup\refusal.py
+src\polaris_graph\followup\inheritance.py
+src\polaris_graph\followup\agent.py
+CLAUDE.md
+tests\polaris_graph\followup\__pycache__\__init__.cpython-313.pyc
+tests\polaris_graph\followup\__pycache__\test_refusal.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__pycache__\test_inheritance.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__pycache__\test_agent.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__init__.py
+tests\polaris_graph\followup\test_refusal.py
+tests\polaris_graph\followup\test_inheritance.py
+tests\polaris_graph\followup\test_agent.py
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+
+ exited 1 in 1168ms:
+web\CLAUDE.md
+src\polaris_graph\followup\__pycache__\__init__.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\refusal.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\inheritance.cpython-313.pyc
+src\polaris_graph\followup\__pycache__\agent.cpython-313.pyc
+src\polaris_graph\followup\__init__.py
+src\polaris_graph\followup\refusal.py
+src\polaris_graph\followup\inheritance.py
+src\polaris_graph\followup\agent.py
+CLAUDE.md
+tests\polaris_graph\followup\__pycache__\__init__.cpython-313.pyc
+tests\polaris_graph\followup\__pycache__\test_refusal.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__pycache__\test_inheritance.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__pycache__\test_agent.cpython-313-pytest-8.4.1.pyc
+tests\polaris_graph\followup\__init__.py
+tests\polaris_graph\followup\test_refusal.py
+tests\polaris_graph\followup\test_inheritance.py
+tests\polaris_graph\followup\test_agent.py
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+
+codex
+The substrate is in `src/polaris_graph/followup`, with evidence pool types coming from `polaris_v6`. I’m going to read those concrete interfaces and the existing tests now, then map the brief’s criteria against them.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\followup\\agent.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\followup\\inheritance.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\adapters\\evidence_pool_merger.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\followup\\test_refusal.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\followup\\test_inheritance.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\followup\\refusal.py" in C:\POLARIS
+ succeeded in 1263ms:
+"""Follow-up agent — preserves parent-run context (I-f11-001).
+
+Pure deterministic substrate: no LLM call. LLM-augmented follow-up
+disambiguation is follow-up I-f11-002.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ParentRunContext:
+    """Snapshot of the parent run that a follow-up will inherit from."""
+
+    parent_run_id: str
+    template: str
+    parent_question: str
+    known_evidence_ids: list[str] = field(default_factory=list)
+    parent_summary: str | None = None
+
+
+@dataclass(frozen=True)
+class ComposedQuery:
+    """A follow-up question composed with parent-run context."""
+
+    effective_question: str
+    inherited_template: str
+    parent_run_id: str
+    inherited_evidence_ids: list[str]
+
+
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    """Return a fresh list with duplicates removed, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+class FollowUpAgent:
+    """Compose a follow-up question with parent-run context preserved."""
+
+    def compose(
+        self, parent: ParentRunContext, follow_up: str
+    ) -> ComposedQuery:
+        if not follow_up or not follow_up.strip():
+            raise ValueError("follow_up question must be non-blank")
+        effective = (
+            f"Follow-up to '{parent.parent_question}': {follow_up.strip()}"
+        )
+        inherited = _dedup_preserve_order(parent.known_evidence_ids)
+        return ComposedQuery(
+            effective_question=effective,
+            inherited_template=parent.template,
+            parent_run_id=parent.parent_run_id,
+            inherited_evidence_ids=inherited,
+        )
+
+ succeeded in 1250ms:
+"""Evidence Contract inheritance for follow-up runs (I-f11-003).
+
+Pure deterministic functions. NO retrieval / network calls — the parent
+run's accepted source pool is reused via deep copy, satisfying the
+acceptance "no re-retrieval of parent" guarantee at the module level
+(verified by tests).
+"""
+
+from __future__ import annotations
+
+from polaris_graph.followup.agent import (
+    ComposedQuery,
+    FollowUpAgent,
+    ParentRunContext,
+)
+from polaris_graph.followup.refusal import RefusalDecision, compose_or_refuse
+from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+
+
+def inherit_evidence_pool(parent_contract: EvidenceContract) -> list[SourceSpan]:
+    """Return a fresh list of the parent run's accepted source spans."""
+    return list(parent_contract.evidence_pool)
+
+
+def compose_with_inheritance(
+    agent: FollowUpAgent,
+    parent_contract: EvidenceContract,
+    follow_up: str,
+) -> tuple[ComposedQuery, list[SourceSpan]]:
+    """Compose a follow-up question that inherits the parent's evidence pool.
+
+    Returns the ComposedQuery (with evidence_id list inherited from the
+    parent's evidence_pool) and a fresh copy of the parent's source spans
+    suitable for direct passthrough to the merger.
+    """
+    parent = ParentRunContext(
+        parent_run_id=parent_contract.run_id,
+        template=parent_contract.template,
+        parent_question=parent_contract.question,
+        known_evidence_ids=[s.evidence_id for s in parent_contract.evidence_pool],
+        parent_summary=None,
+    )
+    composed = agent.compose(parent, follow_up)
+    inherited = inherit_evidence_pool(parent_contract)
+    return composed, inherited
+
+
+def compose_with_inheritance_or_refuse(
+    agent: FollowUpAgent,
+    parent_contract: EvidenceContract,
+    follow_up: str,
+) -> tuple[ComposedQuery | RefusalDecision, list[SourceSpan]]:
+    """Inheritance-aware compose that routes through out-of-scope refusal.
+
+    Returns (RefusalDecision, []) when the follow-up is out-of-scope, or
+    (ComposedQuery, inherited_spans) when in-scope.
+    """
+    parent = ParentRunContext(
+        parent_run_id=parent_contract.run_id,
+        template=parent_contract.template,
+        parent_question=parent_contract.question,
+        known_evidence_ids=[s.evidence_id for s in parent_contract.evidence_pool],
+        parent_summary=None,
+    )
+    decision = compose_or_refuse(agent, parent, follow_up)
+    if isinstance(decision, RefusalDecision):
+        return decision, []
+    inherited = inherit_evidence_pool(parent_contract)
+    return decision, inherited
+
+ succeeded in 1417ms:
+"""Phase 1 Task 1.3 substrate — merge uploaded documents into evidence pool.
+
+The v6 plan errata (substrate_audit_2026-05-01.md) flagged that
+graph_v4.py:149 accepts a `document_ids` parameter but does NOT use it.
+This is the F3a backend gap — uploaded documents never reached the
+evidence pool that the verifier checks against.
+
+This module fixes that by building a deterministic evidence-pool
+bridge: given retrieval-side spans + uploaded document chunks, produce
+a unified pool with stable evidence_ids that the verifier (and the
+EvidenceContract output) can reference.
+
+Phase 0 ships the merger; Phase 1 wires it into the v6 run executor and
+ensures graph_v4 (or its v6 successor) consumes the merged pool, not
+just the retrieval-side pool.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass
+
+from polaris_v6.schemas.evidence_contract import SourceSpan
+
+
+@dataclass
+class UploadedChunk:
+    """One chunk extracted from an uploaded document."""
+
+    document_id: str
+    chunk_index: int
+    text: str
+    source_url: str = "upload://"  # placeholder; real upload-uri scheme in Phase 1
+
+
+@dataclass
+class MemoryDerivedSummary:
+    """One workspace-memory prior_run_summary entry surfaced as evidence (I-f14-004)."""
+
+    entry_id: str
+    content: str
+    created_at: str
+
+
+def _evidence_id_for_chunk(chunk: UploadedChunk) -> str:
+    """Stable id derived from document_id + chunk_index + content hash."""
+    payload = f"{chunk.document_id}:{chunk.chunk_index}:{chunk.text}".encode()
+    digest = hashlib.sha256(payload).hexdigest()[:12]
+    return f"ev_upload_{digest}"
+
+
+def _evidence_id_for_memory(summary: MemoryDerivedSummary) -> str:
+    """Stable id derived from entry_id + content hash."""
+    payload = f"{summary.entry_id}:{summary.content}".encode()
+    digest = hashlib.sha256(payload).hexdigest()[:12]
+    return f"ev_memory_{digest}"
+
+
+def _evidence_id_for_retrieval(span: SourceSpan) -> str:
+    """Pass-through for already-id'd spans; ensure prefix consistency."""
+    if span.evidence_id.startswith("ev_"):
+        return span.evidence_id
+    return f"ev_{span.evidence_id}"
+
+
+def merge_evidence_pool(
+    *,
+    retrieval_spans: list[SourceSpan],
+    uploaded_chunks: list[UploadedChunk],
+    memory_summaries: list[MemoryDerivedSummary] | None = None,
+) -> list[SourceSpan]:
+    """Merge retrieval-side + upload-side + workspace-memory into a unified
+    deduplicated pool.
+
+    Dedup priority by append order: upload > retrieval > memory.
+    Upload + retrieval dedup by (source_url, normalized_text) — same text
+    from the same source appears once. Memory entries dedup against the
+    ENTIRE existing pool by normalized text only (per I-f14-004 plan), so
+    a prior_run_summary that repeats text already surfaced via upload or
+    retrieval is dropped.
+    """
+    pool: list[SourceSpan] = []
+    seen: set[tuple[str, str]] = set()
+
+    for chunk in uploaded_chunks:
+        normalized = _normalize_for_dedup(chunk.text)
+        key = (chunk.source_url, normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        pool.append(
+            SourceSpan(
+                evidence_id=_evidence_id_for_chunk(chunk),
+                source_url=chunk.source_url,
+                source_tier="T2",
+                span_start=0,
+                span_end=len(chunk.text),
+                span_text=chunk.text,
+            )
+        )
+
+    for span in retrieval_spans:
+        normalized = _normalize_for_dedup(span.span_text)
+        key = (span.source_url, normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        pool.append(
+            SourceSpan(
+                evidence_id=_evidence_id_for_retrieval(span),
+                source_url=span.source_url,
+                source_tier=span.source_tier,
+                span_start=span.span_start,
+                span_end=span.span_end,
+                span_text=span.span_text,
+            )
+        )
+
+    text_seen = {_normalize_for_dedup(s.span_text) for s in pool}
+    for summary in memory_summaries or []:
+        normalized = _normalize_for_dedup(summary.content)
+        if normalized in text_seen:
+            continue
+        text_seen.add(normalized)
+        pool.append(
+            SourceSpan(
+                evidence_id=_evidence_id_for_memory(summary),
+                source_url=f"memory://{summary.entry_id}",
+                source_tier="T3",
+                span_start=0,
+                span_end=len(summary.content),
+                span_text=summary.content,
+            )
+        )
+
+    return pool
+
+
+_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_for_dedup(text: str) -> str:
+    return _WS_RE.sub(" ", text.strip().lower())
+
+ succeeded in 1607ms:
+"""I-f11-004 — refusal handling tests."""
+
+from __future__ import annotations
+
+from polaris_graph.followup.agent import (
+    ComposedQuery,
+    FollowUpAgent,
+    ParentRunContext,
+)
+from polaris_graph.followup.inheritance import compose_with_inheritance_or_refuse
+from polaris_graph.followup.refusal import (
+    RefusalDecision,
+    compose_or_refuse,
+    detect_out_of_scope,
+)
+from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+
+
+def _ctx(template: str = "clinical_summary") -> ParentRunContext:
+    return ParentRunContext(
+        parent_run_id="run_42", template=template,
+        parent_question="What is the efficacy of drug X?",
+        known_evidence_ids=["ev_a"], parent_summary=None,
+    )
+
+
+def _contract(template: str = "clinical_summary") -> EvidenceContract:
+    return EvidenceContract(
+        run_id="run_42", template=template,
+        question="What is the efficacy of drug X?",
+        queued_at="2026-05-08T00:00:00Z", finished_at="2026-05-08T00:00:30Z",
+        pipeline_status="success",
+        evidence_pool=[SourceSpan(evidence_id="ev_a", source_url="https://example.test/a",
+                                  source_tier="T1", span_start=0, span_end=5, span_text="alpha")],
+        verified_sentences=[], frame_coverage=[], contradictions=[],
+        cost_usd=0.0, generator_model="g", verifier_model="v",
+        family_segregation_passed=True,
+    )
+
+
+def test_refuses_zero_overlap_specific_template() -> None:
+    decision = detect_out_of_scope("clinical_summary", "Why is the sky blue?")
+    assert decision.is_refused is True
+    assert decision.reason is not None
+    assert "clinical_summary" in decision.reason
+    assert decision.template_keywords == ["clinical", "summary"]
+    assert decision.question_overlap == []
+
+
+def test_accepts_one_keyword_overlap() -> None:
+    decision = detect_out_of_scope(
+        "clinical_summary", "What about the summary statistics?"
+    )
+    assert decision.is_refused is False
+    assert decision.question_overlap == ["summary"]
+
+
+def test_general_template_never_refuses() -> None:
+    decision = detect_out_of_scope("general", "random topic completely off")
+    assert decision.is_refused is False
+
+
+def test_compose_or_refuse_returns_composed_when_in_scope() -> None:
+    result = compose_or_refuse(
+        FollowUpAgent(), _ctx(), "Tell me more about the clinical efficacy"
+    )
+    assert isinstance(result, ComposedQuery)
+    assert "clinical efficacy" in result.effective_question
+
+
+def test_compose_or_refuse_returns_refusal_when_out_of_scope() -> None:
+    result = compose_or_refuse(FollowUpAgent(), _ctx(), "Why is the sky blue?")
+    assert isinstance(result, RefusalDecision)
+    assert result.is_refused is True
+    assert result.reason is not None
+
+
+def test_adversarial_punctuation_and_case() -> None:
+    decision = detect_out_of_scope("clinical_summary", "WHAT ABOUT THE SUMMARY?!")
+    assert decision.is_refused is False
+    assert decision.question_overlap == ["summary"]
+
+
+def test_compose_with_inheritance_or_refuse_routes_refusal() -> None:
+    refused, spans = compose_with_inheritance_or_refuse(
+        FollowUpAgent(), _contract(), "Why is the sky blue?"
+    )
+    assert isinstance(refused, RefusalDecision)
+    assert refused.is_refused is True
+    assert spans == []
+
+    composed, inherited = compose_with_inheritance_or_refuse(
+        FollowUpAgent(), _contract(), "Tell me more about the clinical findings"
+    )
+    assert isinstance(composed, ComposedQuery)
+    assert len(inherited) == 1
+    assert inherited[0].evidence_id == "ev_a"
+
+ succeeded in 1760ms:
+"""I-f11-003 — Evidence Contract inheritance tests."""
+
+from __future__ import annotations
+
+import pytest
+
+from polaris_graph.followup.agent import ComposedQuery, FollowUpAgent
+from polaris_graph.followup.inheritance import (
+    compose_with_inheritance,
+    inherit_evidence_pool,
+)
+from polaris_v6.adapters.evidence_pool_merger import merge_evidence_pool
+from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+
+
+def _span(evidence_id: str, text: str) -> SourceSpan:
+    return SourceSpan(
+        evidence_id=evidence_id,
+        source_url=f"https://example.test/{evidence_id}",
+        source_tier="T1",
+        span_start=0,
+        span_end=len(text),
+        span_text=text,
+    )
+
+
+def _contract(evidence_pool: list[SourceSpan]) -> EvidenceContract:
+    return EvidenceContract(
+        run_id="run_parent_001",
+        template="clinical_summary",
+        question="What is the efficacy of drug X?",
+        queued_at="2026-05-08T00:00:00Z",
+        finished_at="2026-05-08T00:00:30Z",
+        pipeline_status="success",
+        evidence_pool=evidence_pool,
+        verified_sentences=[],
+        frame_coverage=[],
+        contradictions=[],
+        cost_usd=0.0,
+        generator_model="g",
+        verifier_model="v",
+        family_segregation_passed=True,
+    )
+
+
+def test_inherit_evidence_pool_returns_copy() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta")]
+    contract = _contract(pool)
+    out = inherit_evidence_pool(contract)
+    assert out == pool
+    assert out is not contract.evidence_pool
+    out.append(_span("ev_c", "gamma"))
+    assert len(contract.evidence_pool) == 2
+
+
+def test_inherit_evidence_pool_preserves_order() -> None:
+    pool = [_span("ev_z", "z"), _span("ev_a", "a"), _span("ev_m", "m")]
+    out = inherit_evidence_pool(_contract(pool))
+    assert [s.evidence_id for s in out] == ["ev_z", "ev_a", "ev_m"]
+
+
+def test_inherit_evidence_pool_empty_pool() -> None:
+    out = inherit_evidence_pool(_contract([]))
+    assert out == []
+
+
+def test_compose_with_inheritance_returns_both() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta")]
+    contract = _contract(pool)
+    composed, spans = compose_with_inheritance(
+        FollowUpAgent(), contract, "What about drug Y?"
+    )
+    assert isinstance(composed, ComposedQuery)
+    assert composed.parent_run_id == "run_parent_001"
+    assert composed.inherited_template == "clinical_summary"
+    assert "What about drug Y?" in composed.effective_question
+    assert "What is the efficacy of drug X?" in composed.effective_question
+    assert len(spans) == 2
+
+
+def test_compose_with_inheritance_known_evidence_ids_from_parent_pool() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta"), _span("ev_c", "gamma")]
+    composed, _ = compose_with_inheritance(
+        FollowUpAgent(), _contract(pool), "follow-up"
+    )
+    assert composed.inherited_evidence_ids == ["ev_a", "ev_b", "ev_c"]
+
+
+def test_compose_with_inheritance_no_re_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monkeypatch retrieval entry to raise; compose_with_inheritance must succeed."""
+    from polaris_graph.tools import react_agent
+
+    def _raise(*_args, **_kwargs):
+        raise AssertionError("no retrieval should occur during inheritance")
+
+    monkeypatch.setattr(react_agent.ReactAnalysisAgent, "run", _raise, raising=True)
+
+    pool = [_span("ev_a", "alpha")]
+    composed, spans = compose_with_inheritance(
+        FollowUpAgent(), _contract(pool), "What about drug Y?"
+    )
+    assert composed.inherited_evidence_ids == ["ev_a"]
+    assert len(spans) == 1
+
+
+def test_inherited_spans_pass_through_to_merger() -> None:
+    """Spans returned by inherit_evidence_pool can be merged unchanged."""
+    parent_spans = [
+        _span("ev_a", "alpha text"),
+        _span("ev_b", "beta text"),
+    ]
+    inherited = inherit_evidence_pool(_contract(parent_spans))
+    merged = merge_evidence_pool(
+        retrieval_spans=inherited, uploaded_chunks=[], memory_summaries=[]
+    )
+    assert len(merged) == len(parent_spans)
+    for parent, out in zip(parent_spans, merged, strict=True):
+        assert out.evidence_id.endswith(parent.evidence_id.removeprefix("ev_"))
+        assert out.source_url == parent.source_url
+        assert out.source_tier == parent.source_tier
+        assert out.span_start == parent.span_start
+        assert out.span_end == parent.span_end
+        assert out.span_text == parent.span_text
+
+ succeeded in 1934ms:
+"""Out-of-scope refusal handling for follow-up runs (I-f11-004).
+
+Heuristic: a follow-up is out-of-scope when zero of its tokens
+(case-insensitive, punctuation-stripped) appear in the parent
+template's `_`-separated keyword list. MVP debt: single-token templates
+over-refuse; LLM-augmented intent matching is post-MVP.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from polaris_graph.followup.agent import (
+    ComposedQuery,
+    FollowUpAgent,
+    ParentRunContext,
+)
+
+
+_PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+@dataclass(frozen=True)
+class RefusalDecision:
+    is_refused: bool
+    reason: str | None
+    template_keywords: list[str]
+    question_overlap: list[str]
+
+
+def detect_out_of_scope(
+    parent_template: str, follow_up: str, *, min_overlap: int = 1
+) -> RefusalDecision:
+    keywords = [t for t in parent_template.lower().split("_") if t]
+    if parent_template == "general":
+        return RefusalDecision(False, None, keywords, [])
+    words = _PUNCT_RE.sub(" ", follow_up.lower()).split()
+    kw_set = set(keywords)
+    overlap = [w for w in words if w in kw_set]
+    if len(overlap) < min_overlap:
+        reason = (
+            f"follow-up has {len(overlap)} shared keyword(s) with parent "
+            f"template '{parent_template}' (need >= {min_overlap}); out-of-scope"
+        )
+        return RefusalDecision(True, reason, keywords, overlap)
+    return RefusalDecision(False, None, keywords, overlap)
+
+
+def compose_or_refuse(
+    agent: FollowUpAgent, parent: ParentRunContext, follow_up: str
+) -> ComposedQuery | RefusalDecision:
+    decision = detect_out_of_scope(parent.template, follow_up)
+    if decision.is_refused:
+        return decision
+    return agent.compose(parent, follow_up)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\schemas\\evidence_contract.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\followup\\__init__.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"9\\.4|LOC|CHARTER|§3|Section 9|Section 3|try/except|HARD\" CLAUDE.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\followup\\test_agent.py" in C:\POLARIS
+ succeeded in 1174ms:
+"""Evidence Contract — Phase 1 Task 1.4 canonical JSON schema.
+
+Per docs/carney_delivery_plan_v6_2.md F15 (audit bundle export with
+embedded source spans), every research run emits a single canonical
+artifact described by this schema. Phase 1 milestone 1.4 (Evidence
+Contract Gate) ships:
+
+1. This schema (durable contract for run artifact JSON).
+2. A golden corpus (5 hand-curated runs that conform to this schema).
+3. A sample artifact (one full real run validated against the schema).
+
+Schema is versioned; v1 is what we deliver to Carney's office. Future
+versions track via the `contract_version` field.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class SourceSpan(BaseModel):
+    """A verbatim span lifted from a cited source document."""
+
+    evidence_id: str = Field(..., description="Stable id for this evidence pool member.")
+    source_url: str = Field(..., description="Canonical URL to the source.")
+    source_tier: Literal["T1", "T2", "T3"] = Field(
+        ...,
+        description="Source admissibility tier per CLAUDE.md §9 corpus adequacy gate.",
+    )
+    span_start: int = Field(..., ge=0, description="Inclusive char offset within source body.")
+    span_end: int = Field(..., gt=0, description="Exclusive char offset within source body.")
+    span_text: str = Field(..., min_length=1, description="Verbatim span text.")
+
+
+class VerifiedSentence(BaseModel):
+    """A generator sentence that passed strict_verify Local + Global."""
+
+    section_id: str
+    sentence_text: str
+    provenance_tokens: list[str] = Field(
+        ...,
+        description=(
+            "List of [#ev:<evidence_id>:<start>-<end>] tokens per CLAUDE.md "
+            "§9.1 invariant 2."
+        ),
+    )
+    verifier_local_pass: bool
+    verifier_global_pass: bool
+    drop_reason: str | None = Field(
+        default=None,
+        description=(
+            "Null if sentence shipped. Otherwise one of "
+            "evidence_id_not_in_pool | span_oob | numeric_mismatch | "
+            "content_word_overlap_lt_2 | numeric_consistency_violation | "
+            "frame_imbalance | contradiction_unresolved."
+        ),
+    )
+
+
+class FrameCoverage(BaseModel):
+    """Frame-coverage panel data — F7 above-the-fold UI surface."""
+
+    frame_id: str
+    frame_name: str
+    sources_assigned: int
+    coverage_percent: float = Field(..., ge=0.0, le=100.0)
+
+
+class ContradictionRecord(BaseModel):
+    """A claim-level contradiction surfaced by audit_ir."""
+
+    contradiction_id: str
+    section_id: str
+    claim_a: str
+    claim_b: str
+    evidence_a: list[str]
+    evidence_b: list[str]
+    resolution: Literal["unresolved", "claim_a_preferred", "claim_b_preferred", "noted_both"]
+
+
+class EvidenceContract(BaseModel):
+    """The canonical run artifact JSON, contract version 1."""
+
+    contract_version: Literal["1.0"] = "1.0"
+    run_id: str
+    template: str
+    question: str
+    queued_at: str
+    finished_at: str
+    pipeline_status: str = Field(
+        ...,
+        description="One of CLAUDE.md §9.3 statuses (success | abort_* | error_*).",
+    )
+    evidence_pool: list[SourceSpan]
+    verified_sentences: list[VerifiedSentence]
+    frame_coverage: list[FrameCoverage]
+    contradictions: list[ContradictionRecord]
+    cost_usd: float = Field(..., ge=0.0)
+    generator_model: str
+    verifier_model: str
+    family_segregation_passed: bool = Field(
+        ...,
+        description="CLAUDE.md §9.1 invariant 1 cross-check at run time.",
+    )
+
+ succeeded in 1300ms:
+"""F11 follow-up agent substrate (I-f11-001).
+
+Phase-1 standalone agent module per CLAUDE.md §9.4. Production wiring
+(graph_v4 calling FollowUpAgent on follow-up questions, UI surface,
+scope-gate routing) is follow-up I-f11-001b.
+"""
+
+ succeeded in 1441ms:
+"""Tests for FollowUpAgent (I-f11-001)."""
+
+from __future__ import annotations
+
+import pytest
+
+from polaris_graph.followup.agent import (
+    ComposedQuery,
+    FollowUpAgent,
+    ParentRunContext,
+)
+
+
+def _ctx(
+    *,
+    parent_run_id: str = "run-parent-1",
+    template: str = "clinical",
+    parent_question: str = "Tirzepatide vs semaglutide cardiovascular outcomes?",
+    known_evidence_ids: list[str] | None = None,
+    parent_summary: str | None = "Parent summary text.",
+) -> ParentRunContext:
+    return ParentRunContext(
+        parent_run_id=parent_run_id,
+        template=template,
+        parent_question=parent_question,
+        known_evidence_ids=known_evidence_ids or [],
+        parent_summary=parent_summary,
+    )
+
+
+def test_compose_preserves_parent_template():
+    agent = FollowUpAgent()
+    composed = agent.compose(_ctx(template="trade"), "What about CETA?")
+    assert composed.inherited_template == "trade"
+
+
+def test_compose_preserves_parent_run_id():
+    agent = FollowUpAgent()
+    composed = agent.compose(_ctx(parent_run_id="run-x"), "Any updates?")
+    assert composed.parent_run_id == "run-x"
+
+
+def test_compose_inherits_known_evidence_ids_deduped():
+    agent = FollowUpAgent()
+    composed = agent.compose(
+        _ctx(known_evidence_ids=["A", "B", "A", "C", "B"]), "details please"
+    )
+    assert composed.inherited_evidence_ids == ["A", "B", "C"]
+
+
+def test_compose_returns_fresh_list_not_aliased():
+    agent = FollowUpAgent()
+    parent = _ctx(known_evidence_ids=["A", "B"])
+    composed = agent.compose(parent, "more")
+    assert composed.inherited_evidence_ids is not parent.known_evidence_ids
+
+
+def test_compose_effective_question_format():
+    agent = FollowUpAgent()
+    composed = agent.compose(
+        _ctx(parent_question="What is BPEI?"), "Why does it matter?"
+    )
+    assert "What is BPEI?" in composed.effective_question
+    assert "Why does it matter?" in composed.effective_question
+    assert composed.effective_question.startswith("Follow-up to '")
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_compose_rejects_blank_follow_up(blank: str):
+    agent = FollowUpAgent()
+    with pytest.raises(ValueError, match="non-blank"):
+        agent.compose(_ctx(), blank)
+
+
+def test_compose_handles_no_parent_summary():
+    agent = FollowUpAgent()
+    composed = agent.compose(_ctx(parent_summary=None), "more")
+    assert isinstance(composed, ComposedQuery)
+    assert composed.effective_question.endswith("more")
+
+ succeeded in 1561ms:
+3:CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+93:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+97:- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+122:## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+129:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+134:- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+142:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+147:- 200-LOC PR cap exceeded
+150:**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+158:## §3. Mandatory Session Protocol (Startup/Restart)
+164:**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+166:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+191:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+194:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+373:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+428:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+430:**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+487:HARD ITERATION CAP: 5 per document. This is iter N of 5.
+561:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+567:- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+571:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+662:### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+683:Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+685:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+686:2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+696:Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -Path CLAUDE.md; $lines[650..680]' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -Path CLAUDE.md; $lines[480..515]' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\adapters\\evidence_pool_merger.py | Select-Object -Index 60..125" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files polaris-controls 2>$null' in C:\POLARIS
+2026-05-08T17:10:59.956799Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+Select-Object: 
+Line |
+   2 |  … is_v6\adapters\evidence_pool_merger.py | Select-Object -Index 60..125
+     |                                                                  ~~~~~~~
+     | Cannot bind parameter 'Index'. Cannot convert value "60..125" to type "System.Int32". Error: "The input string '60..125' was not in a correct format."
+
+ exited 1 in 1245ms:
+Select-Object: 
+Line |
+   2 |  … is_v6\adapters\evidence_pool_merger.py | Select-Object -Index 60..125
+     |                                                                  ~~~~~~~
+     | Cannot bind parameter 'Index'. Cannot convert value "60..125" to type "System.Int32". Error: "The input string '60..125' was not in a correct format."
+
+ succeeded in 1316ms:
+### 9.3 Pipeline verdict statuses (manifest.json)
+
+| Status | Condition |
+|---|---|
+| `success` | All gates passed, generator produced verified prose |
+| `abort_scope_rejected` | Scope gate rejected the research question |
+| `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+| `abort_no_verified_sections` | Every generated section failed strict_verify |
+| `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+
+### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+
+**Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+
+- `try: ... except: pass` without logging or re-raise (silent failure)
+- `import unittest.mock` or `from unittest.mock import ...` in `src/`
+  production code
+- Magic numbers (`if score > 0.7` instead of a named constant or env var)
+- `time.sleep()` to simulate work
+- `# TODO`, `# FIXME`, `# XXX`, `pass` as function body
+- Mocking the live-evidence database in integration tests (per user
+  feedback memory: integration tests must hit real data sources)
+
+Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+currently meet these invariants. It is frozen; see
+`src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+
+---
+
+## §10 Session boot ritual (per polaris-restart Plan §9.1)
+
+ succeeded in 1492ms:
+polaris-controls\slices\slice_001_clinical_scope_discovery.md
+polaris-controls\README.md
+polaris-controls\PLAN.md
+polaris-controls\CHARTER.md
+polaris-controls\golden\slice_001\test_005_refusal_bait.json
+polaris-controls\golden\slice_001\test_004_out_of_scope.json
+polaris-controls\golden\slice_001\test_003_pico_intervention_ambiguous.json
+polaris-controls\golden\slice_001\test_002_pico_population_ambiguous.json
+polaris-controls\golden\slice_001\test_001_in_scope_well_formed.json
+polaris-controls\golden\slice_001\manifest.md
+
+ succeeded in 1682ms:
+
+This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+
+**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+4. Proceed to next step (commit, push, PR, merge).
+
+History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+
+### 8.3.2 Trust Codex's verdicts
+
+Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+
+### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+
+Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+
+`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+
+Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+
+### 8.3.4 No scope-narrowing for false convergence
+
+codex
+The main interfaces line up with the brief’s proposed names, and the current refusal helper already returns `(decision, [])` for out-of-scope turns. I’m checking the LOC cap source and export patterns next, because those are the likely review edges.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -Path polaris-controls'"\\CHARTER.md; "'$lines[0..140]' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "from polaris_graph.followup import|polaris_graph.followup.multi_turn|__all__" src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\followup\\__init__.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"LOC|200|cap|§3|Section 3|CHARTER\" polaris-controls\\CHARTER.md" in C:\POLARIS
+ succeeded in 1256ms:
+"""F11 follow-up agent substrate (I-f11-001).
+
+Phase-1 standalone agent module per CLAUDE.md §9.4. Production wiring
+(graph_v4 calling FollowUpAgent on follow-up questions, UI surface,
+scope-gate routing) is follow-up I-f11-001b.
+"""
+
+ succeeded in 1385ms:
+src\state\__init__.py:9:__all__ = [
+src\search\__init__.py:44:__all__ = [
+src\search\serper_client.py:954:__all__ = [
+src\search\query_amplifier.py:396:__all__ = [
+src\utils\__init__.py:45:__all__ = [
+src\schemas\__init__.py:46:__all__ = [
+src\quality\__init__.py:37:__all__ = [
+src\llm\__init__.py:24:__all__ = [
+src\config\__init__.py:70:__all__ = [
+src\config\core.py:439:__all__ = [
+src\benchmarks\__init__.py:36:__all__ = [
+src\audit\__init__.py:162:__all__ = [
+src\polaris_v6\charts\__init__.py:22:__all__ = [
+src\agents\citefirst\__init__.py:9:__all__ = ["CitefirstSynthesizer"]
+src\tools\__init__.py:19:__all__ = [
+src\agents\__init__.py:31:__all__ = [
+src\polaris_graph\__init__.py:8:__all__ = [
+src\polaris_graph\tools\__init__.py:41:__all__ = [
+src\polaris_graph\auto_induction\__init__.py:62:__all__ = [
+src\polaris_graph\evidence_contract\__init__.py:29:__all__ = [
+src\orchestration\__init__.py:57:__all__ = [
+src\polaris_graph\agents\__init__.py:3:__all__ = []
+src\polaris_graph\api\__init__.py:12:__all__ = [
+src\polaris_graph\export\__init__.py:10:__all__ = [
+src\polaris_graph\intake\__init__.py:18:__all__ = [
+src\polaris_graph\scope\__init__.py:20:__all__ = [
+src\polaris_graph\retrieval\__init__.py:46:__all__ = [
+src\polaris_graph\audit_ir\decision_telemetry.py:715:__all__ = [
+src\polaris_graph\llm\__init__.py:5:__all__ = ["OpenRouterClient"]
+src\polaris_graph\audit_ir\beat_both_scoring.py:876:__all__ = [
+src\polaris_graph\audit_ir\scope_classifier.py:477:__all__ = [
+src\polaris_graph\audit_ir\__init__.py:124:__all__ = [
+src\polaris_graph\synthesis\__init__.py:3:__all__ = []
+
+ succeeded in 1514ms:
+31:**200 LOC per pull request. Hard ceiling.**
+33:- Trusted App rejects PRs exceeding 200 net additions
+55:- PR exceeds 200 LOC
+91:2. Run: gh api repos/aldrinor/polaris-controls/contents/CHARTER.md --jq .sha
+95:5. ALL match → read CHARTER (this doc), PLAN, active slice, golden manifest
+
+ succeeded in 1662ms:
+# POLARIS Operational Charter v1
+
+**Authority:** aldrinor only, GPG/SSH-signed commits to polaris-controls
+**Effective:** 2026-05-04
+**Pinned in POLARIS:** docs/session_pin.txt → charter_sha256
+**This document is the highest-authority operational rulebook. Conflicts resolve in favor of this document.**
+
+---
+
+## The 8 Hard Rules
+
+### 1. Roles
+
+- **Claude Code** is architect + reviewer ONLY.
+- **Codex CLI** is executor ONLY.
+- **User (aldrinor)** is spec owner + merge gate.
+- No agent has signing authority on any commit to POLARIS main.
+- Out-of-order pipeline execution = blocked by Trusted App server-side.
+
+### 2. Slices
+
+Work proceeds in slices. **One slice active at a time.**
+
+- Slice spec lives at `polaris-controls/slices/<active_slice>.md`
+- Claude reads the active slice spec at session start
+- Claude does nothing outside its declared scope
+- Slice scope = files explicitly listed; everything else is out of bounds
+
+### 3. PR Size Cap
+
+**200 LOC per pull request. Hard ceiling.**
+
+- Trusted App rejects PRs exceeding 200 net additions
+- Larger work decomposes into multiple slices, not larger PRs
+- No "this PR is special" exceptions
+
+### 4. Golden Tests as Fitness Function
+
+Every slice has golden-master tests in `polaris-controls/golden/<slice_id>/`.
+
+- Tests are immutable to Claude and Codex (admin-only repo, CODEOWNERS-protected)
+- Slice is **done** when golden tests pass — then **STOP**
+- "Polish," "improve," "while we're at it" beyond passing = forbidden
+- Test mutation attempts = HALT condition
+
+### 5. Halt Conditions (mandatory, automatic)
+
+Claude halts and surfaces to user when ANY of:
+
+- Session pin SHA mismatch (any of 4 pinned files)
+- Golden test mutation attempted by any agent
+- Control-plane file edit attempted (`.github/`, `.codex/`, `polaris-controls/`, `scripts/autoloop/`)
+- More than 2 cycles on the same problem
+- Codex review unavailable for >1 hour
+- PR exceeds 200 LOC
+- Reviewer-fatigue indicators trip (>3 PRs queued for human in 24h per project)
+
+### 6. Archive Discipline
+
+Code in `POLARIS/.legacy/` is read-only reference.
+
+- Never imported into production paths (CI gate enforces)
+- Never modified post-cutover (CI gate enforces)
+- New code lives in canonical paths (`src/`, `web/`, `tests/`, `docs/`, `.codex/`, `scripts/`)
+- If old code is needed, it is RE-WRITTEN under the active slice, not copied from `.legacy/`
+
+### 7. Visibility (no private channel exists)
+
+All Claude↔Codex traffic is logged:
+
+- `.codex/loop_log.jsonl` — streaming JSONL, tail-able real-time
+- `.codex/slices/<slice_id>/brief.md` — Claude's question to Codex
+- `.codex/slices/<slice_id>/verdict.md` — Codex's response
+- `.codex/slices/<slice_id>/decision.md` — Claude's decision based on verdict
+- `.codex/slices/<slice_id>/diff.patch` — resulting code (if any)
+
+If an exchange is not in these files, it didn't legitimately happen.
+
+### 8. Deviation Resolution
+
+If any document conflicts with this Charter, this Charter wins.
+If the Charter cannot be verified against its pinned SHA, Claude HALTS immediately.
+Claude does not proceed on memory or interpretation.
+
+---
+
+## Session-Start Ritual (mechanical, every session, every restart)
+
+```
+1. Read POLARIS/docs/session_pin.txt
+2. Run: gh api repos/aldrinor/polaris-controls/contents/CHARTER.md --jq .sha
+   Compare returned blob SHA to pin file's charter_sha256
+3. Same for PLAN.md, active slice spec, golden test manifest
+4. ANY mismatch → emit halt notice to .codex/halt_<utc>.md; surface to user; do not proceed
+5. ALL match → read CHARTER (this doc), PLAN, active slice, golden manifest
+6. State to user: active slice ID + current step within slice + next action
+7. Wait for user direction OR proceed if direction is unambiguous from slice spec
+```
+
+The ritual is enforced because the next PR fails Trusted App verification if any of these were skipped. The ritual is also enforced socially: the user reads the `.codex/` logs and sees whether the ritual ran.
+
+---
+
+## Plan Edit Path (the only legitimate way)
+
+To change Charter, Plan, Slice spec, or Golden tests:
+
+1. User edits the file in polaris-controls
+2. User commits with GPG/SSH signature
+3. User opens PR in POLARIS updating `docs/session_pin.txt` to the new SHA
+4. Trusted App verifies new SHA matches polaris-controls HEAD
+5. CI passes; user merges the pin update
+6. Next session uses the new pinned versions
+
+Claude never participates in plan edits. If Claude disagrees with a plan, Claude writes `.codex/proposal_<utc>.md` arguing the case and surfaces it. User decides.
+
+---
+
+## Out of Scope for Claude
+
+Claude does NOT:
+
+- Edit any file in `polaris-controls/`
+- Edit `docs/session_pin.txt`
+- Edit `.github/workflows/`, `.github/CODEOWNERS`
+- Edit `state/authorized_signers.json` (when it exists)
+- Sign any commit
+- Merge any PR
+- Mutate any test
+- Touch `.legacy/` for any reason
+
+If Claude attempts any of the above, the operation is rejected by hooks, branch protection, or both. There is no "but this is a special case."
+
+codex
+Findings: no P0/P1 blockers.
+
+Criterion 1: OK - planned `src/polaris_graph/followup/multi_turn.py` covers `TurnResult` and `run_multi_turn`.
+Criterion 2: OK - helper return type supports exactly one of `composed` or `refusal` per turn.
+Criterion 3: OK - five planned tests cover the requested behavior at brief level.
+Criterion 4: OK - estimated ~130 net LOC is under the 200 LOC cap.
+
+Completeness check: files read: `CLAUDE.md`, `polaris-controls/CHARTER.md`, `src/polaris_graph/followup/agent.py`, `inheritance.py`, `refusal.py`, `__init__.py`, `tests/polaris_graph/followup/test_agent.py`, `test_inheritance.py`, `test_refusal.py`, `src/polaris_v6/schemas/evidence_contract.py`, `src/polaris_v6/adapters/evidence_pool_merger.py`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking test hardening: add direct per-accepted-turn assertions for composed.parent_run_id and composed.inherited_evidence_ids. The existing inheritance helper should make this pass, but the new multi-turn tests should pin the lineage requirement explicitly."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+Findings: no P0/P1 blockers.
+
+Criterion 1: OK - planned `src/polaris_graph/followup/multi_turn.py` covers `TurnResult` and `run_multi_turn`.
+Criterion 2: OK - helper return type supports exactly one of `composed` or `refusal` per turn.
+Criterion 3: OK - five planned tests cover the requested behavior at brief level.
+Criterion 4: OK - estimated ~130 net LOC is under the 200 LOC cap.
+
+Completeness check: files read: `CLAUDE.md`, `polaris-controls/CHARTER.md`, `src/polaris_graph/followup/agent.py`, `inheritance.py`, `refusal.py`, `__init__.py`, `tests/polaris_graph/followup/test_agent.py`, `test_inheritance.py`, `test_refusal.py`, `src/polaris_v6/schemas/evidence_contract.py`, `src/polaris_v6/adapters/evidence_pool_merger.py`.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking test hardening: add direct per-accepted-turn assertions for composed.parent_run_id and composed.inherited_evidence_ids. The existing inheritance helper should make this pass, but the new multi-turn tests should pin the lineage requirement explicitly."
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+33,260
+```
