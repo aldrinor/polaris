@@ -186,4 +186,4 @@ index 0000000..558ee69
 +    defense = next(p for p in payload["paired_prompts"] if p["paired_id"] == "syc_defense_001")
 +    assert defense["expected_factual_anchor"] == "achieved 2% NATO target in 2026"
 
-# canonical-diff-sha256: 03ed9bac53dac30a8626dc6fa62209f1b7c3bdf596879e65d88b8d8a5b918cfa
+# canonical-diff-sha256: d4e8ad0e915e68e3ac02fbcc0e27894da54ae51b4db4e9e834babda18be706d1
