@@ -1,0 +1,383 @@
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts b/web/tests/e2e/visual_60_baselines.spec.ts
+new file mode 100644
+index 0000000..17aec71
+--- /dev/null
++++ b/web/tests/e2e/visual_60_baselines.spec.ts
+@@ -0,0 +1,135 @@
++/**
++ * I-p2c-002: 60 visual baselines (4 viewports × 15 features).
++ *
++ * Playwright-native `toHaveScreenshot()` baselines stored as PNGs alongside
++ * the spec. Restricted to Windows + chromium per CLAUDE.md F-5 visual-baseline
++ * convention; Linux + firefox/webkit baselines are follow-up I-p2c-002d.
++ *
++ * Percy.io integration deferred to follow-up I-p2c-002b (paid SaaS — needs
++ * user-side credentials).
++ *
++ * Initial baselines generated via `--update-snapshots`. Subsequent runs
++ * assert pixel-equality with `maxDiffPixelRatio: 0.01`.
++ */
++
++import { expect, test } from "@playwright/test";
++
++interface PageEntry {
++  feature: string;
++  path: string;
++  testid: string;
++  wait_svg_count?: number;
++  mock_memory?: boolean;
++  mock_benchmark?: boolean;
++}
++
++const VIEWPORTS = [
++  { name: "mobile", width: 375, height: 667 },
++  { name: "tablet", width: 768, height: 1024 },
++  { name: "laptop", width: 1280, height: 800 },
++  { name: "desktop", width: 1920, height: 1080 },
++] as const;
++
++const PAGES: PageEntry[] = [
++  { feature: "F1", path: "/intake", testid: "intake-form" },
++  {
++    feature: "F2",
++    path: "/disambiguation_modal_preview",
++    testid: "disambiguation-cluster-0",
++  },
++  { feature: "F3", path: "/upload", testid: "upload-dropzone" },
++  { feature: "F4", path: "/sse", testid: "sse-harness" },
++  {
++    feature: "F5",
++    path: "/sentence_hover_test/evidence_tooltip",
++    testid: "evidence-tooltip-harness",
++  },
++  { feature: "F6", path: "/sentence_hover_test", testid: "verified-report-view" },
++  {
++    feature: "F7",
++    path: "/sentence_hover_test/coverage",
++    testid: "frame-coverage-gaps",
++  },
++  { feature: "F8", path: "/sentence_hover_test", testid: "verified-report-view" },
++  {
++    feature: "F9",
++    path: "/sentence_hover_test/evaluator_edge",
++    testid: "verified-report-view",
++  },
++  {
++    feature: "F10",
++    path: "/charts_test/forest_plot",
++    testid: "vega-chart",
++    wait_svg_count: 1,
++  },
++  { feature: "F11", path: "/contracts", testid: "contract-form" },
++  {
++    feature: "F12",
++    path: "/sentence_hover_test/perf",
++    testid: "perf-trigger",
++  },
++  {
++    feature: "F13",
++    path: "/pin_replay",
++    testid: "pin-snapshot-a",
++    wait_svg_count: 2,
++  },
++  {
++    feature: "F14",
++    path: "/memory",
++    testid: "memory-banner",
++    mock_memory: true,
++  },
++  {
++    feature: "F15",
++    path: "/benchmark",
++    testid: "benchmark-page",
++    mock_benchmark: true,
++  },
++];
++
++for (const viewport of VIEWPORTS) {
++  for (const p of PAGES) {
++    test(`${p.feature} ${viewport.name}`, async ({ page }, testInfo) => {
++      test.skip(
++        process.platform !== "win32" || testInfo.project.name !== "chromium",
++        "I-p2c-002 baselines restricted to Windows+chromium; cross-OS in I-p2c-002d",
++      );
++      if (p.mock_memory) {
++        await page.route("**/workspaces/ws_demo/memory", async (route) => {
++          await route.fulfill({
++            status: 200,
++            contentType: "application/json",
++            body: JSON.stringify([]),
++          });
++        });
++      }
++      if (p.mock_benchmark) {
++        await page.route("**/api/benchmark/**", async (route) => {
++          await route.fulfill({
++            status: 200,
++            contentType: "application/json",
++            body: JSON.stringify({
++              available_benchmarks: [],
++              results_root: "/seeded/benchmarks",
++            }),
++          });
++        });
++      }
++      await page.setViewportSize({
++        width: viewport.width,
++        height: viewport.height,
++      });
++      await page.goto(p.path, { waitUntil: "domcontentloaded" });
++      await expect(page.getByTestId(p.testid)).toBeVisible();
++      if (p.wait_svg_count && p.wait_svg_count > 0) {
++        const svgs = page.locator("[data-testid='vega-chart'] svg");
++        await expect(svgs).toHaveCount(p.wait_svg_count, { timeout: 10_000 });
++      }
++      await expect(page).toHaveScreenshot(`${p.feature}-${viewport.name}.png`, {
++        animations: "disabled",
++        maxDiffPixelRatio: 0.01,
++      });
++    });
++  }
++}
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..4f6b7b8
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..9e1c851
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..34f943d
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..7d60de9
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F1-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..3b2ff42
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..4792542
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..d66ed1c
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..ef1ec00
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F10-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..fb60024
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..2989734
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..335f9cc
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..333cc28
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F11-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..cf50b7a
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..9e79ccc
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..5c71860
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..72f7a9a
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F12-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..ee3aa39
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..4e5caa2
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..71f17eb
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..7e05ff3
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F13-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..cf7b84f
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..97f62ea
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..47580c5
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..d0d99c6
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F14-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..f97ac89
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..04ae2b2
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..a85fd8e
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..e065647
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F15-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..385141d
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..9e73191
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..9379d58
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..4b06e8e
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F2-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..8576358
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..918c534
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..345ab2d
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..f6b2678
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F3-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..d4053e1
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..c08edc3
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..aafb7b1
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..98189ff
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F4-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..204106f
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..fb3c3d0
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..7a15ae2
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..8e43a44
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F5-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..661f74a
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..d56fef0
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..4085835
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..49797b1
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F6-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..f287c22
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..ec51137
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..e713fbe
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..f6512e2
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F7-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..661f74a
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..d56fef0
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..4085835
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..49797b1
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F8-tablet-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-desktop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-desktop-chromium-win32.png
+new file mode 100644
+index 0000000..8c9e12c
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-desktop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-laptop-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-laptop-chromium-win32.png
+new file mode 100644
+index 0000000..c88b8a1
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-laptop-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-mobile-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-mobile-chromium-win32.png
+new file mode 100644
+index 0000000..c0f004b
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-mobile-chromium-win32.png differ
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-tablet-chromium-win32.png b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-tablet-chromium-win32.png
+new file mode 100644
+index 0000000..e6629d0
+Binary files /dev/null and b/web/tests/e2e/visual_60_baselines.spec.ts-snapshots/F9-tablet-chromium-win32.png differ
+
+# canonical-diff-sha256: ef59a1b0b0ea26f4fc321bc2f53337b8ee7ec829a47978c19c590ada0c693452
