@@ -39,7 +39,7 @@ export function TwoRunPicker({
       >
         {selected.length} of 2 selected
       </p>
-      <ul className="border-border divide-y divide-border rounded-md border">
+      <ul className="border-border divide-border divide-y rounded-md border">
         {runs.map((r) => {
           const checked = selected.includes(r.run_id);
           return (
@@ -52,7 +52,10 @@ export function TwoRunPicker({
                 onChange={(e) => toggle(r.run_id, e.target.checked)}
                 className="h-4 w-4"
               />
-              <label htmlFor={`chk-${r.run_id}`} className="flex-1 cursor-pointer">
+              <label
+                htmlFor={`chk-${r.run_id}`}
+                className="flex-1 cursor-pointer"
+              >
                 <span className="block font-medium">{r.run_id}</span>
                 <span className="text-muted-foreground block text-xs">
                   {r.template} — {r.question}

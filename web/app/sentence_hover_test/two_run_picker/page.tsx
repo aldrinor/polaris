@@ -42,7 +42,10 @@ export default function TwoRunPickerFixturePage() {
         Two-run picker fixture (I-f12-001)
       </h1>
       <div className="mt-6">
-        <TwoRunPicker runs={STUB_RUNS} onCompare={([a, b]) => setLast(`${a},${b}`)} />
+        <TwoRunPicker
+          runs={STUB_RUNS}
+          onCompare={([a, b]) => setLast(`${a},${b}`)}
+        />
       </div>
       <p
         data-testid="last-compared-pair"
