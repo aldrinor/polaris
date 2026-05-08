@@ -1,64 +1,214 @@
-diff --git a/web/lib/api.ts b/web/lib/api.ts
-index 8c81908..98d98ed 100644
---- a/web/lib/api.ts
-+++ b/web/lib/api.ts
-@@ -998,3 +998,57 @@ export async function getBenchmarkSummary(
-   }
-   return await response.text();
- }
+diff --git a/web/app/memory/page.tsx b/web/app/memory/page.tsx
+new file mode 100644
+index 0000000..6113877
+--- /dev/null
++++ b/web/app/memory/page.tsx
+@@ -0,0 +1,117 @@
++"use client";
 +
-+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
-+export type MemoryKind =
-+  | "user_preference"
-+  | "domain_assumption"
-+  | "prior_run_summary"
-+  | "rejected_source"
-+  | "preferred_source";
++import { useEffect, useState } from "react";
 +
-+export interface MemoryEntry {
++import {
++  forgetMemory,
++  listMemory,
++  rememberMemory,
++  type MemoryEntry,
++  type MemoryKind,
++} from "@/lib/api";
++
++const WS = "ws_demo";
++const KINDS: MemoryKind[] = [
++  "user_preference",
++  "domain_assumption",
++  "prior_run_summary",
++  "rejected_source",
++  "preferred_source",
++];
++
++export default function MemoryPage() {
++  const [entries, setEntries] = useState<MemoryEntry[]>([]);
++  const [content, setContent] = useState("");
++  const [kind, setKind] = useState<MemoryKind>("user_preference");
++
++  useEffect(() => {
++    listMemory(WS).then((d) => queueMicrotask(() => setEntries(d)));
++  }, []);
++
++  const reload = async () => setEntries(await listMemory(WS));
++
++  const onSave = async () => {
++    await rememberMemory(WS, { kind, content });
++    setContent("");
++    await reload();
++  };
++
++  const onForget = async (id: string) => {
++    await forgetMemory(WS, id);
++    await reload();
++  };
++
++  const sorted = [...entries].sort((a, b) =>
++    b.created_at.localeCompare(a.created_at),
++  );
++
++  return (
++    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
++      <h1 className="text-2xl font-semibold tracking-tight">
++        Workspace memory
++      </h1>
++      <p
++        data-testid="memory-banner"
++        className="text-muted-foreground mt-2 text-sm"
++      >
++        Demo workspace <code>{WS}</code>. Save + forget shipped here; pin
++        controls land in I-f14-002b once the localStorage pattern is reviewed.
++      </p>
++      <div className="border-border mt-4 space-y-2 rounded border p-3">
++        <select
++          data-testid="memory-save-kind"
++          value={kind}
++          onChange={(e) => setKind(e.target.value as MemoryKind)}
++          className="border-border bg-background w-full rounded border px-2 py-1 text-sm"
++        >
++          {KINDS.map((k) => (
++            <option key={k} value={k}>
++              {k}
++            </option>
++          ))}
++        </select>
++        <textarea
++          data-testid="memory-save-content"
++          value={content}
++          onChange={(e) => setContent(e.target.value)}
++          rows={2}
++          placeholder="What should the workspace remember?"
++          className="border-border bg-background w-full rounded border px-2 py-1 text-sm"
++        />
++        <button
++          type="button"
++          data-testid="memory-save"
++          onClick={onSave}
++          disabled={content.length < 4}
++          className="border-border rounded border px-3 py-1 text-sm hover:bg-blue-500/10 disabled:opacity-50"
++        >
++          Save
++        </button>
++      </div>
++      <ul className="mt-4 space-y-2" data-testid="memory-list">
++        {sorted.map((e) => (
++          <li
++            key={e.entry_id}
++            data-testid={`memory-row-${e.entry_id}`}
++            className="border-border flex items-start justify-between gap-3 rounded border p-3 text-sm"
++          >
++            <div>
++              <div className="text-muted-foreground text-xs">
++                {e.kind} · {e.entry_id.slice(0, 8)}
++              </div>
++              <div>{e.content}</div>
++            </div>
++            <button
++              type="button"
++              data-testid={`memory-forget-${e.entry_id}`}
++              onClick={() => onForget(e.entry_id)}
++              className="border-border shrink-0 rounded border px-2 py-1 text-xs hover:bg-rose-500/10"
++            >
++              Forget
++            </button>
++          </li>
++        ))}
++      </ul>
++    </main>
++  );
++}
+diff --git a/web/tests/e2e/memory_page_controls.spec.ts b/web/tests/e2e/memory_page_controls.spec.ts
+new file mode 100644
+index 0000000..2307063
+--- /dev/null
++++ b/web/tests/e2e/memory_page_controls.spec.ts
+@@ -0,0 +1,83 @@
++import { expect, test, type Page } from "@playwright/test";
++
++interface FakeEntry {
 +  entry_id: string;
 +  workspace_id: string;
-+  kind: MemoryKind;
++  kind: string;
 +  content: string;
 +  created_at: string;
-+  last_used_at?: string | null;
 +  use_count: number;
 +  derived_from_run_ids: string[];
 +}
 +
-+const _ws = (ws: string) =>
-+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
++const seed: FakeEntry = {
++  entry_id: "seed-1",
++  workspace_id: "ws_demo",
++  kind: "user_preference",
++  content: "Prefers CMHC primary source.",
++  created_at: "2026-01-01T00:00:00Z",
++  use_count: 0,
++  derived_from_run_ids: [],
++};
 +
-+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
-+  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
-+}
-+
-+export async function rememberMemory(
-+  ws: string,
-+  payload: {
-+    kind: MemoryKind;
-+    content: string;
-+    derived_from_run_ids?: string[];
-+  },
-+): Promise<MemoryEntry> {
-+  return asJsonOrThrow<MemoryEntry>(
-+    await fetch(_ws(ws), {
-+      method: "POST",
-+      headers: { "content-type": "application/json" },
-+      body: JSON.stringify(payload),
-+    }),
-+  );
-+}
-+
-+export async function forgetMemory(
-+  ws: string,
-+  entry_id: string,
-+): Promise<void> {
-+  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
-+    method: "DELETE",
++async function mock(page: Page) {
++  const state = { entries: [{ ...seed }], counter: 1 };
++  await page.route("**/workspaces/ws_demo/memory/*", async (route) => {
++    if (route.request().method() === "DELETE") {
++      const id = route.request().url().split("/").pop()!;
++      state.entries = state.entries.filter((e) => e.entry_id !== id);
++      await route.fulfill({ status: 204 });
++      return;
++    }
++    await route.continue();
 +  });
-+  if (!r.ok && r.status !== 404)
-+    throw new Error(`forget memory failed: HTTP ${r.status}`);
++  await page.route("**/workspaces/ws_demo/memory", async (route) => {
++    if (route.request().method() === "GET") {
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify(state.entries),
++      });
++      return;
++    }
++    if (route.request().method() === "POST") {
++      state.counter += 1;
++      const body = JSON.parse(route.request().postData() ?? "{}");
++      const created: FakeEntry = {
++        ...seed,
++        entry_id: `seed-${state.counter}`,
++        kind: body.kind,
++        content: body.content,
++        created_at: new Date(2026, 0, state.counter).toISOString(),
++      };
++      state.entries.push(created);
++      await route.fulfill({
++        status: 201,
++        contentType: "application/json",
++        body: JSON.stringify(created),
++      });
++      return;
++    }
++    await route.continue();
++  });
 +}
++
++test("memory page: save adds entry, then forget removes it", async ({
++  page,
++}) => {
++  await mock(page);
++  await page.goto("/memory");
++  await expect(page.getByTestId("memory-row-seed-1")).toBeVisible();
++  await page
++    .getByTestId("memory-save-content")
++    .fill("Reject blogspot sources.");
++  await page.getByTestId("memory-save-kind").selectOption("rejected_source");
++  await page.getByTestId("memory-save").click();
++  await expect(page.getByTestId("memory-row-seed-2")).toBeVisible();
++  await expect(page.getByTestId("memory-row-seed-2")).toContainText(
++    "Reject blogspot sources.",
++  );
++  await page.getByTestId("memory-forget-seed-2").click();
++  await expect(page.getByTestId("memory-row-seed-2")).toHaveCount(0);
++  await expect(page.getByTestId("memory-row-seed-1")).toBeVisible();
++});
 
-# canonical-diff-sha256: 322eeada58c39e65190758fab918ff4f9fa68ca7557ada8e0522113302ceb416
+# canonical-diff-sha256: c2ad55254a519b47c4a56fc5ccc6cd1ae6e7c2c6db585691f7da0f11c0119c4e
