@@ -1,0 +1,123 @@
+"""I-f11-003 — Evidence Contract inheritance tests."""
+
+from __future__ import annotations
+
+import pytest
+
+from polaris_graph.followup.agent import ComposedQuery, FollowUpAgent
+from polaris_graph.followup.inheritance import (
+    compose_with_inheritance,
+    inherit_evidence_pool,
+)
+from polaris_v6.adapters.evidence_pool_merger import merge_evidence_pool
+from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
+
+
+def _span(evidence_id: str, text: str) -> SourceSpan:
+    return SourceSpan(
+        evidence_id=evidence_id,
+        source_url=f"https://example.test/{evidence_id}",
+        source_tier="T1",
+        span_start=0,
+        span_end=len(text),
+        span_text=text,
+    )
+
+
+def _contract(evidence_pool: list[SourceSpan]) -> EvidenceContract:
+    return EvidenceContract(
+        run_id="run_parent_001",
+        template="clinical_summary",
+        question="What is the efficacy of drug X?",
+        queued_at="2026-05-08T00:00:00Z",
+        finished_at="2026-05-08T00:00:30Z",
+        pipeline_status="success",
+        evidence_pool=evidence_pool,
+        verified_sentences=[],
+        frame_coverage=[],
+        contradictions=[],
+        cost_usd=0.0,
+        generator_model="g",
+        verifier_model="v",
+        family_segregation_passed=True,
+    )
+
+
+def test_inherit_evidence_pool_returns_copy() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta")]
+    contract = _contract(pool)
+    out = inherit_evidence_pool(contract)
+    assert out == pool
+    assert out is not contract.evidence_pool
+    out.append(_span("ev_c", "gamma"))
+    assert len(contract.evidence_pool) == 2
+
+
+def test_inherit_evidence_pool_preserves_order() -> None:
+    pool = [_span("ev_z", "z"), _span("ev_a", "a"), _span("ev_m", "m")]
+    out = inherit_evidence_pool(_contract(pool))
+    assert [s.evidence_id for s in out] == ["ev_z", "ev_a", "ev_m"]
+
+
+def test_inherit_evidence_pool_empty_pool() -> None:
+    out = inherit_evidence_pool(_contract([]))
+    assert out == []
+
+
+def test_compose_with_inheritance_returns_both() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta")]
+    contract = _contract(pool)
+    composed, spans = compose_with_inheritance(
+        FollowUpAgent(), contract, "What about drug Y?"
+    )
+    assert isinstance(composed, ComposedQuery)
+    assert composed.parent_run_id == "run_parent_001"
+    assert composed.inherited_template == "clinical_summary"
+    assert "What about drug Y?" in composed.effective_question
+    assert "What is the efficacy of drug X?" in composed.effective_question
+    assert len(spans) == 2
+
+
+def test_compose_with_inheritance_known_evidence_ids_from_parent_pool() -> None:
+    pool = [_span("ev_a", "alpha"), _span("ev_b", "beta"), _span("ev_c", "gamma")]
+    composed, _ = compose_with_inheritance(
+        FollowUpAgent(), _contract(pool), "follow-up"
+    )
+    assert composed.inherited_evidence_ids == ["ev_a", "ev_b", "ev_c"]
+
+
+def test_compose_with_inheritance_no_re_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monkeypatch retrieval entry to raise; compose_with_inheritance must succeed."""
+    from polaris_graph.tools import react_agent
+
+    def _raise(*_args, **_kwargs):
+        raise AssertionError("no retrieval should occur during inheritance")
+
+    monkeypatch.setattr(react_agent.ReactAnalysisAgent, "run", _raise, raising=True)
+
+    pool = [_span("ev_a", "alpha")]
+    composed, spans = compose_with_inheritance(
+        FollowUpAgent(), _contract(pool), "What about drug Y?"
+    )
+    assert composed.inherited_evidence_ids == ["ev_a"]
+    assert len(spans) == 1
+
+
+def test_inherited_spans_pass_through_to_merger() -> None:
+    """Spans returned by inherit_evidence_pool can be merged unchanged."""
+    parent_spans = [
+        _span("ev_a", "alpha text"),
+        _span("ev_b", "beta text"),
+    ]
+    inherited = inherit_evidence_pool(_contract(parent_spans))
+    merged = merge_evidence_pool(
+        retrieval_spans=inherited, uploaded_chunks=[], memory_summaries=[]
+    )
+    assert len(merged) == len(parent_spans)
+    for parent, out in zip(parent_spans, merged, strict=True):
+        assert out.evidence_id.endswith(parent.evidence_id.removeprefix("ev_"))
+        assert out.source_url == parent.source_url
+        assert out.source_tier == parent.source_tier
+        assert out.span_start == parent.span_start
+        assert out.span_end == parent.span_end
+        assert out.span_text == parent.span_text
