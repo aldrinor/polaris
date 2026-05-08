@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 const URL = "/sentence_hover_test/split_screen";
 
-test("renders both panels with initial split", async ({ page }) => {
+test("renders both panels with approx 50/50 initial layout", async ({
+  page,
+}) => {
   await page.goto(URL);
   await expect(page.getByTestId("split-left").first()).toBeVisible();
   await expect(page.getByTestId("split-right").first()).toBeVisible();
@@ -12,6 +14,8 @@ test("renders both panels with initial split", async ({ page }) => {
   expect(rightBox).not.toBeNull();
   expect(leftBox!.width).toBeGreaterThan(0);
   expect(rightBox!.width).toBeGreaterThan(0);
+  // 50/50 with the 20%-80% bounds — accept any ratio within 5 pixels of equal.
+  expect(Math.abs(leftBox!.width - rightBox!.width)).toBeLessThan(5);
 });
 
 test("divider has WAI-ARIA separator semantics", async ({ page }) => {

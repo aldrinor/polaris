@@ -11,6 +11,10 @@ import { useId, type ReactNode } from "react";
 
 const MIN_PCT = 20;
 const MAX_PCT = 80;
+// react-resizable-panels v4 treats Panel minSize/maxSize as pixels when
+// numeric; pass percentage strings to enforce the 20%-80% bounds.
+const MIN_PCT_STR = "20%";
+const MAX_PCT_STR = "80%";
 
 function clamp(v: number): number {
   return Math.min(MAX_PCT, Math.max(MIN_PCT, v));
@@ -37,13 +41,13 @@ export function SplitScreen({
         className="h-full w-full"
         defaultLayout={{ [leftId]: leftDefault, [rightId]: rightDefault }}
       >
-        <Panel id={leftId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+        <Panel id={leftId} minSize={MIN_PCT_STR} maxSize={MAX_PCT_STR}>
           <div data-testid="split-left" className="h-full overflow-auto">
             {left}
           </div>
         </Panel>
         <Separator className="bg-border hover:bg-primary focus:bg-primary w-1 cursor-col-resize touch-none focus:outline-none" />
-        <Panel id={rightId} minSize={MIN_PCT} maxSize={MAX_PCT}>
+        <Panel id={rightId} minSize={MIN_PCT_STR} maxSize={MAX_PCT_STR}>
           <div data-testid="split-right" className="h-full overflow-auto">
             {right}
           </div>
