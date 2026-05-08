@@ -24,6 +24,15 @@ export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
     verified_sentence_count: 18,
     pass_rate: 0.72,
   },
+  "2026-03-01": {
+    pin_date: "2026-03-01",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 5,
+    section_count_dropped: 0,
+    verified_sentence_count: 21,
+    pass_rate: 0.79,
+  },
   "2026-04-30": {
     pin_date: "2026-04-30",
     query: "Tirzepatide vs semaglutide cardiovascular outcomes",
