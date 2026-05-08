@@ -222,4 +222,4 @@ index 0000000..436a446
 +    with pytest.raises(ValueError):
 +        compute_claim_diff(_c("X", []), _c("X", []))
 
-# canonical-diff-sha256: 79027e3fcbed0450f5e51fcd03eb0884ddc82e8a616d545f10102dcb71be8282
+# canonical-diff-sha256: 38234169515b127a25d3fefa7b5ada1045d989165332434a8d0eb40dd0206679
