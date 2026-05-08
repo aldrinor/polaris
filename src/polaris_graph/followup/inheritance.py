@@ -13,6 +13,7 @@ from polaris_graph.followup.agent import (
     FollowUpAgent,
     ParentRunContext,
 )
+from polaris_graph.followup.refusal import RefusalDecision, compose_or_refuse
 from polaris_v6.schemas.evidence_contract import EvidenceContract, SourceSpan
 
 
@@ -42,3 +43,27 @@ def compose_with_inheritance(
     composed = agent.compose(parent, follow_up)
     inherited = inherit_evidence_pool(parent_contract)
     return composed, inherited
+
+
+def compose_with_inheritance_or_refuse(
+    agent: FollowUpAgent,
+    parent_contract: EvidenceContract,
+    follow_up: str,
+) -> tuple[ComposedQuery | RefusalDecision, list[SourceSpan]]:
+    """Inheritance-aware compose that routes through out-of-scope refusal.
+
+    Returns (RefusalDecision, []) when the follow-up is out-of-scope, or
+    (ComposedQuery, inherited_spans) when in-scope.
+    """
+    parent = ParentRunContext(
+        parent_run_id=parent_contract.run_id,
+        template=parent_contract.template,
+        parent_question=parent_contract.question,
+        known_evidence_ids=[s.evidence_id for s in parent_contract.evidence_pool],
+        parent_summary=None,
+    )
+    decision = compose_or_refuse(agent, parent, follow_up)
+    if isinstance(decision, RefusalDecision):
+        return decision, []
+    inherited = inherit_evidence_pool(parent_contract)
+    return decision, inherited
