@@ -1,0 +1,240 @@
+diff --git a/tests/v6/test_charts.py b/tests/v6/test_charts.py
+index c2fd301..8a3fef2 100644
+--- a/tests/v6/test_charts.py
++++ b/tests/v6/test_charts.py
+@@ -84,6 +84,41 @@ def test_timeline_date_kind_uses_temporal():
+     assert spec["encoding"]["x"]["type"] == "temporal"
+ 
+ 
++def test_forest_plot_meta_analysis_with_negative_estimates():
++    """I-f10-002: SELECT-trial-style meta-analysis with negative effect
++    estimates and asymmetric CIs (e.g., MACE -0.20 [-0.27, -0.13]) MUST
++    produce a two-layer rule+point Vega-Lite spec where every point row
++    carries its evidence_id in tooltip metadata. Locks the meta-analysis
++    use case the I-f10-002 acceptance criterion calls out beyond the
++    basic-shape coverage."""
++    spec = build_forest_plot(
++        title="SELECT trial cardiovascular outcomes",
++        points=[
++            ForestPlotPoint("MACE", -0.20, -0.27, -0.13, "ev_clin_001"),
++            ForestPlotPoint("MI", -0.18, -0.28, -0.06, "ev_clin_002"),
++            ForestPlotPoint("Stroke", -0.07, -0.19, 0.05, "ev_clin_003"),
++        ],
++    )
++    # Two-layer structure (rule for CI bars, point for estimates) preserved.
++    assert "layer" in spec
++    assert len(spec["layer"]) == 2
++    rule_layer, point_layer = spec["layer"]
++    assert rule_layer["mark"]["type"] == "rule"
++    assert point_layer["mark"]["type"] == "point"
++    # Each point's tooltip carries the evidence_id (click-through-to-source
++    # contract for F10b).
++    tooltip_fields = {f["field"] for f in point_layer["encoding"]["tooltip"]}
++    assert "evidence_id" in tooltip_fields
++    # Negative effect estimates serialize correctly.
++    data = spec["data"]["values"]
++    assert data[0]["estimate"] == -0.20
++    assert data[0]["ci_low"] == -0.27
++    assert data[0]["ci_high"] == -0.13
++    # Asymmetric CI: stroke crosses zero (effect estimate negative, ci_high
++    # positive) — meta-analysis "no effect" boundary case.
++    assert data[2]["ci_low"] < 0 < data[2]["ci_high"]
++
++
+ def test_all_charts_carry_evidence_ids():
+     forest = build_forest_plot(
+         title="t",
+diff --git a/web/app/charts_test/forest_plot/page.tsx b/web/app/charts_test/forest_plot/page.tsx
+new file mode 100644
+index 0000000..8b7d398
+--- /dev/null
++++ b/web/app/charts_test/forest_plot/page.tsx
+@@ -0,0 +1,53 @@
++import { VegaChart } from "@/components/ui/vega-chart";
++import {
++  buildForestPlotSpec,
++  type ForestPlotPoint,
++} from "@/lib/forest_plot_spec";
++
++const SAMPLE_META_ANALYSIS: ForestPlotPoint[] = [
++  {
++    label: "MACE",
++    estimate: -0.2,
++    ci_low: -0.27,
++    ci_high: -0.13,
++    evidence_id: "demo-clin-001",
++  },
++  {
++    label: "MI",
++    estimate: -0.18,
++    ci_low: -0.28,
++    ci_high: -0.06,
++    evidence_id: "demo-clin-002",
++  },
++  {
++    label: "Stroke",
++    estimate: -0.07,
++    ci_low: -0.19,
++    ci_high: 0.05,
++    evidence_id: "demo-clin-003",
++  },
++];
++
++export default function ForestPlotPage() {
++  const spec = buildForestPlotSpec(
++    "SELECT trial cardiovascular outcomes (demo)",
++    SAMPLE_META_ANALYSIS,
++  );
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-4xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Forest plot — sample meta-analysis
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Sample SELECT-trial cardiovascular outcomes (demo data, demo
++          evidence_ids); same Vega-Lite structure produced by{" "}
++          <code>polaris_v6.charts.spec_builder.build_forest_plot</code>.
++        </p>
++        <div className="mt-6">
++          <VegaChart spec={spec} />
++        </div>
++      </div>
++    </main>
++  );
++}
+diff --git a/web/lib/forest_plot_spec.ts b/web/lib/forest_plot_spec.ts
+new file mode 100644
+index 0000000..d9f63e1
+--- /dev/null
++++ b/web/lib/forest_plot_spec.ts
+@@ -0,0 +1,78 @@
++/**
++ * I-f10-002: TypeScript helper that mirrors `polaris_v6.charts.spec_builder.build_forest_plot`
++ * for client-side visualization demos. Canonical spec generator remains the
++ * Python builder; the backend route `/runs/{run_id}/charts/forest_plot` returns
++ * specs of the same shape this helper produces.
++ */
++
++import type { VegaLiteSpec } from "@/lib/api";
++
++export const VEGA_LITE_SCHEMA_URL =
++  "https://vega.github.io/schema/vega-lite/v5.json";
++
++export interface ForestPlotPoint {
++  label: string;
++  estimate: number;
++  ci_low: number;
++  ci_high: number;
++  evidence_id: string;
++}
++
++export function buildForestPlotSpec(
++  title: string,
++  points: ForestPlotPoint[],
++  x_label: string = "Effect estimate (95% CI)",
++): VegaLiteSpec {
++  if (points.length === 0) {
++    throw new Error("forest plot requires at least one point");
++  }
++  const data_values = points.map((p) => ({
++    label: p.label,
++    estimate: p.estimate,
++    ci_low: p.ci_low,
++    ci_high: p.ci_high,
++    evidence_id: p.evidence_id,
++  }));
++  return {
++    $schema: VEGA_LITE_SCHEMA_URL,
++    title,
++    data: { values: data_values },
++    layer: [
++      {
++        mark: { type: "rule" },
++        encoding: {
++          y: {
++            field: "label",
++            type: "nominal",
++            sort: null,
++            axis: { title: null },
++          },
++          x: {
++            field: "ci_low",
++            type: "quantitative",
++            title: x_label,
++          },
++          x2: { field: "ci_high" },
++        },
++      },
++      {
++        mark: { type: "point", filled: true, size: 100 },
++        encoding: {
++          y: { field: "label", type: "nominal" },
++          x: { field: "estimate", type: "quantitative" },
++          tooltip: [
++            { field: "label" },
++            { field: "estimate" },
++            { field: "ci_low" },
++            { field: "ci_high" },
++            { field: "evidence_id" },
++          ],
++        },
++      },
++    ],
++    polaris_provenance: {
++      chart_type: "forest_plot",
++      evidence_ids: points.map((p) => p.evidence_id),
++    },
++  };
++}
+diff --git a/web/tests/e2e/forest_plot_chart.spec.ts b/web/tests/e2e/forest_plot_chart.spec.ts
+new file mode 100644
+index 0000000..26f5afe
+--- /dev/null
++++ b/web/tests/e2e/forest_plot_chart.spec.ts
+@@ -0,0 +1,44 @@
++import { expect, test } from "@playwright/test";
++
++test("Forest plot demo route renders sample meta-analysis (rule + point marks)", async ({
++  page,
++}) => {
++  await page.goto("/charts_test/forest_plot");
++
++  const chart = page.getByTestId("vega-chart");
++  await expect(chart).toBeVisible();
++
++  const svg = chart.locator("svg");
++  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
++
++  // Vega scenegraph emits a graphics-object container per mark layer with
++  // role="graphics-object". We narrow further by aria-roledescription which
++  // Vega sets to "rule mark" / "symbol mark" on the marked groups. This
++  // avoids matching axes/gridlines/background.
++  const rule_layer = chart.locator(
++    'g[role="graphics-object"][aria-roledescription="rule mark container"]',
++  );
++  const point_layer = chart.locator(
++    'g[role="graphics-object"][aria-roledescription="symbol mark container"]',
++  );
++
++  // If Vega's exact aria-roledescription strings differ at runtime, fall back
++  // to counting graphics-symbol descendants under each role-aware container.
++  const rule_count = await rule_layer.count();
++  const point_count = await point_layer.count();
++
++  if (rule_count > 0 && point_count > 0) {
++    // Each layer present.
++    expect(rule_count).toBeGreaterThan(0);
++    expect(point_count).toBeGreaterThan(0);
++  } else {
++    // Fallback: assert at least N graphics-symbol marks (3 data points = 3
++    // rule lines + 3 point marks = 6 graphics symbols). Filters out non-mark
++    // SVG (axes/gridlines/background) by role.
++    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
++    const total_marks = await graphics_symbols.count();
++    expect(total_marks).toBeGreaterThanOrEqual(6);
++  }
++
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: 701c4a2a301a41defbc3d5f6a2a8244079090a2c023def6d8725d3ca454779a1
