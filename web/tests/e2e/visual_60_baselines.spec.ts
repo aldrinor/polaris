@@ -44,13 +44,21 @@ const PAGES: PageEntry[] = [
     path: "/sentence_hover_test/evidence_tooltip",
     testid: "evidence-tooltip-harness",
   },
-  { feature: "F6", path: "/sentence_hover_test", testid: "verified-report-view" },
+  {
+    feature: "F6",
+    path: "/sentence_hover_test",
+    testid: "verified-report-view",
+  },
   {
     feature: "F7",
     path: "/sentence_hover_test/coverage",
     testid: "frame-coverage-gaps",
   },
-  { feature: "F8", path: "/sentence_hover_test", testid: "verified-report-view" },
+  {
+    feature: "F8",
+    path: "/sentence_hover_test",
+    testid: "verified-report-view",
+  },
   {
     feature: "F9",
     path: "/sentence_hover_test/evaluator_edge",
