@@ -1,0 +1,2343 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e058d-120e-7db2-8497-724771b97119
+--------
+user
+# Codex Diff Review — I-f10-008 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Static review only — DO NOT spawn dev servers.
+
+**Issue:** I-f10-008 — F10 walkthrough: tirzepatide vs semaglutide
+**Brief:** APPROVED iter 2 (port → 3000 + N=5 wording + clinical-question disclaimer P2 fixes applied in this diff)
+**Canonical-diff-sha256:** `de10e135e1182f84348c71442e85f7f2a2d228c78387bea016920f8c86ae473f`
+**LOC:** 208 net (CHARTER §1 LOC cap N/A — documentation only)
+
+## Files
+
+```
+docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md   NEW +208 (markdown walkthrough)
+```
+
+## What changed
+
+Documentation-only deliverable. 208-line markdown walkthrough exercises the F10 substrate end-to-end. Sections:
+
+1. **Purpose** — explicit honest-gap framing per LAW II.
+2. **Setup** — port 3000 with `npm run dev` per Codex iter-1 P1 fix.
+3. **Step 1 (Comparison table):** route + expected substrate behavior + auto-coverage references. N=5 corrected to "5 entities × 2 metrics = 10 entity-metric data rows" per Codex iter-2 P2.
+4. **Step 2 (Click-through):** route + expected pane content (evidence_id + tier + URL + excerpt) + honest-gap on SOURCE_REGISTRY-vs-production-fetch.
+5. **Step 3 (ChartProvenance contract):** schema + tests reference + run command.
+6. **Step 4 (Sandboxed execution sovereignty):** I-f10-007 hardening + 35 sovereignty tests + I-f10-007b follow-up framing.
+7. **What's NOT yet wired** — explicit gap section: live LLM auto-table; real evidence_id resolution; OS-level isolation.
+8. **Cross-references** — every I-f10-001..007 PR linked with file paths + commit SHAs + claude_audit.md paths.
+
+Per Codex iter-2 P2: walkthrough explicitly states "the clinical question itself is NOT answered by live evidence today" and clarifies the demo routes show housing-starts data and SELECT-trial data, not pharmaceutical efficacy.
+
+## Verification
+
+- Markdown renders cleanly in GitHub (verified by inspection).
+- Routes referenced (`/charts_test/comparison_table`, `/charts_test/click_through`) exist on polaris HEAD (just-merged through I-f10-006).
+- Test commands are verbatim runnable (Windows PowerShell + POSIX shell variants).
+- All cross-referenced PR commits exist: `bad6d9e` (I-f10-001), `a3f1f50` (I-f10-002), `6fb1b37` (I-f10-003), `bbe8dbc` (I-f10-004), `599bbe0` (I-f10-005), `54fc31a` (I-f10-006), `617605e` (I-f10-007).
+
+## Risks for Codex Red-Team
+
+1. **Documentation-only:** no code paths altered. CHARTER §1 LOC cap is N/A — this is a markdown deliverable per the issue spec ("LOC estimate 0 (walkthrough)").
+2. **Honest framing per LAW II:** "the clinical question itself is NOT answered by live evidence today" stated explicitly in the Purpose section.
+3. **Port 3000 (not 3738):** verified against `web/package.json` line 6 (`"dev": "next dev"`).
+4. **§9.4 N/A documentation.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll do this as a static diff review only: read the new walkthrough and cross-check referenced local paths/routes/tests where needed, without starting any server.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g 'package.json' -g '*comparison*' -g '*click*' -g '*ChartProvenance*' -g '*claude_audit.md'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+2026-05-08T03:06:44.887294Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+web\tests\e2e\comparison_table_chart.spec.ts
+web\tests\e2e\chart_click_through.spec.ts
+config\prompts\fragment_comparison.md
+web\package.json
+web\lib\comparison_table_spec.ts
+scripts\screenshot_comparison.py
+outputs\audits\I-f2-001\claude_audit.md
+outputs\audits\I-f15-006\claude_audit.md
+outputs\audits\I-f15-005\claude_audit.md
+outputs\audits\I-f1-004\claude_audit.md
+outputs\audits\I-f15-004\claude_audit.md
+outputs\audits\I-f15-003\claude_audit.md
+outputs\audits\I-f15-002\claude_audit.md
+outputs\audits\I-f1-003\claude_audit.md
+outputs\audits\I-f15-001\claude_audit.md
+outputs\audits\I-f1-002\claude_audit.md
+outputs\audits\I-f1-001\claude_audit.md
+outputs\audits\I-ecg-004\claude_audit.md
+outputs\audits\I-f10-007\claude_audit.md
+outputs\audits\I-ecg-003\claude_audit.md
+outputs\audits\I-f10-006\claude_audit.md
+outputs\audits\I-ecg-002\claude_audit.md
+outputs\audits\I-f10-005\claude_audit.md
+outputs\audits\I-ecg-001\claude_audit.md
+outputs\audits\I-f10-004\claude_audit.md
+outputs\audits\I-bug-082\claude_audit.md
+outputs\audits\I-f10-003\claude_audit.md
+outputs\audits\I-bug-079\claude_audit.md
+outputs\audits\I-f10-002\claude_audit.md
+outputs\audits\I-f10-001\claude_audit.md
+outputs\audits\I-f1-006\claude_audit.md
+outputs\audits\I-f1-005\claude_audit.md
+outputs\audits\I-f5-008\claude_audit.md
+outputs\audits\I-f5-007\claude_audit.md
+outputs\audits\I-f5-006\claude_audit.md
+outputs\audits\I-f5-005\claude_audit.md
+outputs\audits\v27\claude_audit.md
+outputs\audits\I-f5-004\claude_audit.md
+outputs\audits\I-f5-003\claude_audit.md
+outputs\audits\I-f5-002\claude_audit.md
+outputs\audits\v25\claude_audit.md
+outputs\audits\I-f5-001\claude_audit.md
+outputs\audits\I-f4-005\claude_audit.md
+outputs\audits\I-f3-004\claude_audit.md
+outputs\audits\I-f4-004\claude_audit.md
+outputs\audits\I-f3-003\claude_audit.md
+outputs\audits\I-f3-002\claude_audit.md
+outputs\audits\I-f4-003\claude_audit.md
+outputs\audits\I-f3-001\claude_audit.md
+outputs\audits\I-f4-002\claude_audit.md
+outputs\audits\I-f2-005\claude_audit.md
+outputs\audits\I-f4-001\claude_audit.md
+outputs\audits\I-f3-010\claude_audit.md
+outputs\audits\I-f2-008\claude_audit.md
+outputs\audits\I-f2-004\claude_audit.md
+outputs\audits\I-f2-007\claude_audit.md
+outputs\audits\I-f2-002\claude_audit.md
+outputs\audits\I-f3-009\claude_audit.md
+outputs\audits\I-f3-006\claude_audit.md
+outputs\audits\I-f3-008\claude_audit.md
+outputs\audits\I-f3-005\claude_audit.md
+outputs\audits\I-f2-003\claude_audit.md
+outputs\audits\I-f3-007\claude_audit.md
+outputs\audits\I-f8-001\claude_audit.md
+outputs\audits\I-f6-003\claude_audit.md
+outputs\audits\I-f7-003\claude_audit.md
+outputs\audits\I-f7-001\claude_audit.md
+outputs\audits\I-f5-011\claude_audit.md
+outputs\audits\I-f7-004\claude_audit.md
+outputs\audits\I-f6-002\claude_audit.md
+outputs\audits\I-f2-006\claude_audit.md
+outputs\audits\I-f7-002\claude_audit.md
+outputs\audits\I-f5-010\claude_audit.md
+outputs\audits\I-f9-001\claude_audit.md
+outputs\audits\I-f6-001\claude_audit.md
+outputs\audits\I-f6-005\claude_audit.md
+outputs\audits\I-f8-006\claude_audit.md
+outputs\audits\I-f5-009\claude_audit.md
+outputs\audits\I-f6-004\claude_audit.md
+outputs\audits\I-f8-005\claude_audit.md
+outputs\audits\I-f8-004\claude_audit.md
+outputs\audits\I-phase0-005\claude_audit.md
+outputs\audits\I-f8-002\claude_audit.md
+outputs\audits\I-f8-003\claude_audit.md
+outputs\audits\I-f9-002\claude_audit.md
+outputs\audits\I-f9-003\claude_audit.md
+outputs\audits\I-policy-001\claude_audit.md
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+
+ exited 1 in 910ms:
+web\tests\e2e\comparison_table_chart.spec.ts
+web\tests\e2e\chart_click_through.spec.ts
+config\prompts\fragment_comparison.md
+web\package.json
+web\lib\comparison_table_spec.ts
+scripts\screenshot_comparison.py
+outputs\audits\I-f2-001\claude_audit.md
+outputs\audits\I-f15-006\claude_audit.md
+outputs\audits\I-f15-005\claude_audit.md
+outputs\audits\I-f1-004\claude_audit.md
+outputs\audits\I-f15-004\claude_audit.md
+outputs\audits\I-f15-003\claude_audit.md
+outputs\audits\I-f15-002\claude_audit.md
+outputs\audits\I-f1-003\claude_audit.md
+outputs\audits\I-f15-001\claude_audit.md
+outputs\audits\I-f1-002\claude_audit.md
+outputs\audits\I-f1-001\claude_audit.md
+outputs\audits\I-ecg-004\claude_audit.md
+outputs\audits\I-f10-007\claude_audit.md
+outputs\audits\I-ecg-003\claude_audit.md
+outputs\audits\I-f10-006\claude_audit.md
+outputs\audits\I-ecg-002\claude_audit.md
+outputs\audits\I-f10-005\claude_audit.md
+outputs\audits\I-ecg-001\claude_audit.md
+outputs\audits\I-f10-004\claude_audit.md
+outputs\audits\I-bug-082\claude_audit.md
+outputs\audits\I-f10-003\claude_audit.md
+outputs\audits\I-bug-079\claude_audit.md
+outputs\audits\I-f10-002\claude_audit.md
+outputs\audits\I-f10-001\claude_audit.md
+outputs\audits\I-f1-006\claude_audit.md
+outputs\audits\I-f1-005\claude_audit.md
+outputs\audits\I-f5-008\claude_audit.md
+outputs\audits\I-f5-007\claude_audit.md
+outputs\audits\I-f5-006\claude_audit.md
+outputs\audits\I-f5-005\claude_audit.md
+outputs\audits\v27\claude_audit.md
+outputs\audits\I-f5-004\claude_audit.md
+outputs\audits\I-f5-003\claude_audit.md
+outputs\audits\I-f5-002\claude_audit.md
+outputs\audits\v25\claude_audit.md
+outputs\audits\I-f5-001\claude_audit.md
+outputs\audits\I-f4-005\claude_audit.md
+outputs\audits\I-f3-004\claude_audit.md
+outputs\audits\I-f4-004\claude_audit.md
+outputs\audits\I-f3-003\claude_audit.md
+outputs\audits\I-f3-002\claude_audit.md
+outputs\audits\I-f4-003\claude_audit.md
+outputs\audits\I-f3-001\claude_audit.md
+outputs\audits\I-f4-002\claude_audit.md
+outputs\audits\I-f2-005\claude_audit.md
+outputs\audits\I-f4-001\claude_audit.md
+outputs\audits\I-f3-010\claude_audit.md
+outputs\audits\I-f2-008\claude_audit.md
+outputs\audits\I-f2-004\claude_audit.md
+outputs\audits\I-f2-007\claude_audit.md
+outputs\audits\I-f2-002\claude_audit.md
+outputs\audits\I-f3-009\claude_audit.md
+outputs\audits\I-f3-006\claude_audit.md
+outputs\audits\I-f3-008\claude_audit.md
+outputs\audits\I-f3-005\claude_audit.md
+outputs\audits\I-f2-003\claude_audit.md
+outputs\audits\I-f3-007\claude_audit.md
+outputs\audits\I-f8-001\claude_audit.md
+outputs\audits\I-f6-003\claude_audit.md
+outputs\audits\I-f7-003\claude_audit.md
+outputs\audits\I-f7-001\claude_audit.md
+outputs\audits\I-f5-011\claude_audit.md
+outputs\audits\I-f7-004\claude_audit.md
+outputs\audits\I-f6-002\claude_audit.md
+outputs\audits\I-f2-006\claude_audit.md
+outputs\audits\I-f7-002\claude_audit.md
+outputs\audits\I-f5-010\claude_audit.md
+outputs\audits\I-f9-001\claude_audit.md
+outputs\audits\I-f6-001\claude_audit.md
+outputs\audits\I-f6-005\claude_audit.md
+outputs\audits\I-f8-006\claude_audit.md
+outputs\audits\I-f5-009\claude_audit.md
+outputs\audits\I-f6-004\claude_audit.md
+outputs\audits\I-f8-005\claude_audit.md
+outputs\audits\I-f8-004\claude_audit.md
+outputs\audits\I-phase0-005\claude_audit.md
+outputs\audits\I-f8-002\claude_audit.md
+outputs\audits\I-f8-003\claude_audit.md
+outputs\audits\I-f9-002\claude_audit.md
+outputs\audits\I-f9-003\claude_audit.md
+outputs\audits\I-policy-001\claude_audit.md
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+
+ succeeded in 1051ms:
+# F10 walkthrough — tirzepatide vs semaglutide (substrate-honest demo)
+
+**Issue:** I-f10-008
+**Branch trajectory:** I-f10-001 (Vega-Lite renderer) → I-f10-002 (Forest plot) →
+I-f10-003 (Comparison table) → I-f10-004 (Timeline) → I-f10-005 (ChartProvenance schema) →
+I-f10-006 (Click-through-to-source) → I-f10-007 (Sandboxed Python execution) → **I-f10-008
+(this walkthrough)**.
+
+## Purpose
+
+This walkthrough exercises the F10 chart substrate end-to-end on a clinical research
+question, demonstrating what ships TODAY in the polaris repo against what is wired
+post-Carney.
+
+**Honest scope (per CLAUDE.md §9.4 + LAW II):** the polaris pipeline does NOT yet
+auto-generate Vega-Lite specs from real LLM-retrieved evidence on the
+tirzepatide-vs-semaglutide question. **The clinical question itself is NOT answered
+by live evidence today.** The demo routes show the chart-and-source-span SUBSTRATE
+with placeholder data:
+
+- `/charts_test/comparison_table` shows a Q3 housing-starts dataset (5 provinces ×
+  2 metrics), NOT pharmaceutical efficacy data.
+- `/charts_test/click_through` shows a SELECT-trial-style cardiovascular forest plot
+  (MACE / MI / Stroke), NOT a tirzepatide-vs-semaglutide head-to-head.
+
+The walkthrough validates that the F10 substrate (chart spec generators, renderer,
+click-through, provenance contract, sandboxed analysis) ships and works end-to-end.
+Live evidence wiring for the actual clinical question is tracked post-Carney.
+
+---
+
+## Setup
+
+Standard local dev:
+
+```powershell
+cd web
+npm install
+npm run dev
+```
+
+This starts Next.js on `http://localhost:3000` (the default `next dev` port; the
+Playwright e2e config uses port 3738 separately for `next start` — see
+`web/playwright.config.ts`).
+
+---
+
+## Step 1: Comparison table — auto-generated with citations
+
+**Visit:** `http://localhost:3000/charts_test/comparison_table`
+
+**Expected:** three sections, each rendering a `<VegaChart>` with a Vega-Lite v5 bar
+chart:
+
+- `[data-testid="comparison-table-n2"]` — 2 entities × 1 metric (Ontario, Quebec).
+- `[data-testid="comparison-table-n3"]` — 3 entities × 1 metric.
+- `[data-testid="comparison-table-n5"]` — 5 entities (Ontario / Quebec / BC /
+  Alberta / Manitoba) × 2 metrics (`starts_thousands`, `completions_thousands`) =
+  **10 entity-metric data rows / 10 evidence_ids**.
+
+**What to verify:**
+
+- Each chart renders an SVG (`renderer: "svg"` per `web/components/ui/vega-chart.tsx:42`).
+- Every datum carries `evidence_id` from `polaris_provenance` (see
+  `src/polaris_v6/charts/spec_builder.py:127` for the canonical Python builder; the
+  TS mirror lives at `web/lib/comparison_table_spec.ts`).
+- No `[data-testid="vega-chart-error"]` is rendered.
+
+**Auto-coverage:** `web/tests/e2e/comparison_table_chart.spec.ts` asserts each N
+section renders ≥N graphics-symbol marks.
+
+---
+
+## Step 2: Click-through to source span
+
+**Visit:** `http://localhost:3000/charts_test/click_through`
+
+**Expected:** a forest-plot rendering of a SELECT-trial-style cardiovascular
+meta-analysis (MACE / MI / Stroke). Click any point.
+
+**On click:**
+
+- `<ChartSourceInspector>` Sheet pane opens (right side, 40% width).
+- The pane displays:
+  - `[data-testid="chart-source-pane-evidence-id"]`: e.g., `demo-clin-001`.
+  - `[data-testid="chart-source-pane-tier"]`: T1 badge.
+  - `[data-testid="chart-source-pane-url"]`: link to
+    `https://example.org/select-trial-...` (demo URL — placeholder for real cited URL).
+  - `[data-testid="chart-source-pane-excerpt"]`: blockquote with the excerpt text
+    (e.g., "MACE composite endpoint: -20% relative risk reduction (95% CI -27% to
+    -13%) at 3-year follow-up.").
+
+**What to verify:**
+
+- Click → pane opens within ~100ms.
+- Source span fields (URL + tier + excerpt) all visible.
+- No `[data-testid="vega-chart-error"]`.
+
+**Auto-coverage:** `web/tests/e2e/chart_click_through.spec.ts` clicks the first
+graphics-symbol mark and asserts evidence_id + URL href + tier + excerpt visible.
+
+**Honest gap:** the `SOURCE_REGISTRY` keyed by `evidence_id` is hand-authored demo
+data in `web/app/charts_test/click_through/page.tsx:36`. In production, the click
+handler would fetch `/runs/{run_id}/sources/{evidence_id}` from the FastAPI backend
+(per the I-f10-005 polaris_provenance contract); that wiring is post-Carney.
+
+---
+
+## Step 3: ChartProvenance contract
+
+The polaris_provenance extension on every chart spec is now formally typed (per
+I-f10-005). The contract:
+
+```python
+class ChartProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chart_type: Literal["forest_plot", "comparison_table", "timeline"]
+    evidence_ids: list[str] = Field(min_length=1)
+    period_kind: TimelinePeriodKind | None = None
+    # cross-field validator: timeline ⇔ period_kind set
+```
+
+**Test coverage:** `tests/v6/test_chart_provenance.py` runs 11 tests:
+
+- 3 valid round-trips (forest plot / comparison table / timeline).
+- 8 adversarial (missing key, non-dict container, empty/blank evidence_ids,
+  unknown chart_type, timeline w/o period_kind, non-timeline w/ period_kind, extra
+  field).
+
+**Run:**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest tests/v6/test_chart_provenance.py -v
+# 11 passed
+```
+
+---
+
+## Step 4: Sandboxed Python execution sovereignty
+
+The LLM-driven analysis path (`generate_and_execute_analysis` in
+`src/polaris_graph/tools/code_executor.py`) runs untrusted Python in a sandboxed
+subprocess. I-f10-007 hardened the sandbox:
+
+- AST-based import allowlist enforcement (closes comma-separated imports).
+- AST-based reflection-attribute blocklist (`__builtins__`, frame paths,
+  `ctypeslib`, sys.modules subscript via `vars(sys)`).
+- AST-based dangerous-builtin Name reference rejection (catches first-class
+  aliasing of `eval`/`open`/`vars`/etc.).
+- Runtime socket monkey-patch preamble (blocks egress through allowed libraries
+  like `pandas.read_csv("https://...")`).
+
+**Test coverage:** `tests/v6/test_code_executor_sovereignty.py` runs 35 tests
+covering 30+ adversarial bypass classes.
+
+**Honest scope:** complete Python sovereignty requires OS-level isolation —
+network namespace + seccomp-bpf + read-only FS. Tracked in **follow-up Issue
+I-f10-007b: OS-level egress isolation for code_executor**, deployed at the OVH
+Canada BHS H200 sovereign environment.
+
+**Run:**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest tests/v6/test_code_executor_sovereignty.py -v
+# 35 passed
+```
+
+---
+
+## What's NOT yet wired (honest gap)
+
+- **Live LLM → tirzepatide-vs-semaglutide auto-table from real evidence retrieval.**
+  Substrate exists (chart builders + provenance contract + click-through + sandbox)
+  but the production wiring from BPEI question → retrieval → spec generation → UI
+  render is not yet end-to-end. Tracked in v6 Phase 1..3 milestones.
+- **Real evidence_id resolution from sovereign Canadian retrieval pipeline.** Demo
+  uses a frontend-only `SOURCE_REGISTRY`; production fetches from a backend route.
+- **I-f10-007b OS-level isolation for code_executor.** Python in-process sandboxing
+  has fundamental escape vectors; complete sovereignty deferred to OS-level
+  controls at the OVH BHS H200 deployment.
+
+---
+
+## Cross-references
+
+- **I-f10-001:** Vega-Lite renderer + error fallback — `web/components/ui/vega-chart.tsx`,
+  PR #291 (commit `bad6d9e`); `outputs/audits/I-f10-001/claude_audit.md`.
+- **I-f10-002:** Forest plot spec — `web/lib/forest_plot_spec.ts`,
+  `tests/v6/test_charts.py` (meta-analysis test); PR #292 (commit `a3f1f50`);
+  `outputs/audits/I-f10-002/claude_audit.md`.
+- **I-f10-003:** Comparison table N=2/3/5 — `web/lib/comparison_table_spec.ts`,
+  `tests/v6/test_charts.py` (`test_comparison_table_n2/n5_renders_correctly`); PR #293
+  (commit `6fb1b37`); `outputs/audits/I-f10-003/claude_audit.md`.
+- **I-f10-004:** Timeline spec (quarter + date) — `web/lib/timeline_spec.ts`; PR #294
+  (commit `bbe8dbc`); `outputs/audits/I-f10-004/claude_audit.md`.
+- **I-f10-005:** ChartProvenance schema — `src/polaris_v6/charts/provenance.py`,
+  `tests/v6/test_chart_provenance.py`; PR #295 (commit `599bbe0`);
+  `outputs/audits/I-f10-005/claude_audit.md`.
+- **I-f10-006:** Click-through-to-source-data —
+  `web/app/charts_test/components/chart_source_inspector.tsx`,
+  `web/tests/e2e/chart_click_through.spec.ts`; PR #296 (commit `54fc31a`);
+  `outputs/audits/I-f10-006/claude_audit.md`.
+- **I-f10-007:** Sandboxed Python execution — `src/polaris_graph/tools/code_executor.py`,
+  `tests/v6/test_code_executor_sovereignty.py`; PR #297 (commit `617605e`);
+  `outputs/audits/I-f10-007/claude_audit.md`.
+- **I-f10-007b (deferred):** OS-level egress isolation for code_executor.
+
+ succeeded in 1056ms:
+?? .claude/hooks/__pycache__/
+?? .codex/I-f10-008/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+codex
+I’ve read the walkthrough once. The main thing I’m checking now is whether its executable instructions and named local references line up with the actual repo, since doc-only failures here would mostly come from stale paths, wrong ports, or overstated coverage.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "next dev|3738|comparison_table|click_through|ChartProvenance|code_executor|evidence_id|SOURCE_REGISTRY|35 tests|11 tests|NOT yet wired|clinical question" docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/app/charts_test -Recurse -File | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "port|webServer|next start|3738" web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"\\\"dev\\\"|next dev\" web/package.json" in C:\POLARIS
+ succeeded in 1026ms:
+C:\POLARIS\web\app\charts_test\page.tsx
+C:\POLARIS\web\app\charts_test\click_through\page.tsx
+C:\POLARIS\web\app\charts_test\comparison_table\page.tsx
+C:\POLARIS\web\app\charts_test\components\chart_source_inspector.tsx
+C:\POLARIS\web\app\charts_test\forest_plot\page.tsx
+C:\POLARIS\web\app\charts_test\timeline\page.tsx
+
+ succeeded in 1111ms:
+5:I-f10-003 (Comparison table) → I-f10-004 (Timeline) → I-f10-005 (ChartProvenance schema) →
+17:tirzepatide-vs-semaglutide question. **The clinical question itself is NOT answered
+21:- `/charts_test/comparison_table` shows a Q3 housing-starts dataset (5 provinces ×
+23:- `/charts_test/click_through` shows a SELECT-trial-style cardiovascular forest plot
+28:Live evidence wiring for the actual clinical question is tracked post-Carney.
+42:This starts Next.js on `http://localhost:3000` (the default `next dev` port; the
+43:Playwright e2e config uses port 3738 separately for `next start` — see
+50:**Visit:** `http://localhost:3000/charts_test/comparison_table`
+59:  **10 entity-metric data rows / 10 evidence_ids**.
+64:- Every datum carries `evidence_id` from `polaris_provenance` (see
+66:  TS mirror lives at `web/lib/comparison_table_spec.ts`).
+69:**Auto-coverage:** `web/tests/e2e/comparison_table_chart.spec.ts` asserts each N
+76:**Visit:** `http://localhost:3000/charts_test/click_through`
+99:**Auto-coverage:** `web/tests/e2e/chart_click_through.spec.ts` clicks the first
+100:graphics-symbol mark and asserts evidence_id + URL href + tier + excerpt visible.
+102:**Honest gap:** the `SOURCE_REGISTRY` keyed by `evidence_id` is hand-authored demo
+103:data in `web/app/charts_test/click_through/page.tsx:36`. In production, the click
+104:handler would fetch `/runs/{run_id}/sources/{evidence_id}` from the FastAPI backend
+109:## Step 3: ChartProvenance contract
+115:class ChartProvenance(BaseModel):
+117:    chart_type: Literal["forest_plot", "comparison_table", "timeline"]
+118:    evidence_ids: list[str] = Field(min_length=1)
+123:**Test coverage:** `tests/v6/test_chart_provenance.py` runs 11 tests:
+126:- 8 adversarial (missing key, non-dict container, empty/blank evidence_ids,
+143:`src/polaris_graph/tools/code_executor.py`) runs untrusted Python in a sandboxed
+154:**Test coverage:** `tests/v6/test_code_executor_sovereignty.py` runs 35 tests
+159:I-f10-007b: OS-level egress isolation for code_executor**, deployed at the OVH
+166:python -m pytest tests/v6/test_code_executor_sovereignty.py -v
+172:## What's NOT yet wired (honest gap)
+178:- **Real evidence_id resolution from sovereign Canadian retrieval pipeline.** Demo
+179:  uses a frontend-only `SOURCE_REGISTRY`; production fetches from a backend route.
+180:- **I-f10-007b OS-level isolation for code_executor.** Python in-process sandboxing
+193:- **I-f10-003:** Comparison table N=2/3/5 — `web/lib/comparison_table_spec.ts`,
+194:  `tests/v6/test_charts.py` (`test_comparison_table_n2/n5_renders_correctly`); PR #293
+198:- **I-f10-005:** ChartProvenance schema — `src/polaris_v6/charts/provenance.py`,
+203:  `web/tests/e2e/chart_click_through.spec.ts`; PR #296 (commit `54fc31a`);
+205:- **I-f10-007:** Sandboxed Python execution — `src/polaris_graph/tools/code_executor.py`,
+206:  `tests/v6/test_code_executor_sovereignty.py`; PR #297 (commit `617605e`);
+208:- **I-f10-007b (deferred):** OS-level egress isolation for code_executor.
+
+ succeeded in 1154ms:
+1:import { defineConfig, devices } from "@playwright/test";
+12: *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+13: *   2. Terminal B: cd web && npx next start -p 3738
+14: *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+16:export default defineConfig({
+28:  reporter: [["list"]],
+30:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+33:    viewport: { width: 1440, height: 900 },
+
+2026-05-08T03:06:58.725493Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+rg: regex parse error:
+    (?:\)
+    ^
+error: unclosed group
+
+ exited 1 in 1268ms:
+rg: regex parse error:
+    (?:\)
+    ^
+error: unclosed group
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "SOURCE_REGISTRY|demo-clin-001|example.org|ChartSourceInspector|evidence_id|onClick" web/app/charts_test/click_through/page.tsx web/app/charts_test/components/chart_source_inspector.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '\"dev\"|next dev' web/package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "comparison-table-n2|comparison-table-n3|comparison-table-n5|starts_thousands|completions_thousands|evidence_id|polaris_provenance" web/app/charts_test/comparison_table/page.tsx web/lib/comparison_table_spec.ts src/polaris_v6/charts/spec_builder.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "chart-source-pane-evidence-id|chart-source-pane-tier|chart-source-pane-url|chart-source-pane-excerpt|graphics-symbol|comparison-table-n2|comparison-table-n3|comparison-table-n5|vega-chart-error" web/tests/e2e/chart_click_through.spec.ts web/tests/e2e/comparison_table_chart.spec.ts' in C:\POLARIS
+ succeeded in 1014ms:
+web/app/charts_test/components/chart_source_inspector.tsx:12:  evidence_id: string;
+web/app/charts_test/components/chart_source_inspector.tsx:24:export function ChartSourceInspector({
+web/app/charts_test/components/chart_source_inspector.tsx:53:                {source.evidence_id}
+web/app/charts_test/click_through/page.tsx:12:  ChartSourceInspector,
+web/app/charts_test/click_through/page.tsx:22:    evidence_id: "demo-clin-001",
+web/app/charts_test/click_through/page.tsx:29:    evidence_id: "demo-clin-002",
+web/app/charts_test/click_through/page.tsx:36:    evidence_id: "demo-clin-003",
+web/app/charts_test/click_through/page.tsx:40:const SOURCE_REGISTRY: Record<string, ChartDatumSource> = {
+web/app/charts_test/click_through/page.tsx:41:  "demo-clin-001": {
+web/app/charts_test/click_through/page.tsx:42:    evidence_id: "demo-clin-001",
+web/app/charts_test/click_through/page.tsx:43:    url: "https://example.org/select-trial-mace",
+web/app/charts_test/click_through/page.tsx:49:    evidence_id: "demo-clin-002",
+web/app/charts_test/click_through/page.tsx:50:    url: "https://example.org/select-trial-mi",
+web/app/charts_test/click_through/page.tsx:56:    evidence_id: "demo-clin-003",
+web/app/charts_test/click_through/page.tsx:57:    url: "https://example.org/select-trial-stroke",
+web/app/charts_test/click_through/page.tsx:80:          <code>evidence_id</code> resolves against a demo SOURCE_REGISTRY (in
+web/app/charts_test/click_through/page.tsx:83:            /runs/{"{run_id}"}/sources/{"{evidence_id}"}
+web/app/charts_test/click_through/page.tsx:91:              const eid = datum.evidence_id as string | undefined;
+web/app/charts_test/click_through/page.tsx:92:              if (eid && SOURCE_REGISTRY[eid]) {
+web/app/charts_test/click_through/page.tsx:93:                setSource(SOURCE_REGISTRY[eid]);
+web/app/charts_test/click_through/page.tsx:99:        <ChartSourceInspector
+
+ succeeded in 1079ms:
+6:    "dev": "next dev",
+
+ succeeded in 1119ms:
+src/polaris_v6/charts/spec_builder.py:4:any Vega-Lite v5 client. The `polaris_provenance` extension is
+src/polaris_v6/charts/spec_builder.py:6:evidence_id mapping for the F10b click-through-to-source UX.
+src/polaris_v6/charts/spec_builder.py:23:    evidence_id: str
+src/polaris_v6/charts/spec_builder.py:31:    evidence_id: str
+src/polaris_v6/charts/spec_builder.py:39:    evidence_id: str
+src/polaris_v6/charts/spec_builder.py:56:            "evidence_id": p.evidence_id,
+src/polaris_v6/charts/spec_builder.py:83:                        {"field": "evidence_id"},
+src/polaris_v6/charts/spec_builder.py:88:        "polaris_provenance": {
+src/polaris_v6/charts/spec_builder.py:90:            "evidence_ids": [p.evidence_id for p in points],
+src/polaris_v6/charts/spec_builder.py:107:            "evidence_id": r.evidence_id,
+src/polaris_v6/charts/spec_builder.py:124:                {"field": "evidence_id"},
+src/polaris_v6/charts/spec_builder.py:127:        "polaris_provenance": {
+src/polaris_v6/charts/spec_builder.py:129:            "evidence_ids": [r.evidence_id for r in rows],
+src/polaris_v6/charts/spec_builder.py:148:            "evidence_id": p.evidence_id,
+src/polaris_v6/charts/spec_builder.py:165:                {"field": "evidence_id"},
+src/polaris_v6/charts/spec_builder.py:168:        "polaris_provenance": {
+src/polaris_v6/charts/spec_builder.py:171:            "evidence_ids": [p.evidence_id for p in points],
+web/lib/comparison_table_spec.ts:17:  evidence_id: string;
+web/lib/comparison_table_spec.ts:31:    evidence_id: r.evidence_id,
+web/lib/comparison_table_spec.ts:46:        { field: "evidence_id" },
+web/lib/comparison_table_spec.ts:49:    polaris_provenance: {
+web/lib/comparison_table_spec.ts:51:      evidence_ids: rows.map((r) => r.evidence_id),
+web/app/charts_test/comparison_table/page.tsx:10:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:12:    evidence_id: "demo-h-on",
+web/app/charts_test/comparison_table/page.tsx:16:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:18:    evidence_id: "demo-h-qc",
+web/app/charts_test/comparison_table/page.tsx:26:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:28:    evidence_id: "demo-h-bc",
+web/app/charts_test/comparison_table/page.tsx:35:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:37:    evidence_id: "demo-h-on",
+web/app/charts_test/comparison_table/page.tsx:41:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:43:    evidence_id: "demo-h-qc",
+web/app/charts_test/comparison_table/page.tsx:47:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:49:    evidence_id: "demo-h-bc",
+web/app/charts_test/comparison_table/page.tsx:53:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:55:    evidence_id: "demo-h-ab",
+web/app/charts_test/comparison_table/page.tsx:59:    metric: "starts_thousands",
+web/app/charts_test/comparison_table/page.tsx:61:    evidence_id: "demo-h-mb",
+web/app/charts_test/comparison_table/page.tsx:65:    metric: "completions_thousands",
+web/app/charts_test/comparison_table/page.tsx:67:    evidence_id: "demo-c-on",
+web/app/charts_test/comparison_table/page.tsx:71:    metric: "completions_thousands",
+web/app/charts_test/comparison_table/page.tsx:73:    evidence_id: "demo-c-qc",
+web/app/charts_test/comparison_table/page.tsx:77:    metric: "completions_thousands",
+web/app/charts_test/comparison_table/page.tsx:79:    evidence_id: "demo-c-bc",
+web/app/charts_test/comparison_table/page.tsx:83:    metric: "completions_thousands",
+web/app/charts_test/comparison_table/page.tsx:85:    evidence_id: "demo-c-ab",
+web/app/charts_test/comparison_table/page.tsx:89:    metric: "completions_thousands",
+web/app/charts_test/comparison_table/page.tsx:91:    evidence_id: "demo-c-mb",
+web/app/charts_test/comparison_table/page.tsx:109:          Sample comparison tables (demo data, demo evidence_ids); same
+web/app/charts_test/comparison_table/page.tsx:114:          data-testid="comparison-table-n2"
+web/app/charts_test/comparison_table/page.tsx:121:          data-testid="comparison-table-n3"
+web/app/charts_test/comparison_table/page.tsx:128:          data-testid="comparison-table-n5"
+
+ succeeded in 1175ms:
+web/tests/e2e/comparison_table_chart.spec.ts:9:    ["comparison-table-n2", 2],
+web/tests/e2e/comparison_table_chart.spec.ts:10:    ["comparison-table-n3", 3],
+web/tests/e2e/comparison_table_chart.spec.ts:11:    ["comparison-table-n5", 5],
+web/tests/e2e/comparison_table_chart.spec.ts:19:    // role-aware mark count: at least N graphics-symbol marks per chart
+web/tests/e2e/comparison_table_chart.spec.ts:21:    const marks = chart.locator('svg [role="graphics-symbol"]');
+web/tests/e2e/comparison_table_chart.spec.ts:26:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e/chart_click_through.spec.ts:16:      'g[role="graphics-object"][aria-roledescription="symbol mark container"] [role="graphics-symbol"]',
+web/tests/e2e/chart_click_through.spec.ts:20:    mark = chart.locator('svg [role="graphics-symbol"]').first();
+web/tests/e2e/chart_click_through.spec.ts:25:  await expect(page.getByTestId("chart-source-pane-evidence-id")).toContainText(
+web/tests/e2e/chart_click_through.spec.ts:28:  await expect(page.getByTestId("chart-source-pane-url")).toHaveAttribute(
+web/tests/e2e/chart_click_through.spec.ts:32:  await expect(page.getByTestId("chart-source-pane-tier")).toContainText("T1");
+web/tests/e2e/chart_click_through.spec.ts:33:  await expect(page.getByTestId("chart-source-pane-excerpt")).toContainText(
+web/tests/e2e/chart_click_through.spec.ts:36:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class ChartProvenance|chart_type:|evidence_ids:|period_kind|extra=\\\"forbid\\\"\" src/polaris_v6/charts/provenance.py tests/v6/test_chart_provenance.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def test_|AST|socket|ctypeslib|vars\\(sys\\)|__builtins__|eval|open\" tests/v6/test_code_executor_sovereignty.py src/polaris_graph/tools/code_executor.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline --decorate -5 -- docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+ succeeded in 1167ms:
+docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+
+2026-05-08T03:07:25.530133Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+rg: regex parse error:
+    (?:class ChartProvenance|chart_type:|evidence_ids:|period_kind|extra=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1253ms:
+rg: regex parse error:
+    (?:class ChartProvenance|chart_type:|evidence_ids:|period_kind|extra=\)
+    ^
+error: unclosed group
+
+ succeeded in 1320ms:
+src/polaris_graph/tools/code_executor.py:26:from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+src/polaris_graph/tools/code_executor.py:52:# restricted env vars, and dangerous operations (file I/O, exec, eval,
+src/polaris_graph/tools/code_executor.py:58:    "socket",
+src/polaris_graph/tools/code_executor.py:59:    "_socket",
+src/polaris_graph/tools/code_executor.py:97:    (r'\bopen\s*\(', "File open() is not allowed; read data from stdin only"),
+src/polaris_graph/tools/code_executor.py:100:    (r'\beval\s*\(', "eval() is not allowed"),
+src/polaris_graph/tools/code_executor.py:193:# I-f10-007: AST-level validators close the regex bypasses (comma-separated
+src/polaris_graph/tools/code_executor.py:194:# imports, indirect __builtins__ access, frame reflection, numpy ctypeslib,
+src/polaris_graph/tools/code_executor.py:199:    # __builtins__ and direct builtin access
+src/polaris_graph/tools/code_executor.py:200:    "__builtins__",
+src/polaris_graph/tools/code_executor.py:222:    "ctypeslib",
+src/polaris_graph/tools/code_executor.py:230:    """AST-based validation: import allowlist + reflection-attribute blocklist.
+src/polaris_graph/tools/code_executor.py:233:    - comma-separated imports (`import json, socket`)
+src/polaris_graph/tools/code_executor.py:234:    - indirect __builtins__ reflection
+src/polaris_graph/tools/code_executor.py:236:    - numpy.ctypeslib FFI escape
+src/polaris_graph/tools/code_executor.py:239:    - dangerous builtins as first-class values: `list(map(eval, ...))`
+src/polaris_graph/tools/code_executor.py:277:        # Direct __builtins__ name reference
+src/polaris_graph/tools/code_executor.py:291:        # aliasing: `e = eval; e('...')`, `v = vars; v(sys)['modules']`, etc.
+src/polaris_graph/tools/code_executor.py:292:        # AST `ast.Name` in Load context covers both bare reference and call.
+src/polaris_graph/tools/code_executor.py:295:            "eval", "exec", "open", "compile",
+src/polaris_graph/tools/code_executor.py:329:    # I-f10-007: AST validation runs first; closes comma-separated import,
+src/polaris_graph/tools/code_executor.py:330:    # __builtins__ reflection, frame-reflection, and ctypeslib bypasses.
+src/polaris_graph/tools/code_executor.py:452:    # I-f10-007: runtime socket monkey-patch preamble injected before user
+src/polaris_graph/tools/code_executor.py:454:    # network egress via socket APIs, the patched callable raises and the
+src/polaris_graph/tools/code_executor.py:458:    socket_kill_preamble = (
+src/polaris_graph/tools/code_executor.py:461:        "import socket as _polaris_socket\n"
+src/polaris_graph/tools/code_executor.py:462:        "for _polaris_attr in ('socket','create_connection','getaddrinfo',\n"
+src/polaris_graph/tools/code_executor.py:464:        "                     'create_server','fromfd','socketpair','SocketType'):\n"
+src/polaris_graph/tools/code_executor.py:465:        "    setattr(_polaris_socket, _polaris_attr, _polaris_block)\n"
+src/polaris_graph/tools/code_executor.py:467:        "    import _socket as _polaris_socket_raw\n"
+src/polaris_graph/tools/code_executor.py:468:        "    for _polaris_attr in ('socket','SocketType','getaddrinfo',\n"
+src/polaris_graph/tools/code_executor.py:470:        "                          'gethostbyaddr','fromfd','socketpair'):\n"
+src/polaris_graph/tools/code_executor.py:472:        "            setattr(_polaris_socket_raw, _polaris_attr, _polaris_block)\n"
+src/polaris_graph/tools/code_executor.py:475:        "    del _polaris_socket_raw\n"
+src/polaris_graph/tools/code_executor.py:479:        "del _polaris_socket\n"
+src/polaris_graph/tools/code_executor.py:482:    script = socket_kill_preamble + script
+src/polaris_graph/tools/code_executor.py:516:        with open(script_path, "w", encoding="utf-8") as f:
+src/polaris_graph/tools/code_executor.py:522:            with open(input_path, "w", encoding="utf-8") as f:
+src/polaris_graph/tools/code_executor.py:1090:4. DO NOT import: os, subprocess, socket, requests, or any network library
+src/polaris_graph/tools/code_executor.py:1091:5. DO NOT use open(), exec(), eval(), or any file I/O
+tests/v6/test_code_executor_sovereignty.py:23:def test_blocks_socket_import():
+tests/v6/test_code_executor_sovereignty.py:24:    ok, _ = validate_script("import socket")
+tests/v6/test_code_executor_sovereignty.py:28:def test_blocks_underscore_socket_import():
+tests/v6/test_code_executor_sovereignty.py:29:    ok, _ = validate_script("import _socket")
+tests/v6/test_code_executor_sovereignty.py:33:def test_blocks_urllib_import():
+tests/v6/test_code_executor_sovereignty.py:38:def test_blocks_requests_import():
+tests/v6/test_code_executor_sovereignty.py:43:def test_blocks_subprocess_import():
+tests/v6/test_code_executor_sovereignty.py:48:def test_blocks_os_import():
+tests/v6/test_code_executor_sovereignty.py:53:def test_blocks_comma_separated_socket_import():
+tests/v6/test_code_executor_sovereignty.py:54:    """Codex iter-1 P1: `import json, socket` previously bypassed the regex."""
+tests/v6/test_code_executor_sovereignty.py:55:    ok, _ = validate_script("import json, socket")
+tests/v6/test_code_executor_sovereignty.py:59:def test_blocks_comma_separated_urllib_import():
+tests/v6/test_code_executor_sovereignty.py:64:def test_blocks_non_allowlisted_module():
+tests/v6/test_code_executor_sovereignty.py:70:def test_blocks_operator_import():
+tests/v6/test_code_executor_sovereignty.py:80:def test_blocks_open_call():
+tests/v6/test_code_executor_sovereignty.py:81:    ok, _ = validate_script("open('/etc/passwd')")
+tests/v6/test_code_executor_sovereignty.py:85:def test_blocks_exec_call():
+tests/v6/test_code_executor_sovereignty.py:90:def test_blocks_eval_call():
+tests/v6/test_code_executor_sovereignty.py:91:    ok, _ = validate_script("eval('1+1')")
+tests/v6/test_code_executor_sovereignty.py:95:def test_blocks_dunder_import():
+tests/v6/test_code_executor_sovereignty.py:100:def test_blocks_compile_call():
+tests/v6/test_code_executor_sovereignty.py:109:def test_blocks_builtins_direct_reference():
+tests/v6/test_code_executor_sovereignty.py:110:    """Codex iter-1 P1: __builtins__ direct name reference."""
+tests/v6/test_code_executor_sovereignty.py:111:    ok, _ = validate_script("x = __builtins__")
+tests/v6/test_code_executor_sovereignty.py:115:def test_blocks_builtins_subscript():
+tests/v6/test_code_executor_sovereignty.py:116:    """Codex iter-1 P1: __builtins__['__import__']('socket')."""
+tests/v6/test_code_executor_sovereignty.py:117:    ok, _ = validate_script("__builtins__['__import__']('socket')")
+tests/v6/test_code_executor_sovereignty.py:121:def test_blocks_builtins_dict_attr():
+tests/v6/test_code_executor_sovereignty.py:122:    """Codex iter-1 P1: __builtins__.__dict__['__import__']('socket')."""
+tests/v6/test_code_executor_sovereignty.py:123:    ok, _ = validate_script("__builtins__.__dict__['__import__']('socket')")
+tests/v6/test_code_executor_sovereignty.py:127:def test_blocks_sys_getframe():
+tests/v6/test_code_executor_sovereignty.py:133:def test_blocks_dynamic_import_via_frame():
+tests/v6/test_code_executor_sovereignty.py:141:def test_blocks_class_subclasses_chain():
+tests/v6/test_code_executor_sovereignty.py:147:def test_blocks_numpy_ctypeslib():
+tests/v6/test_code_executor_sovereignty.py:148:    """Codex iter-4 P1: numpy.ctypeslib FFI escape."""
+tests/v6/test_code_executor_sovereignty.py:149:    ok, _ = validate_script("import numpy as np\nnp.ctypeslib.load_library('libc', '/')")
+tests/v6/test_code_executor_sovereignty.py:153:def test_blocks_sys_modules_subscript():
+tests/v6/test_code_executor_sovereignty.py:159:def test_blocks_vars_sys_modules():
+tests/v6/test_code_executor_sovereignty.py:160:    """Codex iter-2 diff P1: vars(sys)['modules']['os'].system(...) bypass."""
+tests/v6/test_code_executor_sovereignty.py:161:    ok, _ = validate_script("import sys\nvars(sys)['modules']['os'].system('id')")
+tests/v6/test_code_executor_sovereignty.py:165:def test_blocks_dir_call():
+tests/v6/test_code_executor_sovereignty.py:171:def test_blocks_globals_call():
+tests/v6/test_code_executor_sovereignty.py:177:def test_blocks_eval_alias():
+tests/v6/test_code_executor_sovereignty.py:178:    """Codex iter-3 diff P1: first-class aliasing `e = eval; e(...)`."""
+tests/v6/test_code_executor_sovereignty.py:179:    ok, _ = validate_script("e = eval\ne('1+1')")
+tests/v6/test_code_executor_sovereignty.py:183:def test_blocks_open_alias():
+tests/v6/test_code_executor_sovereignty.py:184:    ok, _ = validate_script("o = open\no('/etc/passwd')")
+tests/v6/test_code_executor_sovereignty.py:188:def test_blocks_vars_alias_sys_modules():
+tests/v6/test_code_executor_sovereignty.py:193:def test_blocks_getattr_alias():
+tests/v6/test_code_executor_sovereignty.py:202:def test_allowed_pandas_numpy_passes():
+tests/v6/test_code_executor_sovereignty.py:210:def test_allowed_imports_with_alias_passes():
+tests/v6/test_code_executor_sovereignty.py:215:def test_time_module_allowed():
+tests/v6/test_code_executor_sovereignty.py:226:async def test_runtime_timeout_cap_kills_runaway_loop():
+tests/v6/test_code_executor_sovereignty.py:237:async def test_runtime_socket_preamble_does_not_leak_to_user_globals():
+tests/v6/test_code_executor_sovereignty.py:238:    """Codex iter-1 P1 (diff): the socket preamble's `_polaris_socket` and
+tests/v6/test_code_executor_sovereignty.py:239:    `_polaris_socket_raw` names must NOT remain in user script globals after
+tests/v6/test_code_executor_sovereignty.py:240:    patching. Otherwise validated scripts could call `_polaris_socket_raw.
+tests/v6/test_code_executor_sovereignty.py:248:        "    _polaris_socket\n"
+tests/v6/test_code_executor_sovereignty.py:249:        "    leaked = 'polaris_socket'\n"
+tests/v6/test_code_executor_sovereignty.py:253:        "    _polaris_socket_raw\n"
+tests/v6/test_code_executor_sovereignty.py:254:        "    leaked_raw = 'polaris_socket_raw'\n"
+
+ succeeded in 1506ms:
+aa6845b (HEAD -> bot/I-f10-008) I-f10-008: F10 substrate walkthrough — tirzepatide-vs-semaglutide demo + honest gap framing
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'class ChartProvenance|chart_type:|evidence_ids:|period_kind|extra=\"forbid\"|def test_' src/polaris_v6/charts/provenance.py tests/v6/test_chart_provenance.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "renderer|svg|vega-chart-error|VegaChart" web/components/ui/vega-chart.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path outputs/audits/I-f10-001,outputs/audits/I-f10-002,outputs/audits/I-f10-003,outputs/audits/I-f10-004,outputs/audits/I-f10-005,outputs/audits/I-f10-006,outputs/audits/I-f10-007 -Filter claude_audit.md | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git cat-file -t bad6d9e a3f1f50 6fb1b37 bbe8dbc 599bbe0 54fc31a 617605e' in C:\POLARIS
+ succeeded in 939ms:
+tests/v6/test_chart_provenance.py:22:def test_validate_forest_plot_provenance():
+tests/v6/test_chart_provenance.py:31:    assert prov.period_kind is None
+tests/v6/test_chart_provenance.py:34:def test_validate_comparison_table_provenance():
+tests/v6/test_chart_provenance.py:42:    assert prov.period_kind is None
+tests/v6/test_chart_provenance.py:45:def test_validate_timeline_provenance():
+tests/v6/test_chart_provenance.py:49:        period_kind="quarter",
+tests/v6/test_chart_provenance.py:53:    assert prov.period_kind == "quarter"
+tests/v6/test_chart_provenance.py:57:def test_missing_polaris_provenance_raises():
+tests/v6/test_chart_provenance.py:62:def test_polaris_provenance_not_dict_raises():
+tests/v6/test_chart_provenance.py:67:def test_empty_evidence_ids_raises():
+tests/v6/test_chart_provenance.py:72:def test_blank_evidence_id_raises():
+tests/v6/test_chart_provenance.py:77:def test_unknown_chart_type_raises():
+tests/v6/test_chart_provenance.py:82:def test_timeline_without_period_kind_raises():
+tests/v6/test_chart_provenance.py:83:    with pytest.raises(ValidationError, match="requires period_kind"):
+tests/v6/test_chart_provenance.py:87:def test_non_timeline_with_period_kind_raises():
+tests/v6/test_chart_provenance.py:92:            period_kind="quarter",
+tests/v6/test_chart_provenance.py:96:def test_extra_field_forbidden():
+src/polaris_v6/charts/provenance.py:20:class ChartProvenance(BaseModel):
+src/polaris_v6/charts/provenance.py:23:    model_config = ConfigDict(extra="forbid")
+src/polaris_v6/charts/provenance.py:25:    chart_type: ChartType
+src/polaris_v6/charts/provenance.py:26:    evidence_ids: list[str] = Field(min_length=1)
+src/polaris_v6/charts/provenance.py:27:    period_kind: TimelinePeriodKind | None = None
+src/polaris_v6/charts/provenance.py:40:    def _period_kind_consistency(self) -> "ChartProvenance":
+src/polaris_v6/charts/provenance.py:41:        if self.chart_type == "timeline" and self.period_kind is None:
+src/polaris_v6/charts/provenance.py:42:            raise ValueError("timeline chart_type requires period_kind")
+src/polaris_v6/charts/provenance.py:43:        if self.chart_type != "timeline" and self.period_kind is not None:
+src/polaris_v6/charts/provenance.py:45:                f"period_kind is only valid for timeline charts (got chart_type={self.chart_type})"
+
+2026-05-08T03:07:35.294022Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+fatal: too many arguments
+
+usage: git cat-file <type> <object>
+   or: git cat-file (-e | -p) <object>
+   or: git cat-file (-t | -s) [--allow-unknown-type] <object>
+   or: git cat-file (--textconv | --filters)
+                    [<rev>:<path|tree-ish> | --path=<path|tree-ish> <rev>]
+   or: git cat-file (--batch | --batch-check | --batch-command) [--batch-all-objects]
+                    [--buffer] [--follow-symlinks] [--unordered]
+                    [--textconv | --filters] [-Z]
+
+Check object existence or emit object contents
+    -e                    check if <object> exists
+    -p                    pretty-print <object> content
+
+Emit [broken] object attributes
+    -t                    show object type (one of 'blob', 'tree', 'commit', 'tag', ...)
+    -s                    show object size
+    --[no-]allow-unknown-type
+                          allow -s and -t to work with broken/corrupt objects
+    --[no-]use-mailmap    use mail map file
+    --[no-]mailmap ...    alias of --use-mailmap
+
+Batch objects requested on stdin (or --batch-all-objects)
+    --batch[=<format>]    show full <object> or <rev> contents
+    --batch-check[=<format>]
+                          like --batch, but don't emit <contents>
+    -Z                    stdin and stdout is NUL-terminated
+    --batch-command[=<format>]
+                          read commands from stdin
+    --batch-all-objects   with --batch[-check]: ignores stdin, batches all known objects
+
+Change or optimize batch output
+    --[no-]buffer         buffer --batch output
+    --[no-]follow-symlinks
+                          follow in-tree symlinks
+    --[no-]unordered      do not order objects before emitting them
+
+Emit object (blob or tree) with conversion or filter (stand-alone, or with batch)
+    --textconv            run textconv on object's content
+    --filters             run filters on object's content
+    --[no-]path blob|tree use a <path> for (--textconv | --filters); Not with 'batch'
+
+
+ exited 1 in 1034ms:
+fatal: too many arguments
+
+usage: git cat-file <type> <object>
+   or: git cat-file (-e | -p) <object>
+   or: git cat-file (-t | -s) [--allow-unknown-type] <object>
+   or: git cat-file (--textconv | --filters)
+                    [<rev>:<path|tree-ish> | --path=<path|tree-ish> <rev>]
+   or: git cat-file (--batch | --batch-check | --batch-command) [--batch-all-objects]
+                    [--buffer] [--follow-symlinks] [--unordered]
+                    [--textconv | --filters] [-Z]
+
+Check object existence or emit object contents
+    -e                    check if <object> exists
+    -p                    pretty-print <object> content
+
+Emit [broken] object attributes
+    -t                    show object type (one of 'blob', 'tree', 'commit', 'tag', ...)
+    -s                    show object size
+    --[no-]allow-unknown-type
+                          allow -s and -t to work with broken/corrupt objects
+    --[no-]use-mailmap    use mail map file
+    --[no-]mailmap ...    alias of --use-mailmap
+
+Batch objects requested on stdin (or --batch-all-objects)
+    --batch[=<format>]    show full <object> or <rev> contents
+    --batch-check[=<format>]
+                          like --batch, but don't emit <contents>
+    -Z                    stdin and stdout is NUL-terminated
+    --batch-command[=<format>]
+                          read commands from stdin
+    --batch-all-objects   with --batch[-check]: ignores stdin, batches all known objects
+
+Change or optimize batch output
+    --[no-]buffer         buffer --batch output
+    --[no-]follow-symlinks
+                          follow in-tree symlinks
+    --[no-]unordered      do not order objects before emitting them
+
+Emit object (blob or tree) with conversion or filter (stand-alone, or with batch)
+    --textconv            run textconv on object's content
+    --filters             run filters on object's content
+    --[no-]path blob|tree use a <path> for (--textconv | --filters); Not with 'batch'
+
+
+ succeeded in 1124ms:
+C:\POLARIS\outputs\audits\I-f10-001\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-002\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-003\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-004\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-005\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-006\claude_audit.md
+C:\POLARIS\outputs\audits\I-f10-007\claude_audit.md
+
+ succeeded in 1164ms:
+8:interface VegaChartProps {
+15: * F10 Vega-Lite v5 client renderer (Phase 2B Task 2B.2 frontend half).
+23: * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+27:export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+43:      renderer: "svg",
+76:          data-testid="vega-chart-error"
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Line|href|T1|MACE|relative risk reduction|Sheet|40%|data-testid" web/app/charts_test/components/chart_source_inspector.tsx web/app/charts_test/click_through/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show -s --format=%h bad6d9e a3f1f50 6fb1b37 bbe8dbc 599bbe0 54fc31a 617605e' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path docs/walkthroughs -Filter I-f10-008-tirzepatide-vs-semaglutide.md | Select-Object Name,Length,LastWriteTime' in C:\POLARIS
+ succeeded in 856ms:
+bad6d9e
+a3f1f50
+6fb1b37
+bbe8dbc
+599bbe0
+54fc31a
+617605e
+
+ succeeded in 888ms:
+web/app/charts_test/click_through/page.tsx:18:    label: "MACE",
+web/app/charts_test/click_through/page.tsx:44:    tier: "T1",
+web/app/charts_test/click_through/page.tsx:46:      "MACE composite endpoint: -20% relative risk reduction (95% CI -27% to -13%) at 3-year follow-up.",
+web/app/charts_test/click_through/page.tsx:51:    tier: "T1",
+web/app/charts_test/click_through/page.tsx:58:    tier: "T1",
+web/app/charts_test/components/chart_source_inspector.tsx:4:  Sheet,
+web/app/charts_test/components/chart_source_inspector.tsx:5:  SheetContent,
+web/app/charts_test/components/chart_source_inspector.tsx:6:  SheetDescription,
+web/app/charts_test/components/chart_source_inspector.tsx:7:  SheetHeader,
+web/app/charts_test/components/chart_source_inspector.tsx:8:  SheetTitle,
+web/app/charts_test/components/chart_source_inspector.tsx:14:  tier: "T1" | "T2" | "T3";
+web/app/charts_test/components/chart_source_inspector.tsx:19:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web/app/charts_test/components/chart_source_inspector.tsx:34:    <Sheet open={open} onOpenChange={onOpenChange}>
+web/app/charts_test/components/chart_source_inspector.tsx:35:      <SheetContent
+web/app/charts_test/components/chart_source_inspector.tsx:36:        data-testid="chart-source-pane"
+web/app/charts_test/components/chart_source_inspector.tsx:40:        <SheetHeader>
+web/app/charts_test/components/chart_source_inspector.tsx:41:          <SheetTitle>Chart datum source</SheetTitle>
+web/app/charts_test/components/chart_source_inspector.tsx:42:          <SheetDescription>
+web/app/charts_test/components/chart_source_inspector.tsx:44:          </SheetDescription>
+web/app/charts_test/components/chart_source_inspector.tsx:45:        </SheetHeader>
+web/app/charts_test/components/chart_source_inspector.tsx:50:                data-testid="chart-source-pane-evidence-id"
+web/app/charts_test/components/chart_source_inspector.tsx:56:                data-testid="chart-source-pane-tier"
+web/app/charts_test/components/chart_source_inspector.tsx:63:              data-testid="chart-source-pane-url"
+web/app/charts_test/components/chart_source_inspector.tsx:64:              href={source.url}
+web/app/charts_test/components/chart_source_inspector.tsx:72:              data-testid="chart-source-pane-excerpt"
+web/app/charts_test/components/chart_source_inspector.tsx:82:            data-testid="chart-source-pane-empty"
+web/app/charts_test/components/chart_source_inspector.tsx:88:      </SheetContent>
+web/app/charts_test/components/chart_source_inspector.tsx:89:    </Sheet>
+
+ succeeded in 908ms:
+
+Name                                    Length LastWriteTime
+----                                    ------ -------------
+I-f10-008-tirzepatide-vs-semaglutide.md   8649 2026-05-07 8:05:34 PM
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def build_comparison_table_spec|polaris_provenance|evidence_ids|ComparisonTableRow|comparison_table" src/polaris_v6/charts/spec_builder.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"SheetContent|className|w-\\[40vw\\]|sm:max-w\" web/app/charts_test/components/chart_source_inspector.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "test_comparison_table_n2|test_comparison_table_n5|comparison_table|polaris_provenance|evidence_ids" tests/v6/test_charts.py' in C:\POLARIS
+ succeeded in 792ms:
+4:any Vega-Lite v5 client. The `polaris_provenance` extension is
+88:        "polaris_provenance": {
+90:            "evidence_ids": [p.evidence_id for p in points],
+95:def build_comparison_table(
+127:        "polaris_provenance": {
+128:            "chart_type": "comparison_table",
+129:            "evidence_ids": [r.evidence_id for r in rows],
+168:        "polaris_provenance": {
+171:            "evidence_ids": [p.evidence_id for p in points],
+
+ succeeded in 893ms:
+5:  SheetContent,
+35:      <SheetContent
+38:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+47:          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+48:            <div className="flex items-center justify-between gap-2">
+51:                className="bg-muted/40 rounded px-1 text-xs"
+57:                className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+67:              className="truncate text-xs text-blue-700 underline dark:text-blue-300"
+73:              className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 text-xs italic dark:bg-yellow-900/20"
+83:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+88:      </SheetContent>
+
+ succeeded in 936ms:
+13:    build_comparison_table,
+29:    assert spec["polaris_provenance"]["chart_type"] == "forest_plot"
+30:    assert spec["polaris_provenance"]["evidence_ids"] == [
+43:def test_comparison_table_basic_shape():
+44:    spec = build_comparison_table(
+53:    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+54:    assert len(spec["polaris_provenance"]["evidence_ids"]) == 3
+58:def test_comparison_table_n2_renders_correctly():
+60:    spec = build_comparison_table(
+70:    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+71:    assert len(spec["polaris_provenance"]["evidence_ids"]) == 2
+75:def test_comparison_table_n5_renders_correctly():
+89:    spec = build_comparison_table(title="Q3 housing N=5 × 2 metrics", rows=rows)
+95:    assert len(spec["polaris_provenance"]["evidence_ids"]) == 10
+112:    assert spec["polaris_provenance"]["period_kind"] == "quarter"
+163:def test_all_charts_carry_evidence_ids():
+168:    table = build_comparison_table(
+177:        assert "polaris_provenance" in spec
+178:        assert "evidence_ids" in spec["polaris_provenance"]
+179:        assert len(spec["polaris_provenance"]["evidence_ids"]) >= 1
+234:def test_from_bundle_comparison_table_falls_back_to_evidence_pool():
+235:    """Cover from_bundle.py:81 — comparison_table with no frame_coverage
+240:    spec = chart_from_bundle(bundle=bundle, chart_type="comparison_table")
+241:    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+253:    assert spec["polaris_provenance"]["chart_type"] == "timeline"
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --numstat --oneline HEAD -- docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD''^ HEAD -- docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md' in C:\POLARIS
+ succeeded in 911ms:
+aa6845b I-f10-008: F10 substrate walkthrough — tirzepatide-vs-semaglutide demo + honest gap framing
+ .../I-f10-008-tirzepatide-vs-semaglutide.md        | 208 +++++++++++++++++++++
+ 1 file changed, 208 insertions(+)
+
+ succeeded in 973ms:
+aa6845b I-f10-008: F10 substrate walkthrough — tirzepatide-vs-semaglutide demo + honest gap framing
+208	0	docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+
+ succeeded in 1049ms:
+diff --git a/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md b/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+new file mode 100644
+index 0000000..9d656e8
+--- /dev/null
++++ b/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+@@ -0,0 +1,208 @@
++# F10 walkthrough — tirzepatide vs semaglutide (substrate-honest demo)
++
++**Issue:** I-f10-008
++**Branch trajectory:** I-f10-001 (Vega-Lite renderer) → I-f10-002 (Forest plot) →
++I-f10-003 (Comparison table) → I-f10-004 (Timeline) → I-f10-005 (ChartProvenance schema) →
++I-f10-006 (Click-through-to-source) → I-f10-007 (Sandboxed Python execution) → **I-f10-008
++(this walkthrough)**.
++
++## Purpose
++
++This walkthrough exercises the F10 chart substrate end-to-end on a clinical research
++question, demonstrating what ships TODAY in the polaris repo against what is wired
++post-Carney.
++
++**Honest scope (per CLAUDE.md §9.4 + LAW II):** the polaris pipeline does NOT yet
++auto-generate Vega-Lite specs from real LLM-retrieved evidence on the
++tirzepatide-vs-semaglutide question. **The clinical question itself is NOT answered
++by live evidence today.** The demo routes show the chart-and-source-span SUBSTRATE
++with placeholder data:
++
++- `/charts_test/comparison_table` shows a Q3 housing-starts dataset (5 provinces ×
++  2 metrics), NOT pharmaceutical efficacy data.
++- `/charts_test/click_through` shows a SELECT-trial-style cardiovascular forest plot
++  (MACE / MI / Stroke), NOT a tirzepatide-vs-semaglutide head-to-head.
++
++The walkthrough validates that the F10 substrate (chart spec generators, renderer,
++click-through, provenance contract, sandboxed analysis) ships and works end-to-end.
++Live evidence wiring for the actual clinical question is tracked post-Carney.
++
++---
++
++## Setup
++
++Standard local dev:
++
++```powershell
++cd web
++npm install
++npm run dev
++```
++
++This starts Next.js on `http://localhost:3000` (the default `next dev` port; the
++Playwright e2e config uses port 3738 separately for `next start` — see
++`web/playwright.config.ts`).
++
++---
++
++## Step 1: Comparison table — auto-generated with citations
++
++**Visit:** `http://localhost:3000/charts_test/comparison_table`
++
++**Expected:** three sections, each rendering a `<VegaChart>` with a Vega-Lite v5 bar
++chart:
++
++- `[data-testid="comparison-table-n2"]` — 2 entities × 1 metric (Ontario, Quebec).
++- `[data-testid="comparison-table-n3"]` — 3 entities × 1 metric.
++- `[data-testid="comparison-table-n5"]` — 5 entities (Ontario / Quebec / BC /
++  Alberta / Manitoba) × 2 metrics (`starts_thousands`, `completions_thousands`) =
++  **10 entity-metric data rows / 10 evidence_ids**.
++
++**What to verify:**
++
++- Each chart renders an SVG (`renderer: "svg"` per `web/components/ui/vega-chart.tsx:42`).
++- Every datum carries `evidence_id` from `polaris_provenance` (see
++  `src/polaris_v6/charts/spec_builder.py:127` for the canonical Python builder; the
++  TS mirror lives at `web/lib/comparison_table_spec.ts`).
++- No `[data-testid="vega-chart-error"]` is rendered.
++
++**Auto-coverage:** `web/tests/e2e/comparison_table_chart.spec.ts` asserts each N
++section renders ≥N graphics-symbol marks.
++
++---
++
++## Step 2: Click-through to source span
++
++**Visit:** `http://localhost:3000/charts_test/click_through`
++
++**Expected:** a forest-plot rendering of a SELECT-trial-style cardiovascular
++meta-analysis (MACE / MI / Stroke). Click any point.
++
++**On click:**
++
++- `<ChartSourceInspector>` Sheet pane opens (right side, 40% width).
++- The pane displays:
++  - `[data-testid="chart-source-pane-evidence-id"]`: e.g., `demo-clin-001`.
++  - `[data-testid="chart-source-pane-tier"]`: T1 badge.
++  - `[data-testid="chart-source-pane-url"]`: link to
++    `https://example.org/select-trial-...` (demo URL — placeholder for real cited URL).
++  - `[data-testid="chart-source-pane-excerpt"]`: blockquote with the excerpt text
++    (e.g., "MACE composite endpoint: -20% relative risk reduction (95% CI -27% to
++    -13%) at 3-year follow-up.").
++
++**What to verify:**
++
++- Click → pane opens within ~100ms.
++- Source span fields (URL + tier + excerpt) all visible.
++- No `[data-testid="vega-chart-error"]`.
++
++**Auto-coverage:** `web/tests/e2e/chart_click_through.spec.ts` clicks the first
++graphics-symbol mark and asserts evidence_id + URL href + tier + excerpt visible.
++
++**Honest gap:** the `SOURCE_REGISTRY` keyed by `evidence_id` is hand-authored demo
++data in `web/app/charts_test/click_through/page.tsx:36`. In production, the click
++handler would fetch `/runs/{run_id}/sources/{evidence_id}` from the FastAPI backend
++(per the I-f10-005 polaris_provenance contract); that wiring is post-Carney.
++
++---
++
++## Step 3: ChartProvenance contract
++
++The polaris_provenance extension on every chart spec is now formally typed (per
++I-f10-005). The contract:
++
++```python
++class ChartProvenance(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++    chart_type: Literal["forest_plot", "comparison_table", "timeline"]
++    evidence_ids: list[str] = Field(min_length=1)
++    period_kind: TimelinePeriodKind | None = None
++    # cross-field validator: timeline ⇔ period_kind set
++```
++
++**Test coverage:** `tests/v6/test_chart_provenance.py` runs 11 tests:
++
++- 3 valid round-trips (forest plot / comparison table / timeline).
++- 8 adversarial (missing key, non-dict container, empty/blank evidence_ids,
++  unknown chart_type, timeline w/o period_kind, non-timeline w/ period_kind, extra
++  field).
++
++**Run:**
++
++```powershell
++$env:PYTHONPATH = "src"
++python -m pytest tests/v6/test_chart_provenance.py -v
++# 11 passed
++```
++
++---
++
++## Step 4: Sandboxed Python execution sovereignty
++
++The LLM-driven analysis path (`generate_and_execute_analysis` in
++`src/polaris_graph/tools/code_executor.py`) runs untrusted Python in a sandboxed
++subprocess. I-f10-007 hardened the sandbox:
++
++- AST-based import allowlist enforcement (closes comma-separated imports).
++- AST-based reflection-attribute blocklist (`__builtins__`, frame paths,
++  `ctypeslib`, sys.modules subscript via `vars(sys)`).
++- AST-based dangerous-builtin Name reference rejection (catches first-class
++  aliasing of `eval`/`open`/`vars`/etc.).
++- Runtime socket monkey-patch preamble (blocks egress through allowed libraries
++  like `pandas.read_csv("https://...")`).
++
++**Test coverage:** `tests/v6/test_code_executor_sovereignty.py` runs 35 tests
++covering 30+ adversarial bypass classes.
++
++**Honest scope:** complete Python sovereignty requires OS-level isolation —
++network namespace + seccomp-bpf + read-only FS. Tracked in **follow-up Issue
++I-f10-007b: OS-level egress isolation for code_executor**, deployed at the OVH
++Canada BHS H200 sovereign environment.
++
++**Run:**
++
++```powershell
++$env:PYTHONPATH = "src"
++python -m pytest tests/v6/test_code_executor_sovereignty.py -v
++# 35 passed
++```
++
++---
++
++## What's NOT yet wired (honest gap)
++
++- **Live LLM → tirzepatide-vs-semaglutide auto-table from real evidence retrieval.**
++  Substrate exists (chart builders + provenance contract + click-through + sandbox)
++  but the production wiring from BPEI question → retrieval → spec generation → UI
++  render is not yet end-to-end. Tracked in v6 Phase 1..3 milestones.
++- **Real evidence_id resolution from sovereign Canadian retrieval pipeline.** Demo
++  uses a frontend-only `SOURCE_REGISTRY`; production fetches from a backend route.
++- **I-f10-007b OS-level isolation for code_executor.** Python in-process sandboxing
++  has fundamental escape vectors; complete sovereignty deferred to OS-level
++  controls at the OVH BHS H200 deployment.
++
++---
++
++## Cross-references
++
++- **I-f10-001:** Vega-Lite renderer + error fallback — `web/components/ui/vega-chart.tsx`,
++  PR #291 (commit `bad6d9e`); `outputs/audits/I-f10-001/claude_audit.md`.
++- **I-f10-002:** Forest plot spec — `web/lib/forest_plot_spec.ts`,
++  `tests/v6/test_charts.py` (meta-analysis test); PR #292 (commit `a3f1f50`);
++  `outputs/audits/I-f10-002/claude_audit.md`.
++- **I-f10-003:** Comparison table N=2/3/5 — `web/lib/comparison_table_spec.ts`,
++  `tests/v6/test_charts.py` (`test_comparison_table_n2/n5_renders_correctly`); PR #293
++  (commit `6fb1b37`); `outputs/audits/I-f10-003/claude_audit.md`.
++- **I-f10-004:** Timeline spec (quarter + date) — `web/lib/timeline_spec.ts`; PR #294
++  (commit `bbe8dbc`); `outputs/audits/I-f10-004/claude_audit.md`.
++- **I-f10-005:** ChartProvenance schema — `src/polaris_v6/charts/provenance.py`,
++  `tests/v6/test_chart_provenance.py`; PR #295 (commit `599bbe0`);
++  `outputs/audits/I-f10-005/claude_audit.md`.
++- **I-f10-006:** Click-through-to-source-data —
++  `web/app/charts_test/components/chart_source_inspector.tsx`,
++  `web/tests/e2e/chart_click_through.spec.ts`; PR #296 (commit `54fc31a`);
++  `outputs/audits/I-f10-006/claude_audit.md`.
++- **I-f10-007:** Sandboxed Python execution — `src/polaris_graph/tools/code_executor.py`,
++  `tests/v6/test_code_executor_sovereignty.py`; PR #297 (commit `617605e`);
++  `outputs/audits/I-f10-007/claude_audit.md`.
++- **I-f10-007b (deferred):** OS-level egress isolation for code_executor.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/v6/test_chart_provenance.py -TotalCount 25' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path src -Force | Select-Object Name,Mode' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/v6/test_code_executor_sovereignty.py -TotalCount 25' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path src/__init__.py' in C:\POLARIS
+ succeeded in 1060ms:
+"""I-f10-007: Sovereignty CI test for code_executor sandbox.
+
+Validation-time + runtime adversarial tests proving the sandbox blocks
+common Python sandbox-escape vectors. Honest framing: complete in-process
+sovereignty is not achievable in Python; OS-level isolation (network
+namespace + seccomp + read-only FS) tracked in I-f10-007b follow-up.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.polaris_graph.tools.code_executor import (
+    execute_analysis_script,
+    validate_script,
+)
+
+
+# ---------------------------------------------------------------------------
+# Validation-time rejection: blocked imports
+# ---------------------------------------------------------------------------
+
+def test_blocks_socket_import():
+    ok, _ = validate_script("import socket")
+    assert ok is False
+
+ succeeded in 1137ms:
+True
+
+ succeeded in 1222ms:
+
+Name          Mode
+----          ----
+__pycache__   d----
+agents        d----
+audit         d----
+auth          d----
+benchmarks    d----
+config        d----
+llm           d----
+memory        d----
+orchestration d----
+polaris_graph d----
+polaris_v6    d----
+providers     d----
+quality       d----
+schemas       d----
+search        d----
+state         d----
+tools         d----
+utils         d----
+__init__.py   -a---
+
+
+ succeeded in 1300ms:
+"""I-f10-005: Tests for the ChartProvenance Pydantic schema."""
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from polaris_v6.charts.provenance import (
+    ChartProvenance,
+    validate_chart_provenance,
+)
+from polaris_v6.charts.spec_builder import (
+    ComparisonRow,
+    ForestPlotPoint,
+    TimelinePoint,
+    build_comparison_table,
+    build_forest_plot,
+    build_timeline,
+)
+
+
+def test_validate_forest_plot_provenance():
+    spec = build_forest_plot(
+        title="t",
+        points=[ForestPlotPoint("a", 0.0, -0.1, 0.1, "ev1")],
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(rg -n '"'^def test_|''^async def test_'"' tests/v6/test_chart_provenance.py | Measure-Object).Count" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(rg -n '"'^def test_|''^async def test_'"' tests/v6/test_code_executor_sovereignty.py | Measure-Object).Count" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"from polaris_v6|from src\\.polaris_graph\" tests/v6/test_chart_provenance.py tests/v6/test_code_executor_sovereignty.py" in C:\POLARIS
+ succeeded in 923ms:
+35
+
+ succeeded in 972ms:
+11
+
+ succeeded in 1024ms:
+tests/v6/test_chart_provenance.py:8:from polaris_v6.charts.provenance import (
+tests/v6/test_chart_provenance.py:12:from polaris_v6.charts.spec_builder import (
+tests/v6/test_code_executor_sovereignty.py:13:from src.polaris_graph.tools.code_executor import (
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+90,311
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
