@@ -1,0 +1,1673 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e05ac-3fe4-7b30-bfe4-5a79c07739db
+--------
+user
+# Codex Brief Review — I-f13-003 (ITER 2 of 5)
+
+## Iter 2 changes per Codex iter 1
+
+- **P1 fix (units):** `PinSnapshot.pass_rate` is a fraction (0.0-1.0). Iter-2 plan: convert to percentage points before comparing. `detectRegressions(a, b)` computes `pass_rate_pct_drop = Math.round(a.pass_rate * 100) - Math.round(b.pass_rate * 100)`. Threshold remains 5 (percentage points). For sentence count, `verified_sentence_count_drop = a.verified_sentence_count - b.verified_sentence_count`, threshold 3.
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Issue:** I-f13-003 — Regression alerts inline. Scope: "alert badges when metric drops > threshold". Acceptance: "alert fires on test fixture". LOC estimate 100.
+- **What's needed:** alert badges that fire when comparing two pin snapshots if a metric (pass_rate or verified_sentence_count) drops by more than a configured threshold.
+- **Honest framing per CLAUDE.md §9.4:** the threshold is hard-coded; production wiring would read from a regression-config file. The alert renders inline on `/pin_replay`.
+
+## Plan
+
+### Frontend
+
+1. New `web/lib/pin_regression.ts` (NEW):
+   - `REGRESSION_THRESHOLDS = { pass_rate_pct_drop: 5, verified_sentence_count_drop: 3 }` (hard-coded; production reads from config).
+   - `detectRegressions(a, b): RegressionAlert[]` — for each numeric metric, if `(a − b) > threshold`, emit `{ metric, a_value, b_value, drop, threshold }`.
+
+2. Update `web/app/pin_replay/page.tsx`:
+   - Import `detectRegressions`.
+   - Compute `alerts = detectRegressions(snap_a, snap_b)`.
+   - When `alerts.length > 0`, render an inline `<div data-testid="regression-alert" role="alert">` ABOVE the snapshot cards listing each alert. Each alert has `data-testid="regression-alert-{metric}"`.
+
+### Playwright
+
+3. `web/tests/e2e/pin_regression_alert.spec.ts` (NEW):
+   - Visit `/pin_replay`.
+   - Switch A to `2026-04-30` and B to `2026-01-15` — a regression scenario (B's pass rate is LOWER than A's).
+   - Assert `regression-alert` is visible.
+   - Assert `regression-alert-pass_rate` contains the drop info.
+   - Switch back to A=2026-01-15, B=2026-04-30 (improvement scenario): assert `regression-alert` has count 0 (no regression).
+
+## Risks for Codex Red-Team
+
+1. **Threshold semantics:** drop is `a − b`. Positive drop means metric WORSENED (B is lower). Tests verify both directions.
+2. **Alert dismissibility:** not in scope; future polish.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~30 LOC regression lib + ~40 LOC page integration + ~30 LOC spec = ~100. At cap. Should fit.
+
+## Acceptance criteria
+
+1. New `detectRegressions(a, b) → RegressionAlert[]` in `web/lib/pin_regression.ts`.
+2. `/pin_replay` renders inline `regression-alert` div when alerts exist.
+3. Per-metric `regression-alert-{metric}` testids.
+4. Playwright spec asserts alert fires on regression scenario AND does NOT fire on improvement scenario.
+5. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll check the relevant `/pin_replay` code and fixtures/tests so the plan review is grounded in the current app shape rather than only the prose.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "pin_replay|PinSnapshot|pass_rate|verified_sentence_count|2026-04-30|2026-01-15|snapshot" -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "*pin*" -g "*.tsx" -g "*.ts" -g "*.json"' in C:\POLARIS
+ succeeded in 969ms:
+
+    Directory: C:\POLARIS
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-04-29 12:00 PM                __pycache__
+d----          2026-05-05  4:14 PM                .claude
+d----          2026-05-07  8:37 PM                .codex
+d----          2026-04-29 11:54 AM                .codex_pytest_tmp
+d----          2026-05-05  4:25 PM                .codex_tmp
+d----          2026-04-29  2:47 PM                .codex_tmp_m_int_6_v1_review_fresh
+d----          2026-04-28  9:29 PM                .codex_tmp_md3_review
+d----          2026-05-06 10:54 PM                .codex-tmp
+d--h-          2026-05-07  8:37 PM                .git
+d----          2026-05-05  4:14 PM                .github
+d----          2026-05-04  1:15 AM                .legacy
+d----          2026-05-02  9:10 AM                .private
+d----          2026-02-23  9:06 PM                .pytest_cache
+d----          2026-04-28 11:53 PM                .pytest_cache_local
+d----          2026-04-28  9:37 PM                .pytest_tmp
+d----          2026-04-28  1:54 PM                .pytest-cache
+d----          2026-04-28 11:50 PM                .pytest-cache-local
+d----          2026-05-06 11:43 PM                .ruff_cache
+d----          2026-05-07  7:58 PM                .tmp
+d----          2026-04-28 11:53 PM                .tmp_pytest
+d----          2026-04-28 12:23 PM                .tmp_pytest_base
+d----          2026-04-29 12:45 PM                .tmp_pytest_m_int_2
+d----          2026-04-29 12:54 PM                .tmp_pytest_m_int_3
+d----          2026-04-29 11:00 PM                .tmp_pytest_m_live_1_review
+d----          2026-04-28  3:43 PM                .tmp_pytest_md3_review
+d----          2026-04-28  3:43 PM                .tmp_pytest_md3_review2
+d----          2026-04-28 11:50 PM                .tmp-pytest
+d----          2026-05-05  8:18 PM                archive
+d----          2026-04-29  3:08 PM                codex_tmp_billing_quota_store_review_alt
+d----          2026-04-29  4:03 PM                codex_tmp_m_int_10_v1_review
+d----          2026-04-29  4:03 PM                codex_tmp_m_int_10_v1_review_rerun
+d----          2026-04-29  4:03 PM                codex_tmp_m_int_10_v1_single
+d----          2026-04-29  4:03 PM                codex_tmp_m_int_10_v1_single2
+d----          2026-04-29  4:11 PM                codex_tmp_m_int_10_v2_review
+d----          2026-04-29  4:12 PM                codex_tmp_m_int_10_v2_review_fresh
+d----          2026-04-29  4:18 PM                codex_tmp_m_int_10_v3_review
+d----          2026-04-29  4:18 PM                codex_tmp_m_int_10_v3_review_probe
+d----          2026-04-29  9:34 PM                codex_tmp_m_int_11_v1_review
+d----          2026-04-29  9:35 PM                codex_tmp_m_int_11_v1_review_fresh_20260429
+d----          2026-04-29  9:41 PM                codex_tmp_m_int_11_v2_review
+d----          2026-04-29  9:44 PM                codex_tmp_m_int_11_v2_review_fresh
+d----          2026-04-29  9:44 PM                codex_tmp_m_int_11_v2_review_fresh_subset
+d----          2026-04-29  2:15 PM                codex_tmp_m_int_5_v2_review
+d----          2026-04-29  2:25 PM                codex_tmp_m_int_5_v3_review
+d----          2026-04-29  2:25 PM                codex_tmp_m_int_5_v3_review_probe
+d----          2026-04-29  2:33 PM                codex_tmp_m_int_5_v4_review
+d----          2026-04-29  2:34 PM                codex_tmp_m_int_5_v4_review_fresh
+d----          2026-04-29  2:35 PM                codex_tmp_m_int_5_v4_review_fresh2
+d----          2026-04-29  2:47 PM                codex_tmp_m_int_6_v1_review
+d----          2026-04-29  2:59 PM                codex_tmp_m_int_7_v1_review
+d----          2026-04-29  2:59 PM                codex_tmp_m_int_7_v1_review_fresh
+d----          2026-04-29  3:08 PM                codex_tmp_m_int_7_v2_review
+d----          2026-04-29  3:08 PM                codex_tmp_m_int_7_v2_review_alt
+d----          2026-04-29  3:09 PM                codex_tmp_m_int_7_v2_single
+d----          2026-04-29  3:17 PM                codex_tmp_m_int_7_v3_review
+d----          2026-04-29  3:17 PM                codex_tmp_m_int_7_v3_review_fresh
+d----          2026-04-29  3:42 PM                codex_tmp_m_int_9_v1_review
+d----          2026-04-29  3:43 PM                codex_tmp_m_int_9_v1_review_single
+d----          2026-04-29  3:51 PM                codex_tmp_m_int_9_v2_review
+d----          2026-04-29  3:51 PM                codex_tmp_m_int_9_v2_review_fresh
+d----          2026-05-05  4:26 PM                codex_tmp_md3_pytest
+d----          2026-05-05  4:26 PM                codex_tmp_pytest
+d----          2026-05-05  4:26 PM                codex_tmp_pytest_m11
+d----          2026-04-27  9:33 AM                codex_tmp_pytest_m15a_v2
+d----          2026-05-05  4:26 PM                codex_tmp_pytest_review
+d----          2026-05-05  4:26 PM                codex_tmp_review
+d----          2026-05-05  4:14 PM                config
+d----          2026-04-30 12:27 AM                dashboard_probe_f2ltuo3t
+d----          2026-04-30 12:27 AM                dashboard_probe_hhthuj3n
+d----          2026-04-30 12:26 AM                dashboard_probe_xdvktanm
+d----          2026-04-30 12:26 AM                dashboard_probe_znaia9ry
+d----          2026-04-30 12:27 AM                dashboard_probe_zw62d2fs
+d----          2026-03-24  2:56 PM                data
+d----          2026-05-06 10:10 AM                docs
+d----          2026-02-27  9:20 PM                helm
+d----          2026-05-06  3:59 PM                logs
+d----          2026-04-29  4:05 PM                m_int_10_manual_57asn199
+d----          2026-04-29  3:10 PM                m_int_7_v2_manual_5fgxbzoc
+d----          2026-04-29  3:19 PM                m_int_7_v3_manual_dhypw5bz
+d----          2026-04-30 12:48 AM                m_live_4_r2_3qyr9r66
+d----          2026-04-29  4:13 PM                m10v2_manual_yz_33hqh
+d----          2026-04-29  9:28 PM                m10v3_one_wlcrnh2f
+d----          2026-05-05  4:26 PM                m8_tmp_check
+d----          2026-05-05  4:26 PM                m8_v4_pytest
+d----          2026-05-05  4:26 PM                m9_v2_manual_verify
+d----          2026-04-26  4:09 PM                m9v2_pytest_run1
+d----          2026-04-29  3:00 PM                manual_pytest_base_m_int_7
+d----          2026-04-29  3:01 PM                manual_pytest_base_m_int_7_ok
+d----          2026-04-29  9:26 PM                manual_review_scratch_m_int_10_v3
+d----          2026-05-05  4:26 PM                manual_review_scratch_m_int_9_v2
+d----          2026-04-29  1:20 PM                manual_tmp_m_int_3
+d----          2026-04-29  1:21 PM                manual_tmp_m_int_3_v3
+d----          2026-04-28  9:30 PM                md3_pytest_run2
+d----          2026-04-29 12:03 AM                md3_round3_manual_tmp
+d----          2026-04-29 12:03 AM                md3_round3_pytest_tmp
+d----          2026-02-24  1:09 AM                memory
+d----          2026-02-11  2:02 AM                models
+d----          2026-05-04  5:50 PM                outputs
+d----          2026-05-04 12:26 AM                polaris-controls
+d----          2026-04-28  9:52 PM                POLARIS.tmppytest
+d----          2026-04-29  1:19 PM                POLARIStmp_pytest_m_int_3_reviewbasetemp
+d----          2026-04-29 11:57 AM                py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9
+d----          2026-04-29 11:56 AM                pytest_run_3842f3b95af34ad8b6f93080344d5110
+d----          2026-04-29 11:56 AM                pytest_run_554e954860ba4943a4f9f6097fe8541f
+d----          2026-04-29 11:56 AM                pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba
+d----          2026-04-29  1:19 PM                pytest-cache-files-o969a6s7
+d----          2026-04-29  1:19 PM                pytest-cache-files-tw8jzxb3
+d----          2026-05-05 10:07 PM                scripts
+d----          2026-05-01  2:23 AM                src
+d----          2026-05-06 10:10 AM                state
+d----          2026-05-04 10:17 AM                tests
+d----          2026-04-29 11:58 AM                tmp_ae3ucgg
+d----          2026-04-29 12:09 PM                tmp_pytest_m_int_0b
+d----          2026-04-29 12:45 PM                tmp_pytest_m_int_2
+d----          2026-04-29 12:54 PM                tmp_pytest_m_int_3
+d----          2026-04-29  1:19 PM                tmp_pytest_m_int_3_review
+d----          2026-04-29 11:58 AM                tmp2ef0ie4p
+d----          2026-04-29 12:46 PM                tmp2hhmpr2y
+d----          2026-04-18  8:37 PM                tmp48c8ko2m
+d----          2026-04-28  2:01 PM                tmp63988s99
+d----          2026-04-29  2:07 PM                tmp8u9ua575
+d----          2026-04-29 11:58 AM                tmp9h7v7fon
+d----          2026-04-29  2:26 PM                tmpaufjwjy5
+d----          2026-04-29 11:58 AM                tmpgb143kt_
+d----          2026-04-29 11:58 AM                tmppvxh8fwq
+d----          2026-04-28  2:01 PM                tmpq5bdi1rl
+d----          2026-04-29  2:36 PM                tmptgnkdlz5
+d----          2026-04-29  2:36 PM                tmpu2b082f6
+d----          2026-04-29 11:58 AM                tmpuyki_w88
+d----          2026-04-29 11:58 AM                tmpv1dnokk6
+d----          2026-04-29 11:58 AM                tmpw2ru3yoj
+d----          2026-04-29 11:58 AM                tmpxnalraft
+d----          2026-04-29 11:58 AM                tmpyl5f0goo
+d----          2026-05-07  1:26 AM                web
+-a---          2026-05-03  2:56 PM          53248 .coverage
+-a---          2026-02-27  9:20 PM            599 .dockerignore
+-a---          2026-05-04  5:50 PM          88725 .env
+-a---          2026-04-18  2:37 PM           7508 .env.example
+-a---          2026-05-05  6:06 PM           6078 .gitignore
+-a---          2026-04-18  1:56 PM          15085 architecture.md
+-a---          2026-05-07 10:43 AM          47764 CLAUDE.md
+-a---          2026-02-27  9:20 PM           1774 docker-compose.yml
+-a---          2026-02-27  9:20 PM           1197 Dockerfile
+-a---          2026-05-05  8:23 PM          11552 ground_rules.md
+-a---          2026-02-16 12:34 AM            654 pytest.ini
+-a---          2026-05-05  4:14 PM          11317 README.md
+-a---          2026-05-02  8:49 AM            662 requirements-orchestrator.txt
+-a---          2026-05-01  2:39 PM           1355 requirements-v6.txt
+-a---          2026-05-06 12:43 PM           6532 requirements.txt
+
+
+2026-05-08T03:40:46.976690Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 1020ms:
+2026-05-08T03:40:47.074711Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+web\tsconfig.json
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\vega_lite_chart.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\timeline_chart.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\multi_source_panel.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\forest_plot_chart.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\evidence_tooltip_perf.spec.ts
+web\tests\e2e\evidence_tooltip_mobile.spec.ts
+web\tests\e2e\evidence_tooltip_edges.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\comparison_table_chart.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\chart_click_through.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\playwright.config.ts
+web\package.json
+web\package-lock.json
+web\next.config.ts
+web\next-env.d.ts
+web\lib\utils.ts
+web\lib\timeline_spec.ts
+web\lib\sse_events.ts
+web\lib\sse_client.ts
+web\lib\sentence_highlight.ts
+web\lib\run_broadcast.ts
+web\lib\provenance_tokens.ts
+web\lib\pin_replay_demo.ts
+web\lib\forest_plot_spec.ts
+web\lib\contracts.ts
+web\lib\comparison_table_spec.ts
+web\lib\api.ts
+web\components.json
+web\components\ui\vega-chart.tsx
+web\components\ui\sonner.tsx
+web\components\ui\sheet.tsx
+web\components\ui\input.tsx
+web\components\ui\evidence-tooltip.tsx
+web\components\ui\card.tsx
+web\components\ui\button.tsx
+web\app\upload\page.tsx
+web\app\upload\components\upload_workspace.tsx
+web\app\upload\components\upload_drop_zone.tsx
+web\app\upload\components\selected_docs_indicator.tsx
+web\app\upload\components\document_preview.tsx
+web\app\sse\_harness.tsx
+web\app\sse\page.tsx
+web\app\sign-in\page.tsx
+web\app\sentence_hover_test\_demo_stress.tsx
+web\app\sentence_hover_test\_demo_perf.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+web\app\sentence_hover_test\_demo_coverage.tsx
+web\app\sentence_hover_test\_demo.tsx
+web\app\sentence_hover_test\stress\page.tsx
+web\app\sentence_hover_test\perf\page.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+tests\v6\fixtures\sycophancy_v1\paired_prompts.json
+web\app\sentence_hover_test\evidence_tooltip\page.tsx
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_drop_reason.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_contradiction.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_defense.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_clinical.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_climate.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_ai_sovereignty.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json
+web\app\sentence_hover_test\evaluator_edge\page.tsx
+tests\v6\fixtures\baseline_pins\baseline_housing.json
+tests\v6\fixtures\baseline_pins\baseline_clinical.json
+tests\v6\fixtures\baseline_pins\baseline_climate.json
+config\v6_templates\workforce.json
+config\v6_templates\trade.json
+config\v6_templates\housing.json
+config\v6_templates\defense.json
+config\v6_templates\clinical.json
+config\v6_templates\climate.json
+config\v6_templates\canada_us.json
+config\v6_templates\ai_sovereignty.json
+config\sota_baselines.json
+web\app\sentence_hover_test\coverage\page.tsx
+web\app\runs\[runId]\page.tsx
+web\app\retrieval\page.tsx
+web\app\retrieval\components\retrieval_runner.tsx
+web\app\retrieval\components\corpus_brief.tsx
+tests\v3\fixtures\golden_biochar.json
+config\benchmark\clinical_n10.json
+config\benchmark\clinical_demo_one.json
+web\app\pin_replay\page.tsx
+web\app\pin_replay\components\pin_timeseries.tsx
+web\app\pin_replay\components\diff_side_panel.tsx
+web\app\page.tsx
+web\app\layout.tsx
+web\app\intake\page.tsx
+outputs\_vast_dc.json
+outputs\_vast_ca.json
+outputs\stress_test_scores.json
+outputs\forensic_report_PG_TEST_060.json
+outputs\forensic_report_PG_TEST_044.json
+outputs\fix_typing_test.png
+outputs\fix_typing_fast.png
+outputs\deep_verify_results.json
+web\app\audit_live\_panels.tsx
+web\app\audit_live\page.tsx
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx
+web\.prettierrc.json
+tests\polaris_graph\test_m_int_0b_pin_capture_integration.py
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\test_md11_model_pin.py
+web\app\intake\components\scope_decision_view.tsx
+web\app\intake\components\pdf_drop_banner.tsx
+web\app\intake\components\intake_form.tsx
+web\app\intake\components\disambiguation_modal.tsx
+web\app\intake\components\ambiguity_modal.tsx
+docs\session_pin.txt
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_minimal.json
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_full.json
+docs\schemas\codex_verdict.schema.json
+docs\live_code_audit.json
+web\app\inspector\[runId]\page.tsx
+docs\compliance_templates\soc2_evidence_mapping.md
+docs\carney_handover\bundle_export_sample.json
+docs\canonical_pin.txt
+tests\fixtures\subagent_prompts\verifier_response.json
+tests\fixtures\subagent_prompts\verifier_inputs.json
+tests\fixtures\subagent_prompts\section_writer_inputs.json
+web\app\generation\page.tsx
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\model_pin.json
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json
+tests\fixtures\mindmap_test_result.json
+web\app\generation\components\verified_report_view.tsx
+web\app\generation\components\sentence_inspector.tsx
+web\app\generation\components\multi_source_panel.tsx
+web\app\generation\components\generation_runner.tsx
+web\app\generation\components\frame_coverage_panel.tsx
+web\app\generation\components\evaluator_pane.tsx
+web\app\generation\components\contradiction_pane.tsx
+web\app\generation\components\BundlePreview.tsx
+outputs\anti_tunnel_view_results.json
+outputs\codex_findings\autoloop_v2_protocol_review\opinion.md
+web\app\dashboard\page.tsx
+web\app\contracts\_editor.tsx
+web\app\contracts\page.tsx
+outputs\audits\verdicts\bootstrap_smoke\iter_1.json
+outputs\audits\verdicts\5_1_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\5.2\iter_3.json
+outputs\audits\verdicts\5.2\iter_2.json
+outputs\audits\verdicts\5.2\iter_1.json
+web\app\components\home_keyboard_shell.tsx
+web\app\components\command_palette.tsx
+outputs\audits\verdicts\4_5_prep_drafts\iter_3.json
+outputs\audits\verdicts\4_5_prep_drafts\iter_2.json
+outputs\audits\verdicts\4_5_prep_drafts\iter_1.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_8.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_7.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_6.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_5.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_4.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_3.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_2.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_1.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\evaluator_rule_checks.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\bibliography.json
+outputs\audits\verdicts\3.7\iter_1.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\bibliography.json
+outputs\audits\verdicts\3.4\iter_1.json
+web\app\charts_test\timeline\page.tsx
+web\app\charts_test\page.tsx
+outputs\codex_findings\m1_v3_review\scratch\judge_only\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\qwen_judge_output.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\bibliography.json
+outputs\audits\verdicts\3.3\iter_1.json
+web\app\charts_test\forest_plot\page.tsx
+outputs\audits\verdicts\3.2\iter_1.json
+outputs\audits\verdicts\3.1\iter_1.json
+outputs\audits\verdicts\2c_6_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\2c.5\iter_1.json
+web\app\charts_test\components\chart_source_inspector.tsx
+outputs\audits\verdicts\2c.4\iter_1.json
+outputs\audits\verdicts\2c.3\iter_1.json
+outputs\audits\verdicts\2c.2\iter_1.json
+outputs\audits\verdicts\2c.1\iter_1.json
+outputs\audits\verdicts\2b_7_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\2b.6\iter_1.json
+outputs\audits\verdicts\2b.5\iter_1.json
+outputs\audits\verdicts\2b.4\iter_1.json
+outputs\audits\verdicts\2b.3\iter_1.json
+outputs\audits\verdicts\2b.2\iter_1.json
+web\app\charts_test\comparison_table\page.tsx
+web\app\charts_test\click_through\page.tsx
+outputs\audits\verdicts\2b.1\iter_1.json
+outputs\audits\verdicts\2a_7_prep_briefing_pack\iter_1.json
+web\app\benchmark\page.tsx
+outputs\audits\verdicts\2a.6\iter_1.json
+web\app\benchmark\components\benchmark_board.tsx
+outputs\audits\verdicts\2a.5\iter_1.json
+outputs\audits\verdicts\2a.4\iter_1.json
+outputs\audits\verdicts\2a.3\iter_1.json
+outputs\audits\verdicts\2a.2\iter_1.json
+outputs\audits\verdicts\2a.1\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\bibliography.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_4.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_3.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_2.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\bibliography.json
+outputs\audits\verdicts\1.7\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\bibliography.json
+outputs\audits\verdicts\1.6\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\bibliography.json
+outputs\audits\verdicts\1.5\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\bibliography.json
+outputs\audits\verdicts\1.4\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\bibliography.json
+outputs\audits\verdicts\1.3\iter_1.json
+outputs\audits\verdicts\1.2\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\bibliography.json
+outputs\audits\verdicts\1.1\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\bibliography.json
+outputs\audits\verdicts\0_8_evaluator_doc\iter_2.json
+outputs\audits\verdicts\0_8_evaluator_doc\iter_1.json
+outputs\audits\verdicts\0_7_prep_bakeoff_runner\iter_2.json
+outputs\audits\verdicts\0_7_prep_bakeoff_runner\iter_1.json
+outputs\audits\verdicts\0_6_hardware_decision_doc\iter_2.json
+outputs\audits\verdicts\0_6_hardware_decision_doc\iter_1.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_3.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_2.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_1.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_3.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_2.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_1.json
+outputs\audits\verdicts\0.4\iter_1.json
+outputs\audits\verdicts\0.2\iter_1.json
+outputs\audits\verdicts\0.10\iter_1.json
+outputs\audits\verdicts\0.1\iter_1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\manifest.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-workforce-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-trade-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-housing-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-defense-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-clinical-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-climate-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-canada_us-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-ai_sovereignty-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\bundle.json
+outputs\audits\manifests\bootstrap_smoke.json
+outputs\audits\manifests\5.2.json
+outputs\audits\manifests\3_5_prep_api_benchmark_runner.json
+outputs\audits\manifests\0_6_hardware_decision_doc.json
+outputs\audits\manifests\0.8.json
+outputs\audits\manifests\0.5.json
+state\active_issue.json
+state\cost_ledger.json
+state\orchestrator_status.json
+scripts\screenshot_typing.py
+scripts\pg_loopback_topics.json
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+src\state\last_pointer.json
+src\state\cost_ledger.json
+scripts\autoloop\runner\seccomp.json
+src\orchestration\stopping_mechanism.py
+src\polaris_graph\audit_ir\pin_trends.py
+src\polaris_graph\audit_ir\pin_replay.py
+src\polaris_graph\audit_ir\model_pin.py
+state\users.json
+state\substrate_commit_counter.json
+state\polaris_restart\issue_github_map.json
+state\polaris_restart\cleanup_pr_dependencies.json
+state\polaris_restart\charter_sha_pin.txt
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+
+ exited 1 in 1115ms:
+web\tsconfig.json
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\vega_lite_chart.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\timeline_chart.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\tests\e2e\performance_hover.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\multi_source_panel.spec.ts
+web\tests\e2e\landing_template_grid.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\tests\e2e\forest_plot_chart.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\tests\e2e\evidence_tooltip_perf.spec.ts
+web\tests\e2e\evidence_tooltip_mobile.spec.ts
+web\tests\e2e\evidence_tooltip_edges.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\comparison_table_chart.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\chart_click_through.spec.ts
+web\tests\e2e\bundle_preview.spec.ts
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\playwright.config.ts
+web\package.json
+web\package-lock.json
+web\next.config.ts
+web\next-env.d.ts
+web\lib\utils.ts
+web\lib\timeline_spec.ts
+web\lib\sse_events.ts
+web\lib\sse_client.ts
+web\lib\sentence_highlight.ts
+web\lib\run_broadcast.ts
+web\lib\provenance_tokens.ts
+web\lib\pin_replay_demo.ts
+web\lib\forest_plot_spec.ts
+web\lib\contracts.ts
+web\lib\comparison_table_spec.ts
+web\lib\api.ts
+web\components.json
+web\components\ui\vega-chart.tsx
+web\components\ui\sonner.tsx
+web\components\ui\sheet.tsx
+web\components\ui\input.tsx
+web\components\ui\evidence-tooltip.tsx
+web\components\ui\card.tsx
+web\components\ui\button.tsx
+web\app\upload\page.tsx
+web\app\upload\components\upload_workspace.tsx
+web\app\upload\components\upload_drop_zone.tsx
+web\app\upload\components\selected_docs_indicator.tsx
+web\app\upload\components\document_preview.tsx
+web\app\sse\_harness.tsx
+web\app\sse\page.tsx
+web\app\sign-in\page.tsx
+web\app\sentence_hover_test\_demo_stress.tsx
+web\app\sentence_hover_test\_demo_perf.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+web\app\sentence_hover_test\_demo_coverage.tsx
+web\app\sentence_hover_test\_demo.tsx
+web\app\sentence_hover_test\stress\page.tsx
+web\app\sentence_hover_test\perf\page.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+tests\v6\fixtures\sycophancy_v1\paired_prompts.json
+web\app\sentence_hover_test\evidence_tooltip\page.tsx
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_drop_reason.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_contradiction.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_defense.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_clinical.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_climate.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_ai_sovereignty.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json
+web\app\sentence_hover_test\evaluator_edge\page.tsx
+tests\v6\fixtures\baseline_pins\baseline_housing.json
+tests\v6\fixtures\baseline_pins\baseline_clinical.json
+tests\v6\fixtures\baseline_pins\baseline_climate.json
+config\v6_templates\workforce.json
+config\v6_templates\trade.json
+config\v6_templates\housing.json
+config\v6_templates\defense.json
+config\v6_templates\clinical.json
+config\v6_templates\climate.json
+config\v6_templates\canada_us.json
+config\v6_templates\ai_sovereignty.json
+config\sota_baselines.json
+web\app\sentence_hover_test\coverage\page.tsx
+web\app\runs\[runId]\page.tsx
+web\app\retrieval\page.tsx
+web\app\retrieval\components\retrieval_runner.tsx
+web\app\retrieval\components\corpus_brief.tsx
+tests\v3\fixtures\golden_biochar.json
+config\benchmark\clinical_n10.json
+config\benchmark\clinical_demo_one.json
+web\app\pin_replay\page.tsx
+web\app\pin_replay\components\pin_timeseries.tsx
+web\app\pin_replay\components\diff_side_panel.tsx
+web\app\page.tsx
+web\app\layout.tsx
+web\app\intake\page.tsx
+outputs\_vast_dc.json
+outputs\_vast_ca.json
+outputs\stress_test_scores.json
+outputs\forensic_report_PG_TEST_060.json
+outputs\forensic_report_PG_TEST_044.json
+outputs\fix_typing_test.png
+outputs\fix_typing_fast.png
+outputs\deep_verify_results.json
+web\app\audit_live\_panels.tsx
+web\app\audit_live\page.tsx
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx
+web\.prettierrc.json
+tests\polaris_graph\test_m_int_0b_pin_capture_integration.py
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\test_md11_model_pin.py
+web\app\intake\components\scope_decision_view.tsx
+web\app\intake\components\pdf_drop_banner.tsx
+web\app\intake\components\intake_form.tsx
+web\app\intake\components\disambiguation_modal.tsx
+web\app\intake\components\ambiguity_modal.tsx
+docs\session_pin.txt
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_minimal.json
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_full.json
+docs\schemas\codex_verdict.schema.json
+docs\live_code_audit.json
+web\app\inspector\[runId]\page.tsx
+docs\compliance_templates\soc2_evidence_mapping.md
+docs\carney_handover\bundle_export_sample.json
+docs\canonical_pin.txt
+tests\fixtures\subagent_prompts\verifier_response.json
+tests\fixtures\subagent_prompts\verifier_inputs.json
+tests\fixtures\subagent_prompts\section_writer_inputs.json
+web\app\generation\page.tsx
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\model_pin.json
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json
+tests\fixtures\mindmap_test_result.json
+web\app\generation\components\verified_report_view.tsx
+web\app\generation\components\sentence_inspector.tsx
+web\app\generation\components\multi_source_panel.tsx
+web\app\generation\components\generation_runner.tsx
+web\app\generation\components\frame_coverage_panel.tsx
+web\app\generation\components\evaluator_pane.tsx
+web\app\generation\components\contradiction_pane.tsx
+web\app\generation\components\BundlePreview.tsx
+outputs\anti_tunnel_view_results.json
+outputs\codex_findings\autoloop_v2_protocol_review\opinion.md
+web\app\dashboard\page.tsx
+web\app\contracts\_editor.tsx
+web\app\contracts\page.tsx
+outputs\audits\verdicts\bootstrap_smoke\iter_1.json
+outputs\audits\verdicts\5_1_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\5.2\iter_3.json
+outputs\audits\verdicts\5.2\iter_2.json
+outputs\audits\verdicts\5.2\iter_1.json
+web\app\components\home_keyboard_shell.tsx
+web\app\components\command_palette.tsx
+outputs\audits\verdicts\4_5_prep_drafts\iter_3.json
+outputs\audits\verdicts\4_5_prep_drafts\iter_2.json
+outputs\audits\verdicts\4_5_prep_drafts\iter_1.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_8.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_7.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_6.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_5.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_4.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_3.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_2.json
+outputs\audits\verdicts\3_5_prep_api_benchmark_runner\iter_1.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\evaluator_rule_checks.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\rules_only\bibliography.json
+outputs\audits\verdicts\3.7\iter_1.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\legacy_none\bibliography.json
+outputs\audits\verdicts\3.4\iter_1.json
+web\app\charts_test\timeline\page.tsx
+web\app\charts_test\page.tsx
+outputs\codex_findings\m1_v3_review\scratch\judge_only\verification_details.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\qwen_judge_output.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\manifest.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\contradictions.json
+outputs\codex_findings\m1_v3_review\scratch\judge_only\bibliography.json
+outputs\audits\verdicts\3.3\iter_1.json
+web\app\charts_test\forest_plot\page.tsx
+outputs\audits\verdicts\3.2\iter_1.json
+outputs\audits\verdicts\3.1\iter_1.json
+outputs\audits\verdicts\2c_6_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\2c.5\iter_1.json
+web\app\charts_test\components\chart_source_inspector.tsx
+outputs\audits\verdicts\2c.4\iter_1.json
+outputs\audits\verdicts\2c.3\iter_1.json
+outputs\audits\verdicts\2c.2\iter_1.json
+outputs\audits\verdicts\2c.1\iter_1.json
+outputs\audits\verdicts\2b_7_prep_briefing_pack\iter_1.json
+outputs\audits\verdicts\2b.6\iter_1.json
+outputs\audits\verdicts\2b.5\iter_1.json
+outputs\audits\verdicts\2b.4\iter_1.json
+outputs\audits\verdicts\2b.3\iter_1.json
+outputs\audits\verdicts\2b.2\iter_1.json
+web\app\charts_test\comparison_table\page.tsx
+web\app\charts_test\click_through\page.tsx
+outputs\audits\verdicts\2b.1\iter_1.json
+outputs\audits\verdicts\2a_7_prep_briefing_pack\iter_1.json
+web\app\benchmark\page.tsx
+outputs\audits\verdicts\2a.6\iter_1.json
+web\app\benchmark\components\benchmark_board.tsx
+outputs\audits\verdicts\2a.5\iter_1.json
+outputs\audits\verdicts\2a.4\iter_1.json
+outputs\audits\verdicts\2a.3\iter_1.json
+outputs\audits\verdicts\2a.2\iter_1.json
+outputs\audits\verdicts\2a.1\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_verification_details\bibliography.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_4.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_3.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_2.json
+outputs\audits\verdicts\1.8_prep_briefing_pack\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_frame_coverage\bibliography.json
+outputs\audits\verdicts\1.7\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_evaluator_gate\bibliography.json
+outputs\audits\verdicts\1.6\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\missing_corpus\bibliography.json
+outputs\audits\verdicts\1.5\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\minimal_valid\bibliography.json
+outputs\audits\verdicts\1.4\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\legacy_optional_none\bibliography.json
+outputs\audits\verdicts\1.3\iter_1.json
+outputs\audits\verdicts\1.2\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_missing_evidence\bibliography.json
+outputs\audits\verdicts\1.1\iter_1.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\verification_details.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\manifest.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\contradictions.json
+outputs\codex_findings\m1_v3_review\manual_checks\bad_contradiction_few_claims\bibliography.json
+outputs\audits\verdicts\0_8_evaluator_doc\iter_2.json
+outputs\audits\verdicts\0_8_evaluator_doc\iter_1.json
+outputs\audits\verdicts\0_7_prep_bakeoff_runner\iter_2.json
+outputs\audits\verdicts\0_7_prep_bakeoff_runner\iter_1.json
+outputs\audits\verdicts\0_6_hardware_decision_doc\iter_2.json
+outputs\audits\verdicts\0_6_hardware_decision_doc\iter_1.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_3.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_2.json
+outputs\audits\verdicts\0_5_stub_substrate\iter_1.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_3.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_2.json
+outputs\audits\verdicts\0_3_prep_vastai_provision_script\iter_1.json
+outputs\audits\verdicts\0.4\iter_1.json
+outputs\audits\verdicts\0.2\iter_1.json
+outputs\audits\verdicts\0.10\iter_1.json
+outputs\audits\verdicts\0.1\iter_1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\manifest.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-workforce-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-trade-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-housing-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-defense-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-clinical-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-climate-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-canada_us-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\contracts\smoke-ai_sovereignty-1.json
+outputs\audits\handover_bundles\smoke-2026-05-03\bundle.json
+outputs\audits\manifests\bootstrap_smoke.json
+outputs\audits\manifests\5.2.json
+outputs\audits\manifests\3_5_prep_api_benchmark_runner.json
+outputs\audits\manifests\0_6_hardware_decision_doc.json
+outputs\audits\manifests\0.8.json
+outputs\audits\manifests\0.5.json
+state\active_issue.json
+state\cost_ledger.json
+state\orchestrator_status.json
+scripts\screenshot_typing.py
+scripts\pg_loopback_topics.json
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+src\state\last_pointer.json
+src\state\cost_ledger.json
+scripts\autoloop\runner\seccomp.json
+src\orchestration\stopping_mechanism.py
+src\polaris_graph\audit_ir\pin_trends.py
+src\polaris_graph\audit_ir\pin_replay.py
+src\polaris_graph\audit_ir\model_pin.py
+state\users.json
+state\substrate_commit_counter.json
+state\polaris_restart\issue_github_map.json
+state\polaris_restart\cleanup_pr_dependencies.json
+state\polaris_restart\charter_sha_pin.txt
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+
+codex
+The app already has a focused pin replay page and demo data helper. I’m narrowing the review to whether the proposed test dates and metric fields line up with those existing fixtures.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\pin_replay_demo.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\pin_replay.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\pin_replay\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\pin_replay_diff.spec.ts" in C:\POLARIS
+ succeeded in 1055ms:
+import { expect, test } from "@playwright/test";
+
+test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+
+  await expect(page.getByTestId("pin-snapshot-a")).toBeVisible();
+  await expect(page.getByTestId("pin-snapshot-b")).toBeVisible();
+  await expect(page.getByTestId("pin-replay-delta")).toBeVisible();
+
+  // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
+  await expect(page.getByTestId("pin-snapshot-a-date")).toHaveValue(
+    "2026-01-15",
+  );
+  await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
+    "2026-04-30",
+  );
+  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+    "72%",
+  );
+  await expect(page.getByTestId("pin-snapshot-b-pass-rate")).toContainText(
+    "85%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+    "+13%",
+  );
+
+  // Switch A to the later date — A and B now identical, delta should be 0.
+  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+    "85%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+    "0%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
+    "0",
+  );
+});
+
+ succeeded in 1178ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1283ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+
+import { DiffSidePanel } from "./components/diff_side_panel";
+import { PinTimeseries } from "./components/pin_timeseries";
+
+const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
+
+function SnapshotCard({
+  testid,
+  label,
+  selected_date,
+  on_change,
+  snapshot,
+}: {
+  testid: string;
+  label: string;
+  selected_date: string;
+  on_change: (next: string) => void;
+  snapshot: PinSnapshot;
+}) {
+  return (
+    <Card data-testid={testid}>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{label}</CardTitle>
+        <select
+          data-testid={`${testid}-date`}
+          value={selected_date}
+          onChange={(e) => on_change(e.target.value)}
+          className="border-border bg-background rounded border px-2 py-1 text-sm"
+        >
+          {PIN_DATES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <dt className="text-muted-foreground">Query</dt>
+          <dd
+            data-testid={`${testid}-query`}
+            className="text-foreground truncate"
+          >
+            {snapshot.query}
+          </dd>
+          <dt className="text-muted-foreground">Verdict</dt>
+          <dd data-testid={`${testid}-verdict`} className="text-foreground">
+            {snapshot.verdict}
+          </dd>
+          <dt className="text-muted-foreground">Sections kept / dropped</dt>
+          <dd data-testid={`${testid}-sections`} className="text-foreground">
+            {snapshot.section_count_kept} / {snapshot.section_count_dropped}
+          </dd>
+          <dt className="text-muted-foreground">Verified sentences</dt>
+          <dd data-testid={`${testid}-sentences`} className="text-foreground">
+            {snapshot.verified_sentence_count}
+          </dd>
+          <dt className="text-muted-foreground">Pass rate</dt>
+          <dd data-testid={`${testid}-pass-rate`} className="text-foreground">
+            {Math.round(snapshot.pass_rate * 100)}%
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function PinReplayPage() {
+  const [date_a, set_date_a] = useState(PIN_DATES[0]);
+  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
+  const [diff_open, set_diff_open] = useState(false);
+  const snap_a = DEMO_PIN_REGISTRY[date_a];
+  const snap_b = DEMO_PIN_REGISTRY[date_b];
+  const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+
+  const delta_pass_rate =
+    Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
+  const delta_sentences =
+    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Pin replay — same query on different dates
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample pin-replay (demo data); production fetch from{" "}
+          <code>
+            /runs/{"{run_id}"}/pins/{"{date}"}
+          </code>{" "}
+          per M-INT-0b post-Carney.
+        </p>
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <SnapshotCard
+            testid="pin-snapshot-a"
+            label="Snapshot A"
+            selected_date={date_a}
+            on_change={set_date_a}
+            snapshot={snap_a}
+          />
+          <SnapshotCard
+            testid="pin-snapshot-b"
+            label="Snapshot B"
+            selected_date={date_b}
+            on_change={set_date_b}
+            snapshot={snap_b}
+          />
+        </div>
+        <div className="mt-6">
+          <PinTimeseries snapshots={all_snapshots} />
+        </div>
+        <button
+          type="button"
+          data-testid="pin-show-diff"
+          onClick={() => set_diff_open(true)}
+          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
+        >
+          Show snapshot diff
+        </button>
+        <DiffSidePanel
+          open={diff_open}
+          onOpenChange={set_diff_open}
+          snapshot_a={snap_a}
+          snapshot_b={snap_b}
+        />
+        <Card data-testid="pin-replay-delta" className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-base">Delta (B − A)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p>
+              Pass rate:{" "}
+              <span data-testid="pin-replay-delta-pass-rate">
+                {delta_pass_rate >= 0 ? "+" : ""}
+                {delta_pass_rate}%
+              </span>
+            </p>
+            <p>
+              Verified sentences:{" "}
+              <span data-testid="pin-replay-delta-sentences">
+                {delta_sentences >= 0 ? "+" : ""}
+                {delta_sentences}
+              </span>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
+ succeeded in 1346ms:
+import { expect, test } from "@playwright/test";
+
+test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+
+  // Two timeseries charts render with svg.
+  const pass_rate_section = page.getByTestId("pin-timeseries-pass-rate");
+  const sentence_section = page.getByTestId("pin-timeseries-sentence-count");
+  await expect(pass_rate_section).toBeVisible();
+  await expect(sentence_section).toBeVisible();
+  await expect(pass_rate_section.locator("svg").first()).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(sentence_section.locator("svg").first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Open the diff side-panel.
+  await page.getByTestId("pin-show-diff").click();
+  await expect(page.getByTestId("pin-diff-pane")).toBeVisible();
+
+  // Per-field rows visible.
+  await expect(page.getByTestId("pin-diff-row-pass_rate")).toBeVisible();
+  await expect(
+    page.getByTestId("pin-diff-row-verified_sentence_count"),
+  ).toBeVisible();
+  await expect(page.getByTestId("pin-diff-row-query")).toBeVisible();
+
+  // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
+  await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
+    "+13%",
+  );
+  // String field delta is "(unchanged)" since same query string.
+  await expect(page.getByTestId("pin-diff-delta-query")).toContainText(
+    "unchanged",
+  );
+
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+ succeeded in 1400ms:
+/**
+ * I-f13-001: Pin replay demo registry. In production this would fetch from
+ * `/runs/{run_id}/pins/{date}` per M-INT-0b post-Carney; today the registry
+ * is hand-authored frontend demo data.
+ */
+
+export interface PinSnapshot {
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+}
+
+export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+  "2026-01-15": {
+    pin_date: "2026-01-15",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 4,
+    section_count_dropped: 1,
+    verified_sentence_count: 18,
+    pass_rate: 0.72,
+  },
+  "2026-03-01": {
+    pin_date: "2026-03-01",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 5,
+    section_count_dropped: 0,
+    verified_sentence_count: 21,
+    pass_rate: 0.79,
+  },
+  "2026-04-30": {
+    pin_date: "2026-04-30",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 5,
+    section_count_dropped: 0,
+    verified_sentence_count: 23,
+    pass_rate: 0.85,
+  },
+};
+
+codex
+criterion_1: PASS — plan adds `detectRegressions(a, b) → RegressionAlert[]`.
+criterion_2: PASS — plan renders inline `regression-alert` when alerts exist.
+criterion_3: PASS — plan includes per-metric `regression-alert-{metric}` testids.
+criterion_4: PASS — Playwright covers regression and improvement/no-alert directions.
+criterion_5: PASS — planned scope is plausibly under ≤200 net LOC.
+
+files_read:
+- `web/app/pin_replay/page.tsx`
+- `web/lib/pin_replay_demo.ts`
+- `web/tests/e2e/pin_replay.spec.ts`
+- `web/tests/e2e/pin_replay_diff.spec.ts`
+- `web/package.json`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The iter-2 unit fix is sound: `pass_rate` is fractional in the demo registry, and comparing rounded percentage points against threshold `5` matches the intended “percentage point drop” semantics.
+tokens used
+23,908
+criterion_1: PASS — plan adds `detectRegressions(a, b) → RegressionAlert[]`.
+criterion_2: PASS — plan renders inline `regression-alert` when alerts exist.
+criterion_3: PASS — plan includes per-metric `regression-alert-{metric}` testids.
+criterion_4: PASS — Playwright covers regression and improvement/no-alert directions.
+criterion_5: PASS — planned scope is plausibly under ≤200 net LOC.
+
+files_read:
+- `web/app/pin_replay/page.tsx`
+- `web/lib/pin_replay_demo.ts`
+- `web/tests/e2e/pin_replay.spec.ts`
+- `web/tests/e2e/pin_replay_diff.spec.ts`
+- `web/package.json`
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The iter-2 unit fix is sound: `pass_rate` is fractional in the demo registry, and comparing rounded percentage points against threshold `5` matches the intended “percentage point drop” semantics.
