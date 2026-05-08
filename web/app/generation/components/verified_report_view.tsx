@@ -177,6 +177,19 @@ function SentenceRow({
           {sentence.provenance_tokens.join(" ")}
         </span>
       ) : null}
+      {!dropped &&
+      parsed_tokens.some((t) => t.source_id.startsWith("ev_memory_")) ? (
+        <span
+          data-testid={`prior-run-badge-${sentence_id}`}
+          title={`Cites prior workspace run via ${parsed_tokens
+            .filter((t) => t.source_id.startsWith("ev_memory_"))
+            .map((t) => t.source_id)
+            .join(", ")}`}
+          className="inline-flex w-fit items-center rounded border border-purple-500/40 bg-purple-500/5 px-2 py-0.5 text-[10px] font-medium tracking-widest text-purple-700 uppercase dark:text-purple-300"
+        >
+          from prior run
+        </span>
+      ) : null}
       {dropped && sentence.drop_reason ? (
         <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}

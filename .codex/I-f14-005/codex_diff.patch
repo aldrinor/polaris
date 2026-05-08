@@ -1,0 +1,130 @@
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 0da7d58..3be111a 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -177,6 +177,19 @@ function SentenceRow({
+           {sentence.provenance_tokens.join(" ")}
+         </span>
+       ) : null}
++      {!dropped &&
++      parsed_tokens.some((t) => t.source_id.startsWith("ev_memory_")) ? (
++        <span
++          data-testid={`prior-run-badge-${sentence_id}`}
++          title={`Cites prior workspace run via ${parsed_tokens
++            .filter((t) => t.source_id.startsWith("ev_memory_"))
++            .map((t) => t.source_id)
++            .join(", ")}`}
++          className="inline-flex w-fit items-center rounded border border-purple-500/40 bg-purple-500/5 px-2 py-0.5 text-[10px] font-medium tracking-widest text-purple-700 uppercase dark:text-purple-300"
++        >
++          from prior run
++        </span>
++      ) : null}
+       {dropped && sentence.drop_reason ? (
+         <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+diff --git a/web/app/sentence_hover_test/memory_cite/page.tsx b/web/app/sentence_hover_test/memory_cite/page.tsx
+new file mode 100644
+index 0000000..519b757
+--- /dev/null
++++ b/web/app/sentence_hover_test/memory_cite/page.tsx
+@@ -0,0 +1,63 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type { VerifiedReport } from "@/lib/api";
++
++const ISO = "2026-05-08T00:00:00Z";
++
++const MEMORY_REPORT: VerifiedReport = {
++  report_id: "r-memory-cite",
++  pool_id: "p-memory",
++  decision_id: "d-memory",
++  sections: [
++    {
++      section_id: "sec_m",
++      section_title: "Cited recall demo",
++      verified_sentences: [
++        {
++          section_id: "sec_m",
++          sentence_text:
++            "Prior workspace research found tirzepatide outperforms semaglutide on weight reduction.",
++          provenance_tokens: ["[#ev:ev_memory_abc123def456:0-90]"],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++        {
++          section_id: "sec_m",
++          sentence_text:
++            "A separate trial corroborated the cardiovascular outcome reduction.",
++          provenance_tokens: ["[#ev:src-1:0-60]"],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        },
++      ],
++      section_verify_pass_rate: 1.0,
++      section_status: "verified",
++    },
++  ],
++  overall_verify_pass_rate: 1.0,
++  pipeline_verdict: "success",
++  generator_model: "demo-generator",
++  evaluator_model: "demo-evaluator",
++  family_segregation_passed: true,
++  verifier_pass_threshold: 0.4,
++  started_at_utc: ISO,
++  finished_at_utc: ISO,
++  latency_ms: 0,
++  cost_usd: 0,
++};
++
++export default function MemoryCitePage() {
++  return (
++    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
++      <h1 className="text-2xl font-semibold tracking-tight">
++        Cited recall fixture (I-f14-005)
++      </h1>
++      <div className="mt-4">
++        <VerifiedReportView report={MEMORY_REPORT} />
++      </div>
++    </main>
++  );
++}
+diff --git a/web/tests/e2e/cited_recall_badge.spec.ts b/web/tests/e2e/cited_recall_badge.spec.ts
+new file mode 100644
+index 0000000..03e0e11
+--- /dev/null
++++ b/web/tests/e2e/cited_recall_badge.spec.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from "@playwright/test";
++
++test("memory-cite sentences render the prior-run badge; non-memory sentences do not", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/memory_cite");
++
++  const kept = page.getByTestId("kept-sentence");
++  await expect(kept).toHaveCount(2);
++
++  // Sentence 0 cites ev_memory_* — badge MUST render.
++  const memory_sentence = kept.nth(0);
++  const sentence_id = await memory_sentence.getAttribute("data-sentence-id");
++  expect(sentence_id).not.toBeNull();
++  await expect(
++    page.getByTestId(`prior-run-badge-${sentence_id}`),
++  ).toBeVisible();
++  await expect(
++    page.getByTestId(`prior-run-badge-${sentence_id}`),
++  ).toContainText("from prior run");
++  await expect(
++    page.getByTestId(`prior-run-badge-${sentence_id}`),
++  ).toHaveAttribute("title", /ev_memory_/);
++
++  // Sentence 1 has only a non-memory token — badge MUST NOT render.
++  const other_sentence = kept.nth(1);
++  const other_id = await other_sentence.getAttribute("data-sentence-id");
++  await expect(page.getByTestId(`prior-run-badge-${other_id}`)).toHaveCount(0);
++});
+
+# canonical-diff-sha256: 07d0535b79da313380610a0749402e1cc74f39eb9c47e2684bb3f8c7db564c96
