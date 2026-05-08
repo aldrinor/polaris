@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+import { detectRegressions } from "@/lib/pin_regression";
 
 import { DiffSidePanel } from "./components/diff_side_panel";
 import { PinTimeseries } from "./components/pin_timeseries";
@@ -78,6 +79,7 @@ export default function PinReplayPage() {
   const snap_a = DEMO_PIN_REGISTRY[date_a];
   const snap_b = DEMO_PIN_REGISTRY[date_b];
   const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+  const alerts = detectRegressions(snap_a, snap_b);
 
   const delta_pass_rate =
     Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
@@ -97,6 +99,32 @@ export default function PinReplayPage() {
           </code>{" "}
           per M-INT-0b post-Carney.
         </p>
+        {alerts.length > 0 ? (
+          <div
+            data-testid="regression-alert"
+            role="alert"
+            className="mt-4 rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+          >
+            <strong className="block">⚠ Regression detected</strong>
+            <ul className="mt-1 space-y-1 text-xs">
+              {alerts.map((alert) => (
+                <li
+                  key={alert.metric}
+                  data-testid={`regression-alert-${alert.metric}`}
+                >
+                  {alert.metric}: dropped {alert.drop}
+                  {alert.unit === "pct" ? " pct points" : " sentences"} ( A=
+                  {alert.a_value}
+                  {alert.unit === "pct" ? "%" : ""}, B=
+                  {alert.b_value}
+                  {alert.unit === "pct" ? "%" : ""}, threshold=
+                  {alert.threshold}
+                  {alert.unit === "pct" ? " pct" : ""})
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <SnapshotCard
             testid="pin-snapshot-a"
