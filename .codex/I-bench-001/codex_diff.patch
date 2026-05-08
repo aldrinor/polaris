@@ -1,0 +1,212 @@
+diff --git a/scripts/benchmark_proof_package.py b/scripts/benchmark_proof_package.py
+new file mode 100644
+index 0000000..7a4548b
+--- /dev/null
++++ b/scripts/benchmark_proof_package.py
+@@ -0,0 +1,104 @@
++"""I-bench-001 — v6 benchmark proof-package harness. Deterministic internal scoring per docs/benchmark/scoring_rubric.md. Always emits all 6 v6 canonical dimensions; suite.score_dimensions filters composite (others get raw=0.0)."""
++
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
++
++from polaris_v6.benchmark.coverage_scorer import score_response_coverage
++from polaris_v6.benchmark.schema import (
++    BenchmarkScore, BenchmarkSuiteDesign, CompetingSystem, DimensionScore,
++    ScoreDimension, SystemAnswer,
++)
++
++
++_REFUSAL = ("i cannot", "i can't")
++_ALL_DIMS: tuple[ScoreDimension, ...] = (
++    "factual_accuracy", "citation_health", "frame_coverage",
++    "contradiction_handling", "refusal_calibration", "user_traceability",
++)
++
++
++def _is_refusal(text: str) -> bool:
++    low = text.lower()
++    return any(m in low for m in _REFUSAL)
++
++
++def _score_one(q, sys_id: CompetingSystem, response: str,
++               wanted: list[ScoreDimension]) -> BenchmarkScore:
++    coverage = score_response_coverage(q, response)
++    cit = response.lower().count("http")
++    refused = _is_refusal(response)
++    pool: dict[ScoreDimension, tuple[float, str]] = {
++        "factual_accuracy": (coverage, f"coverage={coverage:.2f}"),
++        "citation_health": (min(1.0, cit / 5), f"{cit} citations"),
++        "frame_coverage": (coverage, "internal deterministic"),
++        "contradiction_handling": (0.5, "internal deterministic"),
++        "refusal_calibration": (
++            1.0 if refused == bool(q.expected_refusals) else 0.5,
++            f"refused={refused} expected={bool(q.expected_refusals)}",
++        ),
++        "user_traceability": (min(1.0, cit / 3), f"{cit} cites"),
++    }
++    sel = set(wanted)
++    dims = [
++        DimensionScore(dimension=d, raw=pool[d][0], rationale=pool[d][1])
++        if d in sel
++        else DimensionScore(dimension=d, raw=0.0, rationale="not requested by suite")
++        for d in _ALL_DIMS
++    ]
++    raws = [pool[d][0] for d in wanted if d in pool]
++    composite = sum(raws) / max(1, len(raws))
++    return BenchmarkScore(
++        question_id=q.question_id, system=sys_id, dimensions=dims,
++        composite=composite, scored_by="automated",
++    )
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--suite-design", required=True, type=Path)
++    p.add_argument("--responses-dir", required=True, type=Path)
++    p.add_argument("--output", required=True, type=Path)
++    args = p.parse_args(argv)
++
++    suite = BenchmarkSuiteDesign.model_validate_json(
++        args.suite_design.read_text(encoding="utf-8")
++    )
++    args.output.mkdir(parents=True, exist_ok=True)
++
++    answers, scores = [], []
++    for q in suite.questions:
++        for sys_id in suite.competing_systems:
++            f = args.responses_dir / f"{q.question_id}_{sys_id}.txt"
++            text = f.read_text(encoding="utf-8") if f.exists() else ""
++            answers.append(SystemAnswer(
++                question_id=q.question_id, system=sys_id, response_text=text,
++                citations_count=text.lower().count("http"), refused=_is_refusal(text),
++            ))
++            scores.append(_score_one(q, sys_id, text, suite.score_dimensions))
++
++    suite_doc = suite.model_dump()
++    suite_doc["layer_3_evaluator_required"] = False
++    proof = {
++        "suite": suite_doc,
++        "answers": [a.model_dump() for a in answers],
++        "scores": [s.model_dump() for s in scores],
++    }
++    (args.output / "proof_package.json").write_text(
++        json.dumps(proof, indent=2), encoding="utf-8"
++    )
++    (args.output / "summary.md").write_text(
++        f"# Proof package\n\n- {len(suite.questions)} questions\n"
++        f"- {len(suite.competing_systems)} systems\n- {len(scores)} scores\n",
++        encoding="utf-8",
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/v6/benchmark/test_benchmark_proof_package.py b/tests/v6/benchmark/test_benchmark_proof_package.py
+new file mode 100644
+index 0000000..59e815a
+--- /dev/null
++++ b/tests/v6/benchmark/test_benchmark_proof_package.py
+@@ -0,0 +1,94 @@
++"""I-bench-001 — benchmark proof-package harness tests."""
++
++from __future__ import annotations
++
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++import scripts.benchmark_proof_package as harness
++
++_ALL6 = [
++    "factual_accuracy", "citation_health", "frame_coverage",
++    "contradiction_handling", "refusal_calibration", "user_traceability",
++]
++
++
++def _suite(score_dims: list[str], **q_extra) -> dict:
++    q = {"question_id": "q1", "template": "clinical_summary",
++         "text": "Does aspirin reduce migraine?", "difficulty": "routine",
++         "expected_anchors": [], "expected_pico_keywords": [],
++         "expected_refusals": [], **q_extra}
++    return {"suite_version": "v6_phase3_v1", "questions": [q],
++            "competing_systems": ["polaris_v6", "chatgpt_5_5_pro_dr"],
++            "score_dimensions": score_dims, "layer_3_evaluator_required": True}
++
++
++def _run(tmp: Path, suite: dict, responses: dict[str, str]) -> dict:
++    sd = tmp / "suite.json"
++    sd.write_text(json.dumps(suite), encoding="utf-8")
++    rd = tmp / "responses"
++    rd.mkdir()
++    for k, v in responses.items():
++        (rd / f"{k}.txt").write_text(v, encoding="utf-8")
++    out = tmp / "out"
++    rc = harness.main(["--suite-design", str(sd), "--responses-dir", str(rd),
++                       "--output", str(out)])
++    assert rc == 0
++    return json.loads((out / "proof_package.json").read_text(encoding="utf-8"))
++
++
++def test_harness_runs_end_to_end(tmp_path: Path) -> None:
++    pkg = _run(tmp_path, _suite(_ALL6), {
++        "q1_polaris_v6": "aspirin migraine http://a",
++        "q1_chatgpt_5_5_pro_dr": "answer",
++    })
++    assert len(pkg["scores"]) == 2
++    assert (tmp_path / "out" / "summary.md").exists()
++
++
++def test_score_uses_coverage_scorer(tmp_path: Path) -> None:
++    pkg = _run(tmp_path, _suite(_ALL6, expected_pico_keywords=["aspirin", "migraine"]), {
++        "q1_polaris_v6": "Aspirin reduces migraine.",
++        "q1_chatgpt_5_5_pro_dr": "unrelated",
++    })
++    fa = next(d for s in pkg["scores"] if s["system"] == "polaris_v6"
++              for d in s["dimensions"] if d["dimension"] == "factual_accuracy")
++    assert fa["raw"] == 1.0
++
++
++def test_missing_response_yields_empty(tmp_path: Path) -> None:
++    pkg = _run(tmp_path, _suite(_ALL6[:4]), {})
++    for a in pkg["answers"]:
++        assert a["response_text"] == "" and a["citations_count"] == 0
++
++
++@pytest.mark.parametrize("dims", [_ALL6[:4], _ALL6])
++def test_dimensions_always_six_with_filter(tmp_path: Path, dims: list[str]) -> None:
++    pkg = _run(tmp_path, _suite(dims), {})
++    sel = set(dims)
++    for s in pkg["scores"]:
++        assert len(s["dimensions"]) == 6
++        for d in s["dimensions"]:
++            if d["dimension"] not in sel:
++                assert d["raw"] == 0.0 and "not requested" in d["rationale"]
++    assert pkg["suite"]["layer_3_evaluator_required"] is False
++
++
++def test_subprocess_runs_end_to_end(tmp_path: Path) -> None:
++    sd = tmp_path / "suite.json"
++    sd.write_text(json.dumps(_suite(_ALL6)), encoding="utf-8")
++    rd = tmp_path / "responses"
++    rd.mkdir()
++    out = tmp_path / "out"
++    repo = Path(__file__).resolve().parents[3]
++    rc = subprocess.run(
++        [sys.executable, str(repo / "scripts" / "benchmark_proof_package.py"),
++         "--suite-design", str(sd), "--responses-dir", str(rd), "--output", str(out)],
++        cwd=str(repo), check=False,
++    )
++    assert rc.returncode == 0
++    assert (out / "proof_package.json").exists()
+
+# canonical-diff-sha256: 3b00e5f037582f88df4fe51aa8b6f4a1ae87f54ce868e1e13bcaba11bf70ff83
