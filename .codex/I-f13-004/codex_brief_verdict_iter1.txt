@@ -1,0 +1,1372 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e05b4-0a13-7860-8e53-9c554c55ff10
+--------
+user
+# Codex Brief Review — I-f13-004 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Issue:** I-f13-004 — F13 adversarial: source retraction during replay. Scope: "retracted source mid-replay → handled". Acceptance: "test". LOC estimate 90.
+- **Background:** PinSnapshot today carries aggregate metrics (pass_rate, sentence count). For the retraction adversarial: between snapshot A and snapshot B, the source pool changes (a source is retracted post-A, pre-B). The verified_sentence_count drops because retracted-source sentences are now invalid. The replay UI must show that the drop is *due to retraction*, not random regression.
+- **Honest framing per CLAUDE.md §9.4:** ship a PinSnapshot field `retracted_source_ids: string[]` (NEW) that tracks sources retracted between A and B; render an inline note when retraction explains the drop. This is substrate-only — no live retraction monitoring yet.
+
+## Plan
+
+### Frontend
+
+1. Extend `web/lib/pin_replay_demo.ts`:
+   - Add `retracted_source_ids?: string[]` to `PinSnapshot` interface.
+   - Add `2026-04-30` snapshot's `retracted_source_ids = ["demo-clin-002"]` (a source retracted between Jan and April).
+
+2. Extend `web/lib/pin_regression.ts`:
+   - Add helper `getRetractionContext(a: PinSnapshot, b: PinSnapshot): { retracted_in_b: string[] }` — returns IDs that appeared in B's retracted list but not A's.
+   - When `RegressionAlert` includes `verified_sentence_count` AND `retracted_in_b.length > 0`, the alert payload gets an additional field `attributed_to_retraction: string[]`.
+
+3. Extend `web/app/pin_replay/page.tsx`:
+   - Pass the retraction context into the alert payload.
+   - When alert has `attributed_to_retraction`, render an inline `(attributed to retraction of: src-id)` note in the alert row.
+   - Add `data-testid="regression-retraction-attribution"` for Playwright.
+
+### Playwright
+
+4. `web/tests/e2e/pin_retraction_handled.spec.ts` (NEW):
+   - Visit `/pin_replay`.
+   - Switch A=2026-04-30, B=2026-01-15 (regression scenario with retraction).
+   - Wait — actually retraction goes A→B. With our setup: A=2026-01-15 (no retracted_ids), B=2026-04-30 (retracted = ["demo-clin-002"]). So B has retractions; comparing A→B with regression detection:
+     - sentence count: A=18 → B=23 (improvement, no alert).
+   - That doesn't trigger a regression. To make this a real adversarial test, add a 4th pin date (e.g., `2026-05-15`) with LOWER sentence count AND retracted_source_ids:
+     - 2026-05-15: pass_rate=0.78, verified_sentence_count=17 (drop from 23 → 17 = 6 > threshold 3), retracted_source_ids=["demo-clin-002", "demo-clin-005"].
+   - Switch A=2026-04-30, B=2026-05-15 → regression alert + retraction attribution shown.
+   - Assert `regression-retraction-attribution` text contains the retracted source IDs.
+
+## Risks for Codex Red-Team
+
+1. **Existing tests:** `pin_regression_alert.spec.ts` (I-f13-003) selects 2026-04-30 and 2026-01-15. Adding a 4th pin date doesn't break that test (still chooses the same dates).
+2. **Optional field:** `retracted_source_ids` is `string[] | undefined`; defensive default `[]` in the helper.
+3. **§9.4 N/A frontend.**
+4. **CHARTER §1 LOC cap:** estimated ~25 LOC registry extension + ~25 LOC regression helper extension + ~25 LOC page integration + ~30 LOC spec = ~105. Within budget.
+
+## Acceptance criteria
+
+1. `PinSnapshot` gains optional `retracted_source_ids?: string[]`.
+2. New `getRetractionContext(a, b)` helper computes new retractions between A and B.
+3. Alert rendering includes inline retraction attribution when applicable.
+4. New 4th pin date demonstrates the adversarial scenario.
+5. Playwright spec asserts the retraction-attributed alert renders correctly.
+6. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the plan against the existing replay/regression code paths, then return only plan-soundness findings with the required criterion enumeration and files-read list.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PinSnapshot|RegressionAlert|getRegression|verified_sentence_count|pin_replay|retraction|retracted" web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "*pin*" -g "CLAUDE.md" -g "CHARTER*"' in C:\POLARIS
+ succeeded in 992ms:
+web\lib\pin_regression.ts:6:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web\lib\pin_regression.ts:10:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:13:export interface RegressionAlert {
+web\lib\pin_regression.ts:14:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:23:  a: PinSnapshot,
+web\lib\pin_regression.ts:24:  b: PinSnapshot,
+web\lib\pin_regression.ts:25:): RegressionAlert[] {
+web\lib\pin_regression.ts:26:  const alerts: RegressionAlert[] = [];
+web\lib\pin_regression.ts:42:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:43:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:45:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:46:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:47:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:49:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\lib\api.ts:479:  retracted?: boolean;
+web\lib\api.ts:686:  | "retracted_only"
+web\lib\pin_replay_demo.ts:7:export interface PinSnapshot {
+web\lib\pin_replay_demo.ts:13:  verified_sentence_count: number;
+web\lib\pin_replay_demo.ts:17:export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+web\lib\pin_replay_demo.ts:24:    verified_sentence_count: 18,
+web\lib\pin_replay_demo.ts:33:    verified_sentence_count: 21,
+web\lib\pin_replay_demo.ts:42:    verified_sentence_count: 23,
+web\app\pin_replay\page.tsx:6:import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+web\app\pin_replay\page.tsx:25:  snapshot: PinSnapshot;
+web\app\pin_replay\page.tsx:63:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:87:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\components\diff_side_panel.tsx:10:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web\app\pin_replay\components\diff_side_panel.tsx:14:const FIELDS: { key: keyof PinSnapshot; label: string; kind: FieldKind }[] = [
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\pin_replay\components\diff_side_panel.tsx:59:  snapshot_a: PinSnapshot | null;
+web\app\pin_replay\components\diff_side_panel.tsx:60:  snapshot_b: PinSnapshot | null;
+web\app\generation\components\frame_coverage_panel.tsx:25:  retracted_only:
+web\app\generation\components\frame_coverage_panel.tsx:26:    "Search Retraction Watch for replacement source on ${entity_name}; do NOT cite retracted result.",
+web\app\generation\components\frame_coverage_panel.tsx:42:  retracted_only: "Only retracted sources",
+web\app\generation\components\sentence_inspector.tsx:178:          {source.retracted ? (
+web\app\generation\components\sentence_inspector.tsx:180:              data-testid={`inspector-retracted-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:181:              title="Source retracted post-publication"
+web\app\sentence_hover_test\_demo.tsx:39:  source_id: "src-retracted",
+web\app\sentence_hover_test\_demo.tsx:40:  url: "https://www.cochrane.org/CD-retracted",
+web\app\sentence_hover_test\_demo.tsx:43:  title: "Cochrane review (retracted)",
+web\app\sentence_hover_test\_demo.tsx:51:  retracted: true,
+web\app\sentence_hover_test\_demo.tsx:194:        // sec_x:16 — retracted source (I-f5-007).
+web\app\sentence_hover_test\_demo.tsx:198:          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+web\app\pin_replay\components\pin_timeseries.tsx:6:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web\app\pin_replay\components\pin_timeseries.tsx:8:export function PinTimeseries({ snapshots }: { snapshots: PinSnapshot[] }) {
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\sentence_hover_test\_demo_coverage.tsx:24:  "retracted_only",
+web\tests\e2e\pin_replay.spec.ts:6:  await page.goto("/pin_replay");
+web\tests\e2e\pin_regression_alert.spec.ts:6:  await page.goto("/pin_replay");
+web\tests\e2e\pin_regression_alert.spec.ts:21:    page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:3:test("Inspector renders retracted badge when source.retracted=true", async ({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:11:  await expect(page.getByTestId("inspector-retracted-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:25:test("Inspector does NOT render retracted/stale badges for fresh non-retracted source", async ({
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:33:  await expect(page.getByTestId("inspector-retracted-0")).toHaveCount(0);
+web\tests\e2e\pin_replay_diff.spec.ts:6:  await page.goto("/pin_replay");
+web\tests\e2e\pin_replay_diff.spec.ts:27:    page.getByTestId("pin-diff-row-verified_sentence_count"),
+
+2026-05-08T03:49:21.744884Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+docs\session_pin.txt
+outputs\fix_typing_test.png
+outputs\fix_typing_fast.png
+docs\compliance_templates\soc2_evidence_mapping.md
+docs\canonical_pin.txt
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\tests\e2e\pin_regression_alert.spec.ts
+outputs\codex_findings\autoloop_v2_protocol_review\opinion.md
+web\lib\pin_replay_demo.ts
+web\lib\pin_regression.ts
+web\CLAUDE.md
+web\app\pin_replay\components\pin_timeseries.tsx
+tests\polaris_graph\test_m_int_0b_pin_capture_integration.py
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\test_md11_model_pin.py
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\model_pin.json
+state\polaris_restart\charter_sha_pin.txt
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+scripts\screenshot_typing.py
+src\polaris_graph\audit_ir\pin_trends.py
+src\polaris_graph\audit_ir\pin_replay.py
+src\polaris_graph\audit_ir\model_pin.py
+src\orchestration\stopping_mechanism.py
+CLAUDE.md
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+
+ exited 1 in 1200ms:
+docs\session_pin.txt
+outputs\fix_typing_test.png
+outputs\fix_typing_fast.png
+docs\compliance_templates\soc2_evidence_mapping.md
+docs\canonical_pin.txt
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\tests\e2e\pin_regression_alert.spec.ts
+outputs\codex_findings\autoloop_v2_protocol_review\opinion.md
+web\lib\pin_replay_demo.ts
+web\lib\pin_regression.ts
+web\CLAUDE.md
+web\app\pin_replay\components\pin_timeseries.tsx
+tests\polaris_graph\test_m_int_0b_pin_capture_integration.py
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\test_md11_model_pin.py
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\model_pin.json
+state\polaris_restart\charter_sha_pin.txt
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+scripts\screenshot_typing.py
+src\polaris_graph\audit_ir\pin_trends.py
+src\polaris_graph\audit_ir\pin_replay.py
+src\polaris_graph\audit_ir\model_pin.py
+src\orchestration\stopping_mechanism.py
+CLAUDE.md
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+
+codex
+I found the relevant frontend and Playwright files. Next I’m checking the current alert and selector wiring so any blocker is grounded in the actual component behavior, not just the plan text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\pin_regression.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\tests\\e2e\\pin_regression_alert.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\pin_replay\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\pin_replay_demo.ts" in C:\POLARIS
+ succeeded in 986ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+import { detectRegressions } from "@/lib/pin_regression";
+
+import { DiffSidePanel } from "./components/diff_side_panel";
+import { PinTimeseries } from "./components/pin_timeseries";
+
+const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
+
+function SnapshotCard({
+  testid,
+  label,
+  selected_date,
+  on_change,
+  snapshot,
+}: {
+  testid: string;
+  label: string;
+  selected_date: string;
+  on_change: (next: string) => void;
+  snapshot: PinSnapshot;
+}) {
+  return (
+    <Card data-testid={testid}>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{label}</CardTitle>
+        <select
+          data-testid={`${testid}-date`}
+          value={selected_date}
+          onChange={(e) => on_change(e.target.value)}
+          className="border-border bg-background rounded border px-2 py-1 text-sm"
+        >
+          {PIN_DATES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <dt className="text-muted-foreground">Query</dt>
+          <dd
+            data-testid={`${testid}-query`}
+            className="text-foreground truncate"
+          >
+            {snapshot.query}
+          </dd>
+          <dt className="text-muted-foreground">Verdict</dt>
+          <dd data-testid={`${testid}-verdict`} className="text-foreground">
+            {snapshot.verdict}
+          </dd>
+          <dt className="text-muted-foreground">Sections kept / dropped</dt>
+          <dd data-testid={`${testid}-sections`} className="text-foreground">
+            {snapshot.section_count_kept} / {snapshot.section_count_dropped}
+          </dd>
+          <dt className="text-muted-foreground">Verified sentences</dt>
+          <dd data-testid={`${testid}-sentences`} className="text-foreground">
+            {snapshot.verified_sentence_count}
+          </dd>
+          <dt className="text-muted-foreground">Pass rate</dt>
+          <dd data-testid={`${testid}-pass-rate`} className="text-foreground">
+            {Math.round(snapshot.pass_rate * 100)}%
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function PinReplayPage() {
+  const [date_a, set_date_a] = useState(PIN_DATES[0]);
+  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
+  const [diff_open, set_diff_open] = useState(false);
+  const snap_a = DEMO_PIN_REGISTRY[date_a];
+  const snap_b = DEMO_PIN_REGISTRY[date_b];
+  const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+  const alerts = detectRegressions(snap_a, snap_b);
+
+  const delta_pass_rate =
+    Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
+  const delta_sentences =
+    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Pin replay — same query on different dates
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample pin-replay (demo data); production fetch from{" "}
+          <code>
+            /runs/{"{run_id}"}/pins/{"{date}"}
+          </code>{" "}
+          per M-INT-0b post-Carney.
+        </p>
+        {alerts.length > 0 ? (
+          <div
+            data-testid="regression-alert"
+            role="alert"
+            className="mt-4 rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+          >
+            <strong className="block">⚠ Regression detected</strong>
+            <ul className="mt-1 space-y-1 text-xs">
+              {alerts.map((alert) => (
+                <li
+                  key={alert.metric}
+                  data-testid={`regression-alert-${alert.metric}`}
+                >
+                  {alert.metric}: dropped {alert.drop}
+                  {alert.unit === "pct" ? " pct points" : " sentences"} ( A=
+                  {alert.a_value}
+                  {alert.unit === "pct" ? "%" : ""}, B=
+                  {alert.b_value}
+                  {alert.unit === "pct" ? "%" : ""}, threshold=
+                  {alert.threshold}
+                  {alert.unit === "pct" ? " pct" : ""})
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <SnapshotCard
+            testid="pin-snapshot-a"
+            label="Snapshot A"
+            selected_date={date_a}
+            on_change={set_date_a}
+            snapshot={snap_a}
+          />
+          <SnapshotCard
+            testid="pin-snapshot-b"
+            label="Snapshot B"
+            selected_date={date_b}
+            on_change={set_date_b}
+            snapshot={snap_b}
+          />
+        </div>
+        <div className="mt-6">
+          <PinTimeseries snapshots={all_snapshots} />
+        </div>
+        <button
+          type="button"
+          data-testid="pin-show-diff"
+          onClick={() => set_diff_open(true)}
+          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
+        >
+          Show snapshot diff
+        </button>
+        <DiffSidePanel
+          open={diff_open}
+          onOpenChange={set_diff_open}
+          snapshot_a={snap_a}
+          snapshot_b={snap_b}
+        />
+        <Card data-testid="pin-replay-delta" className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-base">Delta (B − A)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p>
+              Pass rate:{" "}
+              <span data-testid="pin-replay-delta-pass-rate">
+                {delta_pass_rate >= 0 ? "+" : ""}
+                {delta_pass_rate}%
+              </span>
+            </p>
+            <p>
+              Verified sentences:{" "}
+              <span data-testid="pin-replay-delta-sentences">
+                {delta_sentences >= 0 ? "+" : ""}
+                {delta_sentences}
+              </span>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
+
+ succeeded in 1097ms:
+import { expect, test } from "@playwright/test";
+
+test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+
+  // Initial load: A=2026-01-15 (72%), B=2026-04-30 (85%) — improvement, no alert.
+  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+
+  // Swap: A=2026-04-30 (85%), B=2026-01-15 (72%) — pass rate dropped 13 pct points.
+  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-01-15");
+
+  await expect(page.getByTestId("regression-alert")).toBeVisible();
+  await expect(page.getByTestId("regression-alert-pass_rate")).toContainText(
+    /dropped 13/,
+  );
+  // Sentence count also dropped 23 → 18 = 5 (> threshold 3).
+  await expect(
+    page.getByTestId("regression-alert-verified_sentence_count"),
+  ).toContainText(/dropped 5/);
+
+  // Switch back to improvement: A=2026-01-15, B=2026-04-30 — alert disappears.
+  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-01-15");
+  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
+  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+});
+
+
+ succeeded in 1149ms:
+/**
+ * I-f13-001: Pin replay demo registry. In production this would fetch from
+ * `/runs/{run_id}/pins/{date}` per M-INT-0b post-Carney; today the registry
+ * is hand-authored frontend demo data.
+ */
+
+export interface PinSnapshot {
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+}
+
+export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+  "2026-01-15": {
+    pin_date: "2026-01-15",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 4,
+    section_count_dropped: 1,
+    verified_sentence_count: 18,
+    pass_rate: 0.72,
+  },
+  "2026-03-01": {
+    pin_date: "2026-03-01",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 5,
+    section_count_dropped: 0,
+    verified_sentence_count: 21,
+    pass_rate: 0.79,
+  },
+  "2026-04-30": {
+    pin_date: "2026-04-30",
+    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+    verdict: "success",
+    section_count_kept: 5,
+    section_count_dropped: 0,
+    verified_sentence_count: 23,
+    pass_rate: 0.85,
+  },
+};
+
+
+ succeeded in 1282ms:
+/**
+ * I-f13-003: Inline regression alerts on the pin-replay page. Hard-coded
+ * thresholds; production reads from a regression-config file (post-Carney).
+ */
+
+import type { PinSnapshot } from "@/lib/pin_replay_demo";
+
+export const REGRESSION_THRESHOLDS = {
+  pass_rate_pct_drop: 5,
+  verified_sentence_count_drop: 3,
+} as const;
+
+export interface RegressionAlert {
+  metric: "pass_rate" | "verified_sentence_count";
+  a_value: number;
+  b_value: number;
+  drop: number;
+  threshold: number;
+  unit: "pct" | "count";
+}
+
+export function detectRegressions(
+  a: PinSnapshot,
+  b: PinSnapshot,
+): RegressionAlert[] {
+  const alerts: RegressionAlert[] = [];
+
+  const a_pass_pct = Math.round(a.pass_rate * 100);
+  const b_pass_pct = Math.round(b.pass_rate * 100);
+  const pass_drop = a_pass_pct - b_pass_pct;
+  if (pass_drop > REGRESSION_THRESHOLDS.pass_rate_pct_drop) {
+    alerts.push({
+      metric: "pass_rate",
+      a_value: a_pass_pct,
+      b_value: b_pass_pct,
+      drop: pass_drop,
+      threshold: REGRESSION_THRESHOLDS.pass_rate_pct_drop,
+      unit: "pct",
+    });
+  }
+
+  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+    alerts.push({
+      metric: "verified_sentence_count",
+      a_value: a.verified_sentence_count,
+      b_value: b.verified_sentence_count,
+      drop: sentence_drop,
+      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+      unit: "count",
+    });
+  }
+
+  return alerts;
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\tests\\e2e\\pin_replay_diff.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\tests\\e2e\\pin_replay.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\pin_replay\\components\\diff_side_panel.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\pin_replay\\components\\pin_timeseries.tsx" in C:\POLARIS
+ succeeded in 889ms:
+import { expect, test } from "@playwright/test";
+
+test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+
+  // Two timeseries charts render with svg.
+  const pass_rate_section = page.getByTestId("pin-timeseries-pass-rate");
+  const sentence_section = page.getByTestId("pin-timeseries-sentence-count");
+  await expect(pass_rate_section).toBeVisible();
+  await expect(sentence_section).toBeVisible();
+  await expect(pass_rate_section.locator("svg").first()).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(sentence_section.locator("svg").first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Open the diff side-panel.
+  await page.getByTestId("pin-show-diff").click();
+  await expect(page.getByTestId("pin-diff-pane")).toBeVisible();
+
+  // Per-field rows visible.
+  await expect(page.getByTestId("pin-diff-row-pass_rate")).toBeVisible();
+  await expect(
+    page.getByTestId("pin-diff-row-verified_sentence_count"),
+  ).toBeVisible();
+  await expect(page.getByTestId("pin-diff-row-query")).toBeVisible();
+
+  // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
+  await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
+    "+13%",
+  );
+  // String field delta is "(unchanged)" since same query string.
+  await expect(page.getByTestId("pin-diff-delta-query")).toContainText(
+    "unchanged",
+  );
+
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+
+ succeeded in 975ms:
+import { expect, test } from "@playwright/test";
+
+test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+
+  await expect(page.getByTestId("pin-snapshot-a")).toBeVisible();
+  await expect(page.getByTestId("pin-snapshot-b")).toBeVisible();
+  await expect(page.getByTestId("pin-replay-delta")).toBeVisible();
+
+  // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
+  await expect(page.getByTestId("pin-snapshot-a-date")).toHaveValue(
+    "2026-01-15",
+  );
+  await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
+    "2026-04-30",
+  );
+  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+    "72%",
+  );
+  await expect(page.getByTestId("pin-snapshot-b-pass-rate")).toContainText(
+    "85%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+    "+13%",
+  );
+
+  // Switch A to the later date — A and B now identical, delta should be 0.
+  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+    "85%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+    "0%",
+  );
+  await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
+    "0",
+  );
+});
+
+
+ succeeded in 1032ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type { PinSnapshot } from "@/lib/pin_replay_demo";
+
+type FieldKind = "numeric" | "string";
+
+const FIELDS: { key: keyof PinSnapshot; label: string; kind: FieldKind }[] = [
+  { key: "query", label: "Query", kind: "string" },
+  { key: "verdict", label: "Verdict", kind: "string" },
+  { key: "section_count_kept", label: "Sections kept", kind: "numeric" },
+  { key: "section_count_dropped", label: "Sections dropped", kind: "numeric" },
+  {
+    key: "verified_sentence_count",
+    label: "Verified sentences",
+    kind: "numeric",
+  },
+  { key: "pass_rate", label: "Pass rate (%)", kind: "numeric" },
+];
+
+function formatValue(value: unknown, kind: FieldKind, key: string): string {
+  if (kind === "numeric" && typeof value === "number") {
+    if (key === "pass_rate") return `${Math.round(value * 100)}%`;
+    return String(value);
+  }
+  return String(value ?? "");
+}
+
+function computeDelta(
+  a: unknown,
+  b: unknown,
+  kind: FieldKind,
+  key: string,
+): string {
+  if (kind === "numeric" && typeof a === "number" && typeof b === "number") {
+    const delta =
+      key === "pass_rate" ? Math.round(b * 100) - Math.round(a * 100) : b - a;
+    const prefix = delta > 0 ? "+" : "";
+    return key === "pass_rate" ? `${prefix}${delta}%` : `${prefix}${delta}`;
+  }
+  // String/categorical: report changed/unchanged.
+  return a === b ? "(unchanged)" : "(changed)";
+}
+
+export function DiffSidePanel({
+  open,
+  onOpenChange,
+  snapshot_a,
+  snapshot_b,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  snapshot_a: PinSnapshot | null;
+  snapshot_b: PinSnapshot | null;
+}) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="pin-diff-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle>Snapshot diff (B − A)</SheetTitle>
+          <SheetDescription>
+            Per-field comparison of snapshot A and snapshot B.
+          </SheetDescription>
+        </SheetHeader>
+        {snapshot_a && snapshot_b ? (
+          <div className="px-4 pb-4 text-sm">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-border border-b">
+                  <th className="py-1 text-left">Field</th>
+                  <th className="py-1 text-left">A</th>
+                  <th className="py-1 text-left">B</th>
+                  <th className="py-1 text-left">Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {FIELDS.map(({ key, label, kind }) => (
+                  <tr
+                    key={key}
+                    data-testid={`pin-diff-row-${String(key)}`}
+                    className="border-border border-b"
+                  >
+                    <td className="py-1 font-medium">{label}</td>
+                    <td className="truncate py-1">
+                      {formatValue(snapshot_a[key], kind, String(key))}
+                    </td>
+                    <td className="truncate py-1">
+                      {formatValue(snapshot_b[key], kind, String(key))}
+                    </td>
+                    <td
+                      data-testid={`pin-diff-delta-${String(key)}`}
+                      className="py-1"
+                    >
+                      {computeDelta(
+                        snapshot_a[key],
+                        snapshot_b[key],
+                        kind,
+                        String(key),
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p
+            data-testid="pin-diff-pane-empty"
+            className="text-muted-foreground px-4 pb-4 text-sm italic"
+          >
+            Select both snapshots to view diff.
+          </p>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+
+ succeeded in 1092ms:
+"use client";
+
+import { VegaChart } from "@/components/ui/vega-chart";
+import { buildTimelineSpec, type TimelinePoint } from "@/lib/timeline_spec";
+
+import type { PinSnapshot } from "@/lib/pin_replay_demo";
+
+export function PinTimeseries({ snapshots }: { snapshots: PinSnapshot[] }) {
+  const sorted = [...snapshots].sort((a, b) =>
+    a.pin_date.localeCompare(b.pin_date),
+  );
+
+  const pass_rate_points: TimelinePoint[] = sorted.map((s) => ({
+    period: s.pin_date,
+    value: Math.round(s.pass_rate * 100),
+    series: "pass_rate_pct",
+    evidence_id: `demo-pin-${s.pin_date}-pass`,
+  }));
+
+  const sentences_points: TimelinePoint[] = sorted.map((s) => ({
+    period: s.pin_date,
+    value: s.verified_sentence_count,
+    series: "verified_sentences",
+    evidence_id: `demo-pin-${s.pin_date}-sentences`,
+  }));
+
+  const pass_rate_spec = buildTimelineSpec(
+    "Pass rate over time (%)",
+    pass_rate_points,
+    "date",
+  );
+  const sentences_spec = buildTimelineSpec(
+    "Verified sentences over time",
+    sentences_points,
+    "date",
+  );
+
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section
+        data-testid="pin-timeseries-pass-rate"
+        className="flex flex-col gap-2"
+      >
+        <h3 className="text-sm font-medium">Pass rate (%)</h3>
+        <VegaChart spec={pass_rate_spec} />
+      </section>
+      <section
+        data-testid="pin-timeseries-sentence-count"
+        className="flex flex-col gap-2"
+      >
+        <h3 className="text-sm font-medium">Verified sentence count</h3>
+        <VegaChart spec={sentences_spec} />
+      </section>
+    </div>
+  );
+}
+
+
+codex
+The main compatibility point is that the page derives its default B snapshot from the last sorted registry date. Adding `2026-05-15` changes that default, so I’m checking the documented constraints before assigning severity.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Recurse -File -Filter "*CHARTER*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Name | Select-String -Pattern "CHARTER|charter"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"9\\.4|LOC|CHARTER|front|retract|honest\" CLAUDE.md web\\CLAUDE.md -S" in C:\POLARIS
+ succeeded in 956ms:
+CLAUDE.md:93:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+CLAUDE.md:129:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+CLAUDE.md:134:- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+CLAUDE.md:142:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+CLAUDE.md:147:- 200-LOC PR cap exceeded
+CLAUDE.md:150:**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+CLAUDE.md:166:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+CLAUDE.md:194:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+CLAUDE.md:224:**three parallel pipelines** (A: honest-rebuild sweep, B: UI web
+CLAUDE.md:225:server, C: frozen legacy CLI). This is honest repo state, not ideal
+CLAUDE.md:263:│   ├── honest_sweep_*/    # Pipeline A sweep artifacts
+CLAUDE.md:280:│   ├── run_honest_sweep_r3.py    # Pipeline A main entry
+CLAUDE.md:304:  single-vector testing now happens via `run_honest_sweep_r3.py --only`
+CLAUDE.md:373:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+CLAUDE.md:514:Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+CLAUDE.md:518:When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+CLAUDE.md:561:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+CLAUDE.md:567:- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+CLAUDE.md:571:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+CLAUDE.md:611:**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+CLAUDE.md:662:### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+CLAUDE.md:683:Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+CLAUDE.md:685:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+CLAUDE.md:696:Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+
+ succeeded in 1090ms:
+2026-05-08T03:50:26.312902Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+C:\POLARIS\polaris-controls\CHARTER.md
+C:\POLARIS\state\polaris_restart\charter_sha_pin.txt
+
+ exited 1 in 2484ms:
+C:\POLARIS\polaris-controls\CHARTER.md
+C:\POLARIS\state\polaris_restart\charter_sha_pin.txt
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"200|LOC|loc|PR cap|cap\" polaris-controls\\CHARTER.md -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content CLAUDE.md; $lines[650..675]' in C:\POLARIS
+ succeeded in 878ms:
+### 9.3 Pipeline verdict statuses (manifest.json)
+
+| Status | Condition |
+|---|---|
+| `success` | All gates passed, generator produced verified prose |
+| `abort_scope_rejected` | Scope gate rejected the research question |
+| `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+| `abort_no_verified_sections` | Every generated section failed strict_verify |
+| `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+
+### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+
+**Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+
+- `try: ... except: pass` without logging or re-raise (silent failure)
+- `import unittest.mock` or `from unittest.mock import ...` in `src/`
+  production code
+- Magic numbers (`if score > 0.7` instead of a named constant or env var)
+- `time.sleep()` to simulate work
+- `# TODO`, `# FIXME`, `# XXX`, `pass` as function body
+- Mocking the live-evidence database in integration tests (per user
+  feedback memory: integration tests must hit real data sources)
+
+Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+currently meet these invariants. It is frozen; see
+
+ succeeded in 960ms:
+18:- Out-of-order pipeline execution = blocked by Trusted App server-side.
+31:**200 LOC per pull request. Hard ceiling.**
+33:- Trusted App rejects PRs exceeding 200 net additions
+55:- PR exceeds 200 LOC
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content polaris-controls'"\\CHARTER.md; "'$lines[25..38]' in C:\POLARIS
+ succeeded in 807ms:
+- Claude does nothing outside its declared scope
+- Slice scope = files explicitly listed; everything else is out of bounds
+
+### 3. PR Size Cap
+
+**200 LOC per pull request. Hard ceiling.**
+
+- Trusted App rejects PRs exceeding 200 net additions
+- Larger work decomposes into multiple slices, not larger PRs
+- No "this PR is special" exceptions
+
+### 4. Golden Tests as Fitness Function
+
+Every slice has golden-master tests in `polaris-controls/golden/<slice_id>/`.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"PIN_DATES|useState\\(PIN_DATES|Initial state|2026-04-30|\\+13%|0%|pin-snapshot-b-date|pin-diff-delta-pass_rate\" web\\app\\pin_replay\\page.tsx web\\tests\\e2e\\pin_replay.spec.ts web\\tests\\e2e\\pin_replay_diff.spec.ts -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"verified_sentence_count_drop|sentence_drop|RegressionAlert|metric: \\\"verified_sentence_count\\\"\" web\\lib\\pin_regression.ts -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"2026-01-15|2026-03-01|2026-04-30|verified_sentence_count|pass_rate\" web\\lib\\pin_replay_demo.ts -S" in C:\POLARIS
+ succeeded in 933ms:
+web\tests\e2e\pin_replay_diff.spec.ts:31:  // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
+web\tests\e2e\pin_replay_diff.spec.ts:32:  await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
+web\tests\e2e\pin_replay_diff.spec.ts:33:    "+13%",
+web\tests\e2e\pin_replay.spec.ts:12:  // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
+web\tests\e2e\pin_replay.spec.ts:16:  await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
+web\tests\e2e\pin_replay.spec.ts:17:    "2026-04-30",
+web\tests\e2e\pin_replay.spec.ts:26:    "+13%",
+web\tests\e2e\pin_replay.spec.ts:30:  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+web\tests\e2e\pin_replay.spec.ts:35:    "0%",
+web\app\pin_replay\page.tsx:12:const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
+web\app\pin_replay\page.tsx:37:          {PIN_DATES.map((d) => (
+web\app\pin_replay\page.tsx:76:  const [date_a, set_date_a] = useState(PIN_DATES[0]);
+web\app\pin_replay\page.tsx:77:  const [date_b, set_date_b] = useState(PIN_DATES[PIN_DATES.length - 1]);
+
+2026-05-08T03:50:48.927467Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+rg: regex parse error:
+    (?:verified_sentence_count_drop|sentence_drop|RegressionAlert|metric: \)
+    ^
+error: unclosed group
+
+ exited 1 in 959ms:
+rg: regex parse error:
+    (?:verified_sentence_count_drop|sentence_drop|RegressionAlert|metric: \)
+    ^
+error: unclosed group
+
+ succeeded in 1022ms:
+13:  verified_sentence_count: number;
+14:  pass_rate: number;
+18:  "2026-01-15": {
+19:    pin_date: "2026-01-15",
+24:    verified_sentence_count: 18,
+25:    pass_rate: 0.72,
+27:  "2026-03-01": {
+28:    pin_date: "2026-03-01",
+33:    verified_sentence_count: 21,
+34:    pass_rate: 0.79,
+36:  "2026-04-30": {
+37:    pin_date: "2026-04-30",
+42:    verified_sentence_count: 23,
+43:    pass_rate: 0.85,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"verified_sentence_count_drop|sentence_drop|RegressionAlert|verified_sentence_count\" web\\lib\\pin_regression.ts -S" in C:\POLARIS
+ succeeded in 926ms:
+10:  verified_sentence_count_drop: 3,
+13:export interface RegressionAlert {
+14:  metric: "pass_rate" | "verified_sentence_count";
+25:): RegressionAlert[] {
+26:  const alerts: RegressionAlert[] = [];
+42:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+43:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+45:      metric: "verified_sentence_count",
+46:      a_value: a.verified_sentence_count,
+47:      b_value: b.verified_sentence_count,
+48:      drop: sentence_drop,
+49:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+
+codex
+criterion_1: PASS
+criterion_2: PASS
+criterion_3: PASS
+criterion_4: PASS_WITH_FIX_REQUIRED
+criterion_5: PASS_WITH_FIX_REQUIRED
+criterion_6: PASS
+
+files_read:
+  - C:\POLARIS\web\lib\pin_replay_demo.ts
+  - C:\POLARIS\web\lib\pin_regression.ts
+  - C:\POLARIS\web\app\pin_replay\page.tsx
+  - C:\POLARIS\web\app\pin_replay\components\diff_side_panel.tsx
+  - C:\POLARIS\web\app\pin_replay\components\pin_timeseries.tsx
+  - C:\POLARIS\web\tests\e2e\pin_regression_alert.spec.ts
+  - C:\POLARIS\web\tests\e2e\pin_replay.spec.ts
+  - C:\POLARIS\web\tests\e2e\pin_replay_diff.spec.ts
+  - C:\POLARIS\CLAUDE.md
+  - C:\POLARIS\polaris-controls\CHARTER.md
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Adding 2026-05-15 changes the default B snapshot because page.tsx uses sorted registry first/last dates. That will break existing Playwright tests that assert initial B=2026-04-30 and +13%/0% deltas in web/tests/e2e/pin_replay.spec.ts, plus the +13% default diff assertion in web/tests/e2e/pin_replay_diff.spec.ts. The plan only accounts for pin_regression_alert.spec.ts. Fix the plan to update those tests or pin the page default explicitly."
+p2:
+  - "The new adversarial data uses pass_rate=0.78, so A=2026-04-30 to B=2026-05-15 also triggers a pass_rate regression. That may muddy the intended sentence-count retraction attribution. Prefer a pass_rate that does not cross the pass-rate threshold unless the extra alert is intentional."
+  - "Clarify that the new Playwright assertion should expect newly attributed retractions only. With 2026-04-30 already containing demo-clin-002 and 2026-05-15 containing demo-clin-002/demo-clin-005, getRetractionContext should attribute only demo-clin-005 for that comparison."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Plan must handle existing pin_replay.spec.ts and pin_replay_diff.spec.ts expectations after adding the later registry date."
+criterion_1: PASS
+criterion_2: PASS
+criterion_3: PASS
+criterion_4: PASS_WITH_FIX_REQUIRED
+criterion_5: PASS_WITH_FIX_REQUIRED
+criterion_6: PASS
+
+files_read:
+  - C:\POLARIS\web\lib\pin_replay_demo.ts
+  - C:\POLARIS\web\lib\pin_regression.ts
+  - C:\POLARIS\web\app\pin_replay\page.tsx
+  - C:\POLARIS\web\app\pin_replay\components\diff_side_panel.tsx
+  - C:\POLARIS\web\app\pin_replay\components\pin_timeseries.tsx
+  - C:\POLARIS\web\tests\e2e\pin_regression_alert.spec.ts
+  - C:\POLARIS\web\tests\e2e\pin_replay.spec.ts
+  - C:\POLARIS\web\tests\e2e\pin_replay_diff.spec.ts
+  - C:\POLARIS\CLAUDE.md
+  - C:\POLARIS\polaris-controls\CHARTER.md
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+tokens used
+57,417
+  - "Adding 2026-05-15 changes the default B snapshot because page.tsx uses sorted registry first/last dates. That will break existing Playwright tests that assert initial B=2026-04-30 and +13%/0% deltas in web/tests/e2e/pin_replay.spec.ts, plus the +13% default diff assertion in web/tests/e2e/pin_replay_diff.spec.ts. The plan only accounts for pin_regression_alert.spec.ts. Fix the plan to update those tests or pin the page default explicitly."
+p2:
+  - "The new adversarial data uses pass_rate=0.78, so A=2026-04-30 to B=2026-05-15 also triggers a pass_rate regression. That may muddy the intended sentence-count retraction attribution. Prefer a pass_rate that does not cross the pass-rate threshold unless the extra alert is intentional."
+  - "Clarify that the new Playwright assertion should expect newly attributed retractions only. With 2026-04-30 already containing demo-clin-002 and 2026-05-15 containing demo-clin-002/demo-clin-005, getRetractionContext should attribute only demo-clin-005 for that comparison."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Plan must handle existing pin_replay.spec.ts and pin_replay_diff.spec.ts expectations after adding the later registry date."
