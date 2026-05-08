@@ -191,4 +191,4 @@ index 0000000..e28d818
 +        }))
 +        assert rep.stance_delta_score == 0.0
 
-# canonical-diff-sha256: 10919c3defc57bb7fa5c61d0e9a8891b77dfade4b6d995e08533a4c231d5829a
+# canonical-diff-sha256: 88403be5d121c8cdd83296cf2ee0654bb42e85b06fc8541c362038bf5680adba
