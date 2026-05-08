@@ -163,4 +163,4 @@ index 0000000..bd6a618
 +def test_empty_follow_ups_returns_empty() -> None:
 +    assert run_multi_turn(FollowUpAgent(), _contract(), []) == []
 
-# canonical-diff-sha256: 1f8dfdf774799f63da0f10540701ea5c3137f691be7a146dd13b75bbf04d2329
+# canonical-diff-sha256: fcaf4d44e48cdcd6a75e428798373f0aa1cad8b38a147247bd9ac467d6e7837b
