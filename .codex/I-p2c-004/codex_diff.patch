@@ -1,0 +1,114 @@
+diff --git a/web/tests/e2e/perf_core_web_vitals.spec.ts b/web/tests/e2e/perf_core_web_vitals.spec.ts
+new file mode 100644
+index 0000000..0841533
+--- /dev/null
++++ b/web/tests/e2e/perf_core_web_vitals.spec.ts
+@@ -0,0 +1,106 @@
++/**
++ * I-p2c-004: Core Web Vitals smoke baselines.
++ *
++ * Three chromium-only tests: LCP via PerformanceObserver, hover-render via
++ * existing /sentence_hover_test/perf harness, INP via Event Timing API.
++ *
++ * Lighthouse-CI integration (LCP/INP/CLS via lab measurement on every commit)
++ * is the production-grade follow-up to this smoke baseline; it requires a
++ * dedicated CI job (Chrome headless + Lighthouse CLI ~1GB) and is tracked
++ * separately from this Playwright spec.
++ */
++
++import { expect, test, type TestInfo } from "@playwright/test";
++
++function chromium_only(info: TestInfo): void {
++  test.skip(
++    info.project.name !== "chromium",
++    "I-p2c-004 CWV measurements rely on chromium-only PerformanceObserver entries",
++  );
++}
++
++test("LCP on /intake under 2500ms", async ({ page }, info) => {
++  chromium_only(info);
++  await page.addInitScript(() => {
++    (window as unknown as { __lcp_entries__: unknown[] }).__lcp_entries__ = [];
++    new PerformanceObserver((list) => {
++      const arr = (window as unknown as { __lcp_entries__: unknown[] })
++        .__lcp_entries__;
++      for (const e of list.getEntries()) arr.push(e);
++    }).observe({ type: "largest-contentful-paint", buffered: true });
++  });
++  await page.goto("/intake", { waitUntil: "domcontentloaded" });
++  await page.waitForTimeout(1500);
++  const lcp = await page.evaluate(() => {
++    const arr = (window as unknown as { __lcp_entries__: PerformanceEntry[] })
++      .__lcp_entries__;
++    if (arr.length === 0) return null;
++    return arr[arr.length - 1].startTime;
++  });
++  expect(lcp).not.toBeNull();
++  expect(lcp).toBeLessThan(2500);
++});
++
++test("Hover render avg under 100ms via /sentence_hover_test/perf harness", async ({
++  page,
++}, info) => {
++  chromium_only(info);
++  await page.goto("/sentence_hover_test/perf", {
++    waitUntil: "domcontentloaded",
++  });
++  await page.getByTestId("run-perf").click();
++  const results = page.getByTestId("perf-results");
++  await expect(results).toHaveAttribute("data-iter", "100", {
++    timeout: 30_000,
++  });
++  const data_timings = await results.getAttribute("data-timings");
++  expect(data_timings).not.toBeNull();
++  const timings = JSON.parse(data_timings as string) as number[];
++  expect(timings).toHaveLength(100);
++  expect(timings.every((t) => Number.isFinite(t) && t >= 0)).toBe(true);
++  const avg = timings.reduce((s, t) => s + t, 0) / timings.length;
++  expect(avg).toBeLessThan(100);
++});
++
++test("INP on /pin_replay show-diff click under 200ms", async ({
++  page,
++}, info) => {
++  chromium_only(info);
++  await page.addInitScript(() => {
++    (window as unknown as { __event_entries__: unknown[] }).__event_entries__ =
++      [];
++    new PerformanceObserver((list) => {
++      const arr = (window as unknown as { __event_entries__: unknown[] })
++        .__event_entries__;
++      for (const e of list.getEntries()) arr.push(e);
++    }).observe({
++      type: "event",
++      buffered: true,
++      durationThreshold: 16,
++    } as PerformanceObserverInit & { durationThreshold: number });
++  });
++  await page.goto("/pin_replay", { waitUntil: "domcontentloaded" });
++  await page.getByTestId("pin-show-diff").click();
++  await page.waitForTimeout(500);
++  const entries = await page.evaluate(() => {
++    const arr = (window as unknown as { __event_entries__: PerformanceEntry[] })
++      .__event_entries__;
++    return arr
++      .map((e) => ({
++        duration: e.duration,
++        interactionId: (e as PerformanceEntry & { interactionId?: number })
++          .interactionId,
++      }))
++      .filter((e) => (e.interactionId ?? 0) > 0);
++  });
++  if (entries.length === 0) {
++    info.annotations.push({
++      type: "info",
++      description:
++        "Event Timing yielded no reportable entries (click <16ms threshold)",
++    });
++    return;
++  }
++  const max_duration = Math.max(...entries.map((e) => e.duration));
++  expect(max_duration).toBeLessThan(200);
++});
+
+# canonical-diff-sha256: 6ea94426843259d79887012c12ec473c08aa21f278edbad6d9889a22c6294466
