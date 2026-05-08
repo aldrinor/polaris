@@ -1,0 +1,1565 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e054b-8914-7dd1-b74d-d24987ee8013
+--------
+user
+# Codex Brief Review — I-f10-006 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you are reviewing
+
+You are reviewing this PLAN, NOT the working tree. Brief review = plan-soundness; diff review = code-matches-plan.
+
+## Pre-flight
+
+- **Issue:** I-f10-006 — Click-through-to-source-data. Scope: "click chart point → opens Inspector with source span". Acceptance: "Playwright click-through". LOC estimate 110.
+- **Existing substrate:**
+  - `web/components/ui/vega-chart.tsx` already accepts `onPointClick(datum)` callback (per I-f10-001 wiring). When user clicks a Vega datum, vega-embed's `view.addEventListener("click", ...)` fires and the callback receives the datum (which includes `evidence_id` per the spec_builder.py tooltip encoding).
+  - `web/app/inspector/[runId]/page.tsx` already consumes `<VegaChart>` with `onPointClick`.
+- **What's missing for "click chart point → opens Inspector with source span":** a demo route that wires the click event to a `<SentenceInspector>`-style pane. Plus Playwright assertion that clicking a datum opens a side pane showing the source span (URL, tier, excerpt).
+- **Honest framing per CLAUDE.md §9.4:** the click→open-pane substrate already exists in inspector page. This Issue ships a self-contained `/charts_test/click_through` demo + Playwright spec, plus a small `<ChartSourceInspector>` Sheet pane that any chart consumer can use.
+
+## Plan
+
+### Frontend
+
+1. New component `web/app/charts_test/components/chart_source_inspector.tsx` (NEW client component):
+   - Imports `Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle` (matching I-f8-002 / I-f9-002 / I-f6-004 pane pattern).
+   - Props: `open: boolean`, `onOpenChange(open: boolean)`, `datum: Record<string, unknown> | null`.
+   - Renders a Sheet (right side, ~40% width) with: title "Chart datum source", description "Source span derived from clicked Vega datum.", body listing each (key, value) pair from the datum dict — with `evidence_id` highlighted as the source pointer.
+   - testids: `chart-source-pane`, `chart-source-pane-title`, `chart-source-pane-evidence-id` (the evidence_id row).
+   - Honest fallback: if `datum === null`, render `<div data-testid="chart-source-pane-empty">No datum selected.</div>`.
+
+2. New demo route `web/app/charts_test/click_through/page.tsx` (NEW):
+   - Marked `"use client"` (this page uses state for the inspector pane).
+   - Reuses the I-f10-002 forest-plot sample meta-analysis OR a minimal 3-point bar chart with `evidence_id` per datum.
+   - Wires `<VegaChart spec={spec} onPointClick={(datum) => setOpen(true) + setDatum(datum)}>`.
+   - Renders `<ChartSourceInspector open={open} onOpenChange={setOpen} datum={datum}>`.
+   - Honest-frame copy: "Click any chart point to open the source-span inspector. Each datum carries its evidence_id from the polaris_provenance contract (per I-f10-005)."
+
+### Playwright
+
+3. `web/tests/e2e/chart_click_through.spec.ts` (NEW):
+   - Visit `/charts_test/click_through`.
+   - Wait for `[data-testid="vega-chart"] svg` visible.
+   - Click on a Vega graphics-symbol mark (locate via `svg [role="graphics-symbol"]:first-child`).
+   - Assert `[data-testid="chart-source-pane"]` becomes visible.
+   - Assert `[data-testid="chart-source-pane-evidence-id"]` contains the expected evidence_id (e.g., `demo-clin-001`).
+   - Assert no `[data-testid="vega-chart-error"]`.
+
+## Risks for Codex Red-Team
+
+1. **Vega click event contract:** vega-embed's `view.addEventListener("click", (event, item) => ...)` fires when user clicks a mark. The `item.datum` carries the row dict. The existing `VegaChart` already handles this (line 45-49). Demo route just consumes the callback.
+2. **Playwright click target:** `svg [role="graphics-symbol"]:first-child` selects the first mark. Vega may render the mark inside a `<g>` group — Playwright's `.click()` should still trigger the synthetic click handler attached by vega-embed.
+3. **Click event timing:** vega-embed attaches its click listener after the async render completes. Spec must `waitFor svg first().toBeVisible({ timeout: 10_000 })` BEFORE clicking, or risk clicking an unattached element.
+4. **§9.4 N/A frontend.**
+5. **CHARTER §1 LOC cap:** estimated ~70 LOC ChartSourceInspector + ~50 LOC demo route + ~30 LOC spec = ~150. Under 200. Within issue_breakdown LOC estimate of 110 + slack.
+
+## Acceptance criteria
+
+1. New `<ChartSourceInspector>` Sheet pane component with `data-testid="chart-source-pane"` + `chart-source-pane-evidence-id` testid for the evidence_id row.
+2. Demo route `/charts_test/click_through` wires `<VegaChart onPointClick>` to open the inspector pane with the clicked datum.
+3. Playwright spec clicks the first graphics-symbol mark and asserts the inspector opens with the expected evidence_id text.
+4. Honest fallback: `datum === null` renders an explicit empty state, not a silent empty pane.
+5. CHARTER §1 LOC cap respected (≤200 net).
+
+**Forced enumeration:** before verdict, write one line per criterion 1-5.
+
+**Completeness check:** list files actually read.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll read the relevant chart component, inspector usage, Sheet pattern, and e2e conventions so the plan review is grounded in the current substrate rather than assumptions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<VegaChart|onPointClick|SentenceInspector|SheetContent|SheetHeader|data-testid=\\\".*pane|charts_test\" web/app web/components web/tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function VegaChart|const VegaChart|onPointClick|addEventListener|vega-chart" web/components web/app -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web/tests web/app web/components | rg \"(vega-chart|inspector|charts_test|\\.spec\\.)\"" in C:\POLARIS
+ succeeded in 9493ms:
+web/app\components\home_keyboard_shell.tsx:33:    window.addEventListener("keydown", on_keydown);
+web/components\ui\vega-chart.tsx:11:  onPointClick?: (datum: Record<string, unknown>) => void;
+web/components\ui\vega-chart.tsx:19: * polaris_provenance extension. Click events on datums fire onPointClick
+web/components\ui\vega-chart.tsx:23: * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+web/components\ui\vega-chart.tsx:27:export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+web/components\ui\vega-chart.tsx:51:        if (onPointClick) {
+web/components\ui\vega-chart.tsx:52:          result.view.addEventListener("click", (_event, item) => {
+web/components\ui\vega-chart.tsx:54:              onPointClick(item.datum as Record<string, unknown>);
+web/components\ui\vega-chart.tsx:70:  }, [spec, onPointClick]);
+web/components\ui\vega-chart.tsx:76:          data-testid="vega-chart-error"
+web/components\ui\vega-chart.tsx:85:        data-testid="vega-chart"
+web/components\ui\vega-chart.tsx:86:        className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+web/app\charts_test\page.tsx:1:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\charts_test\forest_plot\page.tsx:1:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\charts_test\timeline\page.tsx:1:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\charts_test\comparison_table\page.tsx:1:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\inspector\[runId]\page.tsx:15:import { VegaChart } from "@/components/ui/vega-chart";
+web/app\inspector\[runId]\page.tsx:598:                onPointClick={(datum) => {
+web/app\inspector\[runId]\page.tsx:686:              onPointClick={(datum) => {
+web/app\intake\components\pdf_drop_banner.tsx:33:    window.addEventListener("dragover", handleDragOver);
+web/app\intake\components\pdf_drop_banner.tsx:34:    window.addEventListener("drop", handleDrop);
+
+ succeeded in 9567ms:
+web/components\ui\vega-chart.tsx
+web/app\charts_test\timeline\page.tsx
+web/tests\e2e\evidence_tooltip.spec.ts
+web/tests\e2e\disambiguation_modal.spec.ts
+web/tests\e2e\demo_walkthrough.spec.ts
+web/tests\e2e\contract_editor.spec.ts
+web/tests\e2e\comparison_table_chart.spec.ts
+web/tests\e2e\command_palette_suggest.spec.ts
+web/tests\e2e\command_palette_adversarial.spec.ts
+web/tests\e2e\command_palette.spec.ts
+web/tests\e2e\bundle_preview.spec.ts
+web/tests\e2e\benchmark.spec.ts
+web/tests\e2e\audit_live_multitab.spec.ts
+web/tests\e2e\audit_live_adversarial.spec.ts
+web/tests\e2e\audit_live.spec.ts
+web/tests\e2e\audit_bundle.spec.ts
+web/tests\e2e\accessibility.spec.ts
+web/tests\e2e\frame_coverage_panel.spec.ts
+web/tests\e2e\frame_coverage_adversarial.spec.ts
+web/tests\e2e\forest_plot_chart.spec.ts
+web/tests\e2e\f2_walkthrough.spec.ts
+web/tests\e2e\f1_multi_tab.spec.ts
+web/tests\e2e\f1_a11y.spec.ts
+web/tests\e2e\evidence_tooltip_perf.spec.ts
+web/tests\e2e\evidence_tooltip_mobile.spec.ts
+web/tests\e2e\evidence_tooltip_edges.spec.ts
+web/tests\e2e\intake_disambiguation_negative.spec.ts
+web/tests\e2e\intake_disambiguation.spec.ts
+web/tests\e2e\intake.spec.ts
+web/tests\e2e\inspector.spec.ts
+web/tests\e2e\generation.spec.ts
+web/tests\e2e\multi_source_panel.spec.ts
+web/tests\e2e\landing_template_grid.spec.ts
+web/tests\e2e\intake_edge.spec.ts
+web/tests\e2e\performance.spec.ts
+web/tests\e2e\performance_hover.spec.ts
+web/app\charts_test\forest_plot\page.tsx
+web/app\charts_test\page.tsx
+web/app\inspector\[runId]\page.tsx
+web/tests\e2e\visual.spec.ts-snapshots\inspector-verified-sentences-chromium-win32.png
+web/tests\e2e\visual.spec.ts-snapshots\inspector-executive-summary-chromium-win32.png
+web/tests\e2e\visual.spec.ts-snapshots\inspector-error-state-chromium-win32.png
+web/tests\e2e\visual.spec.ts-snapshots\dashboard-initial-chromium-win32.png
+web/tests\e2e\visual.spec.ts
+web/tests\e2e\vega_lite_chart.spec.ts
+web/tests\e2e\upload_parse_status.spec.ts
+web/tests\e2e\upload_evidence_toggle.spec.ts
+web/tests\e2e\upload_dropzone.spec.ts
+web/tests\e2e\upload_doc_preview.spec.ts
+web/tests\e2e\timeline_chart.spec.ts
+web/tests\e2e\sse_client.spec.ts
+web/tests\e2e\sentence_inspector_synthesis.spec.ts
+web/tests\e2e\sentence_inspector_surfaces.spec.ts
+web/tests\e2e\sentence_inspector_source.spec.ts
+web/tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web/tests\e2e\sentence_inspector_multispan.spec.ts
+web/tests\e2e\sentence_inspector_latency.spec.ts
+web/tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web/tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web/tests\e2e\sentence_inspector_contradiction.spec.ts
+web/tests\e2e\sentence_inspector_ai_agent.spec.ts
+web/tests\e2e\sentence_inspector_agreement.spec.ts
+web/tests\e2e\sentence_inspector_adversarial.spec.ts
+web/tests\e2e\sentence_inspector.spec.ts
+web/tests\e2e\sentence_hover.spec.ts
+web/tests\e2e\retrieval.spec.ts
+web/app\generation\components\sentence_inspector.tsx
+web/app\charts_test\comparison_table\page.tsx
+
+2026-05-08T01:55:18.305289Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 10.4 seconds
+Output:
+ParserError: 
+Line |
+   2 |  . ck|SentenceInspector|SheetContent|SheetHeader|data-testid=\".*pane|ch .
+     |                                                                 ~
+     | Missing property name after reference operator.
+
+ exited 1 in 10422ms:
+ParserError: 
+Line |
+   2 |  . ck|SentenceInspector|SheetContent|SheetHeader|data-testid=\".*pane|ch .
+     |                                                                 ~
+     | Missing property name after reference operator.
+
+codex
+The initial search confirms `VegaChart` exposes `onPointClick`; one broader search tripped PowerShell quoting, so I’m narrowing to direct file reads and existing chart specs now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/ui/vega-chart.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/tests/e2e/forest_plot_chart.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/tests/e2e/vega_lite_chart.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/inspector/[runId]/page.tsx' | Select-Object -Skip 560 -First 160" in C:\POLARIS
+ succeeded in 7315ms:
+import { expect, test } from "@playwright/test";
+
+test("Forest plot demo route renders sample meta-analysis (rule + point marks)", async ({
+  page,
+}) => {
+  await page.goto("/charts_test/forest_plot");
+
+  const chart = page.getByTestId("vega-chart");
+  await expect(chart).toBeVisible();
+
+  const svg = chart.locator("svg");
+  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
+
+  // Vega scenegraph emits a graphics-object container per mark layer with
+  // role="graphics-object". We narrow further by aria-roledescription which
+  // Vega sets to "rule mark" / "symbol mark" on the marked groups. This
+  // avoids matching axes/gridlines/background.
+  const rule_layer = chart.locator(
+    'g[role="graphics-object"][aria-roledescription="rule mark container"]',
+  );
+  const point_layer = chart.locator(
+    'g[role="graphics-object"][aria-roledescription="symbol mark container"]',
+  );
+
+  // If Vega's exact aria-roledescription strings differ at runtime, fall back
+  // to counting graphics-symbol descendants under each role-aware container.
+  const rule_count = await rule_layer.count();
+  const point_count = await point_layer.count();
+
+  if (rule_count > 0 && point_count > 0) {
+    // Each layer present.
+    expect(rule_count).toBeGreaterThan(0);
+    expect(point_count).toBeGreaterThan(0);
+  } else {
+    // Fallback: assert at least N graphics-symbol marks (3 data points = 3
+    // rule lines + 3 point marks = 6 graphics symbols). Filters out non-mark
+    // SVG (axes/gridlines/background) by role.
+    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
+    const total_marks = await graphics_symbols.count();
+    expect(total_marks).toBeGreaterThanOrEqual(6);
+  }
+
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+ succeeded in 7545ms:
+"use client";
+
+import vegaEmbed from "vega-embed";
+import { useEffect, useRef, useState } from "react";
+
+import type { VegaLiteSpec } from "@/lib/api";
+
+interface VegaChartProps {
+  spec: VegaLiteSpec;
+  className?: string;
+  onPointClick?: (datum: Record<string, unknown>) => void;
+}
+
+/**
+ * F10 Vega-Lite v5 client renderer (Phase 2B Task 2B.2 frontend half).
+ *
+ * Renders a Vega-Lite spec via vega-embed. The spec arrives from the
+ * backend `/runs/{run_id}/charts/{chart_type}` endpoint with the
+ * polaris_provenance extension. Click events on datums fire onPointClick
+ * with the datum (which includes evidence_id) so the host page can
+ * surface the source span.
+ *
+ * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+ * pane (LAW II — fail loudly, no silent empty chart). Mount div remains
+ * present so future spec changes can re-trigger the embed.
+ */
+export function VegaChart({ spec, className, onPointClick }: VegaChartProps) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    let cancelled = false;
+    let viewToFinalize: { finalize: () => void } | null = null;
+
+    setError(null);
+
+    // VegaLiteSpec from our API types is intentionally permissive; vega-embed
+    // narrows to its full TopLevelSpec type. Casting through unknown is the
+    // documented bridge.
+    vegaEmbed(ref.current, spec as unknown as Parameters<typeof vegaEmbed>[1], {
+      actions: false,
+      renderer: "svg",
+    })
+      .then((result) => {
+        if (cancelled) {
+          result.view.finalize();
+          return;
+        }
+        viewToFinalize = result.view;
+        if (onPointClick) {
+          result.view.addEventListener("click", (_event, item) => {
+            if (item?.datum) {
+              onPointClick(item.datum as Record<string, unknown>);
+            }
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("vega-embed render failed", err);
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      viewToFinalize?.finalize();
+    };
+  }, [spec, onPointClick]);
+
+  return (
+    <>
+      {error !== null ? (
+        <div
+          data-testid="vega-chart-error"
+          role="alert"
+          className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300"
+        >
+          Vega-Lite render failed: {error}
+        </div>
+      ) : null}
+      <div
+        ref={ref}
+        data-testid="vega-chart"
+        className={className ?? "polaris-vega-chart w-full overflow-x-auto"}
+      />
+    </>
+  );
+}
+
+ succeeded in 7606ms:
+import { expect, test } from "@playwright/test";
+
+test("Charts test route renders the Vega-Lite v5 sample bar chart", async ({
+  page,
+}) => {
+  await page.goto("/charts_test");
+
+  const chart = page.getByTestId("vega-chart");
+  await expect(chart).toBeVisible();
+
+  // vega-embed uses { renderer: "svg" } so the chart content is an SVG root.
+  const svg = chart.locator("svg");
+  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
+
+  // Vega rect (bar) marks render as <path> elements (vega-scenegraph
+  // SVGRenderer maps `rect` mark to SVG `path`). Three demo data points →
+  // at least three mark <path> elements.
+  const paths = chart.locator("svg path");
+  expect(await paths.count()).toBeGreaterThan(0);
+
+  // No error pane should render on a valid spec.
+  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
+
+ succeeded in 7706ms:
+                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
+                  {tierCounts.T3 ?? 0}
+                </span>
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartTypes.map((t) => {
+        const spec = specs[t];
+        if (!spec) {
+          return (
+            <Card key={t}>
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  {t.replace("_", " ")}
+                </CardDescription>
+                <CardTitle className="text-sm">Loading…</CardTitle>
+              </CardHeader>
+            </Card>
+          );
+        }
+        return (
+          <Card key={t}>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {t.replace("_", " ")} ·{" "}
+                {spec.polaris_provenance.evidence_ids.length} evidence ids
+              </CardDescription>
+              <CardTitle className="text-sm">
+                {(spec.title as string) ?? "Chart"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <VegaChart
+                spec={spec}
+                onPointClick={(datum) => {
+                  const evidenceId = datum.evidence_id;
+                  if (typeof evidenceId === "string") onSelect(evidenceId);
+                }}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartsTab({
+  runId,
+  onSelect,
+}: {
+  runId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [chartType, setChartType] = useState<ChartType>("forest_plot");
+  const [spec, setSpec] = useState<VegaLiteSpec | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getChart(runId, chartType)
+      .then((s) => {
+        if (!cancelled) {
+          setSpec(s);
+          setChartError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSpec(null);
+          setChartError(
+            err instanceof Error ? err.message : "Chart load failed",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, chartType]);
+
+  const types: ChartType[] = ["forest_plot", "comparison_table", "timeline"];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
+        {types.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setChartType(t)}
+            className={`min-h-[28px] rounded-md border px-3 py-2 text-xs transition ${
+              chartType === t
+                ? "border-foreground bg-foreground text-background"
+                : "border-border hover:border-foreground"
+            }`}
+          >
+            {t.replace("_", " ")}
+          </button>
+        ))}
+      </div>
+      {chartError && (
+        <p
+          role="alert"
+          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+        >
+          {chartError}
+        </p>
+      )}
+      {spec && (
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              {spec.polaris_provenance.chart_type} ·{" "}
+              {spec.polaris_provenance.evidence_ids.length} evidence ids
+            </CardDescription>
+            <CardTitle className="text-base">
+              {(spec.title as string) ?? "Chart"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <VegaChart
+              spec={spec}
+              onPointClick={(datum) => {
+                const evidenceId = datum.evidence_id;
+                if (typeof evidenceId === "string") onSelect(evidenceId);
+              }}
+            />
+            <details className="mt-4">
+              <summary className="text-muted-foreground cursor-pointer text-xs">
+                View raw Vega-Lite spec (
+                {spec.polaris_provenance.evidence_ids.length} evidence ids)
+              </summary>
+              <div className="mt-2 mb-3 flex flex-wrap gap-1">
+                {spec.polaris_provenance.evidence_ids
+                  .slice(0, 12)
+                  .map((eid) => (
+                    <button
+                      key={eid}
+                      type="button"
+                      onClick={() => onSelect(eid)}
+                      className="bg-muted hover:bg-foreground hover:text-background rounded px-1.5 py-0.5 font-mono text-[11px]"
+                    >
+                      {eid}
+                    </button>
+                  ))}
+              </div>
+              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+                {JSON.stringify(spec, null, 2)}
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'SheetContent|SheetHeader|SheetTitle|SheetDescription|data-testid=\".*pane|data-testid=\".*sheet|side=' web/app web/components -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/ui/sheet.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/charts_test/forest_plot/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/charts_test/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/playwright.config.ts'" in C:\POLARIS
+ succeeded in 1192ms:
+"use client";
+
+import * as React from "react";
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
+
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { XIcon } from "lucide-react";
+
+function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />;
+}
+
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
+}
+
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
+}
+
+function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+}
+
+function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+  return (
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetContent({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  ...props
+}: SheetPrimitive.Popup.Props & {
+  side?: "top" | "right" | "bottom" | "left";
+  showCloseButton?: boolean;
+}) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
+        className={cn(
+          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            data-slot="sheet-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-3 right-3"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
+      </SheetPrimitive.Popup>
+    </SheetPortal>
+  );
+}
+
+function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-header"
+      className={cn("flex flex-col gap-0.5 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-footer"
+      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+  return (
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
+      className={cn(
+        "font-heading text-foreground text-base font-medium",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetDescription({
+  className,
+  ...props
+}: SheetPrimitive.Description.Props) {
+  return (
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+};
+
+ succeeded in 1248ms:
+web/components\ui\evidence-tooltip.tsx:157:        <Tooltip.Positioner sideOffset={6} side={side}>
+web/components\ui\sheet.tsx:39:function SheetContent({
+web/components\ui\sheet.tsx:54:        data-side={side}
+web/components\ui\sheet.tsx:56:          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+web/components\ui\sheet.tsx:82:function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+web/components\ui\sheet.tsx:102:function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+web/components\ui\sheet.tsx:115:function SheetDescription({
+web/components\ui\sheet.tsx:132:  SheetContent,
+web/components\ui\sheet.tsx:133:  SheetHeader,
+web/components\ui\sheet.tsx:135:  SheetTitle,
+web/components\ui\sheet.tsx:136:  SheetDescription,
+web/app\generation\components\evaluator_pane.tsx:5:  SheetContent,
+web/app\generation\components\evaluator_pane.tsx:6:  SheetDescription,
+web/app\generation\components\evaluator_pane.tsx:7:  SheetHeader,
+web/app\generation\components\evaluator_pane.tsx:8:  SheetTitle,
+web/app\generation\components\evaluator_pane.tsx:24:      <SheetContent
+web/app\generation\components\evaluator_pane.tsx:25:        data-testid="evaluator-pane"
+web/app\generation\components\evaluator_pane.tsx:26:        side="right"
+web/app\generation\components\evaluator_pane.tsx:27:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+web/app\generation\components\evaluator_pane.tsx:29:        <SheetHeader>
+web/app\generation\components\evaluator_pane.tsx:30:          <SheetTitle data-testid="evaluator-pane-title">
+web/app\generation\components\evaluator_pane.tsx:32:          </SheetTitle>
+web/app\generation\components\evaluator_pane.tsx:33:          <SheetDescription>
+web/app\generation\components\evaluator_pane.tsx:36:          </SheetDescription>
+web/app\generation\components\evaluator_pane.tsx:37:        </SheetHeader>
+web/app\generation\components\evaluator_pane.tsx:41:              data-testid="evaluator-pane-generator-reading"
+web/app\generation\components\evaluator_pane.tsx:50:              data-testid="evaluator-pane-evaluator-reading"
+web/app\generation\components\evaluator_pane.tsx:74:              <span data-testid="evaluator-pane-model">
+web/app\generation\components\evaluator_pane.tsx:81:            data-testid="evaluator-pane-empty"
+web/app\generation\components\evaluator_pane.tsx:87:      </SheetContent>
+web/app\generation\components\contradiction_pane.tsx:5:  SheetContent,
+web/app\generation\components\contradiction_pane.tsx:6:  SheetDescription,
+web/app\generation\components\contradiction_pane.tsx:7:  SheetHeader,
+web/app\generation\components\contradiction_pane.tsx:8:  SheetTitle,
+web/app\generation\components\contradiction_pane.tsx:65:      <SheetContent
+web/app\generation\components\contradiction_pane.tsx:66:        data-testid="contradiction-pane"
+web/app\generation\components\contradiction_pane.tsx:67:        side="right"
+web/app\generation\components\contradiction_pane.tsx:68:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+web/app\generation\components\contradiction_pane.tsx:70:        <SheetHeader>
+web/app\generation\components\contradiction_pane.tsx:71:          <SheetTitle data-testid="contradiction-pane-title">
+web/app\generation\components\contradiction_pane.tsx:80:          </SheetTitle>
+web/app\generation\components\contradiction_pane.tsx:81:          <SheetDescription>
+web/app\generation\components\contradiction_pane.tsx:91:          </SheetDescription>
+web/app\generation\components\contradiction_pane.tsx:92:        </SheetHeader>
+web/app\generation\components\contradiction_pane.tsx:163:      </SheetContent>
+web/app\generation\components\sentence_inspector.tsx:5:  SheetContent,
+web/app\generation\components\sentence_inspector.tsx:6:  SheetDescription,
+web/app\generation\components\sentence_inspector.tsx:7:  SheetHeader,
+web/app\generation\components\sentence_inspector.tsx:8:  SheetTitle,
+web/app\generation\components\sentence_inspector.tsx:252:      <SheetContent
+web/app\generation\components\sentence_inspector.tsx:253:        data-testid="sentence-inspector-sheet"
+web/app\generation\components\sentence_inspector.tsx:254:        side="right"
+web/app\generation\components\sentence_inspector.tsx:255:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+web/app\generation\components\sentence_inspector.tsx:257:        <SheetHeader>
+web/app\generation\components\sentence_inspector.tsx:258:          <SheetTitle data-testid="sentence-inspector-id">
+web/app\generation\components\sentence_inspector.tsx:260:          </SheetTitle>
+web/app\generation\components\sentence_inspector.tsx:261:          <SheetDescription>
+web/app\generation\components\sentence_inspector.tsx:263:          </SheetDescription>
+web/app\generation\components\sentence_inspector.tsx:264:        </SheetHeader>
+web/app\generation\components\sentence_inspector.tsx:313:      </SheetContent>
+web/app\generation\components\frame_coverage_panel.tsx:7:  SheetContent,
+web/app\generation\components\frame_coverage_panel.tsx:8:  SheetDescription,
+web/app\generation\components\frame_coverage_panel.tsx:9:  SheetHeader,
+web/app\generation\components\frame_coverage_panel.tsx:10:  SheetTitle,
+web/app\generation\components\frame_coverage_panel.tsx:182:      <SheetContent
+web/app\generation\components\frame_coverage_panel.tsx:183:        data-testid="frame-gap-detail-sheet"
+web/app\generation\components\frame_coverage_panel.tsx:184:        side="right"
+web/app\generation\components\frame_coverage_panel.tsx:185:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+web/app\generation\components\frame_coverage_panel.tsx:187:        <SheetHeader>
+web/app\generation\components\frame_coverage_panel.tsx:188:          <SheetTitle data-testid="frame-gap-detail-title">
+web/app\generation\components\frame_coverage_panel.tsx:190:          </SheetTitle>
+web/app\generation\components\frame_coverage_panel.tsx:191:          <SheetDescription>
+web/app\generation\components\frame_coverage_panel.tsx:193:          </SheetDescription>
+web/app\generation\components\frame_coverage_panel.tsx:194:        </SheetHeader>
+web/app\generation\components\frame_coverage_panel.tsx:225:      </SheetContent>
+web/app\generation\components\multi_source_panel.tsx:5:  SheetContent,
+web/app\generation\components\multi_source_panel.tsx:6:  SheetDescription,
+web/app\generation\components\multi_source_panel.tsx:7:  SheetHeader,
+web/app\generation\components\multi_source_panel.tsx:8:  SheetTitle,
+web/app\generation\components\multi_source_panel.tsx:133:      <SheetContent
+web/app\generation\components\multi_source_panel.tsx:134:        data-testid="multi-source-pane"
+web/app\generation\components\multi_source_panel.tsx:135:        side="right"
+web/app\generation\components\multi_source_panel.tsx:136:        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+web/app\generation\components\multi_source_panel.tsx:138:        <SheetHeader>
+web/app\generation\components\multi_source_panel.tsx:139:          <SheetTitle data-testid="multi-source-pane-title">
+web/app\generation\components\multi_source_panel.tsx:141:          </SheetTitle>
+web/app\generation\components\multi_source_panel.tsx:142:          <SheetDescription>
+web/app\generation\components\multi_source_panel.tsx:145:          </SheetDescription>
+web/app\generation\components\multi_source_panel.tsx:146:        </SheetHeader>
+web/app\generation\components\multi_source_panel.tsx:149:            data-testid="multi-source-pane-sentence"
+web/app\generation\components\multi_source_panel.tsx:165:      </SheetContent>
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:17:        {/* near-top: requests side="top" but trigger is at top → must flip down */}
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:22:            side="top"
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:27:        {/* near-bottom: requests side="bottom" but trigger is at bottom → flip up */}
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:32:            side="bottom"
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:39:        {/* near-right: requests side="right" but trigger is at right → flip left */}
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:44:            side="right"
+
+ succeeded in 1250ms:
+import { VegaChart } from "@/components/ui/vega-chart";
+import {
+  buildForestPlotSpec,
+  type ForestPlotPoint,
+} from "@/lib/forest_plot_spec";
+
+const SAMPLE_META_ANALYSIS: ForestPlotPoint[] = [
+  {
+    label: "MACE",
+    estimate: -0.2,
+    ci_low: -0.27,
+    ci_high: -0.13,
+    evidence_id: "demo-clin-001",
+  },
+  {
+    label: "MI",
+    estimate: -0.18,
+    ci_low: -0.28,
+    ci_high: -0.06,
+    evidence_id: "demo-clin-002",
+  },
+  {
+    label: "Stroke",
+    estimate: -0.07,
+    ci_low: -0.19,
+    ci_high: 0.05,
+    evidence_id: "demo-clin-003",
+  },
+];
+
+export default function ForestPlotPage() {
+  const spec = buildForestPlotSpec(
+    "SELECT trial cardiovascular outcomes (demo)",
+    SAMPLE_META_ANALYSIS,
+  );
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Forest plot — sample meta-analysis
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample SELECT-trial cardiovascular outcomes (demo data, demo
+          evidence_ids); same Vega-Lite structure produced by{" "}
+          <code>polaris_v6.charts.spec_builder.build_forest_plot</code>.
+        </p>
+        <div className="mt-6">
+          <VegaChart spec={spec} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+ succeeded in 1307ms:
+import { VegaChart } from "@/components/ui/vega-chart";
+import type { VegaLiteSpec } from "@/lib/api";
+
+const SAMPLE_SPEC: VegaLiteSpec = {
+  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+  title: "Sample bar chart — POLARIS vs ChatGPT vs Gemini (demo only)",
+  data: {
+    values: [
+      { dimension: "Sourcing", system: "POLARIS", score: 0.92 },
+      { dimension: "Sourcing", system: "ChatGPT DR", score: 0.78 },
+      { dimension: "Sourcing", system: "Gemini DR", score: 0.74 },
+    ],
+  },
+  mark: "bar",
+  encoding: {
+    x: { field: "system", type: "nominal" },
+    y: { field: "score", type: "quantitative" },
+    color: { field: "system", type: "nominal" },
+  },
+  polaris_provenance: {
+    chart_type: "forest_plot",
+    evidence_ids: ["demo-1", "demo-2", "demo-3"],
+  },
+};
+
+export default function ChartsTestPage() {
+  return (
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Charts substrate test
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Sample chart — demo evidence_ids only; renders the Vega-Lite v5
+          substrate (consumed by the real forest-plot spec in I-f10-002).
+        </p>
+        <div className="mt-6">
+          <VegaChart spec={SAMPLE_SPEC} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+ succeeded in 1352ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+codex
+The key acceptance gap is emerging: the proposed pane echoes the clicked datum, while the issue asks for a source span with URL, tier, and excerpt. I’m checking the chart spec builder used by the demo to confirm what the clicked datum actually contains.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/forest_plot_spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/generation/components/multi_source_panel.tsx' | Select-Object -Skip 120 -First 60" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/generation/components/sentence_inspector.tsx' | Select-Object -Skip 240 -First 90" in C:\POLARIS
+ succeeded in 1264ms:
+/**
+ * I-f10-002: TypeScript helper that mirrors `polaris_v6.charts.spec_builder.build_forest_plot`
+ * for client-side visualization demos. Canonical spec generator remains the
+ * Python builder; the backend route `/runs/{run_id}/charts/forest_plot` returns
+ * specs of the same shape this helper produces.
+ */
+
+import type { VegaLiteSpec } from "@/lib/api";
+
+export const VEGA_LITE_SCHEMA_URL =
+  "https://vega.github.io/schema/vega-lite/v5.json";
+
+export interface ForestPlotPoint {
+  label: string;
+  estimate: number;
+  ci_low: number;
+  ci_high: number;
+  evidence_id: string;
+}
+
+export function buildForestPlotSpec(
+  title: string,
+  points: ForestPlotPoint[],
+  x_label: string = "Effect estimate (95% CI)",
+): VegaLiteSpec {
+  if (points.length === 0) {
+    throw new Error("forest plot requires at least one point");
+  }
+  const data_values = points.map((p) => ({
+    label: p.label,
+    estimate: p.estimate,
+    ci_low: p.ci_low,
+    ci_high: p.ci_high,
+    evidence_id: p.evidence_id,
+  }));
+  return {
+    $schema: VEGA_LITE_SCHEMA_URL,
+    title,
+    data: { values: data_values },
+    layer: [
+      {
+        mark: { type: "rule" },
+        encoding: {
+          y: {
+            field: "label",
+            type: "nominal",
+            sort: null,
+            axis: { title: null },
+          },
+          x: {
+            field: "ci_low",
+            type: "quantitative",
+            title: x_label,
+          },
+          x2: { field: "ci_high" },
+        },
+      },
+      {
+        mark: { type: "point", filled: true, size: 100 },
+        encoding: {
+          y: { field: "label", type: "nominal" },
+          x: { field: "estimate", type: "quantitative" },
+          tooltip: [
+            { field: "label" },
+            { field: "estimate" },
+            { field: "ci_low" },
+            { field: "ci_high" },
+            { field: "evidence_id" },
+          ],
+        },
+      },
+    ],
+    polaris_provenance: {
+      chart_type: "forest_plot",
+      evidence_ids: points.map((p) => p.evidence_id),
+    },
+  };
+}
+
+ succeeded in 1419ms:
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 1523ms:
+  tokens: ParsedToken[];
+  pool: EvidencePool | null;
+  sentence_text: string;
+}) {
+  const grouped = groupTokensBySource(tokens);
+  const distinct_count = grouped.size;
+  const sources_by_id = new Map<string, RetrievalSource>();
+  if (pool) {
+    for (const s of pool.sources) sources_by_id.set(s.source_id, s);
+  }
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="multi-source-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="multi-source-pane-title">
+            Multi-source claim — {distinct_count} sources
+          </SheetTitle>
+          <SheetDescription>
+            All distinct sources cited by this claim. Each row shows the cited
+            span(s) drawn from that source.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="px-4 pb-4 text-sm">
+          <p
+            data-testid="multi-source-pane-sentence"
+            className="text-muted-foreground border-border mb-3 rounded border bg-blue-500/5 p-2 text-xs"
+          >
+            {sentence_text}
+          </p>
+          <div className="flex flex-col gap-2">
+            {Array.from(grouped.entries()).map(([source_id, toks]) => (
+              <SourceRow
+                key={source_id}
+                source_id={source_id}
+                source={sources_by_id.get(source_id)}
+                tokens={toks}
+              />
+            ))}
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export interface RetrievalSource|type RetrievalSource|EvidencePool|url|tier|excerpt" web/lib web/app/generation -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"function SourceCard|SourceCard\\(|source\\.url|source\\.tier|excerpt|snippet|RetrievalSource|interface EvidencePool\" web/app/generation/components/sentence_inspector.tsx web/lib -S" in C:\POLARIS
+ succeeded in 817ms:
+web/lib\contracts.ts:32:  tier_t1_min: number;
+web/lib\contracts.ts:33:  tier_t2_min: number;
+web/lib\contracts.ts:34:  tier_t3_min: number;
+web/lib\sse_client.ts:24:    private url: string,
+web/lib\sse_client.ts:32:    const es = new EventSource(this.url);
+web/app/generation\components\BundlePreview.tsx:8:  type EvidencePool,
+web/app/generation\components\BundlePreview.tsx:40:  pool: EvidencePool;
+web/app/generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web/app/generation\components\contradiction_pane.tsx:133:                    className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+web/app/generation\components\contradiction_pane.tsx:135:                    {side.source_tier}
+web/app/generation\components\contradiction_pane.tsx:158:                {side.claim_excerpt}
+web/lib\api.ts:137:  intended_source_tiers: ("T1" | "T2" | "T3")[];
+web/lib\api.ts:191:  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+web/lib\api.ts:192:  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+web/lib\api.ts:206:  source_url: string;
+web/lib\api.ts:207:  source_tier: "T1" | "T2" | "T3";
+web/lib\api.ts:289:  const url = URL.createObjectURL(blob);
+web/lib\api.ts:291:  link.href = url;
+web/lib\api.ts:296:  URL.revokeObjectURL(url);
+web/lib\api.ts:464:export type RetrievalSourceTier = "T1" | "T2" | "T3";
+web/lib\api.ts:466:export interface RetrievalSource {
+web/lib\api.ts:468:  url: string;
+web/lib\api.ts:470:  tier: RetrievalSourceTier;
+web/lib\api.ts:484:  sources_per_tier: Record<RetrievalSourceTier, number>;
+web/lib\api.ts:485:  min_required_per_tier: Record<RetrievalSourceTier, number>;
+web/lib\api.ts:489:export interface EvidencePool {
+web/lib\api.ts:503:  pool: EvidencePool;
+web/lib\api.ts:557:/** Convenience: count sources matching a given tier. */
+web/lib\api.ts:559:  pool: EvidencePool,
+web/lib\api.ts:560:  tier: RetrievalSourceTier,
+web/lib\api.ts:562:  return pool.sources.filter((s) => s.tier === tier).length;
+web/lib\api.ts:565:/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+web/lib\api.ts:569:  const tier_rank: Record<RetrievalSourceTier, number> = {
+web/lib\api.ts:575:    const t = tier_rank[a.tier] - tier_rank[b.tier];
+web/lib\api.ts:638:  source_tier: "T1" | "T2" | "T3";
+web/lib\api.ts:642:  claim_excerpt: string;
+web/lib\api.ts:684:  | "source_tier_ineligible"
+web/lib\api.ts:753:  pool: EvidencePool,
+web/lib\api.ts:836:  pool: EvidencePool,
+web/lib\api.ts:871:  pool: EvidencePool,
+web/lib\api.ts:909:  | "sourcing_tier_mix"
+web/lib\api.ts:957:  sourcing_tier_mix: "Sourcing tier mix",
+web/lib\api.ts:967:  "sourcing_tier_mix",
+web/app/generation\components\frame_coverage_panel.tsx:21:  source_tier_ineligible:
+web/app/generation\components\frame_coverage_panel.tsx:22:    "Escalate to Tier-2 manual review for ${entity_name}; document tier override rationale.",
+web/app/generation\components\frame_coverage_panel.tsx:40:  source_tier_ineligible: "Source-tier ineligible",
+web/app/generation\components\generation_runner.tsx:16:  type EvidencePool,
+web/app/generation\components\generation_runner.tsx:39:      pool: EvidencePool;
+web/app/generation\components\generation_runner.tsx:83:    let pool: EvidencePool;
+web/app/generation\components\generation_runner.tsx:239:  pool: EvidencePool;
+web/app/generation\components\generation_runner.tsx:248:      const url = URL.createObjectURL(blob);
+web/app/generation\components\generation_runner.tsx:250:      a.href = url;
+web/app/generation\components\generation_runner.tsx:255:      URL.revokeObjectURL(url);
+web/app/generation\components\multi_source_panel.tsx:11:  type EvidencePool,
+web/app/generation\components\multi_source_panel.tsx:12:  type RetrievalSource,
+web/app/generation\components\multi_source_panel.tsx:13:  type RetrievalSourceTier,
+web/app/generation\components\multi_source_panel.tsx:62:          href={source.url}
+web/app/generation\components\multi_source_panel.tsx:66:          title={source.url}
+web/app/generation\components\multi_source_panel.tsx:71:          data-testid={`multi-source-pane-tier-${source_id}`}
+web/app/generation\components\multi_source_panel.tsx:72:          className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+web/app/generation\components\multi_source_panel.tsx:74:          {source.tier}
+web/app/generation\components\multi_source_panel.tsx:122:  pool: EvidencePool | null;
+web/app/generation\components\sentence_inspector.tsx:12:  type EvidencePool,
+web/app/generation\components\sentence_inspector.tsx:14:  type RetrievalSource,
+web/app/generation\components\sentence_inspector.tsx:15:  type RetrievalSourceTier,
+web/app/generation\components\sentence_inspector.tsx:160:          data-testid={`inspector-source-url-${idx}`}
+web/app/generation\components\sentence_inspector.tsx:161:          href={source.url}
+web/app/generation\components\sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web/app/generation\components\sentence_inspector.tsx:198:            title={TIER_RATIONALE[source.tier]}
+web/app/generation\components\sentence_inspector.tsx:199:            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+web/app/generation\components\sentence_inspector.tsx:201:            {source.tier}
+web/app/generation\components\sentence_inspector.tsx:239:  pool: EvidencePool | null;
+web/app/generation\components\verified_report_view.tsx:14:  type EvidencePool,
+web/app/generation\components\verified_report_view.tsx:109:  pool: EvidencePool | null;
+web/app/generation\components\verified_report_view.tsx:131:      if (src && src.tier === "T1") cited_t1.add(m[1]);
+web/app/generation\components\verified_report_view.tsx:304:  pool: EvidencePool | null;
+web/app/generation\components\verified_report_view.tsx:369:  pool?: EvidencePool | null;
+
+ succeeded in 837ms:
+web/app/generation/components/sentence_inspector.tsx:14:  type RetrievalSource,
+web/app/generation/components/sentence_inspector.tsx:15:  type RetrievalSourceTier,
+web/app/generation/components/sentence_inspector.tsx:27:const TIER_RATIONALE: Record<RetrievalSourceTier, string> = {
+web/app/generation/components/sentence_inspector.tsx:43:const TIER_TONE: Record<RetrievalSourceTier, string> = {
+web/app/generation/components/sentence_inspector.tsx:132:function SourceCard({
+web/app/generation/components/sentence_inspector.tsx:138:  source: RetrievalSource | undefined;
+web/app/generation/components/sentence_inspector.tsx:152:  const text = source.full_text ?? source.snippet ?? "";
+web/app/generation/components/sentence_inspector.tsx:161:          href={source.url}
+web/app/generation/components/sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web/app/generation/components/sentence_inspector.tsx:198:            title={TIER_RATIONALE[source.tier]}
+web/app/generation/components/sentence_inspector.tsx:199:            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+web/app/generation/components/sentence_inspector.tsx:201:            {source.tier}
+web/lib\api.ts:376:  candidate_snippets?: { text: string; embedding: number[] }[];
+web/lib\api.ts:382:  sample_snippets: string[];
+web/lib\api.ts:464:export type RetrievalSourceTier = "T1" | "T2" | "T3";
+web/lib\api.ts:466:export interface RetrievalSource {
+web/lib\api.ts:470:  tier: RetrievalSourceTier;
+web/lib\api.ts:474:  snippet: string;
+web/lib\api.ts:484:  sources_per_tier: Record<RetrievalSourceTier, number>;
+web/lib\api.ts:485:  min_required_per_tier: Record<RetrievalSourceTier, number>;
+web/lib\api.ts:489:export interface EvidencePool {
+web/lib\api.ts:492:  sources: RetrievalSource[];
+web/lib\api.ts:560:  tier: RetrievalSourceTier,
+web/lib\api.ts:567:  sources: RetrievalSource[],
+web/lib\api.ts:568:): RetrievalSource[] {
+web/lib\api.ts:569:  const tier_rank: Record<RetrievalSourceTier, number> = {
+web/lib\api.ts:642:  claim_excerpt: string;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/api.ts' | Select-Object -Skip 460 -First 38" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/generation/components/sentence_inspector.tsx' | Select-Object -Skip 120 -First 100" in C:\POLARIS
+ succeeded in 990ms:
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+
+ succeeded in 1057ms:
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/generation/components/sentence_inspector.tsx' | Select-Object -Skip 210 -First 36" in C:\POLARIS
+ succeeded in 813ms:
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote key={j} token={tok} text={text} idx={idx} spanIdx={j} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export interface RetrievalSource|url: string|tier: RetrievalSourceTier|snippet: string|function SourceCard|inspector-source-url|inspector-tier|SpanQuote" web/lib/api.ts web/app/generation/components/sentence_inspector.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"label: p\\.label|evidence_id: p\\.evidence_id|tooltip:|polaris_provenance\" web/lib/forest_plot_spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "graphics-symbol|svg path|vega-chart-error|chart.locator" web/tests/e2e/forest_plot_chart.spec.ts web/tests/e2e/vega_lite_chart.spec.ts' in C:\POLARIS
+ succeeded in 914ms:
+30:    label: p.label,
+34:    evidence_id: p.evidence_id,
+63:          tooltip: [
+73:    polaris_provenance: {
+
+ succeeded in 971ms:
+web/app/generation/components/sentence_inspector.tsx:99:function SpanQuote({
+web/app/generation/components/sentence_inspector.tsx:132:function SourceCard({
+web/app/generation/components/sentence_inspector.tsx:160:          data-testid={`inspector-source-url-${idx}`}
+web/app/generation/components/sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web/app/generation/components/sentence_inspector.tsx:221:          <SpanQuote key={j} token={tok} text={text} idx={idx} spanIdx={j} />
+web/lib/api.ts:206:  source_url: string;
+web/lib/api.ts:466:export interface RetrievalSource {
+web/lib/api.ts:468:  url: string;
+web/lib/api.ts:470:  tier: RetrievalSourceTier;
+web/lib/api.ts:474:  snippet: string;
+web/lib/api.ts:560:  tier: RetrievalSourceTier,
+
+ succeeded in 1021ms:
+web/tests/e2e/vega_lite_chart.spec.ts:12:  const svg = chart.locator("svg");
+web/tests/e2e/vega_lite_chart.spec.ts:18:  const paths = chart.locator("svg path");
+web/tests/e2e/vega_lite_chart.spec.ts:22:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e/forest_plot_chart.spec.ts:11:  const svg = chart.locator("svg");
+web/tests/e2e/forest_plot_chart.spec.ts:18:  const rule_layer = chart.locator(
+web/tests/e2e/forest_plot_chart.spec.ts:21:  const point_layer = chart.locator(
+web/tests/e2e/forest_plot_chart.spec.ts:26:  // to counting graphics-symbol descendants under each role-aware container.
+web/tests/e2e/forest_plot_chart.spec.ts:35:    // Fallback: assert at least N graphics-symbol marks (3 data points = 3
+web/tests/e2e/forest_plot_chart.spec.ts:38:    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
+web/tests/e2e/forest_plot_chart.spec.ts:43:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+
+codex
+criteria_1: "FAIL: pane/testids are planned, but it only echoes datum fields and does not render a source span."
+criteria_2: "PARTIAL: click opens a pane, but the pane receives only the clicked datum, not URL/tier/excerpt source data."
+criteria_3: "FAIL: Playwright asserts only evidence_id, not the required source span URL, tier, and excerpt."
+criteria_4: "PASS: null datum empty state is explicitly planned."
+criteria_5: "PASS: LOC estimate is plausible under the cap."
+files_read:
+  - "web/components/ui/vega-chart.tsx"
+  - "web/app/inspector/[runId]/page.tsx"
+  - "web/tests/e2e/forest_plot_chart.spec.ts"
+  - "web/tests/e2e/vega_lite_chart.spec.ts"
+  - "web/components/ui/sheet.tsx"
+  - "web/app/charts_test/forest_plot/page.tsx"
+  - "web/app/charts_test/page.tsx"
+  - "web/playwright.config.ts"
+  - "web/lib/forest_plot_spec.ts"
+  - "web/app/generation/components/sentence_inspector.tsx"
+  - "web/app/generation/components/multi_source_panel.tsx"
+  - "web/lib/api.ts"
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The plan does not satisfy the issue’s source-span acceptance. Current forest plot datum construction carries only label/estimate/ci/evidence_id, while the existing source model has URL/tier/snippet fields. The planned ChartSourceInspector lists datum key/value pairs and the test asserts only evidence_id, so it can pass without ever showing URL, tier, or excerpt. Add a fixture or lookup keyed by evidence_id, render URL/tier/excerpt, and assert those fields in Playwright."
+p2:
+  - "The proposed click selector `svg [role=\"graphics-symbol\"]:first-child` is fragile. Existing chart tests use role-aware containers and fallbacks because Vega SVG structure varies. Prefer targeting the symbol mark container and then `.first()`, or otherwise assert the selected mark is the expected datum."
+  - "Use a block callback for state updates; `setOpen(true) + setDatum(datum)` should not be copied literally into TSX."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define how evidence_id resolves to source span metadata and test URL, tier, and excerpt visibility after click."
+tokens used
+52,427
+criteria_1: "FAIL: pane/testids are planned, but it only echoes datum fields and does not render a source span."
+criteria_2: "PARTIAL: click opens a pane, but the pane receives only the clicked datum, not URL/tier/excerpt source data."
+criteria_3: "FAIL: Playwright asserts only evidence_id, not the required source span URL, tier, and excerpt."
+criteria_4: "PASS: null datum empty state is explicitly planned."
+criteria_5: "PASS: LOC estimate is plausible under the cap."
+files_read:
+  - "web/components/ui/vega-chart.tsx"
+  - "web/app/inspector/[runId]/page.tsx"
+  - "web/tests/e2e/forest_plot_chart.spec.ts"
+  - "web/tests/e2e/vega_lite_chart.spec.ts"
+  - "web/components/ui/sheet.tsx"
+  - "web/app/charts_test/forest_plot/page.tsx"
+  - "web/app/charts_test/page.tsx"
+  - "web/playwright.config.ts"
+  - "web/lib/forest_plot_spec.ts"
+  - "web/app/generation/components/sentence_inspector.tsx"
+  - "web/app/generation/components/multi_source_panel.tsx"
+  - "web/lib/api.ts"
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The plan does not satisfy the issue’s source-span acceptance. Current forest plot datum construction carries only label/estimate/ci/evidence_id, while the existing source model has URL/tier/snippet fields. The planned ChartSourceInspector lists datum key/value pairs and the test asserts only evidence_id, so it can pass without ever showing URL, tier, or excerpt. Add a fixture or lookup keyed by evidence_id, render URL/tier/excerpt, and assert those fields in Playwright."
+p2:
+  - "The proposed click selector `svg [role=\"graphics-symbol\"]:first-child` is fragile. Existing chart tests use role-aware containers and fallbacks because Vega SVG structure varies. Prefer targeting the symbol mark container and then `.first()`, or otherwise assert the selected mark is the expected datum."
+  - "Use a block callback for state updates; `setOpen(true) + setDatum(datum)` should not be copied literally into TSX."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define how evidence_id resolves to source span metadata and test URL, tier, and excerpt visibility after click."

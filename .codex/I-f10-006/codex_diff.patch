@@ -1,0 +1,254 @@
+diff --git a/web/app/charts_test/click_through/page.tsx b/web/app/charts_test/click_through/page.tsx
+new file mode 100644
+index 0000000..9b285b9
+--- /dev/null
++++ b/web/app/charts_test/click_through/page.tsx
+@@ -0,0 +1,107 @@
++"use client";
++
++import { useState } from "react";
++
++import { VegaChart } from "@/components/ui/vega-chart";
++import {
++  buildForestPlotSpec,
++  type ForestPlotPoint,
++} from "@/lib/forest_plot_spec";
++
++import {
++  ChartSourceInspector,
++  type ChartDatumSource,
++} from "../components/chart_source_inspector";
++
++const SAMPLE_META_ANALYSIS: ForestPlotPoint[] = [
++  {
++    label: "MACE",
++    estimate: -0.2,
++    ci_low: -0.27,
++    ci_high: -0.13,
++    evidence_id: "demo-clin-001",
++  },
++  {
++    label: "MI",
++    estimate: -0.18,
++    ci_low: -0.28,
++    ci_high: -0.06,
++    evidence_id: "demo-clin-002",
++  },
++  {
++    label: "Stroke",
++    estimate: -0.07,
++    ci_low: -0.19,
++    ci_high: 0.05,
++    evidence_id: "demo-clin-003",
++  },
++];
++
++const SOURCE_REGISTRY: Record<string, ChartDatumSource> = {
++  "demo-clin-001": {
++    evidence_id: "demo-clin-001",
++    url: "https://example.org/select-trial-mace",
++    tier: "T1",
++    excerpt:
++      "MACE composite endpoint: -20% relative risk reduction (95% CI -27% to -13%) at 3-year follow-up.",
++  },
++  "demo-clin-002": {
++    evidence_id: "demo-clin-002",
++    url: "https://example.org/select-trial-mi",
++    tier: "T1",
++    excerpt:
++      "Myocardial infarction subcomponent: -18% (95% CI -28% to -6%); statistically significant.",
++  },
++  "demo-clin-003": {
++    evidence_id: "demo-clin-003",
++    url: "https://example.org/select-trial-stroke",
++    tier: "T1",
++    excerpt:
++      "Stroke subcomponent: -7% (95% CI -19% to +5%); CI crosses null — non-significant on its own.",
++  },
++};
++
++export default function ClickThroughPage() {
++  const spec = buildForestPlotSpec(
++    "SELECT trial cardiovascular outcomes (click any point)",
++    SAMPLE_META_ANALYSIS,
++  );
++  const [source, setSource] = useState<ChartDatumSource | null>(null);
++  const [open, setOpen] = useState(false);
++
++  return (
++    <main className="bg-background text-foreground min-h-screen">
++      <div className="mx-auto max-w-4xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Click-through to source data
++        </h1>
++        <p className="text-muted-foreground mt-2 text-sm">
++          Click any chart point to open the source-span inspector.{" "}
++          <code>evidence_id</code> resolves against a demo SOURCE_REGISTRY (in
++          production, this would fetch from{" "}
++          <code>
++            /runs/{"{run_id}"}/sources/{"{evidence_id}"}
++          </code>{" "}
++          per the I-f10-005 polaris_provenance contract).
++        </p>
++        <div className="mt-6">
++          <VegaChart
++            spec={spec}
++            onPointClick={(datum) => {
++              const eid = datum.evidence_id as string | undefined;
++              if (eid && SOURCE_REGISTRY[eid]) {
++                setSource(SOURCE_REGISTRY[eid]);
++                setOpen(true);
++              }
++            }}
++          />
++        </div>
++        <ChartSourceInspector
++          open={open}
++          onOpenChange={setOpen}
++          source={source}
++        />
++      </div>
++    </main>
++  );
++}
+diff --git a/web/app/charts_test/components/chart_source_inspector.tsx b/web/app/charts_test/components/chart_source_inspector.tsx
+new file mode 100644
+index 0000000..134f661
+--- /dev/null
++++ b/web/app/charts_test/components/chart_source_inspector.tsx
+@@ -0,0 +1,91 @@
++"use client";
++
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++
++export type ChartDatumSource = {
++  evidence_id: string;
++  url: string;
++  tier: "T1" | "T2" | "T3";
++  excerpt: string;
++};
++
++const TIER_TONE: Record<ChartDatumSource["tier"], string> = {
++  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
++  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
++  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
++};
++
++export function ChartSourceInspector({
++  open,
++  onOpenChange,
++  source,
++}: {
++  open: boolean;
++  onOpenChange: (next: boolean) => void;
++  source: ChartDatumSource | null;
++}) {
++  return (
++    <Sheet open={open} onOpenChange={onOpenChange}>
++      <SheetContent
++        data-testid="chart-source-pane"
++        side="right"
++        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
++      >
++        <SheetHeader>
++          <SheetTitle>Chart datum source</SheetTitle>
++          <SheetDescription>
++            Source span derived from the clicked Vega datum.
++          </SheetDescription>
++        </SheetHeader>
++        {source ? (
++          <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
++            <div className="flex items-center justify-between gap-2">
++              <code
++                data-testid="chart-source-pane-evidence-id"
++                className="bg-muted/40 rounded px-1 text-xs"
++              >
++                {source.evidence_id}
++              </code>
++              <span
++                data-testid="chart-source-pane-tier"
++                className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
++              >
++                {source.tier}
++              </span>
++            </div>
++            <a
++              data-testid="chart-source-pane-url"
++              href={source.url}
++              target="_blank"
++              rel="noopener noreferrer"
++              className="truncate text-xs text-blue-700 underline dark:text-blue-300"
++            >
++              {source.url}
++            </a>
++            <blockquote
++              data-testid="chart-source-pane-excerpt"
++              className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 text-xs italic dark:bg-yellow-900/20"
++            >
++              {source.excerpt.length > 240
++                ? source.excerpt.slice(0, 240) + "…"
++                : source.excerpt}
++            </blockquote>
++          </div>
++        ) : (
++          <p
++            data-testid="chart-source-pane-empty"
++            className="text-muted-foreground px-4 pb-4 text-sm italic"
++          >
++            No datum selected.
++          </p>
++        )}
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/web/tests/e2e/chart_click_through.spec.ts b/web/tests/e2e/chart_click_through.spec.ts
+new file mode 100644
+index 0000000..bf181af
+--- /dev/null
++++ b/web/tests/e2e/chart_click_through.spec.ts
+@@ -0,0 +1,37 @@
++import { expect, test } from "@playwright/test";
++
++test("Click chart point opens source inspector with URL/tier/excerpt", async ({
++  page,
++}) => {
++  await page.goto("/charts_test/click_through");
++
++  const chart = page.getByTestId("vega-chart");
++  await expect(chart).toBeVisible();
++  const svg = chart.locator("svg");
++  await expect(svg.first()).toBeVisible({ timeout: 10_000 });
++
++  // Prefer Vega's role-aware symbol mark container per I-f10-002 pattern.
++  let mark = chart
++    .locator(
++      'g[role="graphics-object"][aria-roledescription="symbol mark container"] [role="graphics-symbol"]',
++    )
++    .first();
++  if ((await mark.count()) === 0) {
++    mark = chart.locator('svg [role="graphics-symbol"]').first();
++  }
++  await mark.click();
++
++  await expect(page.getByTestId("chart-source-pane")).toBeVisible();
++  await expect(page.getByTestId("chart-source-pane-evidence-id")).toContainText(
++    "demo-clin-",
++  );
++  await expect(page.getByTestId("chart-source-pane-url")).toHaveAttribute(
++    "href",
++    /^https:\/\/example\.org\/select-trial-/,
++  );
++  await expect(page.getByTestId("chart-source-pane-tier")).toContainText("T1");
++  await expect(page.getByTestId("chart-source-pane-excerpt")).toContainText(
++    /MACE|Myocardial infarction|Stroke/,
++  );
++  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++});
+# canonical-diff-sha256: 7de19ccf4588295f98bd32b7f3d8b21f49d1a40595eabc05f04f9e754cae51e2
