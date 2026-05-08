@@ -1,0 +1,237 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index e5b7d23..a3c3573 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -135,6 +135,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+ 
++      # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
++      - name: run_e2e_evidence_tooltip_perf
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/sentence_hover_test/_demo_perf.tsx b/web/app/sentence_hover_test/_demo_perf.tsx
+new file mode 100644
+index 0000000..edb2999
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_perf.tsx
+@@ -0,0 +1,133 @@
++"use client";
++
++import * as React from "react";
++
++import {
++  EvidenceTooltip,
++  EvidenceTooltipProvider,
++} from "@/components/ui/evidence-tooltip";
++
++const POPUP_SELECTOR = '[data-testid="evidence-tooltip-popup"]';
++const TOTAL_ITERS = 100;
++const UNMOUNT_POLL_LIMIT = 50;
++const STUCK_POPUP_SENTINEL = -1;
++
++function findPopup(node: Node): boolean {
++  if (node.nodeType !== Node.ELEMENT_NODE) return false;
++  const el = node as Element;
++  return el.matches?.(POPUP_SELECTOR) || !!el.querySelector?.(POPUP_SELECTOR);
++}
++
++function waitForPopupAdded(): Promise<void> {
++  return new Promise((resolve) => {
++    const observer = new MutationObserver((mutations) => {
++      for (const m of mutations) {
++        for (const node of Array.from(m.addedNodes)) {
++          if (findPopup(node)) {
++            observer.disconnect();
++            resolve();
++            return;
++          }
++        }
++      }
++    });
++    observer.observe(document.body, { childList: true, subtree: true });
++  });
++}
++
++function nextFrame(): Promise<void> {
++  return new Promise((r) => requestAnimationFrame(() => r()));
++}
++
++async function waitForPopupRemoved(): Promise<boolean> {
++  for (let i = 0; i < UNMOUNT_POLL_LIMIT; i++) {
++    if (!document.querySelector(POPUP_SELECTOR)) return true;
++    await nextFrame();
++  }
++  return false;
++}
++
++export function PerfHarness() {
++  const [openOverride, setOpenOverride] = React.useState<boolean | undefined>(
++    undefined,
++  );
++  const [iter, setIter] = React.useState(0);
++  const [timings, setTimings] = React.useState<number[]>([]);
++  const [running, setRunning] = React.useState(false);
++  const timings_ref = React.useRef<number[]>([]);
++  const open_ref = React.useRef<boolean | undefined>(undefined);
++
++  React.useEffect(() => {
++    open_ref.current = openOverride;
++  }, [openOverride]);
++
++  const run = React.useCallback(async () => {
++    setRunning(true);
++    timings_ref.current = [];
++    setTimings([]);
++    setIter(0);
++    for (let i = 0; i < TOTAL_ITERS; i++) {
++      const popup_added = waitForPopupAdded();
++      const t_start = performance.now();
++      setOpenOverride(true);
++      await popup_added;
++      const t_end = performance.now();
++      timings_ref.current.push(t_end - t_start);
++
++      setOpenOverride(false);
++      const removed = await waitForPopupRemoved();
++      if (!removed) {
++        timings_ref.current[timings_ref.current.length - 1] =
++          STUCK_POPUP_SENTINEL;
++        break;
++      }
++      if ((i + 1) % 5 === 0) setIter(i + 1);
++    }
++    setTimings([...timings_ref.current]);
++    setIter(TOTAL_ITERS);
++    setRunning(false);
++  }, []);
++
++  return (
++    <EvidenceTooltipProvider delay={300}>
++      <div className="flex flex-col gap-4 p-6">
++        <h1 className="text-foreground text-lg font-semibold">
++          F6 perf — 100x hover render
++        </h1>
++        <p className="text-muted-foreground text-sm">
++          Click the button to run 100 controlled tooltip-mount cycles via{" "}
++          <code>openOverride</code>. Each timing measures from{" "}
++          <code>setOpenOverride(true)</code> to MutationObserver popup-added
++          callback (React commit + DOM insert).
++        </p>
++        <div>
++          <EvidenceTooltip
++            evidenceId="ev-perf-001"
++            sourceUrl="https://example.org/perf"
++            spanText="Perf-test span; identical across all 100 cycles."
++            sourceTier="T1"
++            publishedDate="2026-01-01"
++            openOverride={openOverride}
++            onClickToInspect={() => {}}
++          >
++            <span data-testid="perf-trigger">[#ev:ev-perf-001:0-50]</span>
++          </EvidenceTooltip>
++        </div>
++        <button
++          type="button"
++          data-testid="run-perf"
++          disabled={running}
++          onClick={run}
++          className="border-border w-fit rounded border px-4 py-2 text-sm hover:bg-blue-500/10 disabled:opacity-50"
++        >
++          {running ? `Running… (${iter}/${TOTAL_ITERS})` : "Run 100x perf"}
++        </button>
++        <div
++          data-testid="perf-results"
++          data-iter={String(iter)}
++          data-timings={JSON.stringify(timings)}
++        />
++      </div>
++    </EvidenceTooltipProvider>
++  );
++}
+diff --git a/web/app/sentence_hover_test/perf/page.tsx b/web/app/sentence_hover_test/perf/page.tsx
+new file mode 100644
+index 0000000..c843e8c
+--- /dev/null
++++ b/web/app/sentence_hover_test/perf/page.tsx
+@@ -0,0 +1,5 @@
++import { PerfHarness } from "../_demo_perf";
++
++export default function Page() {
++  return <PerfHarness />;
++}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index ab8c8b3..ef965df 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -19,6 +19,12 @@ interface EvidenceTooltipProps {
+    * the requested side would clip the viewport.
+    */
+   side?: "top" | "right" | "bottom" | "left";
++  /**
++   * I-f6-005: opt-in perf-test override. When defined, drives Tooltip.Root's
++   * `open` directly, bypassing the internal hover/focus/touch state machine.
++   * Default `undefined` → no behavior change for existing callers.
++   */
++  openOverride?: boolean;
+   onClickToInspect?: () => void;
+   children: React.ReactNode;
+ }
+@@ -43,6 +49,7 @@ export function EvidenceTooltip({
+   sourceTier,
+   publishedDate,
+   side = "top",
++  openOverride,
+   onClickToInspect,
+   children,
+ }: EvidenceTooltipProps) {
+@@ -126,8 +133,9 @@ export function EvidenceTooltip({
+     [clearHoverDebounce, clearTouchAutoClose],
+   );
+ 
++  const final_open = openOverride ?? open;
+   return (
+-    <Tooltip.Root open={open} onOpenChange={handleOpenChange}>
++    <Tooltip.Root open={final_open} onOpenChange={handleOpenChange}>
+       <Tooltip.Trigger
+         closeOnClick={false}
+         render={
+diff --git a/web/tests/e2e/evidence_tooltip_perf.spec.ts b/web/tests/e2e/evidence_tooltip_perf.spec.ts
+new file mode 100644
+index 0000000..98ab239
+--- /dev/null
++++ b/web/tests/e2e/evidence_tooltip_perf.spec.ts
+@@ -0,0 +1,26 @@
++import { expect, test } from "@playwright/test";
++
++test("100x EvidenceTooltip mount cycles all render under 100ms", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test/perf");
++  await page.getByTestId("run-perf").click();
++  await expect(page.getByTestId("perf-results")).toHaveAttribute(
++    "data-iter",
++    "100",
++    { timeout: 30_000 },
++  );
++  const raw = await page
++    .getByTestId("perf-results")
++    .getAttribute("data-timings");
++  expect(raw).not.toBeNull();
++  const timings = JSON.parse(raw ?? "[]") as number[];
++  expect(timings.length).toBe(100);
++  const offending = timings
++    .map((t, i) => ({ t, i }))
++    .filter(({ t }) => !(Number.isFinite(t) && t >= 0 && t < 100));
++  if (offending.length > 0) {
++    console.error("offending timings (i:t):", offending);
++  }
++  expect(offending).toEqual([]);
++});
+# canonical-diff-sha256: 9e66fb37113d43d78527a5689a571631f7b721c82eabc7c0a5ace9e8404d8140
