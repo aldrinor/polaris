@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Concurrent calls/resets/snapshots are unsynchronized, so telemetry may be approximate under multithreaded use. Not a blocker for this diff; add a small lock later if these counters become alert-critical in concurrent workers."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

@@ -1,0 +1,9 @@
+verdict: APPROVE
+increment_site: strict_verify_side
+reset_telemetry_exposure: public
+extra_counters_to_track: []
+loc_estimate_ok: yes
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+rationale: >
+  strict_verify-side counting is the right ownership boundary because it measures gate behavior, not a specific judge implementation, and keeps FakeJudge-based tests meaningful. Make the helper responsible for normalizing judge exceptions into the existing fail-open ENTAILED + judge_error result before counting, so swapped judges cannot bypass the judge_error counter. Explicit fixed keys are clearer than a generic Counter here, and off-mode does not need telemetry for this issue.
