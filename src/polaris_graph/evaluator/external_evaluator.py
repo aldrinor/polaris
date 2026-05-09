@@ -27,7 +27,7 @@ Two complementary channels:
 
 2. LLM-JUDGE (non-same-family)
    - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
-     PG_GENERATOR_MODEL (default deepseek/deepseek-v3.2-exp).
+     PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
    - check_family_segregation() FAILS FAST if both are in the
      same family.
    - Only judges NUANCE items the rule-based checks can't cover:

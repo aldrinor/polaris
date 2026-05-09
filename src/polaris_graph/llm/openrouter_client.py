@@ -120,6 +120,10 @@ def _add_run_cost(delta: float) -> None:
 # guard). When the model is unknown we use OPUS-tier defaults.
 _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
     # model prefix  :  (input $/M, output $/M)
+    # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
+    # = iteration order = first-match-wins per _impute_cost_from_tokens.
+    "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+    "deepseek/deepseek-v4-flash": (0.14, 0.28),
     "deepseek/":       (0.27, 0.38),
     "qwen/qwen3-8b":   (0.05, 0.40),
     "qwen/qwen3-32b":  (0.10, 0.60),
@@ -197,17 +201,20 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 # 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
 #
 # Defaults pin the VERIFIED-ON-GROUNDED-FACTUALITY pair (user decision
-# 2026-04-17 after multi-axis reasoning):
+# 2026-04-17 after multi-axis reasoning; generator default upgraded to V4
+# Pro on 2026-05-08 per I-bug-086 once V4 hit OpenRouter):
 #
-#   Generator: deepseek/deepseek-v3.2-exp  (role-fit: long-form grounded
+#   Generator: deepseek/deepseek-v4-pro   (role-fit: long-form grounded
 #                                          synthesis)
-#       - Vectara HHEM 5.3% (rank 15 of 77+ open-weight), primary source:
-#         github.com/vectara/hallucination-leaderboard/commits/main PR #181
-#       - MMLU-Pro 85.0 / GPQA-D 79.9 / AIME 89.3 (strong synthesis reasoning)
-#       - 128K context, MIT license, ~$0.27 in / $0.38 out per M tokens on
-#         DeepInfra / OpenRouter
-#       - Released 2025-09-29 (not the newest, but role-verified on THREE
-#         axes: grounded faithfulness + synthesis reasoning + cost)
+#       - 1.6T total / 49B active params, hybrid CSA+HCA attention
+#       - 1.05M context, MIT license, $0.435 in / $0.87 out per M tokens
+#         on OpenRouter
+#       - Released 2026-04-24 (current frontier open-weight)
+#       - Sovereign V4 hosting on OVH H200 still pending I-phase0-006
+#         hardware decision; OpenRouter is the bridge until then
+#       - Predecessor V3.2 retained on OpenRouter (`deepseek/deepseek-v3.2-exp`),
+#         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
+#         if V4 Pro produces regressions on the BEAT-BOTH benchmark
 #
 #   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
 #                                         judgment, runs 100s of times per
@@ -239,7 +246,7 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 # Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    "deepseek/deepseek-v3.2-exp",
+    "deepseek/deepseek-v4-pro",
 )
 PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
 
@@ -333,7 +340,7 @@ def check_family_segregation(
             f"share blind spots and RLHF biases. Pick models from different "
             f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
             f"values to demonstrate you know the trade-off. Recommended pair: "
-            f"deepseek/deepseek-v3.2-exp (generator) + qwen/qwen3-32b "
+            f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
         )
     return (gen_family, eval_family)
