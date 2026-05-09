@@ -118,17 +118,23 @@ def test_off_mode_skips_judge_even_when_set_explicitly(monkeypatch):
     assert fake.calls == [], "off-mode must not call the judge"
 
 
-def test_unknown_mode_falls_back_to_off(monkeypatch):
+def test_unknown_mode_falls_back_to_enforce(monkeypatch):
+    """I-bug-095: unknown values now fall back to the production default
+    (enforce), not 'off'. Operators with typos see WARNING + the gate
+    runs in enforce mode (default). This is safer than the prior
+    fall-back-to-off behavior which silently disabled the gate.
+    """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "verbose-strict")
     fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
     full_text = "Adults with chronic pain showed clinical benefit from treatment."
     pool = _pool(_src(source_id="src-1", full_text=full_text))
-    passed, _ = verify_sentence(
+    passed, reason = verify_sentence(
         f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
         pool,
     )
-    assert passed is True
-    assert fake.calls == []
+    assert passed is False, "unknown -> default-enforce drops on NEUTRAL"
+    assert reason == "entailment_failed"
+    assert len(fake.calls) == 1, "fall-back-to-enforce must invoke the judge"
 
 
 # ---------- Warn mode — log but do not drop ----------
@@ -337,6 +343,8 @@ def test_record_carries_entailment_failed_reason(monkeypatch):
 
 # ---------- Mode helper — env interpretation ----------
 
+# I-bug-095: default flipped from "off" to "enforce". Empty / unknown
+# values fall back to the new default (enforce), not "off".
 @pytest.mark.parametrize(
     ("env_value", "expected"),
     [
@@ -347,9 +355,9 @@ def test_record_carries_entailment_failed_reason(monkeypatch):
         ("WARN", "warn"),
         ("enforce", "enforce"),
         ("Enforce", "enforce"),
-        ("", "off"),
-        ("strict", "off"),  # unknown -> off
-        ("1", "off"),        # truthy but not a valid mode -> off
+        ("", "enforce"),       # empty -> default (enforce per I-bug-095)
+        ("strict", "enforce"),  # unknown -> default (enforce per I-bug-095)
+        ("1", "enforce"),       # truthy but not a valid mode -> default
     ],
 )
 def test_entailment_mode_env_parsing(monkeypatch, env_value, expected):
@@ -357,9 +365,12 @@ def test_entailment_mode_env_parsing(monkeypatch, env_value, expected):
     assert strict_verify._entailment_mode() == expected
 
 
-def test_entailment_mode_unset_defaults_off(monkeypatch):
+def test_entailment_mode_unset_defaults_enforce(monkeypatch):
+    """I-bug-095: production default is enforce. Operator must set
+    PG_STRICT_VERIFY_ENTAILMENT=off explicitly to disable.
+    """
     monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)
-    assert strict_verify._entailment_mode() == "off"
+    assert strict_verify._entailment_mode() == "enforce"
 
 
 # ---------- Two-family invariant on judge model (§9.1.1) ----------

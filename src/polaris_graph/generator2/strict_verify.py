@@ -23,12 +23,17 @@ constructs a VerifiedSentence for use by the generator orchestrator.
 
 Tunables (read at call time so tests can override):
   PG_PROVENANCE_MIN_CONTENT_OVERLAP — minimum shared content words (default 2)
-  PG_STRICT_VERIFY_ENTAILMENT       — "off" (default) | "warn" | "enforce"
-                                       off:     skip check (f), current behavior
+  PG_STRICT_VERIFY_ENTAILMENT       — "off" | "warn" | "enforce" (default)
+                                       off:     skip check (f), pre-I-bug-092 behavior
+                                                — operator override; production runs
+                                                  ship without provenance-correctness
+                                                  enforcement
                                        warn:    run check (f), log violations,
                                                 do NOT drop (collect telemetry)
                                        enforce: run check (f), drop on
                                                 NEUTRAL or CONTRADICTED verdict
+                                                (default per I-bug-095, validated
+                                                empirically by I-bug-094 live test)
   PG_ENTAILMENT_MODEL               — entailment judge model
                                        (default: google/gemma-4-31b-it,
                                         the two-family evaluator)
@@ -297,24 +302,41 @@ def _record_judge_outcome(verdict: str, reason: str) -> None:
         _JUDGE_TELEMETRY[key] += 1
 
 
+# I-bug-095: production default flipped from "off" to "enforce" per
+# Codex APPROVE iter 1. Empirical evidence: I-bug-094 live test ran
+# 4/4 audit-derived cases (M2/C2/C1 + positive control) against real
+# OpenRouter Gemma 4 31B and got correct verdicts. The cage is
+# structurally complete with I-bug-092..097 + I-cj-008; flipping the
+# default closes the loop on the 2026-05-09 audit-revealed gap.
+#
+# Operator escape hatch: `PG_STRICT_VERIFY_ENTAILMENT=off` continues
+# to disable the check explicitly. Documented per Codex iter-1 brief
+# verdict.
+_DEFAULT_MODE = "enforce"
+
+
 def _entailment_mode() -> str:
-    """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'.
+    """Return one of 'off', 'warn', 'enforce'. Unknown values map to default.
 
     I-bug-097: emit a single WARNING per process per unrecognized typo
-    string. Empty / unset env returns 'off' silently — that is the
-    intended default, not a misconfiguration.
+    string. Empty / unset env returns the default mode silently —
+    that is the intended default, not a misconfiguration.
+
+    I-bug-095: default mode is 'enforce' (was 'off' before this Issue).
+    Operators who need the pre-graduation behavior can set
+    PG_STRICT_VERIFY_ENTAILMENT=off explicitly.
     """
-    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "off").lower().strip()
+    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", _DEFAULT_MODE).lower().strip()
     if raw and raw not in ("off", "warn", "enforce"):
         if raw not in _UNKNOWN_MODE_WARNED:
             _UNKNOWN_MODE_WARNED.add(raw)
             logger.warning(
                 "PG_STRICT_VERIFY_ENTAILMENT=%r unrecognized; "
-                "treating as 'off'. Valid: off, warn, enforce.",
-                raw,
+                "treating as %r (default). Valid: off, warn, enforce.",
+                raw, _DEFAULT_MODE,
             )
-        return "off"
-    return raw or "off"
+        return _DEFAULT_MODE
+    return raw or _DEFAULT_MODE
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,21 @@ def _disable_openalex_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_strict_verify_entailment_by_default(monkeypatch):
+    """I-bug-095: production default for PG_STRICT_VERIFY_ENTAILMENT is
+    'enforce', which lazy-constructs an OpenRouter judge if the test
+    calls verify_sentence and the env var is unset. To keep unit tests
+    network-free + cost-free, force the env to 'off' here unconditionally
+    (per Codex iter-1 diff review P2 — stricter hermeticity prevents an
+    inherited developer/CI shell env of 'warn' or 'enforce' from leaking
+    into unrelated tests). Tests that exercise the entailment gate
+    explicitly override via monkeypatch.setenv inside the test body.
+    """
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _enable_test_caller_header(monkeypatch):
     """Codex M-15b retrofit: every M-1..M-13 endpoint now requires
     auth. For the test surface we use the X-Polaris-Caller test

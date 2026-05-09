@@ -1,0 +1,13 @@
+verdict: APPROVE
+recommend_flip_now: yes
+sufficient_empirical_evidence: yes
+latency_acceptable_for_carney: yes
+false_positive_escape_hatch: not_needed
+test_migration_approach: set_off_explicitly
+extra_concerns:
+  - "Make tests explicit: cases that are not testing strict verification should set PG_STRICT_VERIFY_ENTAILMENT=off, while default-mode tests should assert enforce."
+  - "Ensure CI/unit tests mock the judge path so the new default does not create accidental live-network dependency."
+  - "Keep the operator rollback path documented: PG_STRICT_VERIFY_ENTAILMENT=off."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+rationale: "Approve flipping now: the known production failure mode is provenance fabrication with the fix currently dormant, and I-bug-094 gives enough targeted live evidence that the enforce path catches the audit-derived cases while preserving a valid paraphrase. The latency is acceptable for a Carney-grade deliverable, and a paraphrase-specific bypass would weaken the invariant; the existing explicit off switch is the right escape hatch."
