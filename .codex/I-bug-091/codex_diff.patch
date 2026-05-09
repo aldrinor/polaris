@@ -1,0 +1,57 @@
+diff --git a/.env.example b/.env.example
+index dcfb7c6e..8219ac26 100644
+--- a/.env.example
++++ b/.env.example
+@@ -54,9 +54,12 @@ CROSSREF_EMAIL=your.email@example.com
+ # MODEL PAIR (two-family constraint enforced at construction)
+ # ─────────────────────────────────────────────────────────────────
+ 
+-# Current pair pinned 2026-04-17 (see comments in openrouter_client.py
+-# for verified HHEM benchmarks and two-family justification)
+-PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
++# Current pair (re-pinned 2026-05-09 per I-bug-091; reverted from V4 Pro
++# generator after live BEAT-BOTH showed CoT-style output incompatible
++# with strict_verify provenance-token requirement). See openrouter_client.py
++# for verified HHEM benchmarks, two-family justification, and revert
++# rationale. Switch back to V4 Pro via PG_GENERATOR_MODEL env var.
++PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
+ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+@@ -64,7 +67,7 @@ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ # PG_GENERATOR_FAMILY_OVERRIDE=deepseek
+ # PG_EVALUATOR_FAMILY_OVERRIDE=qwen
+ 
+-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v3.2-exp
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ 
+ # ─────────────────────────────────────────────────────────────────
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 2d2fcb30..95a6c957 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -254,7 +254,20 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ # Family derivation uses OpenRouter publisher-slug prefix.
+ PG_GENERATOR_MODEL = os.getenv(
+     "PG_GENERATOR_MODEL",
+-    "deepseek/deepseek-v4-pro",
++    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
++    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
++    # multi_section_generator's strict_verify provenance-token requirement.
++    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
++    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
++    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
++    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
++    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
++    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
++    # and continues to protect against any future reasoning-first generator
++    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
++    # when the multi_section caller adds explicit "include [#ev:...] tokens"
++    # re-prompt + retry handler for V4 Pro's CoT pattern.
++    "deepseek/deepseek-v3.2-exp",
+ )
+ PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+ 
+
+# canonical-diff-sha256: 87d16acca243ff1d9e50169454326d0ca886cffaf10792403e5512744978c51d

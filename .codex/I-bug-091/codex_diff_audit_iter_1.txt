@@ -1,0 +1,123 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0c5c-9872-70b3-ac9e-63a225e351f7
+--------
+user
+# Codex Diff Review — I-bug-091 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- DO NOT call exec / rg.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- Brief APPROVE'd iter 1.
+- Diff: `.codex/I-bug-091/codex_diff.patch` (canonical-diff-sha256: `1e4e7ee2baa6f1a24a3cf9b0458be1cb207e6d79d5af1f510239103d14a0f8bc`)
+- Files:
+  - `src/polaris_graph/llm/openrouter_client.py:255-258`: revert default `PG_GENERATOR_MODEL` to `deepseek/deepseek-v3.2-exp` + 13-line docstring explaining the empirical revert.
+  - `.env.example:59,67`: matching `PG_GENERATOR_MODEL` and `OPENROUTER_DEFAULT_MODEL`.
+
+## Constraints
+
+1. Tests: 19/19 pass. The `test_v4_pro_passes_two_family_segregation` regression continues to pass — V4 Pro registry membership unchanged, just no longer default.
+2. Two-family invariant unchanged: `deepseek/deepseek-v3.2-exp` (deepseek family) + `google/gemma-4-31b-it` (gemma family) still pass `check_family_segregation()`.
+3. Budget-guard invariant unchanged: V3.2-Exp uses generic `"deepseek/"` price tier `(0.27, 0.38)` per `_PRICE_TABLE_USD_PER_M`.
+4. CHARTER §3 LOC: ~3 src LOC + 13 docstring LOC + 2 .env.example lines.
+5. §9.4 hygiene clean.
+6. Architectural infrastructure preserved: I-bug-088 + I-bug-089 + I-bug-090 stack remains active and protects against ANY reasoning-first generator if user opts back to V4 Pro via env var.
+7. V4 Pro remains accessible via `PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro` env override. The `_REASONING_FIRST_MODELS` registry, the 6000 floor, and the response-shape-centric recovery still work for V4 Pro.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: []
+```
+diff --git a/.env.example b/.env.example
+index dcfb7c6e..376b3fca 100644
+--- a/.env.example
++++ b/.env.example
+@@ -56,7 +56,7 @@ CROSSREF_EMAIL=your.email@example.com
+ 
+ # Current pair pinned 2026-04-17 (see comments in openrouter_client.py
+ # for verified HHEM benchmarks and two-family justification)
+-PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
++PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
+ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+@@ -64,7 +64,7 @@ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ # PG_GENERATOR_FAMILY_OVERRIDE=deepseek
+ # PG_EVALUATOR_FAMILY_OVERRIDE=qwen
+ 
+-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v3.2-exp
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ 
+ # ─────────────────────────────────────────────────────────────────
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 2d2fcb30..95a6c957 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -254,7 +254,20 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ # Family derivation uses OpenRouter publisher-slug prefix.
+ PG_GENERATOR_MODEL = os.getenv(
+     "PG_GENERATOR_MODEL",
+-    "deepseek/deepseek-v4-pro",
++    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
++    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
++    # multi_section_generator's strict_verify provenance-token requirement.
++    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
++    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
++    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
++    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
++    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
++    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
++    # and continues to protect against any future reasoning-first generator
++    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
++    # when the multi_section caller adds explicit "include [#ev:...] tokens"
++    # re-prompt + retry handler for V4 Pro's CoT pattern.
++    "deepseek/deepseek-v3.2-exp",
+ )
+ PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+ 
+
+# canonical-diff-sha256: 1e4e7ee2baa6f1a24a3cf9b0458be1cb207e6d79d5af1f510239103d14a0f8bc
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - ".env.example still says the current pair was pinned 2026-04-17 while the adjacent source comment documents the 2026-05-09 revert; harmless, but mildly stale documentation."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+tokens used
+3,361
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - ".env.example still says the current pair was pinned 2026-04-17 while the adjacent source comment documents the 2026-05-09 revert; harmless, but mildly stale documentation."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
