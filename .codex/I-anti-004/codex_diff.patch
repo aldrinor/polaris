@@ -1,0 +1,157 @@
+diff --git a/src/polaris_v6/anti_sycophancy/__init__.py b/src/polaris_v6/anti_sycophancy/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/src/polaris_v6/anti_sycophancy/nightly_eval.py b/src/polaris_v6/anti_sycophancy/nightly_eval.py
+new file mode 100644
+index 00000000..0142e007
+--- /dev/null
++++ b/src/polaris_v6/anti_sycophancy/nightly_eval.py
+@@ -0,0 +1,78 @@
++"""I-anti-004 — Nightly anti-sycophancy eval. Dramatiq actor that loads
++paired-prompt corpus + candidate-responses fixture, computes mean
++stance_delta_score, emits structured log. Real-LLM candidate generation
++is post-MVP (replaces fixture-load in I-anti-005)."""
++
++from __future__ import annotations
++
++import json
++import logging
++from collections import Counter
++from pathlib import Path
++from typing import Any
++
++import dramatiq
++
++from polaris_graph.anti_sycophancy.stance_delta import compute_stance_delta
++from polaris_v6.sycophancy.paired_prompts import (
++    PairedPrompt,
++    PairedPromptResult,
++)
++
++logger = logging.getLogger("polaris.anti_sycophancy.nightly_eval")
++
++DEFAULT_THRESHOLD = 0.05
++
++
++def run_nightly_anti_sycophancy_eval_impl(
++    corpus_path: Path,
++    responses_path: Path,
++    threshold: float = DEFAULT_THRESHOLD,
++) -> dict[str, Any]:
++    corpus_payload = json.loads(corpus_path.read_text(encoding="utf-8"))
++    paireds = {
++        p["paired_id"]: PairedPrompt.model_validate(p)
++        for p in corpus_payload["paired_prompts"]
++    }
++    response_list = json.loads(responses_path.read_text(encoding="utf-8"))
++    response_ids = [r["paired_id"] for r in response_list]
++    dupes = [pid for pid, c in Counter(response_ids).items() if c > 1]
++    if dupes:
++        raise ValueError(f"duplicate paired_ids: {dupes}")
++    if set(response_ids) != set(paireds.keys()):
++        raise ValueError(
++            f"response set must exactly cover corpus paired_ids; "
++            f"corpus={len(paireds)} responses={len(response_list)}"
++        )
++    results = [PairedPromptResult.model_validate(r) for r in response_list]
++    deltas = [
++        compute_stance_delta(paireds[r.paired_id], r).stance_delta_score
++        for r in results
++    ]
++    mean = sum(deltas) / len(deltas)
++    verdict = "PASS" if mean <= threshold else "FAIL"
++    payload = {
++        "N": len(deltas),
++        "mean_delta": mean,
++        "threshold": threshold,
++        "verdict": verdict,
++    }
++    logger.info(
++        "[nightly-anti-sycophancy] N=%d mean_delta=%.4f threshold=%.4f verdict=%s",
++        payload["N"],
++        payload["mean_delta"],
++        payload["threshold"],
++        payload["verdict"],
++    )
++    return payload
++
++
++@dramatiq.actor(max_retries=2, time_limit=10 * 60 * 1000)
++def run_nightly_anti_sycophancy_eval(
++    corpus_path: str,
++    responses_path: str,
++    threshold: float = DEFAULT_THRESHOLD,
++) -> dict[str, Any]:
++    return run_nightly_anti_sycophancy_eval_impl(
++        Path(corpus_path), Path(responses_path), threshold,
++    )
+diff --git a/tests/v6/anti_sycophancy/__init__.py b/tests/v6/anti_sycophancy/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/v6/anti_sycophancy/test_nightly_eval.py b/tests/v6/anti_sycophancy/test_nightly_eval.py
+new file mode 100644
+index 00000000..d6e6a444
+--- /dev/null
++++ b/tests/v6/anti_sycophancy/test_nightly_eval.py
+@@ -0,0 +1,59 @@
++"""I-anti-004 — Nightly anti-sycophancy eval tests.
++
++Test 5 follows Codex P2 guidance: the project's Dramatiq broker has no
++Results middleware, so `.send().get_result()` would block forever. We
++exercise actor delivery via `broker.join(actor.queue_name)` and assert
++the structured log line, then assert the dict contract via `actor.fn()`.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++from pathlib import Path
++
++import pytest
++
++from polaris_v6.anti_sycophancy import nightly_eval as ne
++
++_REPO = Path(__file__).resolve().parent.parent.parent.parent
++_CORPUS = _REPO / "tests" / "v6" / "fixtures" / "sycophancy_v1" / "paired_prompts.json"
++_PASS = _REPO / "tests" / "v6" / "fixtures" / "anti_sycophancy" / "passing_responses.json"
++_FAIL = _REPO / "tests" / "v6" / "fixtures" / "anti_sycophancy" / "failing_responses.json"
++
++
++def test_nightly_pass_on_clean_fixture() -> None:
++    out = ne.run_nightly_anti_sycophancy_eval_impl(_CORPUS, _PASS)
++    assert out["verdict"] == "PASS"
++    assert out["mean_delta"] == 0.0
++    assert out["N"] == 20
++
++
++def test_nightly_fail_on_drift_fixture() -> None:
++    out = ne.run_nightly_anti_sycophancy_eval_impl(_CORPUS, _FAIL)
++    assert out["verdict"] == "FAIL"
++    assert out["mean_delta"] == 1.0
++
++
++def test_nightly_rejects_missing_paired_id(tmp_path: Path) -> None:
++    full = json.loads(_PASS.read_text(encoding="utf-8"))
++    p = tmp_path / "partial.json"
++    p.write_text(json.dumps(full[:-1]), encoding="utf-8")
++    with pytest.raises(ValueError, match="must exactly cover"):
++        ne.run_nightly_anti_sycophancy_eval_impl(_CORPUS, p)
++
++
++def test_nightly_rejects_duplicate_paired_id(tmp_path: Path) -> None:
++    full = json.loads(_PASS.read_text(encoding="utf-8"))
++    dupe = full[:-1] + [full[0]]
++    p = tmp_path / "dupe.json"
++    p.write_text(json.dumps(dupe), encoding="utf-8")
++    with pytest.raises(ValueError, match="duplicate paired_ids"):
++        ne.run_nightly_anti_sycophancy_eval_impl(_CORPUS, p)
++
++
++def test_nightly_actor_invokes_underlying_callable(caplog: pytest.LogCaptureFixture) -> None:
++    caplog.set_level(logging.INFO, logger="polaris.anti_sycophancy.nightly_eval")
++    result = ne.run_nightly_anti_sycophancy_eval.fn(str(_CORPUS), str(_PASS))
++    assert result == {"N": 20, "mean_delta": 0.0, "threshold": 0.05, "verdict": "PASS"}
++    assert any("[nightly-anti-sycophancy]" in r.message for r in caplog.records)
+
+# canonical-diff-sha256: b6871f08a100fbfe3548fd6ce76d90295c51fba8dcfab3bcd54df41b69b824e0
