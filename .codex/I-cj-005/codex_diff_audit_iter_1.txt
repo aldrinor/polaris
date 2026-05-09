@@ -1,0 +1,1716 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0a9c-34a5-7832-b086-4c1d0ad7a0cc
+--------
+user
+# Codex Diff Review — I-cj-005 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-cj-005 — Corpus approval rubber-stamp resistance Crown Jewel test. Brief APPROVE'd iter 2 (P1 rubber-stamp branch ordering corrected; test pins user-observable rejection invariant, not branch identity).
+- **Diff under review:** `.codex/I-cj-005/codex_diff.patch` (canonical-diff-sha256 in trailer).
+- **Files changed:**
+  - NEW `tests/crown_jewels/test_cj_005_corpus_approval.py` (~75 LOC, 5 tests)
+  - MODIFY `docs/crown_jewels.md` (~1-row change)
+
+## Acceptance criteria (from brief APPROVE iter 2)
+
+1. ✅ 5 tests cover no-deviation pass + 3 rejection paths + substantive-note pass.
+2. ✅ Registry doc row 5 updated to correct corpus_approval_gate.py path.
+3. ✅ All 5 tests pass locally.
+4. ✅ ~75 LOC under 200.
+
+## Red-team checklist
+
+1. **Outcome-pinning** — test 4 asserts rejection without binding to which specific branch fires (length-check or trivial-set check). User-observable invariant per CLAUDE.md §9.1.5 is "rubber-stamp note + material deviation → rejected"; that is what the test pins.
+2. **Substrate-honest** — pure dataclass+function pinning.
+3. **§9.4 hygiene** — clean.
+4. **CHARTER §3 LOC cap** — under 200.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+
+## DIFF UNDER REVIEW
+
+```diff
+diff --git a/docs/crown_jewels.md b/docs/crown_jewels.md
+index 3c8e4617..8d60d2b9 100644
+--- a/docs/crown_jewels.md
++++ b/docs/crown_jewels.md
+@@ -8,6 +8,6 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track
+ | I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
+ | I-cj-003 | §9.1.3 Strict verify | `tests/crown_jewels/test_cj_003_strict_verify.py` | `src/polaris_graph/generator2/strict_verify.py::verify_sentence` |
+ | I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/generator2/verified_report.py::VerifiedReport._verdict_consistency` |
+-| I-cj-005 | §9.1.5 Corpus approval enforcement | Pending — issued in subsequent CJ Issues | `src/polaris_graph/nodes/corpus_approval.py` |
++| I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
+ | I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | Pending — issued in subsequent CJ Issues | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
+ | I-cj-007 | §9.1.7 Delimiter sanitization | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/delimiter_sanitize.py` |
+diff --git a/tests/crown_jewels/test_cj_005_corpus_approval.py b/tests/crown_jewels/test_cj_005_corpus_approval.py
+new file mode 100644
+index 00000000..a92ad8d5
+--- /dev/null
++++ b/tests/crown_jewels/test_cj_005_corpus_approval.py
+@@ -0,0 +1,64 @@
++"""Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
++
++Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
++rubber-stamp note aborts before any generator token is billed
++(status = abort_corpus_approval_denied). The check_auto_approve_allowed
++gate enforces:
++  - no material deviation → any note OK
++  - material deviation + short / trivial note → rejected
++  - material deviation + substantive note → OK
++
++The Crown Jewel pins the user-observable rejection invariant; whether
++the rejection fires under the length-check branch or the trivial-note
++branch is an implementation detail.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.nodes.corpus_approval_gate import (
++    CorpusDistributionReport,
++    check_auto_approve_allowed,
++)
++
++
++def _report(material: bool) -> CorpusDistributionReport:
++    return CorpusDistributionReport(
++        total_sources=10,
++        tier_counts={"T1": 5, "T2": 5},
++        tier_fractions={"T1": 0.5, "T2": 0.5},
++        deviations=[],
++        has_material_deviation=material,
++        auto_approve_allowed=not material,
++    )
++
++
++def test_cj_005_no_material_deviation_any_note_ok() -> None:
++    ok, msg = check_auto_approve_allowed(_report(False), user_note="")
++    assert ok and msg == ""
++
++
++def test_cj_005_material_deviation_empty_note_rejected() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), user_note="")
++    assert not ok and "note" in msg.lower()
++
++
++def test_cj_005_material_deviation_short_note_rejected() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
++    assert not ok and "note" in msg.lower()
++
++
++def test_cj_005_material_deviation_short_or_trivial_rejected() -> None:
++    for note in ["lgtm", "approved", "ok", "fine", "go ahead", "x"]:
++        ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
++        assert not ok, f"short / trivial note {note!r} should be rejected"
++        assert msg, "rejection must include explanation"
++
++
++def test_cj_005_material_deviation_substantive_note_accepted() -> None:
++    note = (
++        "T1 sources fell below 30% because Cochrane Review CD012345 was "
++        "retracted post-protocol-registration and we replaced it with two "
++        "T2 systematic reviews. The methods section flags this deviation."
++    )
++    ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
++    assert ok and msg == ""
+
+# canonical-diff-sha256: 0d519f18a097b54713d1ebc0990892c89a25bd45c40918dc3e07e26847491ff3
+
+```
+
+codex
+I’ll review this as a diff review: first confirming the actual gate behavior and nearby Crown Jewel test patterns, then I’ll check whether the new tests pin the intended invariant without overfitting.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-cj-005/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/nodes/corpus_approval_gate.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path tests/crown_jewels | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"check_auto_approve_allowed|CorpusDistributionReport|abort_corpus_approval_denied|9\\.1\\.5|corpus approval\" -S CLAUDE.md src tests docs" in C:\POLARIS
+ succeeded in 1627ms:
+CLAUDE.md:632:   Status: `abort_corpus_approval_denied`.
+CLAUDE.md:645:| Corpus approval | Auto-approved OR substantive operator note | `abort_corpus_approval_denied` |
+CLAUDE.md:658:| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+docs\carney_handover\bundle_export_sample_README.md:18:| `pipeline_status` | One of: `success`, `abort_scope_rejected`, `abort_corpus_inadequate`, `abort_corpus_approval_denied`, `abort_no_verified_sections`, `error_*` (see CLAUDE.md §9.3). |
+docs\crown_jewels.md:11:| I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
+src\polaris_graph\nodes\corpus_approval_gate.py:72:class CorpusDistributionReport:
+src\polaris_graph\nodes\corpus_approval_gate.py:94:    report: Optional[CorpusDistributionReport] = None
+src\polaris_graph\nodes\corpus_approval_gate.py:101:) -> CorpusDistributionReport:
+src\polaris_graph\nodes\corpus_approval_gate.py:150:    return CorpusDistributionReport(
+src\polaris_graph\nodes\corpus_approval_gate.py:161:    report: CorpusDistributionReport,
+src\polaris_graph\nodes\corpus_approval_gate.py:295:    # Convert nested dataclasses are already asdict-able; CorpusDistributionReport
+src\polaris_graph\nodes\corpus_approval_gate.py:310:def check_auto_approve_allowed(
+src\polaris_graph\nodes\corpus_approval_gate.py:311:    report: CorpusDistributionReport,
+src\polaris_graph\honest_pipeline.py:47:    check_auto_approve_allowed,
+src\polaris_graph\honest_pipeline.py:185:    # ── Phase 2g: corpus approval gate ──────────────────────────────────
+src\polaris_graph\honest_pipeline.py:191:        ok, _ = check_auto_approve_allowed(report, approval_note)
+src\polaris_graph\audit_ir\regression_lab.py:602:    "abort_corpus_approval_denied": 2,
+docs\runbook.md:95:| `abort_corpus_approval_denied` | Operator note too trivial for material deviation | Pipeline-verdict artifact |
+docs\runbook.md:129:invariants (strict_verify, corpus approval, delimiter sanitization)
+docs\runbook.md:224:`abort_corpus_approval_denied` before any generator token spends.
+docs\runbook.md:244:### Sweep aborts with `abort_corpus_approval_denied`
+docs\pipeline_audit_context\00_README.md:56:    corpus approval, delimiter sanitization) are NOT enforced in
+docs\pipeline_audit_context\01_three_pipelines_map.md:23:  └── src/polaris_graph/nodes/corpus_approval_gate.py ──► abort_corpus_approval_denied?
+docs\pipeline_audit_context\03_json_contracts.md:39:  // abort_corpus_approval_denied — approval gate refused over material deviation
+docs\pipeline_audit_context\05_known_failure_modes.md:12:| Rubber-stamp corpus approval | `if not approved:` abort branch | `test_b2_corpus_approval_enforcement.py` |
+docs\pipeline_audit_context\05_known_failure_modes.md:22:NOT enforce strict_verify, corpus approval, or delimiter sanitization.
+src\polaris_v6\schemas\run_status.py:17:    "abort_corpus_approval_denied",
+src\polaris_v6\replay\differ.py:10:    "abort_corpus_approval_denied",
+tests\crown_jewels\test_cj_005_corpus_approval.py:3:Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
+tests\crown_jewels\test_cj_005_corpus_approval.py:5:(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+tests\crown_jewels\test_cj_005_corpus_approval.py:19:    CorpusDistributionReport,
+tests\crown_jewels\test_cj_005_corpus_approval.py:20:    check_auto_approve_allowed,
+tests\crown_jewels\test_cj_005_corpus_approval.py:24:def _report(material: bool) -> CorpusDistributionReport:
+tests\crown_jewels\test_cj_005_corpus_approval.py:25:    return CorpusDistributionReport(
+tests\crown_jewels\test_cj_005_corpus_approval.py:36:    ok, msg = check_auto_approve_allowed(_report(False), user_note="")
+tests\crown_jewels\test_cj_005_corpus_approval.py:41:    ok, msg = check_auto_approve_allowed(_report(True), user_note="")
+tests\crown_jewels\test_cj_005_corpus_approval.py:46:    ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
+tests\crown_jewels\test_cj_005_corpus_approval.py:52:        ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+tests\crown_jewels\test_cj_005_corpus_approval.py:63:    ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+tests\polaris_graph\test_corpus_approval_gate.py:14:    check_auto_approve_allowed,
+tests\polaris_graph\test_corpus_approval_gate.py:128:def test_check_auto_approve_allowed_without_deviation() -> None:
+tests\polaris_graph\test_corpus_approval_gate.py:132:    ok, err = check_auto_approve_allowed(report, "ok")
+tests\polaris_graph\test_corpus_approval_gate.py:143:    ok, err = check_auto_approve_allowed(report, "ok")
+tests\polaris_graph\test_corpus_approval_gate.py:154:    ok, err = check_auto_approve_allowed(report, "looks fine lgtm approve now!!")
+tests\polaris_graph\test_corpus_approval_gate.py:160:    ok2, err2 = check_auto_approve_allowed(report, "approved" + " " * 30)
+tests\polaris_graph\test_corpus_approval_gate.py:177:    ok, err = check_auto_approve_allowed(report, note)
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:2:Codex round 1 B-2 regression test: corpus approval must be enforced.
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:16:    check_auto_approve_allowed,
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:27:    rejected by check_auto_approve_allowed."""
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:47:    ok, err = check_auto_approve_allowed(report, _rubber_stamp_note())
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:77:    ok, _err = check_auto_approve_allowed(report, substantive)
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:92:    assert "abort_corpus_approval_denied" in src, (
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:93:        "orchestrator must emit status=abort_corpus_approval_denied"
+tests\polaris_graph\test_m207_invariant_coverage.py:129:        check_auto_approve_allowed,
+tests\polaris_graph\test_m207_invariant_coverage.py:131:    assert callable(check_auto_approve_allowed)
+tests\polaris_graph\test_manifest_contract.py:46:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:68:        ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
+tests\polaris_graph\test_manifest_contract.py:355:        "abort_corpus_approval_denied",
+docs\walkthroughs\1.8\test_inputs.md:61:    - `pipeline_status` (one of `success`, `abort_scope_rejected`, `abort_corpus_inadequate`, `abort_corpus_approval_denied`, `abort_no_verified_sections`, `error_*` — see CLAUDE.md §9.3)
+
+ succeeded in 1831ms:
+__pycache__
+__init__.py
+conftest.py
+test_cj_001_two_family_segregation.py
+test_cj_002_provenance_tokens.py
+test_cj_003_strict_verify.py
+test_cj_004_zero_verified_abort.py
+test_cj_005_corpus_approval.py
+
+ succeeded in 2124ms:
+"""
+Phase 2g — Corpus-approval gate.
+
+After retrieval and tier classification, the pipeline stops and shows
+the user the final corpus tier distribution alongside the expected
+distribution from `protocol.json`. The user must EXPLICITLY approve
+before synthesis begins.
+
+ADDRESSES PG_LB_SA_02_CONTENT_AUDIT Section E-05: the pre-rebuild
+pipeline went from retrieval directly to synthesis with no user-
+visible checkpoint. Users saw the final report but could not see what
+corpus produced it. Corpora dominated by T5 industry marketing + T6
+blog posts were synthesized into confident-sounding claims.
+
+RUBBER-STAMP RESISTANCE:
+- The gate requires the user to acknowledge the specific tier mix
+  that was retrieved, not just click "OK".
+- If actual distribution is >=15 percentage points off the expected
+  in any single tier, the gate blocks auto-approve. User must
+  explicitly opt in.
+- A free-text "why is this corpus acceptable" note is required when
+  the user approves a corpus that deviates materially from protocol.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+logger = logging.getLogger("polaris_graph.corpus_approval_gate")
+
+# Deviation threshold (absolute percentage points) — a tier whose
+# actual fraction is more than this far from its expected bounds is
+# flagged as "material deviation" requiring an explicit opt-in note.
+PG_TIER_MATERIAL_DEVIATION_PP = float(
+    os.getenv("PG_TIER_MATERIAL_DEVIATION_PP", "15.0")
+) / 100.0
+
+
+@dataclass
+class CorpusSource:
+    """A single retrieved source after tier classification."""
+
+    url: str
+    tier: str          # "T1".."T7" or "UNKNOWN"
+    title: str = ""
+    domain: str = ""
+    tier_confidence: float = 0.0
+    tier_rule: str = ""
+    tier_reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TierDeviation:
+    """Describes how actual fraction compares to expected range."""
+
+    tier: str
+    actual_fraction: float
+    expected_min: float
+    expected_max: float
+    deviation_pp: float      # signed: positive = above max, negative = below min
+    is_material: bool        # True if |deviation_pp| > threshold
+
+
+@dataclass
+class CorpusDistributionReport:
+    """Summary of actual tier mix vs protocol-expected mix."""
+
+    total_sources: int
+    tier_counts: dict[str, int]
+    tier_fractions: dict[str, float]
+    deviations: list[TierDeviation]
+    has_material_deviation: bool
+    auto_approve_allowed: bool
+
+
+@dataclass
+class CorpusApprovalDecision:
+    """Persisted once the user approves / rejects the corpus."""
+
+    run_id: str
+    decision_at_unix: float
+    decision_at_iso: str
+    approved: bool
+    user_note: str = ""
+    approved_source_urls: list[str] = field(default_factory=list)
+    rejected_source_urls: list[str] = field(default_factory=list)
+    report: Optional[CorpusDistributionReport] = None
+    protocol_sha256: str = ""
+
+
+def compute_tier_distribution(
+    sources: list[CorpusSource],
+    protocol: dict[str, Any],
+) -> CorpusDistributionReport:
+    """Aggregate the corpus tier mix vs the pre-registered protocol.
+
+    Args:
+        sources: List of retrieved sources with Phase 2a tier
+            assignments already applied.
+        protocol: Dict form of protocol.json (must have key
+            'expected_tier_distribution' — list of dicts with
+            tier / min_fraction / max_fraction).
+    """
+    total = len(sources)
+    counts: dict[str, int] = {}
+    for s in sources:
+        counts[s.tier] = counts.get(s.tier, 0) + 1
+
+    fractions = {
+        k: (v / total if total > 0 else 0.0)
+        for k, v in counts.items()
+    }
+
+    deviations: list[TierDeviation] = []
+    expected_list = list(protocol.get("expected_tier_distribution") or [])
+    for entry in expected_list:
+        tier = entry.get("tier")
+        if not tier:
+            continue
+        exp_min = float(entry.get("min_fraction", 0.0))
+        exp_max = float(entry.get("max_fraction", 1.0))
+        actual = fractions.get(tier, 0.0)
+
+        if actual < exp_min:
+            dev_pp = actual - exp_min
+        elif actual > exp_max:
+            dev_pp = actual - exp_max
+        else:
+            dev_pp = 0.0
+
+        is_material = abs(dev_pp) > PG_TIER_MATERIAL_DEVIATION_PP
+        deviations.append(TierDeviation(
+            tier=tier,
+            actual_fraction=round(actual, 4),
+            expected_min=exp_min,
+            expected_max=exp_max,
+            deviation_pp=round(dev_pp, 4),
+            is_material=is_material,
+        ))
+
+    any_material = any(d.is_material for d in deviations)
+
+    return CorpusDistributionReport(
+        total_sources=total,
+        tier_counts=counts,
+        tier_fractions={k: round(v, 4) for k, v in fractions.items()},
+        deviations=deviations,
+        has_material_deviation=any_material,
+        auto_approve_allowed=not any_material,
+    )
+
+
+def render_approval_html(
+    report: CorpusDistributionReport,
+    sources: list[CorpusSource],
+    research_question: str,
+) -> str:
+    """Render a self-contained HTML page for human corpus review.
+
+    Deliberately minimal (no JS) so it works in any text-only
+    browser. The actual approve/reject round-trip happens via the
+    endpoint; this view is read-only presentation.
+    """
+    # Escape helper
+    import html as _html
+
+    def esc(s: str) -> str:
+        return _html.escape(s or "")
+
+    css = """
+    body { font-family: -apple-system, 'Segoe UI', sans-serif; max-width: 980px;
+           margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.5; }
+    h1 { border-bottom: 2px solid #222; padding-bottom: 0.3em; }
+    .material { background: #fff3cd; padding: 1em; border-left: 4px solid #e0a800;
+                margin: 1em 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    th, td { border: 1px solid #ccc; padding: 0.5em; text-align: left; }
+    th { background: #eee; }
+    .t1 { color: #0a6b0a; font-weight: bold; }
+    .t2 { color: #0a6b0a; }
+    .t3 { color: #1a4d8a; font-weight: bold; }
+    .t4 { color: #555; }
+    .t5 { color: #a05a00; }
+    .t6 { color: #a00000; }
+    .t7 { color: #b06060; font-style: italic; }
+    .unknown { color: #888; font-style: italic; }
+    .dev-neg { color: #a00000; }
+    .dev-pos { color: #a05a00; }
+    .dev-zero { color: #0a6b0a; }
+    """
+
+    # Summary row
+    rows = []
+    for d in report.deviations:
+        tier_class = d.tier.lower()
+        if d.deviation_pp < 0:
+            dev_class = "dev-neg"
+            dev_str = f"{d.deviation_pp*100:+.1f}pp (below protocol min)"
+        elif d.deviation_pp > 0:
+            dev_class = "dev-pos"
+            dev_str = f"{d.deviation_pp*100:+.1f}pp (above protocol max)"
+        else:
+            dev_class = "dev-zero"
+            dev_str = "within range"
+        rows.append(
+            f"<tr>"
+            f"<td class='{tier_class}'>{esc(d.tier)}</td>"
+            f"<td>{d.actual_fraction*100:.1f}%</td>"
+            f"<td>{d.expected_min*100:.0f}% to {d.expected_max*100:.0f}%</td>"
+            f"<td class='{dev_class}'>{esc(dev_str)}"
+            + (" <strong>(material)</strong>" if d.is_material else "")
+            + "</td>"
+            f"</tr>"
+        )
+    tier_table = (
+        "<table><thead><tr><th>Tier</th><th>Actual %</th><th>Expected</th>"
+        "<th>Deviation</th></tr></thead><tbody>"
+        + "\n".join(rows)
+        + "</tbody></table>"
+    )
+
+    # Per-source table
+    source_rows = []
+    for s in sources[:500]:  # cap for large corpora
+        tier_class = s.tier.lower()
+        source_rows.append(
+            f"<tr>"
+            f"<td class='{tier_class}'>{esc(s.tier)}</td>"
+            f"<td>{esc(s.domain)}</td>"
+            f"<td><a href='{esc(s.url)}' rel='noopener'>{esc(s.title[:120])}</a></td>"
+            f"<td><small>{esc(s.tier_rule)}</small></td>"
+            f"</tr>"
+        )
+    source_table = (
+        "<table><thead><tr><th>Tier</th><th>Domain</th><th>Title</th>"
+        "<th>Rule</th></tr></thead><tbody>"
+        + "\n".join(source_rows)
+        + "</tbody></table>"
+    )
+
+    material_banner = ""
+    if report.has_material_deviation:
+        material_banner = (
+            "<div class='material'><strong>Material deviation from the "
+            "pre-registered protocol.</strong> Auto-approve is disabled. "
+            "Approving this corpus requires an explicit note explaining "
+            "why the deviation is acceptable for this research question. "
+            "The note will be included in the final report's methods "
+            "section.</div>"
+        )
+
+    html_doc = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>POLARIS — Corpus Approval Gate</title>
+<style>{css}</style>
+</head>
+<body>
+<h1>POLARIS corpus-approval gate</h1>
+<p><strong>Research question:</strong> {esc(research_question)}</p>
+<p><strong>Total sources retrieved:</strong> {report.total_sources}</p>
+{material_banner}
+<h2>Tier distribution vs protocol</h2>
+{tier_table}
+<h2>Per-source breakdown</h2>
+<p><em>Showing first {min(500, len(sources))} of {len(sources)} sources.</em></p>
+{source_table}
+<hr>
+<p><small>POLARIS honest-rebuild Phase 2g. Approve / reject via endpoint
+<code>POST /api/corpus_approval</code>.</small></p>
+</body>
+</html>
+"""
+    return html_doc
+
+
+def save_approval_decision(
+    decision: CorpusApprovalDecision,
+    run_dir: Path | str,
+) -> Path:
+    """Persist the approval decision as JSON. Atomic write + SHA-256."""
+    run_dir_path = Path(run_dir)
+    run_dir_path.mkdir(parents=True, exist_ok=True)
+    path = run_dir_path / "corpus_approval.json"
+    tmp = run_dir_path / "corpus_approval.json.tmp"
+    data = asdict(decision)
+    # Convert nested dataclasses are already asdict-able; CorpusDistributionReport
+    # with TierDeviation — asdict handles it recursively.
+    payload = json.dumps(
+        data, indent=2, sort_keys=True, ensure_ascii=False, default=str,
+    )
+    tmp.write_text(payload + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    sha256 = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    logger.info(
+        "[corpus_approval] decision persisted approved=%s path=%s sha=%s",
+        decision.approved, path, sha256[:16],
+    )
+    return path
+
+
+def check_auto_approve_allowed(
+    report: CorpusDistributionReport,
+    user_note: str,
+) -> tuple[bool, str]:
+    """Rubber-stamp resistance.
+
+    Returns (ok, error_message).
+    - If no material deviation: auto-approve is fine, any note accepted.
+    - If material deviation exists: note must be >=30 chars and must
+      not be one of the trivial rubber-stamp strings.
+    """
+    if not report.has_material_deviation:
+        return True, ""
+
+    note = (user_note or "").strip()
+    if len(note) < 30:
+        return False, (
+            "Material deviation from the pre-registered protocol detected. "
+            "Approval requires a note (>=30 chars) explaining why the "
+            "deviation is acceptable."
+        )
+    trivial = {
+        "ok", "ok ok", "looks fine", "lgtm", "approve",
+        "approved", "fine", "good", "yes", "proceed", "go ahead",
+    }
+    if note.lower() in trivial:
+        return False, (
+            f"Approval note {note!r} is a rubber-stamp. Provide a "
+            f"substantive explanation for the protocol deviation — what "
+            f"changed, why the deviation is acceptable, and whether the "
+            f"final report should flag the deviation in its methods section."
+        )
+    return True, ""
+
+ succeeded in 2414ms:
+diff --git a/docs/crown_jewels.md b/docs/crown_jewels.md
+index 3c8e4617..8d60d2b9 100644
+--- a/docs/crown_jewels.md
++++ b/docs/crown_jewels.md
+@@ -8,6 +8,6 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track
+ | I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
+ | I-cj-003 | §9.1.3 Strict verify | `tests/crown_jewels/test_cj_003_strict_verify.py` | `src/polaris_graph/generator2/strict_verify.py::verify_sentence` |
+ | I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/generator2/verified_report.py::VerifiedReport._verdict_consistency` |
+-| I-cj-005 | §9.1.5 Corpus approval enforcement | Pending — issued in subsequent CJ Issues | `src/polaris_graph/nodes/corpus_approval.py` |
++| I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
+ | I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | Pending — issued in subsequent CJ Issues | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
+ | I-cj-007 | §9.1.7 Delimiter sanitization | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/delimiter_sanitize.py` |
+diff --git a/tests/crown_jewels/test_cj_005_corpus_approval.py b/tests/crown_jewels/test_cj_005_corpus_approval.py
+new file mode 100644
+index 00000000..a92ad8d5
+--- /dev/null
++++ b/tests/crown_jewels/test_cj_005_corpus_approval.py
+@@ -0,0 +1,64 @@
++"""Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
++
++Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
++rubber-stamp note aborts before any generator token is billed
++(status = abort_corpus_approval_denied). The check_auto_approve_allowed
++gate enforces:
++  - no material deviation → any note OK
++  - material deviation + short / trivial note → rejected
++  - material deviation + substantive note → OK
++
++The Crown Jewel pins the user-observable rejection invariant; whether
++the rejection fires under the length-check branch or the trivial-note
++branch is an implementation detail.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.nodes.corpus_approval_gate import (
++    CorpusDistributionReport,
++    check_auto_approve_allowed,
++)
++
++
++def _report(material: bool) -> CorpusDistributionReport:
++    return CorpusDistributionReport(
++        total_sources=10,
++        tier_counts={"T1": 5, "T2": 5},
++        tier_fractions={"T1": 0.5, "T2": 0.5},
++        deviations=[],
++        has_material_deviation=material,
++        auto_approve_allowed=not material,
++    )
++
++
++def test_cj_005_no_material_deviation_any_note_ok() -> None:
++    ok, msg = check_auto_approve_allowed(_report(False), user_note="")
++    assert ok and msg == ""
++
++
++def test_cj_005_material_deviation_empty_note_rejected() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), user_note="")
++    assert not ok and "note" in msg.lower()
++
++
++def test_cj_005_material_deviation_short_note_rejected() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
++    assert not ok and "note" in msg.lower()
++
++
++def test_cj_005_material_deviation_short_or_trivial_rejected() -> None:
++    for note in ["lgtm", "approved", "ok", "fine", "go ahead", "x"]:
++        ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
++        assert not ok, f"short / trivial note {note!r} should be rejected"
++        assert msg, "rejection must include explanation"
++
++
++def test_cj_005_material_deviation_substantive_note_accepted() -> None:
++    note = (
++        "T1 sources fell below 30% because Cochrane Review CD012345 was "
++        "retracted post-protocol-registration and we replaced it with two "
++        "T2 systematic reviews. The methods section flags this deviation."
++    )
++    ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
++    assert ok and msg == ""
+
+# canonical-diff-sha256: 0d519f18a097b54713d1ebc0990892c89a25bd45c40918dc3e07e26847491ff3
+
+codex
+The patch is present in the workspace and the gate lives at the documented path. I’m checking the charter text and existing corpus approval tests now, because the main review question is whether this Crown Jewel adds the right invariant rather than duplicating or weakening an existing regression.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path CLAUDE.md | Select-Object -Skip 610 -First 65' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_corpus_approval_gate.py | Select-Object -Skip 120 -First 70' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_b2_corpus_approval_enforcement.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/crown_jewels/test_cj_004_zero_verified_abort.py' in C:\POLARIS
+ succeeded in 1615ms:
+"""
+Codex round 1 B-2 regression test: corpus approval must be enforced.
+
+The sweep orchestrator previously wrote corpus_approval.json with
+approved=False, then proceeded anyway. This test pins the fix:
+denied approval short-circuits the pipeline with a pipeline-verdict
+artifact, zero LLM cost.
+
+We test the decision-gate logic directly since a full orchestrator
+run requires network + API keys.
+"""
+from __future__ import annotations
+
+from src.polaris_graph.nodes.corpus_approval_gate import (
+    CorpusSource,
+    check_auto_approve_allowed,
+    compute_tier_distribution,
+)
+
+
+def _rubber_stamp_note() -> str:
+    return "ok"  # trivial, should trigger auto-approve denial
+
+
+def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
+    """If the corpus has material deviation, a trivial note must be
+    rejected by check_auto_approve_allowed."""
+    # 9 T5 + 1 T1 = way over T5 cap for clinical template
+    classified = [
+        CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
+                     tier="T5", tier_confidence=0.9, tier_rule="",
+                     tier_reasons=[])
+        for i in range(9)
+    ] + [
+        CorpusSource(url="https://pmc/1", title="", domain="pmc",
+                     tier="T1", tier_confidence=0.9, tier_rule="",
+                     tier_reasons=[]),
+    ]
+    protocol = {
+        "expected_tier_distribution": [
+            {"tier": "T1", "min_fraction": 0.3, "max_fraction": 0.6},
+            {"tier": "T5", "min_fraction": 0.0, "max_fraction": 0.15},
+        ],
+    }
+    report = compute_tier_distribution(classified, protocol)
+    assert report.has_material_deviation is True
+    ok, err = check_auto_approve_allowed(report, _rubber_stamp_note())
+    assert ok is False
+    assert "note" in err.lower() or "deviation" in err.lower()
+
+
+def test_b2_substantive_note_accepted_for_material_deviation() -> None:
+    """A real, substantive note (>=30 chars, not in trivial set) is OK."""
+    classified = [
+        CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
+                     tier="T5", tier_confidence=0.9, tier_rule="",
+                     tier_reasons=[])
+        for i in range(9)
+    ] + [
+        CorpusSource(url="https://pmc/1", title="", domain="pmc",
+                     tier="T1", tier_confidence=0.9, tier_rule="",
+                     tier_reasons=[]),
+    ]
+    protocol = {
+        "expected_tier_distribution": [
+            {"tier": "T1", "min_fraction": 0.3, "max_fraction": 0.6},
+            {"tier": "T5", "min_fraction": 0.0, "max_fraction": 0.15},
+        ],
+    }
+    report = compute_tier_distribution(classified, protocol)
+    substantive = (
+        "This market-research corpus is heavily weighted toward "
+        "industry analyst reports because the research question "
+        "specifically asks about competitor positioning; peer-reviewed "
+        "T1 sources are rare in this domain."
+    )
+    ok, _err = check_auto_approve_allowed(report, substantive)
+    assert ok is True
+
+
+def test_b2_sweep_orchestrator_has_enforcement_branch() -> None:
+    """Verify the code has an `if not approved` short-circuit that
+    writes an abort report instead of proceeding to synthesis."""
+    import inspect
+
+    import scripts.run_honest_sweep_r3 as sweep
+    src = inspect.getsource(sweep.run_one_query)
+    # The enforcement branch must exist and route to a short-circuit
+    assert "if not approved:" in src, (
+        "orchestrator must have `if not approved:` branch that aborts"
+    )
+    assert "abort_corpus_approval_denied" in src, (
+        "orchestrator must emit status=abort_corpus_approval_denied"
+    )
+    # And the branch must return BEFORE the generation call
+    approval_idx = src.find("if not approved:")
+    generation_idx = src.find("generate_multi_section_report(")
+    assert approval_idx < generation_idx, (
+        "enforcement branch must precede multi-section generator call"
+    )
+    # The abort branch must contain a return statement
+    branch_section = src[approval_idx:generation_idx]
+    assert "return summary" in branch_section, (
+        "approval-denied branch must `return summary` before generation"
+    )
+
+
+def test_b2_expected_str_helper() -> None:
+    """The abort-artifact helper formats expected tier distribution
+    from a protocol dict."""
+    from scripts.run_honest_sweep_r3 import expected_str_for_abort
+    protocol = {
+        "expected_tier_distribution": [
+            {"tier": "T1", "min_fraction": 0.3, "max_fraction": 0.6},
+            {"tier": "T3", "min_fraction": 0.05, "max_fraction": 0.25},
+        ],
+    }
+    s = expected_str_for_abort(protocol)
+    assert "T1 30-60%" in s
+    assert "T3 5-25%" in s
+
+
+def test_b2_expected_str_helper_empty_protocol() -> None:
+    from scripts.run_honest_sweep_r3 import expected_str_for_abort
+    assert expected_str_for_abort({}) == "per scope template"
+
+ succeeded in 1866ms:
+        for i in range(10)
+    ]
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    html_doc = render_approval_html(report, sources, "question")
+    assert "Material deviation" in html_doc
+
+
+def test_check_auto_approve_allowed_without_deviation() -> None:
+    report = compute_tier_distribution(
+        _on_protocol_corpus(), _clinical_protocol(),
+    )
+    ok, err = check_auto_approve_allowed(report, "ok")
+    assert ok is True
+    assert err == ""
+
+
+def test_check_auto_approve_rejects_short_note_on_material() -> None:
+    sources = [
+        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+        for i in range(10)
+    ]
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    ok, err = check_auto_approve_allowed(report, "ok")
+    assert ok is False
+    assert "note" in err.lower()
+
+
+def test_check_auto_approve_rejects_trivial_notes() -> None:
+    sources = [
+        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+        for i in range(10)
+    ]
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    ok, err = check_auto_approve_allowed(report, "looks fine lgtm approve now!!")
+    # Too trivial even though length > 30
+    # (The trivial filter checks the whole note as one of the dismissible set;
+    # this note might pass the trivial set but is >= 30 chars. Adjust assertion.)
+    # The current logic: only matches exact trivial phrases. So this passes.
+    # Add a genuinely trivial test instead.
+    ok2, err2 = check_auto_approve_allowed(report, "approved" + " " * 30)
+    # "approved" alone is trivial; with trailing spaces it's still trivial
+    # after strip
+    assert ok2 is False
+
+
+def test_check_auto_approve_accepts_substantive_note() -> None:
+    sources = [
+        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+        for i in range(10)
+    ]
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    note = (
+        "Corpus is dominated by manufacturer HCP content because the "
+        "research question is specifically about the labelled dosing "
+        "regimen. Will flag in methods."
+    )
+    ok, err = check_auto_approve_allowed(report, note)
+    assert ok is True
+    assert err == ""
+
+
+def test_save_approval_decision_writes_json(tmp_path: Path) -> None:
+    sources = _on_protocol_corpus()
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    decision = CorpusApprovalDecision(
+        run_id="TEST_APPROVE",
+        decision_at_unix=1700000000.0,
+        decision_at_iso="2023-11-14T22:13:20Z",
+        approved=True,
+        user_note="Looks good.",
+
+ succeeded in 2371ms:
+**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+C (frozen legacy) are governed separately — see `architecture.md`.**
+
+### 9.1 Core Invariants (Non-Negotiable)
+
+1. **Two-family evaluator**: generator and evaluator MUST be from
+   different training lineages. `openrouter_client.check_family_segregation`
+   raises `RuntimeError` at construction if violated.
+2. **Provenance tokens**: every generated sentence carries
+   `[#ev:<evidence_id>:<start>-<end>]` tokens. Sentences without valid
+   tokens are dropped by `strict_verify`.
+3. **Strict verify**: per-sentence check enforces (a) evidence-id in pool,
+   (b) span bounds valid, (c) every decimal in sentence appears in span,
+   (d) sentence and span share ≥2 content words
+   (`PG_PROVENANCE_MIN_CONTENT_OVERLAP`). Fabricated claims fail at least
+   one of these.
+4. **Zero-verified abort**: if every section fails strict_verify,
+   `report.md` is a pipeline-verdict artifact (not an empty-findings
+   pseudo-report). Status: `abort_no_verified_sections`.
+5. **Corpus approval enforcement**: a corpus with material tier deviation
+   plus a rubber-stamp note aborts before any generator token is billed.
+   Status: `abort_corpus_approval_denied`.
+6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+   backstops token-only responses. Negative tokens clamp to zero.
+7. **Delimiter sanitization** (prompt-injection defense): evidence text
+   containing `<<<evidence:...>>>` or other delimiter literals —
+   including via NFKD/invisible-char/homoglyph evasions — is neutralized
+   before prompt wrapping. Byte-preserves legitimate multilingual content.
+
+### 9.2 Quality Gates (pipeline A)
+
+| Gate | Threshold | Fail Action |
+|---|---|---|
+| Corpus adequacy | Min sources per tier (template-driven) | `abort_corpus_inadequate` |
+| Corpus approval | Auto-approved OR substantive operator note | `abort_corpus_approval_denied` |
+| Strict verify (per sentence) | Numeric match + ≥2 content-word overlap | Drop sentence |
+| Strict verify (per section) | ≥40% sentences verified | Attempt one regeneration |
+| Strict verify (pipeline) | At least one section with verified prose | `abort_no_verified_sections` |
+| Budget | Accumulated cost ≤ `PG_MAX_COST_PER_RUN` | `BudgetExceededError` |
+
+### 9.3 Pipeline verdict statuses (manifest.json)
+
+| Status | Condition |
+|---|---|
+| `success` | All gates passed, generator produced verified prose |
+| `abort_scope_rejected` | Scope gate rejected the research question |
+| `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+| `abort_no_verified_sections` | Every generated section failed strict_verify |
+| `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+
+### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+
+**Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+
+- `try: ... except: pass` without logging or re-raise (silent failure)
+- `import unittest.mock` or `from unittest.mock import ...` in `src/`
+  production code
+- Magic numbers (`if score > 0.7` instead of a named constant or env var)
+- `time.sleep()` to simulate work
+- `# TODO`, `# FIXME`, `# XXX`, `pass` as function body
+- Mocking the live-evidence database in integration tests (per user
+  feedback memory: integration tests must hit real data sources)
+
+Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+
+ succeeded in 2653ms:
+"""Crown Jewel I-cj-004 — Zero-verified abort invariant.
+
+Per CLAUDE.md §9.1.4: if every section fails strict_verify, the report
+verdict MUST be 'abort_no_verified_sections' (not a pseudo-success
+report). Conversely, a 'success' verdict requires >=1 non-dropped
+section.
+
+Bound by VerifiedReport._verdict_consistency (model_validator).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from pydantic import ValidationError
+
+from src.polaris_graph.generator2.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+
+
+def _dropped_section(sid: str = "sec_x") -> Section:
+    return Section(
+        section_id=sid,
+        section_title="X",
+        verified_sentences=[
+            VerifiedSentence(
+                section_id=sid,
+                sentence_text="bad claim",
+                provenance_tokens=[],
+                verifier_pass=False,
+                drop_reason="no_provenance_token",
+            ),
+        ],
+        section_verify_pass_rate=0.0,
+        section_status="dropped",
+    )
+
+
+def _kept_section(sid: str = "sec_x") -> Section:
+    return Section(
+        section_id=sid,
+        section_title="X",
+        verified_sentences=[
+            VerifiedSentence(
+                section_id=sid,
+                sentence_text="claim [#ev:src-A:0-3].",
+                provenance_tokens=["[#ev:src-A:0-3]"],
+                verifier_pass=True,
+                drop_reason=None,
+            ),
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+
+
+def _report_kwargs() -> dict:
+    return dict(
+        pool_id="p1",
+        decision_id="d1",
+        overall_verify_pass_rate=0.0,
+        generator_model="g",
+        evaluator_model="strict_verify_v1",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def test_cj_004_abort_with_all_dropped_sections_constructs() -> None:
+    rpt = VerifiedReport(
+        sections=[_dropped_section("a"), _dropped_section("b")],
+        pipeline_verdict="abort_no_verified_sections",
+        **_report_kwargs(),
+    )
+    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+    assert rpt.kept_sections() == []
+
+
+def test_cj_004_abort_with_empty_sections_constructs() -> None:
+    rpt = VerifiedReport(
+        sections=[],
+        pipeline_verdict="abort_no_verified_sections",
+        **_report_kwargs(),
+    )
+    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+
+
+def test_cj_004_abort_with_kept_section_raises() -> None:
+    with pytest.raises(ValidationError, match="requires all sections.*dropped"):
+        VerifiedReport(
+            sections=[_dropped_section("a"), _kept_section("b")],
+            pipeline_verdict="abort_no_verified_sections",
+            **_report_kwargs(),
+        )
+
+
+def test_cj_004_success_with_only_dropped_sections_raises() -> None:
+    with pytest.raises(ValidationError, match="requires at least one non-dropped"):
+        VerifiedReport(
+            sections=[_dropped_section("a")],
+            pipeline_verdict="success",
+            **_report_kwargs(),
+        )
+
+codex
+The existing non-CJ corpus gate tests already cover the same direct helper and one orchestrator string check. The new CJ test is narrower by design, so I’m running the focused test now and then I’ll decide whether the narrowed scope leaves an execution blocker under the approved brief.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- docs/crown_jewels.md tests/crown_jewels/test_cj_005_corpus_approval.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path tests/crown_jewels/test_cj_005_corpus_approval.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path docs/crown_jewels.md | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 1681ms:
+ succeeded in 2115ms:
+   1: """Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
+   2: 
+   3: Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
+   4: rubber-stamp note aborts before any generator token is billed
+   5: (status = abort_corpus_approval_denied). The check_auto_approve_allowed
+   6: gate enforces:
+   7:   - no material deviation → any note OK
+   8:   - material deviation + short / trivial note → rejected
+   9:   - material deviation + substantive note → OK
+  10: 
+  11: The Crown Jewel pins the user-observable rejection invariant; whether
+  12: the rejection fires under the length-check branch or the trivial-note
+  13: branch is an implementation detail.
+  14: """
+  15: 
+  16: from __future__ import annotations
+  17: 
+  18: from src.polaris_graph.nodes.corpus_approval_gate import (
+  19:     CorpusDistributionReport,
+  20:     check_auto_approve_allowed,
+  21: )
+  22: 
+  23: 
+  24: def _report(material: bool) -> CorpusDistributionReport:
+  25:     return CorpusDistributionReport(
+  26:         total_sources=10,
+  27:         tier_counts={"T1": 5, "T2": 5},
+  28:         tier_fractions={"T1": 0.5, "T2": 0.5},
+  29:         deviations=[],
+  30:         has_material_deviation=material,
+  31:         auto_approve_allowed=not material,
+  32:     )
+  33: 
+  34: 
+  35: def test_cj_005_no_material_deviation_any_note_ok() -> None:
+  36:     ok, msg = check_auto_approve_allowed(_report(False), user_note="")
+  37:     assert ok and msg == ""
+  38: 
+  39: 
+  40: def test_cj_005_material_deviation_empty_note_rejected() -> None:
+  41:     ok, msg = check_auto_approve_allowed(_report(True), user_note="")
+  42:     assert not ok and "note" in msg.lower()
+  43: 
+  44: 
+  45: def test_cj_005_material_deviation_short_note_rejected() -> None:
+  46:     ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
+  47:     assert not ok and "note" in msg.lower()
+  48: 
+  49: 
+  50: def test_cj_005_material_deviation_short_or_trivial_rejected() -> None:
+  51:     for note in ["lgtm", "approved", "ok", "fine", "go ahead", "x"]:
+  52:         ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+  53:         assert not ok, f"short / trivial note {note!r} should be rejected"
+  54:         assert msg, "rejection must include explanation"
+  55: 
+  56: 
+  57: def test_cj_005_material_deviation_substantive_note_accepted() -> None:
+  58:     note = (
+  59:         "T1 sources fell below 30% because Cochrane Review CD012345 was "
+  60:         "retracted post-protocol-registration and we replaced it with two "
+  61:         "T2 systematic reviews. The methods section flags this deviation."
+  62:     )
+  63:     ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+  64:     assert ok and msg == ""
+
+ succeeded in 2601ms:
+   1: # Crown Jewel registry
+   2: 
+   3: Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track ships dedicated tests that pin each non-negotiable invariant from `CLAUDE.md` §9.1. A future regression that weakens any of these invariants causes a `tests/crown_jewels/test_cj_NNN_*` test to fail under an unambiguous identifier.
+   4: 
+   5: | Issue | Invariant (CLAUDE.md §9.1) | Test path | Bound source-of-truth |
+   6: |---|---|---|---|
+   7: | I-cj-001 | §9.1.1 Two-family evaluator | `tests/crown_jewels/test_cj_001_two_family_segregation.py` | `src/polaris_graph/llm/openrouter_client.py::check_family_segregation` |
+   8: | I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
+   9: | I-cj-003 | §9.1.3 Strict verify | `tests/crown_jewels/test_cj_003_strict_verify.py` | `src/polaris_graph/generator2/strict_verify.py::verify_sentence` |
+  10: | I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/generator2/verified_report.py::VerifiedReport._verdict_consistency` |
+  11: | I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
+  12: | I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | Pending — issued in subsequent CJ Issues | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
+  13: | I-cj-007 | §9.1.7 Delimiter sanitization | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/delimiter_sanitize.py` |
+
+2026-05-09T02:41:52.980908Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.3 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/crown_jewels/test_cj_005_corpus_approval.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 3306ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/crown_jewels/test_cj_005_corpus_approval.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m going through the project’s Python entry point instead. The file contents match the supplied diff, and the registry row points to the actual helper.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force | Select-Object Name,Mode,Length' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "pyproject.toml" -g "pytest.ini" -g "tox.ini" -g "requirements*.txt" -g "uv.lock" -g "poetry.lock" -g "*.ps1"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'py -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q' in C:\POLARIS
+2026-05-09T02:42:01.716035Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+pytest.ini
+requirements.txt
+requirements-v6.txt
+requirements-orchestrator.txt
+scripts\cleanup\delete_pytest_tmpdirs.ps1
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+
+ exited 1 in 1286ms:
+pytest.ini
+requirements.txt
+requirements-v6.txt
+requirements-orchestrator.txt
+scripts\cleanup\delete_pytest_tmpdirs.ps1
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+
+ succeeded in 1785ms:
+
+[32;1mName                                       [0m[32;1m Mode [0m[32;1m Length[0m
+[32;1m----                                       [0m [32;1m---- [0m [32;1m------[0m
+__pycache__                                 d---- 
+.claude                                     d---- 
+.codex                                      d---- 
+.codex_pytest_tmp                           d---- 
+.codex_tmp                                  d---- 
+.codex_tmp_m_int_6_v1_review_fresh          d---- 
+.codex_tmp_md3_review                       d---- 
+.codex-tmp                                  d---- 
+.git                                        d--h- 
+.github                                     d---- 
+.legacy                                     d---- 
+.private                                    d---- 
+.pytest_cache                               d---- 
+.pytest_cache_local                         d---- 
+.pytest_tmp                                 d---- 
+.pytest-cache                               d---- 
+.pytest-cache-local                         d---- 
+.ruff_cache                                 d---- 
+.tmp                                        d---- 
+.tmp_pytest                                 d---- 
+.tmp_pytest_base                            d---- 
+.tmp_pytest_m_int_2                         d---- 
+.tmp_pytest_m_int_3                         d---- 
+.tmp_pytest_m_live_1_review                 d---- 
+.tmp_pytest_md3_review                      d---- 
+.tmp_pytest_md3_review2                     d---- 
+.tmp-pytest                                 d---- 
+archive                                     d---- 
+codex_tmp_billing_quota_store_review_alt    d---- 
+codex_tmp_m_int_10_v1_review                d---- 
+codex_tmp_m_int_10_v1_review_rerun          d---- 
+codex_tmp_m_int_10_v1_single                d---- 
+codex_tmp_m_int_10_v1_single2               d---- 
+codex_tmp_m_int_10_v2_review                d---- 
+codex_tmp_m_int_10_v2_review_fresh          d---- 
+codex_tmp_m_int_10_v3_review                d---- 
+codex_tmp_m_int_10_v3_review_probe          d---- 
+codex_tmp_m_int_11_v1_review                d---- 
+codex_tmp_m_int_11_v1_review_fresh_20260429 d---- 
+codex_tmp_m_int_11_v2_review                d---- 
+codex_tmp_m_int_11_v2_review_fresh          d---- 
+codex_tmp_m_int_11_v2_review_fresh_subset   d---- 
+codex_tmp_m_int_5_v2_review                 d---- 
+codex_tmp_m_int_5_v3_review                 d---- 
+codex_tmp_m_int_5_v3_review_probe           d---- 
+codex_tmp_m_int_5_v4_review                 d---- 
+codex_tmp_m_int_5_v4_review_fresh           d---- 
+codex_tmp_m_int_5_v4_review_fresh2          d---- 
+codex_tmp_m_int_6_v1_review                 d---- 
+codex_tmp_m_int_7_v1_review                 d---- 
+codex_tmp_m_int_7_v1_review_fresh           d---- 
+codex_tmp_m_int_7_v2_review                 d---- 
+codex_tmp_m_int_7_v2_review_alt             d---- 
+codex_tmp_m_int_7_v2_single                 d---- 
+codex_tmp_m_int_7_v3_review                 d---- 
+codex_tmp_m_int_7_v3_review_fresh           d---- 
+codex_tmp_m_int_9_v1_review                 d---- 
+codex_tmp_m_int_9_v1_review_single          d---- 
+codex_tmp_m_int_9_v2_review                 d---- 
+codex_tmp_m_int_9_v2_review_fresh           d---- 
+codex_tmp_md3_pytest                        d---- 
+codex_tmp_pytest                            d---- 
+codex_tmp_pytest_m11                        d---- 
+codex_tmp_pytest_m15a_v2                    d---- 
+codex_tmp_pytest_review                     d---- 
+codex_tmp_review                            d---- 
+config                                      d---- 
+dashboard_probe_f2ltuo3t                    d---- 
+dashboard_probe_hhthuj3n                    d---- 
+dashboard_probe_xdvktanm                    d---- 
+dashboard_probe_znaia9ry                    d---- 
+dashboard_probe_zw62d2fs                    d---- 
+data                                        d---- 
+docs                                        d---- 
+helm                                        d---- 
+logs                                        d---- 
+m_int_10_manual_57asn199                    d---- 
+m_int_7_v2_manual_5fgxbzoc                  d---- 
+m_int_7_v3_manual_dhypw5bz                  d---- 
+m_live_4_r2_3qyr9r66                        d---- 
+m10v2_manual_yz_33hqh                       d---- 
+m10v3_one_wlcrnh2f                          d---- 
+m8_tmp_check                                d---- 
+m8_v4_pytest                                d---- 
+m9_v2_manual_verify                         d---- 
+m9v2_pytest_run1                            d---- 
+manual_pytest_base_m_int_7                  d---- 
+manual_pytest_base_m_int_7_ok               d---- 
+manual_review_scratch_m_int_10_v3           d---- 
+manual_review_scratch_m_int_9_v2            d---- 
+manual_tmp_m_int_3                          d---- 
+manual_tmp_m_int_3_v3                       d---- 
+md3_pytest_run2                             d---- 
+md3_round3_manual_tmp                       d---- 
+md3_round3_pytest_tmp                       d---- 
+memory                                      d---- 
+models                                      d---- 
+outputs                                     d---- 
+polaris-controls                            d---- 
+POLARIS.tmppytest                           d---- 
+POLARIStmp_pytest_m_int_3_reviewbasetemp    d---- 
+py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9  d---- 
+pytest_run_3842f3b95af34ad8b6f93080344d5110 d---- 
+pytest_run_554e954860ba4943a4f9f6097fe8541f d---- 
+pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba d---- 
+pytest-cache-files-o969a6s7                 d---- 
+pytest-cache-files-tw8jzxb3                 d---- 
+scripts                                     d---- 
+src                                         d---- 
+state                                       d---- 
+tests                                       d---- 
+tmp_ae3ucgg                                 d---- 
+tmp_pytest_m_int_0b                         d---- 
+tmp_pytest_m_int_2                          d---- 
+tmp_pytest_m_int_3                          d---- 
+tmp_pytest_m_int_3_review                   d---- 
+tmp2ef0ie4p                                 d---- 
+tmp2hhmpr2y                                 d---- 
+tmp48c8ko2m                                 d---- 
+tmp63988s99                                 d---- 
+tmp8u9ua575                                 d---- 
+tmp9h7v7fon                                 d---- 
+tmpaufjwjy5                                 d---- 
+tmpgb143kt_                                 d---- 
+tmppvxh8fwq                                 d---- 
+tmpq5bdi1rl                                 d---- 
+tmptgnkdlz5                                 d---- 
+tmpu2b082f6                                 d---- 
+tmpuyki_w88                                 d---- 
+tmpv1dnokk6                                 d---- 
+tmpw2ru3yoj                                 d---- 
+tmpxnalraft                                 d---- 
+tmpyl5f0goo                                 d---- 
+web                                         d---- 
+.coverage                                   -a--- 53248
+.dockerignore                               -a--- 599
+.env                                        -a--- 88725
+.env.example                                -a--- 7651
+.gitignore                                  -a--- 6078
+architecture.md                             -a--- 15485
+CLAUDE.md                                   -a--- 47764
+docker-compose.yml                          -a--- 1774
+Dockerfile                                  -a--- 1197
+ground_rules.md                             -a--- 11875
+pytest.ini                                  -a--- 654
+README.md                                   -a--- 11317
+requirements-orchestrator.txt               -a--- 673
+requirements-v6.txt                         -a--- 1558
+requirements.txt                            -a--- 6532
+
+
+ succeeded in 5877ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 5 items
+
+tests\crown_jewels\test_cj_005_corpus_approval.py .....                  [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 5 passed, 1 warning in 0.63s =========================
+
+2026-05-09T02:42:06.689879Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6.2 seconds
+Output:
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
+
+
+ exited 1 in 6205ms:
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
+
+
+codex
+The focused CJ test passes under `python -m pytest`; the shell launcher `py` is blocked by Windows app permissions, but that is not a patch issue. I’m doing one last pass over the whole Crown Jewel suite to catch interactions before giving the YAML verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/crown_jewels -q' in C:\POLARIS
+ succeeded in 4676ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 27 items
+
+tests\crown_jewels\test_cj_001_two_family_segregation.py .....           [ 18%]
+tests\crown_jewels\test_cj_002_provenance_tokens.py ......               [ 40%]
+tests\crown_jewels\test_cj_003_strict_verify.py .......                  [ 66%]
+tests\crown_jewels\test_cj_004_zero_verified_abort.py ....               [ 81%]
+tests\crown_jewels\test_cj_005_corpus_approval.py .....                  [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 27 passed, 1 warning in 0.85s ========================
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+27,924
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
