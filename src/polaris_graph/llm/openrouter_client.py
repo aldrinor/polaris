@@ -366,6 +366,18 @@ _ALWAYS_REASON_MODELS = frozenset({
     "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
 })
 
+# I-bug-089 (2026-05-09): models that route to reasoning_content even when
+# the caller passes reasoning_enabled=False. Used by _call() to cap
+# reasoning.max_tokens at 40% of budget so 60% remains for content,
+# preventing token-starvation that leaves content="" + reasoning=full
+# planning prelude. Distinct from _ALWAYS_REASON_MODELS (which is the
+# legacy recovery-side switch); this is the request-side switch.
+_REASONING_FIRST_MODELS = frozenset({
+    *_ALWAYS_REASON_MODELS,
+    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-flash",
+})
+
 # Pricing per million tokens (configurable per LAW VI)
 # Qwen 3.5 Plus: $0.26 input, $1.56 output
 # Use API-reported cost when available (FIX-C1)
@@ -1148,6 +1160,21 @@ class OpenRouterClient:
             if reasoning_exclude is not None:
                 reasoning_dict["exclude"] = reasoning_exclude
             body["reasoning"] = reasoning_dict
+        elif self.model in _REASONING_FIRST_MODELS:
+            # I-bug-089: caller wants reasoning_enabled=False but this model
+            # (e.g. DeepSeek V4 Pro/Flash) routes to reasoning_content anyway.
+            # Cap reasoning at 40% of max_tokens so 60% is reserved for content,
+            # preventing token-starvation where the planning eats the budget
+            # and the model never gets to write the answer. Caller-passed
+            # reasoning_max_tokens / reasoning_exclude still take precedence.
+            reasoning_dict = {"exclude": False}
+            if reasoning_exclude is not None:
+                reasoning_dict["exclude"] = reasoning_exclude
+            if reasoning_max_tokens is not None:
+                reasoning_dict["max_tokens"] = reasoning_max_tokens
+            else:
+                reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
+            body["reasoning"] = reasoning_dict
 
         if response_format:
             body["response_format"] = response_format
@@ -1929,6 +1956,25 @@ class OpenRouterClient:
                 # in result.reasoning for tracing. Threshold of 100 chars
                 # guards against treating a near-empty reasoning blip as a
                 # full answer.
+                #
+                # I-bug-089: detect token-starvation case where the model
+                # ran out of budget mid-planning. If reasoning has no
+                # provenance markers AND ends mid-sentence, the model
+                # never wrote the answer — fail loud so caller can retry
+                # with bigger budget instead of promoting planning prelude.
+                _reasoning_clean = result.reasoning.rstrip()
+                if (
+                    "[#ev:" not in result.reasoning
+                    and not _reasoning_clean.endswith((".", "!", "?", '"'))
+                ):
+                    self.usage.total_errors += 1
+                    raise RuntimeError(
+                        f"I-bug-089: reasoning-first model {self.model} "
+                        f"truncated mid-planning. content empty, reasoning "
+                        f"has {len(result.reasoning)} chars but no [#ev:] "
+                        f"markers and ends mid-sentence — increase max_tokens "
+                        f"budget. SF-15 fail-loud."
+                    )
                 logger.warning(
                     "[polaris graph] I-bug-088: generate() content empty, "
                     "reasoning has %d chars and no </think> tag. Model %s is "
