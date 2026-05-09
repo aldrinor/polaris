@@ -739,6 +739,43 @@ def verify_sentence_provenance(
                     f"evidence_trials={sorted(evidence_trials)}"
                 )
 
+        # I-bug-098: entailment judge as the 6th check, runs LAST after
+        # all mechanical checks pass. Closes the production audit gap
+        # the I-bug-092..097 generator2/ wiring did NOT close (the
+        # production sweep at scripts/run_honest_sweep_r3.py uses THIS
+        # verifier, not generator2/strict_verify). Same env gate
+        # PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce} (default
+        # enforce per I-bug-095). Reuses the judge + telemetry from
+        # generator2.strict_verify so a single counter snapshot covers
+        # both code paths. Lazy import keeps this module's cold-import
+        # cost zero in off-mode and avoids circular import (the
+        # generator2.strict_verify module does NOT import from
+        # polaris_graph.generator).
+        if not failures:
+            from polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
+                _entailment_mode,
+                _get_judge,
+                _record_judge_outcome,
+            )
+
+            mode = _entailment_mode()
+            if mode in ("warn", "enforce"):
+                sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+                combined_span = " ".join(aggregated_span_text)
+                verdict, reason = _get_judge().judge(
+                    sentence_clean, combined_span,
+                )
+                _record_judge_outcome(verdict, reason)
+                if verdict in ("NEUTRAL", "CONTRADICTED"):
+                    if mode == "enforce":
+                        ev_ids = ",".join(
+                            sorted({t.evidence_id for t in tokens})
+                        )
+                        failures.append(
+                            f"entailment_failed:{ev_ids}:"
+                            f"verdict={verdict}:reason={reason[:80]}"
+                        )
+
     # Gap-2 soft check: detect unhedged superlatives. This does NOT
     # drop the sentence — it emits a warning that the evaluator (PT13)
     # can surface to the user.

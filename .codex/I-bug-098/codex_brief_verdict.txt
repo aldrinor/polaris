@@ -1,0 +1,12 @@
+verdict: APPROVE
+recommended_option: A
+acceptance_proof_required: "Run the production sweep and require judge_calls > 0 from the production path, plus evidence that failures propagate when present: either entailment_failed:<reason> appears in verification_details/drop_reason_counts, or a forced fake-judge/local test proves the rollup records that failure reason."
+loc_estimate_ok: yes
+extra_changes_required:
+  - "Add the gate to generator/provenance_generator.py verify_sentence_provenance after the existing mechanical checks."
+  - "Add direct tests for off/warn/enforce, M2/C2/C1 negatives, positive ENTAILED, short-circuit before entailment, and telemetry."
+  - "Touch the strict_verify rollup if needed so entailment_failed:<reason> reaches manifest drop_reason_counts; do not leave this to a later refactor."
+  - "Guard implementation against circular import risk from generator -> generator2.strict_verify."
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: "Option A is acceptable because the production gap is the load-bearing defect and the shared-module cleanup can follow as I-bug-099. The only non-negotiable addition is proving both execution and reporting on the production hot path; judge_calls > 0 proves wiring, but failure-reason propagation needs either sweep evidence or a deterministic test."
