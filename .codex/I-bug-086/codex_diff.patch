@@ -1,0 +1,152 @@
+diff --git a/.env.example b/.env.example
+index b3c31932..17226f68 100644
+--- a/.env.example
++++ b/.env.example
+@@ -56,7 +56,7 @@ CROSSREF_EMAIL=your.email@example.com
+ 
+ # Current pair pinned 2026-04-17 (see comments in openrouter_client.py
+ # for verified HHEM benchmarks and two-family justification)
+-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
++PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+ PG_EVALUATOR_MODEL=qwen/qwen3-8b
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+@@ -64,7 +64,7 @@ PG_EVALUATOR_MODEL=qwen/qwen3-8b
+ # PG_GENERATOR_FAMILY_OVERRIDE=deepseek
+ # PG_EVALUATOR_FAMILY_OVERRIDE=qwen
+ 
+-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v3.2-exp
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ 
+ # ─────────────────────────────────────────────────────────────────
+diff --git a/src/polaris_graph/evaluator/external_evaluator.py b/src/polaris_graph/evaluator/external_evaluator.py
+index 64712ea3..75d385da 100644
+--- a/src/polaris_graph/evaluator/external_evaluator.py
++++ b/src/polaris_graph/evaluator/external_evaluator.py
+@@ -27,7 +27,7 @@ Two complementary channels:
+ 
+ 2. LLM-JUDGE (non-same-family)
+    - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
+-     PG_GENERATOR_MODEL (default deepseek/deepseek-v3.2-exp).
++     PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
+    - check_family_segregation() FAILS FAST if both are in the
+      same family.
+    - Only judges NUANCE items the rule-based checks can't cover:
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 666ee257..f9b6558c 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -120,6 +120,10 @@ def _add_run_cost(delta: float) -> None:
+ # guard). When the model is unknown we use OPUS-tier defaults.
+ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+     # model prefix  :  (input $/M, output $/M)
++    # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
++    # = iteration order = first-match-wins per _impute_cost_from_tokens.
++    "deepseek/deepseek-v4-pro":   (0.435, 0.87),
++    "deepseek/deepseek-v4-flash": (0.14, 0.28),
+     "deepseek/":       (0.27, 0.38),
+     "qwen/qwen3-8b":   (0.05, 0.40),
+     "qwen/qwen3-32b":  (0.10, 0.60),
+@@ -197,17 +201,20 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ # 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
+ #
+ # Defaults pin the VERIFIED-ON-GROUNDED-FACTUALITY pair (user decision
+-# 2026-04-17 after multi-axis reasoning):
++# 2026-04-17 after multi-axis reasoning; generator default upgraded to V4
++# Pro on 2026-05-08 per I-bug-086 once V4 hit OpenRouter):
+ #
+-#   Generator: deepseek/deepseek-v3.2-exp  (role-fit: long-form grounded
++#   Generator: deepseek/deepseek-v4-pro   (role-fit: long-form grounded
+ #                                          synthesis)
+-#       - Vectara HHEM 5.3% (rank 15 of 77+ open-weight), primary source:
+-#         github.com/vectara/hallucination-leaderboard/commits/main PR #181
+-#       - MMLU-Pro 85.0 / GPQA-D 79.9 / AIME 89.3 (strong synthesis reasoning)
+-#       - 128K context, MIT license, ~$0.27 in / $0.38 out per M tokens on
+-#         DeepInfra / OpenRouter
+-#       - Released 2025-09-29 (not the newest, but role-verified on THREE
+-#         axes: grounded faithfulness + synthesis reasoning + cost)
++#       - 1.6T total / 49B active params, hybrid CSA+HCA attention
++#       - 1.05M context, MIT license, $0.435 in / $0.87 out per M tokens
++#         on OpenRouter
++#       - Released 2026-04-24 (current frontier open-weight)
++#       - Sovereign V4 hosting on OVH H200 still pending I-phase0-006
++#         hardware decision; OpenRouter is the bridge until then
++#       - Predecessor V3.2 retained on OpenRouter (`deepseek/deepseek-v3.2-exp`),
++#         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
++#         if V4 Pro produces regressions on the BEAT-BOTH benchmark
+ #
+ #   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
+ #                                         judgment, runs 100s of times per
+@@ -239,7 +246,7 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ # Family derivation uses OpenRouter publisher-slug prefix.
+ PG_GENERATOR_MODEL = os.getenv(
+     "PG_GENERATOR_MODEL",
+-    "deepseek/deepseek-v3.2-exp",
++    "deepseek/deepseek-v4-pro",
+ )
+ PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+ 
+@@ -333,7 +340,7 @@ def check_family_segregation(
+             f"share blind spots and RLHF biases. Pick models from different "
+             f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+             f"values to demonstrate you know the trade-off. Recommended pair: "
+-            f"deepseek/deepseek-v3.2-exp (generator) + qwen/qwen3-32b "
++            f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
+             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+         )
+     return (gen_family, eval_family)
+diff --git a/tests/polaris_graph/test_deepseek_v4_pricing.py b/tests/polaris_graph/test_deepseek_v4_pricing.py
+new file mode 100644
+index 00000000..fad69d68
+--- /dev/null
++++ b/tests/polaris_graph/test_deepseek_v4_pricing.py
+@@ -0,0 +1,46 @@
++"""I-bug-086 — V4 Pro / V4 Flash pricing + family pinning.
++
++Pins the price-table entries inserted BEFORE the generic `deepseek/`
++prefix so V4-specific pricing wins over the V3.2-tier generic price.
++A regression that drops the V4 entries (or reorders so generic wins)
++weakens the budget guard and breaks this test.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.llm.openrouter_client import (
++    _impute_cost_from_tokens,
++    check_family_segregation,
++    family_from_model,
++)
++
++
++def test_v4_pro_uses_specific_price_not_generic() -> None:
++    cost = _impute_cost_from_tokens(
++        "deepseek/deepseek-v4-pro",
++        input_tokens=1_000_000,
++        output_tokens=1_000_000,
++        reasoning_tokens=0,
++    )
++    assert abs(cost - (0.435 + 0.87)) < 1e-6
++
++
++def test_v4_flash_uses_specific_price_not_generic() -> None:
++    cost = _impute_cost_from_tokens(
++        "deepseek/deepseek-v4-flash",
++        input_tokens=1_000_000,
++        output_tokens=1_000_000,
++        reasoning_tokens=0,
++    )
++    assert abs(cost - (0.14 + 0.28)) < 1e-6
++
++
++def test_v4_pro_family_segregation_with_qwen_evaluator() -> None:
++    assert family_from_model("deepseek/deepseek-v4-pro") == "deepseek"
++    gen, ev = check_family_segregation(
++        generator_model="deepseek/deepseek-v4-pro",
++        evaluator_model="qwen/qwen3-8b",
++        generator_override="",
++        evaluator_override="",
++    )
++    assert (gen, ev) == ("deepseek", "qwen")
+
+# canonical-diff-sha256: dd8c82baab34533e6e8f0403599daae1ddeb1b710bfd506181f9ed4e5c255a4a
