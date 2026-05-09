@@ -236,6 +236,67 @@ def _get_judge() -> _EntailmentJudge:
 _UNKNOWN_MODE_WARNED: set[str] = set()
 
 
+# I-bug-096: process-lifetime telemetry counters for the entailment gate.
+# Per Codex review of I-bug-092: in enforce mode the judge fail-open
+# path returns ("ENTAILED", "judge_error: ...") on transient API errors.
+# A persistent OpenRouter outage or model-format change could make the
+# 6th check silently inert — every sentence falls through as ENTAILED
+# while WARNING lines accumulate. These counters give an operator a
+# concise "the gate ran N times, M of those errored" signal.
+#
+# Counters are strict_verify-side (not judge-side) per Codex's iter-1
+# brief verdict: gate behavior is what we want to measure, not a
+# specific judge implementation. Tests with FakeJudge tick these too,
+# and a future swapped judge cannot bypass the judge_error counter.
+_JUDGE_TELEMETRY: dict[str, int] = {
+    "calls": 0,
+    "entailed": 0,
+    "neutral": 0,
+    "contradicted": 0,
+    "judge_error": 0,
+}
+
+
+def get_judge_telemetry() -> dict[str, int]:
+    """Snapshot of process-lifetime entailment-judge counters.
+
+    Read once before a job to compute deltas if needed. Operators
+    concerned that the gate has gone silently inert can poll this from
+    a health endpoint or scripts/observability tooling and alert on
+    judge_error rate.
+    """
+    return dict(_JUDGE_TELEMETRY)
+
+
+def reset_judge_telemetry() -> None:
+    """Zero all judge telemetry counters in-place.
+
+    Public so operators can deliberately reset between jobs / runs.
+    Tests use this for isolation; production callers can use it to
+    bound the counter arithmetic to a single run window.
+    """
+    for key in _JUDGE_TELEMETRY:
+        _JUDGE_TELEMETRY[key] = 0
+
+
+def _record_judge_outcome(verdict: str, reason: str) -> None:
+    """Tick the appropriate counter based on judge return values.
+
+    Normalizes the existing judge fail-open contract: when reason
+    starts with 'judge_error:', the call errored and was returned as
+    ENTAILED to keep the run alive. We tick judge_error in that case
+    instead of entailed so an operator can distinguish "gate accepted
+    the sentence" from "gate failed open."
+    """
+    _JUDGE_TELEMETRY["calls"] += 1
+    if reason.startswith("judge_error:"):
+        _JUDGE_TELEMETRY["judge_error"] += 1
+        return
+    key = verdict.lower()
+    if key in _JUDGE_TELEMETRY:
+        _JUDGE_TELEMETRY[key] += 1
+
+
 def _entailment_mode() -> str:
     """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'.
 
@@ -338,6 +399,7 @@ def verify_sentence(
     mode = _entailment_mode()
     if mode in ("warn", "enforce"):
         verdict, reason = _get_judge().judge(sentence_clean, combined_span)
+        _record_judge_outcome(verdict, reason)
         if verdict in ("NEUTRAL", "CONTRADICTED"):
             logger.warning(
                 "entailment %s (mode=%s): sentence=%r reason=%r",
