@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Warn-mode log assertion is appropriate. Checking for the semantic substring `entailment NEUTRAL` is a useful Crown Jewel binding because it prevents warn mode from silently losing operator-visible telemetry while still allowing nonessential wording around it to evolve."
+  - "Optional tightening: also assert at least one matching record has `levelname == 'WARNING'`, since `caplog.at_level('WARNING')` mostly filters capture and does not by itself document the invariant as directly as an explicit level assertion."
+  - "Minor doc/test naming mismatch: `test_cj_008_enforce_entailed_keeps_sentence` calls `_M2_SENTENCE` a conservative paraphrase, but the sentence is intentionally the fabricated M2 claim. Because the judge is fake, this is not a behavioral hole; it is only comment drift."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

@@ -1,0 +1,73 @@
+# Codex Brief — I-cj-008 (Crown Jewel: entailment binding)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- DO NOT call exec / rg / shell tools. Brief is self-contained.
+```
+
+## Context
+
+I-bug-092 (PR #343, merged commit `58b91362`) added a 6th strict_verify check — an LLM-as-judge entailment gate that closes the **provenance-correctness gap** revealed by the 2026-05-09 audit. You marked the entailment invariant as `crown_jewel_candidate: yes` in the iter-1 verdict on the architectural brief.
+
+POLARIS Crown Jewels (`tests/crown_jewels/`) are the binding architectural invariant suite. Existing seven:
+
+- I-cj-001 — two-family segregation
+- I-cj-002 — provenance tokens (token presence + format)
+- I-cj-003 — strict_verify mechanical (a)-(e) invariants
+- I-cj-004 — zero-verified abort
+- I-cj-005 — corpus approval enforcement
+- I-cj-006 — budget imputation
+- I-cj-007 — delimiter sanitization
+
+**Proposal**: add I-cj-008 — entailment-correctness invariant. Pins the architectural rule: "when `PG_STRICT_VERIFY_ENTAILMENT=enforce` and the entailment judge returns NEUTRAL or CONTRADICTED, the sentence is dropped with `drop_reason='entailment_failed'`."
+
+## Why this is a Crown Jewel (not a regular regression test)
+
+The audit-revealed gap (M2/C2/C1 fabrications passing the 5 mechanical checks) is a Class-1 architectural failure of strict_verify. The 6th check restored content-fidelity enforcement. If that check is silently bypassed (e.g. someone sets default to `off` permanently, removes the `entailment_failed` drop branch, or skips the synthesis-with-tokens gating), the audit-revealed fabrications start passing again. A Crown Jewel locks the gate teeth so that a casual edit cannot remove them.
+
+## What the test pins
+
+```yaml
+invariant: "Under PG_STRICT_VERIFY_ENTAILMENT=enforce and a judge returning NEUTRAL/CONTRADICTED, verify_sentence returns (False, 'entailment_failed')"
+positive_control: "Same setup with judge returning ENTAILED keeps the sentence."
+mode_gating: "Under PG_STRICT_VERIFY_ENTAILMENT=off (default), the judge is NOT invoked even when present in the singleton."
+synthesis_gating: "is_synthesis_claim=True with provenance tokens still runs the entailment check (mirrors cj_003 synthesis-claim semantics)."
+drop_reason_propagates: "verify_sentence_to_record carries drop_reason='entailment_failed' through the VerifiedSentence record."
+```
+
+## Implementation surface
+
+`tests/crown_jewels/test_cj_008_entailment_correctness.py` — new file, ~80-120 LOC mirror of `test_cj_003_strict_verify.py` patterns.
+
+The test installs a deterministic fake judge via `monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)` (same pattern used in `tests/polaris_graph/generator2/test_strict_verify_entailment.py` shipped under I-bug-092). Crown jewel imports `verify_sentence` directly, builds a small EvidencePool fixture, sets the env var, runs the verify, and asserts the (False, "entailment_failed") tuple.
+
+NO production code changes. NO new dependencies. Pure-test addition.
+
+## What I want from you
+
+1. **Verdict** (APPROVE / REQUEST_CHANGES) on the Crown Jewel proposal as scoped above.
+2. **Test surface coverage** — anything I'm missing? Especially:
+    - Should I-cj-008 also pin the warn-mode behavior (judge runs but does NOT drop), or is that out of scope for a binding architectural invariant?
+    - Should I-cj-008 pin the two-family-segregation-at-judge-construction invariant, or is that already covered by I-cj-001 by extension? My read: cj-001 pins generator-vs-evaluator family segregation; the entailment judge is technically a 3rd model role (evaluator-of-evaluator-output) so it could be a separate test but seems redundant given cj-001 covers the underlying check_family_segregation function.
+    - Should I-cj-008 pin the cost-discipline invariant (mechanical short-circuit before the judge call)? This is in the regular regression suite already; could promote.
+3. **LOC estimate justified?** I'm targeting 80-120 LOC; the existing cj_003 is 96 LOC.
+4. **Mock fake-judge usage acceptable for a Crown Jewel?** Crown Jewel I-cj-001 uses real model strings + the real `check_family_segregation` function, no mocking. I-cj-008 must use a fake judge because the gate's real model call is unavailable at CI time without OpenRouter creds. The fake-judge fixture isolates the wiring invariant from the model's semantic accuracy (which is I-bug-093's job to validate).
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+test_surface_complete: yes | no
+loc_estimate_ok: yes | no
+fake_judge_acceptable_for_crown_jewel: yes | no
+extra_invariants_to_pin: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+rationale: <2-3 sentences>
+```

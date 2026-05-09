@@ -1,0 +1,11 @@
+verdict: APPROVE
+test_surface_complete: yes
+loc_estimate_ok: yes
+fake_judge_acceptable_for_crown_jewel: yes
+extra_invariants_to_pin:
+  - "Optional P2: warn-mode behavior, if warn is a documented/operator-facing mode: judge runs, NEUTRAL/CONTRADICTED does not drop, and any warning metadata/log path remains non-fatal."
+  - "Optional P2: mechanical short-circuit before judge invocation, mainly cost/latency discipline; promote only if Crown Jewels are meant to bind cost invariants, otherwise regular regression coverage is enough."
+  - "Do not duplicate two-family segregation here unless the entailment judge uses a distinct construction path that bypasses the function pinned by I-cj-001."
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: "The proposed I-cj-008 pins the core architectural invariant: enforce-mode entailment failures must become `entailment_failed` drops, with positive, off-mode, synthesis, and record-propagation controls. Fake judge usage is appropriate because this Crown Jewel is binding strict_verify wiring and policy semantics, not validating model quality or provider availability. Warn mode and short-circuit behavior are useful additions but not P0/P1 blockers for this Crown Jewel as scoped."
