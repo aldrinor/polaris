@@ -6,18 +6,38 @@ Per-sentence check enforcing:
   (c) span bounds are valid (0 <= start <= end <= len(text))
   (d) every decimal in the sentence appears in the cited spans
   (e) sentence and span share >= MIN_CONTENT_OVERLAP content words
+  (f) I-bug-092: span semantically ENTAILS the sentence's specific claims
+      (gated behind PG_STRICT_VERIFY_ENTAILMENT, defaults off)
+
+Checks (a)-(e) are mechanical "provenance hygiene" — they bound a claim to
+the same TOPIC as its span. Check (f) is "provenance correctness" — it
+verifies the span actually entails the sentence's specific facts. The
+audit on 2026-05-09 found that a capable generator can pass (a)-(e) by
+producing topically-overlapping prose that introduces unsourced specifics
+(e.g. inserting "pancreatic β-cells", "lipid metabolism", "energy storage"
+into a span that says only "synergistic actions on insulin secretion,
+glucagon suppression, appetite regulation, and adipocyte metabolism").
 
 Returns a (verifier_pass: bool, drop_reason: str | None) pair, or directly
 constructs a VerifiedSentence for use by the generator orchestrator.
 
-Pure-functions module: no I/O, no LLM, no network.
-
 Tunables (read at call time so tests can override):
   PG_PROVENANCE_MIN_CONTENT_OVERLAP — minimum shared content words (default 2)
+  PG_STRICT_VERIFY_ENTAILMENT       — "off" (default) | "warn" | "enforce"
+                                       off:     skip check (f), current behavior
+                                       warn:    run check (f), log violations,
+                                                do NOT drop (collect telemetry)
+                                       enforce: run check (f), drop on
+                                                NEUTRAL or CONTRADICTED verdict
+  PG_ENTAILMENT_MODEL               — entailment judge model
+                                       (default: google/gemma-4-31b-it,
+                                        the two-family evaluator)
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 
@@ -33,6 +53,8 @@ from polaris_graph.generator2.verified_report import (
     VerifiedSentence,
 )
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +105,138 @@ def _decimals(text: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Entailment judge (I-bug-092 — provenance correctness)
+# ---------------------------------------------------------------------------
+#
+# After mechanical checks (a)-(e) pass, the entailment judge asks an LLM
+# whether the cited span semantically ENTAILS the sentence's specific
+# claims. This catches the residual fabrication patterns the audit on
+# 2026-05-09 surfaced:
+#   - mechanistic granularity insertion (M2: span says "adipocyte
+#     metabolism", sentence adds "lipid metabolism, energy storage")
+#   - specificity inflation (C2: span says "GLP-1 RAs", sentence
+#     upgrades to "semaglutide at the highest studied doses")
+#   - numbers nearby but not entailed (C1: span has 27/46/19 elsewhere,
+#     sentence claims 69-80% reach <=6.5% which is not in the span)
+#
+# The judge is the two-family evaluator (Gemma 4 31B by default), which
+# matches the §9.1.1 invariant — a different lineage than the generator
+# (DeepSeek). Calls go through OpenRouter using the existing project
+# auth substrate.
+
+_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+_ENTAILMENT_TIMEOUT_S = 30.0
+_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+
+Rules:
+- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
+- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
+
+Return STRICT JSON only, no prose:
+{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
+
+SPAN:
+{span}
+
+SENTENCE:
+{sentence}
+
+JSON:"""
+
+
+class _EntailmentJudge:
+    """Synchronous httpx wrapper around an OpenRouter entailment call.
+
+    Lazy-initialized via _get_judge() so import-time cost is zero when
+    PG_STRICT_VERIFY_ENTAILMENT=off (the default).
+    """
+
+    def __init__(self) -> None:
+        import httpx  # local import: avoid forcing the dep when off
+
+        # Lazy-import the family-segregation check so the off-mode path
+        # never touches openrouter_client. The judge is acting as a
+        # content evaluator (Layer-2), so it MUST differ from the
+        # generator family per CLAUDE.md §9.1.1 — fail at construction
+        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+        from polaris_graph.llm.openrouter_client import check_family_segregation
+
+        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
+            )
+        self._api_key = api_key
+        self._model = os.environ.get(
+            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+        )
+        # Two-family invariant per §9.1.1: raises RuntimeError if the
+        # entailment judge ends up in the same family as the generator
+        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
+        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
+        # default model (google/gemma-4-31b-it) is in a different
+        # family from DeepSeek by construction.
+        check_family_segregation(evaluator_model=self._model)
+        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
+
+    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+        """Return (verdict, reason).
+
+        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
+        fail-open so a transient OpenRouter outage does not nuke a run.
+        """
+        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+        try:
+            response = self._client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 100,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            verdict = str(parsed.get("verdict", "")).upper().strip()
+            reason = str(parsed.get("reason", ""))
+            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+            return verdict, reason
+        except Exception as exc:  # noqa: BLE001 — fail-open by design
+            logger.warning("entailment judge error: %s", exc)
+            return "ENTAILED", f"judge_error: {type(exc).__name__}"
+
+
+_JUDGE_SINGLETON: _EntailmentJudge | None = None
+
+
+def _get_judge() -> _EntailmentJudge:
+    """Lazy singleton so off-mode pays zero import/connection cost."""
+    global _JUDGE_SINGLETON
+    if _JUDGE_SINGLETON is None:
+        _JUDGE_SINGLETON = _EntailmentJudge()
+    return _JUDGE_SINGLETON
+
+
+def _entailment_mode() -> str:
+    """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'."""
+    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "off").lower().strip()
+    if raw not in ("off", "warn", "enforce"):
+        return "off"
+    return raw
+
+
+# ---------------------------------------------------------------------------
 # Per-sentence verifier
 # ---------------------------------------------------------------------------
 
@@ -103,6 +257,8 @@ def verify_sentence(
       3. spans within source bounds            → span_out_of_range
       4. every decimal in sentence in spans    → numeric_mismatch
       5. >=N shared content words              → overlap_too_low
+      6. (I-bug-092) span entails sentence     → entailment_failed
+         (gated by PG_STRICT_VERIFY_ENTAILMENT, off by default)
 
     If `is_synthesis_claim=True` AND the sentence has no tokens, return
     (True, None) — synthesis claims pass without provenance by definition
@@ -154,6 +310,21 @@ def verify_sentence(
     overlap = len(sentence_words & span_words)
     if overlap < threshold:
         return False, "overlap_too_low"
+
+    # Check (f) — entailment judge (I-bug-092). Synthesis claims with no
+    # tokens already short-circuited above; if a synthesis claim DOES
+    # carry tokens it must clear the same content-correctness bar as
+    # any other cited sentence.
+    mode = _entailment_mode()
+    if mode in ("warn", "enforce"):
+        verdict, reason = _get_judge().judge(sentence_clean, combined_span)
+        if verdict in ("NEUTRAL", "CONTRADICTED"):
+            logger.warning(
+                "entailment %s (mode=%s): sentence=%r reason=%r",
+                verdict, mode, sentence_clean, reason,
+            )
+            if mode == "enforce":
+                return False, "entailment_failed"
 
     return True, None
 

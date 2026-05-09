@@ -1,0 +1,14 @@
+verdict: APPROVE
+recommended_option: B
+fix_location: "src/polaris_graph/generator2/strict_verify.py:after content-word overlap check in verify_sentence()"
+test_surface:
+  - "M2: span mentions insulin secretion/adipocyte metabolism, sentence adds beta-cells/lipid metabolism/energy storage -> reject"
+  - "C2: span supports GLP-1 RA class comparison, sentence upgrades to semaglutide/highest studied doses -> reject"
+  - "C1: span contains nearby numbers but does not entail <=6.5% 69-80% claim -> reject"
+  - "Positive control: exact or conservative paraphrase fully entailed by span -> accept"
+  - "Synthesis exemption: is_synthesis_claim=True keeps existing exemption behavior unless the claim has explicit cited factual assertions"
+loc_estimate: 90
+crown_jewel_candidate: yes
+false_positive_risk: "Legitimate paraphrases may be dropped when the judge is overly literal or the cited span is too narrow."
+rollback_plan: "Gate behind an env flag such as PG_STRICT_VERIFY_ENTAILMENT with warn-only telemetry mode before disabling hard rejection."
+rationale: "Use semantic entailment as check 6, not a replacement for existing mechanical checks: token validity, bounds, decimals, and overlap remain cheap provenance hygiene, while the new judge handles provenance correctness. B directly targets M2, C2, and C1 because each failure is an unsupported semantic upgrade rather than just weak lexical overlap; C alone is too brittle for paraphrases, and A inherits flan-t5 context/dependency limits."
