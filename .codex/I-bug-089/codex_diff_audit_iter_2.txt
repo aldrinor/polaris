@@ -1,0 +1,367 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0c1e-9199-71e2-8310-b76a23238ed0
+--------
+user
+# Codex Diff Review — I-bug-089 (ITER 2 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Iter 1 truncated mid-output (no verdict block produced).
+- DO NOT narrate. DO NOT call exec / rg. Read diff, return ONLY yaml verdict.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue I-bug-089** — token-budget-aware request shaping + fail-loud on truncated planning.
+- **Brief APPROVE'd iter 4.** Implementation plan was reviewed and accepted (zero P0/P1/P2).
+- **Diff:** `.codex/I-bug-089/codex_diff.patch` (canonical-diff-sha256: `42e904c495f0c5a608d20ad15158912be0cbe944681445bf6f76104d9daac710`).
+
+## Diff summary (verbatim from local pytest)
+
+```
+$ python -m pytest tests/polaris_graph/test_reasoning_first_token_budget.py tests/polaris_graph/test_reasoning_first_normalize.py
+============================= 12 passed in 6.67s ==============================
+```
+
+## Diff content (3 changes, ~46 src LOC + 178 test LOC)
+
+**Change 1**: `_REASONING_FIRST_MODELS` registry, superset of `_ALWAYS_REASON_MODELS` plus V4 Pro/Flash.
+
+**Change 2**: in `_call()` body assembly, after the existing `elif reasoning_enabled:` branch, add:
+```python
+elif self.model in _REASONING_FIRST_MODELS:
+    reasoning_dict = {"exclude": False}
+    if reasoning_exclude is not None:
+        reasoning_dict["exclude"] = reasoning_exclude
+    if reasoning_max_tokens is not None:
+        reasoning_dict["max_tokens"] = reasoning_max_tokens
+    else:
+        reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
+    body["reasoning"] = reasoning_dict
+```
+
+**Change 3**: in I-bug-088's `elif len(reasoning.strip()) >= 100:` branch (post-PR-339), BEFORE the LLMResponse construction, add:
+```python
+_reasoning_clean = result.reasoning.rstrip()
+if (
+    "[#ev:" not in result.reasoning
+    and not _reasoning_clean.endswith((".", "!", "?", '"'))
+):
+    self.usage.total_errors += 1
+    raise RuntimeError(
+        f"I-bug-089: reasoning-first model {self.model} truncated mid-planning. "
+        f"content empty, reasoning has {len(result.reasoning)} chars but "
+        f"no [#ev:] markers and ends mid-sentence — increase max_tokens "
+        f"budget. SF-15 fail-loud."
+    )
+```
+
+**6 unit tests added** in `tests/polaris_graph/test_reasoning_first_token_budget.py`. **Existing 6 I-bug-088 tests** in `test_reasoning_first_normalize.py` pass without change.
+
+## Constraints (verifiable from diff)
+
+1. Two-family invariant: not touched (`check_family_segregation` unchanged).
+2. Budget-guard invariant: not touched (`_PRICE_TABLE_USD_PER_M` unchanged).
+3. CHARTER §3 LOC: 46 src LOC, under 200 cap.
+4. §9.4 hygiene: no `try: except: pass`, no `unittest.mock` in src/, magic 0.4 has docstring.
+5. GLM-5 backward compat: `_ALWAYS_REASON_MODELS` branch fires before new `_REASONING_FIRST_MODELS` `elif`, so GLM-5 path is unchanged.
+6. Caller override preserved: `reasoning_max_tokens=N` from caller wins over the 0.4× cap.
+7. Both-condition guard: RuntimeError fires only when BOTH no-`[#ev:]` AND mid-sentence. Either alone is treated as legit (regression tests pin this).
+
+## Output schema (RETURN ONLY THIS, NO PROSE)
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+If APPROVE, copy this verdict block as your output verbatim. If REQUEST_CHANGES, return the same schema with the actual P0/P1 blockers listed (one sentence each).
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 4d316de5..40a0d98b 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -366,6 +366,18 @@ _ALWAYS_REASON_MODELS = frozenset({
+     "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
+ })
+ 
++# I-bug-089 (2026-05-09): models that route to reasoning_content even when
++# the caller passes reasoning_enabled=False. Used by _call() to cap
++# reasoning.max_tokens at 40% of budget so 60% remains for content,
++# preventing token-starvation that leaves content="" + reasoning=full
++# planning prelude. Distinct from _ALWAYS_REASON_MODELS (which is the
++# legacy recovery-side switch); this is the request-side switch.
++_REASONING_FIRST_MODELS = frozenset({
++    *_ALWAYS_REASON_MODELS,
++    "deepseek/deepseek-v4-pro",
++    "deepseek/deepseek-v4-flash",
++})
++
+ # Pricing per million tokens (configurable per LAW VI)
+ # Qwen 3.5 Plus: $0.26 input, $1.56 output
+ # Use API-reported cost when available (FIX-C1)
+@@ -1148,6 +1160,21 @@ class OpenRouterClient:
+             if reasoning_exclude is not None:
+                 reasoning_dict["exclude"] = reasoning_exclude
+             body["reasoning"] = reasoning_dict
++        elif self.model in _REASONING_FIRST_MODELS:
++            # I-bug-089: caller wants reasoning_enabled=False but this model
++            # (e.g. DeepSeek V4 Pro/Flash) routes to reasoning_content anyway.
++            # Cap reasoning at 40% of max_tokens so 60% is reserved for content,
++            # preventing token-starvation where the planning eats the budget
++            # and the model never gets to write the answer. Caller-passed
++            # reasoning_max_tokens / reasoning_exclude still take precedence.
++            reasoning_dict = {"exclude": False}
++            if reasoning_exclude is not None:
++                reasoning_dict["exclude"] = reasoning_exclude
++            if reasoning_max_tokens is not None:
++                reasoning_dict["max_tokens"] = reasoning_max_tokens
++            else:
++                reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
++            body["reasoning"] = reasoning_dict
+ 
+         if response_format:
+             body["response_format"] = response_format
+@@ -1929,6 +1956,25 @@ class OpenRouterClient:
+                 # in result.reasoning for tracing. Threshold of 100 chars
+                 # guards against treating a near-empty reasoning blip as a
+                 # full answer.
++                #
++                # I-bug-089: detect token-starvation case where the model
++                # ran out of budget mid-planning. If reasoning has no
++                # provenance markers AND ends mid-sentence, the model
++                # never wrote the answer — fail loud so caller can retry
++                # with bigger budget instead of promoting planning prelude.
++                _reasoning_clean = result.reasoning.rstrip()
++                if (
++                    "[#ev:" not in result.reasoning
++                    and not _reasoning_clean.endswith((".", "!", "?", '"'))
++                ):
++                    self.usage.total_errors += 1
++                    raise RuntimeError(
++                        f"I-bug-089: reasoning-first model {self.model} "
++                        f"truncated mid-planning. content empty, reasoning "
++                        f"has {len(result.reasoning)} chars but no [#ev:] "
++                        f"markers and ends mid-sentence — increase max_tokens "
++                        f"budget. SF-15 fail-loud."
++                    )
+                 logger.warning(
+                     "[polaris graph] I-bug-088: generate() content empty, "
+                     "reasoning has %d chars and no </think> tag. Model %s is "
+diff --git a/tests/polaris_graph/test_reasoning_first_token_budget.py b/tests/polaris_graph/test_reasoning_first_token_budget.py
+new file mode 100644
+index 00000000..b90c3ace
+--- /dev/null
++++ b/tests/polaris_graph/test_reasoning_first_token_budget.py
+@@ -0,0 +1,178 @@
++"""
++I-bug-089 — token-budget-aware request shaping + fail-loud on truncated planning.
++
++Pin three invariants on top of I-bug-088's response-shape-centric recovery:
++
++1. When calling a reasoning-first model (V4 Pro/Flash) with
++   reasoning_enabled=False, request body MUST include
++   reasoning.max_tokens = max_tokens * 0.4, leaving 60% for content.
++   This prevents token-starvation where the model spends its entire
++   budget on planning and never writes the answer.
++
++2. If the I-bug-088 promote-reasoning-to-content path detects truncation
++   (no [#ev:] markers AND mid-sentence cutoff), it MUST raise RuntimeError
++   instead of promoting the planning prelude. The caller retries with
++   bigger budget.
++
++3. Legitimate "answer in reasoning" output (has provenance + ends in punct)
++   MUST still promote successfully — I-bug-088's existing test surface
++   does not regress.
++"""
++from __future__ import annotations
++
++import json
++from unittest.mock import AsyncMock, patch
++
++import pytest
++
++from src.polaris_graph.llm.openrouter_client import (
++    LLMResponse,
++    OpenRouterClient,
++    _REASONING_FIRST_MODELS,
++)
++
++
++def _make_response(*, content: str = "", reasoning: str = "") -> LLMResponse:
++    return LLMResponse(
++        content=content,
++        reasoning=reasoning,
++        input_tokens=10,
++        output_tokens=20,
++        reasoning_tokens=30,
++        model="test-model",
++        duration_ms=100.0,
++    )
++
++
++def test_v4_pro_in_reasoning_first_models() -> None:
++    """V4 Pro and V4 Flash must be in the reasoning-first request-side set."""
++    assert "deepseek/deepseek-v4-pro" in _REASONING_FIRST_MODELS
++    assert "deepseek/deepseek-v4-flash" in _REASONING_FIRST_MODELS
++
++
++def test_glm5_inherited_via_always_reason() -> None:
++    """_REASONING_FIRST_MODELS includes _ALWAYS_REASON_MODELS as superset."""
++    from src.polaris_graph.llm.openrouter_client import _ALWAYS_REASON_MODELS
++    for model in _ALWAYS_REASON_MODELS:
++        assert model in _REASONING_FIRST_MODELS, (
++            f"{model} in _ALWAYS_REASON_MODELS but not in _REASONING_FIRST_MODELS"
++        )
++
++
++@pytest.mark.asyncio
++async def test_v4_pro_truncated_planning_raises_fail_loud() -> None:
++    """I-bug-089: truncated planning (no [#ev:] AND mid-sentence) raises RuntimeError.
++
++    V4 Pro emits all CoT planning to reasoning_content, then runs out of
++    max_tokens before writing the answer. Pre-I-bug-089, I-bug-088 would
++    promote the planning prelude to content and strict_verify would drop
++    it. With I-bug-089, we fail loud so the caller can retry with bigger
++    budget.
++    """
++    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
++
++    truncated_planning = (
++        "We are asked to write the Efficacy section about tirzepatide. "
++        "Let me inventory the evidence blocks. "
++        "ev_001 covers SURPASS-2 efficacy in T2D adults. "
++        "ev_002 covers SURMOUNT-1 obesity outcomes. "
++        "Now let me draft the answer based on these"
++    )
++    assert "[#ev:" not in truncated_planning
++    assert not truncated_planning.rstrip().endswith((".", "!", "?", '"'))
++
++    fake = _make_response(content="", reasoning=truncated_planning)
++    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
++        with pytest.raises(RuntimeError, match="I-bug-089.*truncated mid-planning"):
++            await client.generate(prompt="Write the section")
++
++    await client.close()
++
++
++@pytest.mark.asyncio
++async def test_v4_pro_completed_answer_in_reasoning_still_promotes() -> None:
++    """Regression: legitimate 'answer in reasoning' (with [#ev:] + punct end) must still promote.
++
++    This is the case I-bug-088 was originally built for. Even when the
++    answer is routed to reasoning_content, if the model finished writing
++    AND the answer has provenance markers, we promote without failing.
++    """
++    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
++
++    completed_answer = (
++        "Tirzepatide produced -2.07% HbA1c reduction at 15 mg dose "
++        "[#ev:ev_001:0-50] in SURPASS-2. Body weight changes were "
++        "-7.8 kg, -10.3 kg, and -12.4 kg [#ev:ev_002:120-180] for the "
++        "5 mg, 10 mg, and 15 mg doses respectively."
++    )
++    assert "[#ev:" in completed_answer
++    assert completed_answer.rstrip().endswith(".")
++
++    fake = _make_response(content="", reasoning=completed_answer)
++    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
++        result = await client.generate(prompt="Summarize")
++
++    assert result.content == completed_answer, (
++        "I-bug-088 promote path must preserve full reasoning when "
++        "provenance + punct-end signal a completed answer"
++    )
++
++    await client.close()
++
++
++@pytest.mark.asyncio
++async def test_v4_pro_provenance_only_promotes_even_if_mid_sentence() -> None:
++    """Edge: if reasoning has [#ev:] markers, treat as legit answer regardless of cutoff.
++
++    The presence of provenance tokens means the model started writing the
++    answer (not just planning). Mid-sentence cutoff in that case is a
++    different failure mode (output-side truncation) handled by the caller's
++    strict_verify drop logic, NOT by I-bug-089's fail-loud.
++    """
++    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
++
++    partial_answer = (
++        "Tirzepatide reduced HbA1c by -2.07% at the 15 mg dose [#ev:ev_001:0-50] "
++        "in SURPASS-2 versus -1.86% with semaglutide. Body weight changes "
++        "showed -7.6, -10.0, -11.4 kg [#ev:ev_002:120-180] for the 5/10/15 "
++        "doses. The cardiovascular outcomes data shows that"
++    )
++    assert "[#ev:" in partial_answer
++    assert not partial_answer.rstrip().endswith((".", "!", "?", '"'))
++
++    fake = _make_response(content="", reasoning=partial_answer)
++    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
++        result = await client.generate(prompt="Summarize")
++
++    assert result.content == partial_answer, (
++        "[#ev:] presence overrides mid-sentence guard — I-bug-088 promote"
++    )
++
++    await client.close()
++
++
++@pytest.mark.asyncio
++async def test_v4_pro_complete_punct_no_provenance_still_promotes() -> None:
++    """Edge: reasoning ends in punct without [#ev:] is treated as legit.
++
++    Both conditions (no provenance AND mid-sentence) must hold for fail-loud
++    to fire. If the model produced complete-looking sentences but failed to
++    emit provenance markers, that's a separate bug (provenance-discipline)
++    that strict_verify will catch downstream.
++    """
++    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
++
++    completed_no_provenance = (
++        "Tirzepatide is effective for type 2 diabetes management. "
++        "It produces significant HbA1c reductions and weight loss."
++    )
++    assert "[#ev:" not in completed_no_provenance
++    assert completed_no_provenance.rstrip().endswith(".")
++
++    fake = _make_response(content="", reasoning=completed_no_provenance)
++    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
++        result = await client.generate(prompt="Summarize")
++
++    assert result.content == completed_no_provenance
++
++    await client.close()
+
+# canonical-diff-sha256: 42e904c495f0c5a608d20ad15158912be0cbe944681445bf6f76104d9daac710
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+5,944
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
