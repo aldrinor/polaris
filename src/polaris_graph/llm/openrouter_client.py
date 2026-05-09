@@ -1175,6 +1175,16 @@ class OpenRouterClient:
             else:
                 reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
             body["reasoning"] = reasoning_dict
+            # I-bug-090: OpenRouter does NOT enforce reasoning.max_tokens for
+            # V4 Pro on the provider side — the model still emits ~2500
+            # reasoning tokens regardless. Floor max_tokens to a value large
+            # enough that 40/60 split leaves room for both reasoning AND
+            # content. Empirically observed at 2400 max: reasoning eats the
+            # whole budget, content empty, I-bug-089 fail-loud raises.
+            # 6000 floor → ~2500 reasoning + ~3500 content, both fit.
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "6000"))
+            if body.get("max_tokens", 0) < _min_tokens:
+                body["max_tokens"] = _min_tokens
 
         if response_format:
             body["response_format"] = response_format
