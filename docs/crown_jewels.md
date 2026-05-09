@@ -1,0 +1,13 @@
+# Crown Jewel registry
+
+Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track ships dedicated tests that pin each non-negotiable invariant from `CLAUDE.md` §9.1. A future regression that weakens any of these invariants causes a `tests/crown_jewels/test_cj_NNN_*` test to fail under an unambiguous identifier.
+
+| Issue | Invariant (CLAUDE.md §9.1) | Test path | Bound source-of-truth |
+|---|---|---|---|
+| I-cj-001 | §9.1.1 Two-family evaluator | `tests/crown_jewels/test_cj_001_two_family_segregation.py` | `src/polaris_graph/llm/openrouter_client.py::check_family_segregation` |
+| I-cj-002 | §9.1.2 Provenance tokens | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/provenance.py` |
+| I-cj-003 | §9.1.3 Strict verify | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/strict_verify.py` |
+| I-cj-004 | §9.1.4 Zero-verified abort | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/verified_report.py` |
+| I-cj-005 | §9.1.5 Corpus approval enforcement | Pending — issued in subsequent CJ Issues | `src/polaris_graph/nodes/corpus_approval.py` |
+| I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | Pending — issued in subsequent CJ Issues | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
+| I-cj-007 | §9.1.7 Delimiter sanitization | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/delimiter_sanitize.py` |
