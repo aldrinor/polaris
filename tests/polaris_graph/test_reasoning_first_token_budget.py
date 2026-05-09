@@ -50,6 +50,24 @@ def test_v4_pro_in_reasoning_first_models() -> None:
     assert "deepseek/deepseek-v4-flash" in _REASONING_FIRST_MODELS
 
 
+def test_v4_pro_min_max_tokens_floor_default_is_6000() -> None:
+    """I-bug-090: PG_REASONING_FIRST_MIN_MAX_TOKENS default must be 6000.
+
+    OpenRouter does NOT enforce reasoning.max_tokens for V4 Pro on the
+    provider side — the model emits ~2500 reasoning tokens regardless.
+    Floor must be large enough that the 40/60 split (I-bug-089) leaves
+    room for both reasoning AND content. 6000 → ~2500 reasoning + ~3500
+    content, both fit. At 2400 (the legacy default), reasoning eats the
+    whole budget and I-bug-089 fail-loud raises.
+    """
+    import os
+    val = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "6000"))
+    assert val >= 6000, (
+        f"PG_REASONING_FIRST_MIN_MAX_TOKENS must be >= 6000 (got {val}). "
+        f"Below 6000 V4 Pro CoT eats the budget."
+    )
+
+
 def test_glm5_inherited_via_always_reason() -> None:
     """_REASONING_FIRST_MODELS includes _ALWAYS_REASON_MODELS as superset."""
     from src.polaris_graph.llm.openrouter_client import _ALWAYS_REASON_MODELS
