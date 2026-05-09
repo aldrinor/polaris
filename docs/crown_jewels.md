@@ -10,4 +10,4 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track 
 | I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/generator2/verified_report.py::VerifiedReport._verdict_consistency` |
 | I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
 | I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | `tests/crown_jewels/test_cj_006_budget_imputation.py` | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
-| I-cj-007 | §9.1.7 Delimiter sanitization | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/delimiter_sanitize.py` |
+| I-cj-007 | §9.1.7 Delimiter sanitization | `tests/crown_jewels/test_cj_007_delimiter_sanitization.py` | `src/polaris_graph/generator/provenance_generator.py::sanitize_evidence_text` |
