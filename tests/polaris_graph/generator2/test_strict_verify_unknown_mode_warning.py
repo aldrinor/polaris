@@ -30,13 +30,19 @@ def _warning_records(caplog) -> list[logging.LogRecord]:
 
 
 def test_unknown_mode_emits_warning_once_per_process(monkeypatch, caplog):
-    """Three calls with the same typo emit exactly ONE WARNING."""
+    """Three calls with the same typo emit exactly ONE WARNING.
+
+    I-bug-095: unknown values now fall back to the production default
+    (enforce), not 'off'. The dedup invariant is unchanged.
+    """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforced")
     with caplog.at_level("WARNING", logger=strict_verify.logger.name):
         m1 = strict_verify._entailment_mode()
         m2 = strict_verify._entailment_mode()
         m3 = strict_verify._entailment_mode()
-    assert m1 == m2 == m3 == "off", "unknown value still falls back to off"
+    assert m1 == m2 == m3 == "enforce", (
+        "unknown value falls back to default (enforce per I-bug-095)"
+    )
     warns = [r for r in _warning_records(caplog) if "unrecognized" in r.message]
     assert len(warns) == 1, (
         f"expected exactly one WARNING for repeated typo, got {len(warns)}"
@@ -86,20 +92,25 @@ def test_known_modes_emit_no_warning(monkeypatch, caplog, known_value):
 
 
 def test_empty_env_emits_no_warning(monkeypatch, caplog):
-    """Empty env = unset = default off, NOT a misconfiguration. No warning."""
+    """Empty env = unset = default (enforce per I-bug-095), NOT a
+    misconfiguration. No warning.
+    """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "")
     with caplog.at_level("WARNING", logger=strict_verify.logger.name):
         result = strict_verify._entailment_mode()
-    assert result == "off"
+    assert result == "enforce"
     warns = [r for r in _warning_records(caplog) if "unrecognized" in r.message]
     assert warns == []
 
 
 def test_unset_env_emits_no_warning(monkeypatch, caplog):
+    """I-bug-095: unset env returns the production default (enforce);
+    no WARNING because that's the intended default, not a typo.
+    """
     monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)
     with caplog.at_level("WARNING", logger=strict_verify.logger.name):
         result = strict_verify._entailment_mode()
-    assert result == "off"
+    assert result == "enforce"
     warns = [r for r in _warning_records(caplog) if "unrecognized" in r.message]
     assert warns == []
 

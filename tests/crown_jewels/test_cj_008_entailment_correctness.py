@@ -183,13 +183,34 @@ def test_cj_008_off_mode_never_invokes_judge(monkeypatch) -> None:
     assert fake.calls == [], "off-mode must not invoke the judge"
 
 
-def test_cj_008_unset_mode_defaults_off(monkeypatch) -> None:
-    """No PG_STRICT_VERIFY_ENTAILMENT set -> behaves as 'off'."""
+def test_cj_008_unset_mode_defaults_enforce(monkeypatch) -> None:
+    """I-bug-095: production default is enforce. No PG_STRICT_VERIFY_ENTAILMENT
+    set -> gate runs + drops on NEUTRAL/CONTRADICTED. The operator escape
+    hatch is `PG_STRICT_VERIFY_ENTAILMENT=off` (asserted in the next test).
+    """
     monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)
     fake = _install_and_return(monkeypatch, _FakeJudge("NEUTRAL"))
-    ok, _ = verify_sentence(_M2_SENTENCE, _m2_pool(), min_content_overlap=2)
-    assert ok is True
-    assert fake.calls == []
+    ok, reason = verify_sentence(
+        _M2_SENTENCE, _m2_pool(), min_content_overlap=2,
+    )
+    assert ok is False, "default-enforce must drop NEUTRAL"
+    assert reason == "entailment_failed"
+    assert len(fake.calls) == 1, "default-enforce must invoke the judge"
+
+
+def test_cj_008_explicit_off_disables_gate(monkeypatch) -> None:
+    """I-bug-095: operator escape hatch — `PG_STRICT_VERIFY_ENTAILMENT=off`
+    bypasses the entailment check, returning the pre-graduation behavior.
+    Pinning this so a future edit cannot remove the operator override.
+    """
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+    fake = _install_and_return(monkeypatch, _FakeJudge("NEUTRAL"))
+    ok, reason = verify_sentence(
+        _M2_SENTENCE, _m2_pool(), min_content_overlap=2,
+    )
+    assert ok is True, "explicit off must keep the sentence"
+    assert reason is None
+    assert fake.calls == [], "explicit off must not invoke the judge"
 
 
 # ---------- Warn mode: judge runs but does not drop ----------

@@ -1,0 +1,130 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0dfb-37c4-7270-8c61-dd27982cf676
+--------
+user
+# Codex Brief — I-bug-095 (graduate PG_STRICT_VERIFY_ENTAILMENT default to enforce)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg".
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- DO NOT call exec / rg / shell tools.
+```
+
+## Context — what shipped before this Issue
+
+Five entailment-related PRs landed this session on `polaris`:
+
+| Issue | What it ships |
+|---|---|
+| I-bug-092 (#343) | Architectural fix: 6th strict_verify check (LLM-as-judge), gated by `PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce}` defaulting to **off** |
+| I-cj-008 (#344) | Crown Jewel binding test for the entailment invariant |
+| I-bug-097 (#345) | Operator safety: log warning on unknown env mode |
+| I-bug-096 (#346) | Operator observability: judge-error telemetry counters |
+| I-bug-094 (#347) | Env-gated live OpenRouter canary (4 audit-derived cases) |
+
+## The decision: flip default from "off" to "enforce"
+
+This is the policy decision that closes the loop on the 2026-05-09 audit-revealed provenance-correctness gap. The architectural fix exists (I-bug-092) but is dormant by default. Without flipping, every production run still has the gap.
+
+## Empirical evidence supporting the flip
+
+**I-bug-094's live test ran against real OpenRouter Gemma 4 31B, 4/4 PASSED in 20.5s** before merge:
+
+| Audit case | Real Gemma 4 31B verdict | Gate behavior |
+|---|---|---|
+| M2: β-cells/lipid metabolism inserted into URNCST adipocyte-metabolism span | NEUTRAL or CONTRADICTED | DROP (correct) |
+| C2: GLP-1 RA class → semaglutide-specific upgrade | NEUTRAL or CONTRADICTED | DROP (correct) |
+| C1: 69-80% reach <=6.5% claim with constituent numbers in span | NEUTRAL or CONTRADICTED | DROP (correct) |
+| Positive control: conservative paraphrase | ENTAILED | KEEP (correct) |
+
+This is empirical end-to-end confirmation: the prompt + Gemma 4 31B + wiring all together correctly identify the 3 audit-derived fabrication patterns AND accept legit paraphrases. The 4 most important audit cases work without any prompt tuning.
+
+## Risks of flipping default to enforce
+
+1. **Latency**: ~1 OpenRouter call per kept sentence. ~50 sentences/report × 1.5s/call = +75s per generation.
+2. **Cost**: ~$0.025/report at Gemma 4 31B prices.
+3. **False-positive paraphrase rejection**: the judge could drop legitimate paraphrases that happen to use synonyms (Codex flagged this in I-bug-092 brief verdict as `false_positive_risk`). Live test's positive control passed but that's a single sample.
+4. **Judge fail-open during outages**: if OpenRouter has a transient outage, the gate fails open (returns ENTAILED+judge_error tag). Per I-bug-096 telemetry, an operator can see judge_error rate; per I-bug-097 unknown-mode safety net, a typo cannot disable. But sustained OpenRouter degradation = sustained gate degradation.
+5. **Regression risk on non-audit patterns**: the 4 audit cases all worked, but there's a long tail of other potential mis-judgments we haven't sampled.
+
+## Risks of NOT flipping default
+
+1. **Production reports continue to ship M2/C2/C1-style fabrications.** That's the whole reason I-bug-092 exists.
+2. **Gap-fix is structurally complete but operationally inert.** The cage exists; the lock is open.
+3. **Carney delivery context**: the audit found 1 fabricated mechanistic claim, 1 specificity inflation, and 1 unverifiable claim in a single report. Shipping reports with that kind of fabrication to Carney is the failure mode the entire entailment fix exists to prevent.
+
+## What I'm proposing in this PR
+
+**Single-line config change**: `_entailment_mode()` defaults to `"enforce"` instead of `"off"`. Update tests + docstring accordingly. Preserve the operator escape hatch — operators can still set `PG_STRICT_VERIFY_ENTAILMENT=off` to disable explicitly.
+
+LOC: ~5 src/ + ~10 test adjustments. Changes:
+- `_entailment_mode()`: default `"off"` → default `"enforce"`
+- Module docstring: update mode description
+- Update existing tests where `monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)` was relying on default-off behavior — these tests need to set explicit "off" OR be updated to expect enforce-default behavior
+
+## What I want from you
+
+1. **Verdict** APPROVE / REQUEST_CHANGES on flipping the default NOW.
+2. **Is the I-bug-094 4-case live evidence sufficient**, or do you want additional empirical signal (e.g. an I-bug-093 warn-mode run on a fresh tirzepatide generation with broader sample) BEFORE flipping?
+3. **Latency impact**: 75s extra per report — acceptable for a Carney-grade deliverable? Per `feedback_no_cost_mentions.md` cost is fine; only flagging because latency might affect demo UX.
+4. **False-positive risk**: should we add a `PG_STRICT_VERIFY_ENTAILMENT_FAIL_OPEN_ON_PARAPHRASE=1` operator escape hatch for known-good content? My read: NO — the existing `=off` operator override is the escape hatch, and adding a paraphrase-specific bypass is feature creep.
+5. **Migration path** — drop the test files that expected default-off (since CI was off-mode by default) or update them to set `=off` explicitly?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+recommend_flip_now: yes | no
+sufficient_empirical_evidence: yes | needs_warn_mode_demo
+latency_acceptable_for_carney: yes | no
+false_positive_escape_hatch: not_needed | add_explicit_flag
+test_migration_approach: set_off_explicitly | other
+extra_concerns: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+rationale: <2-3 sentences>
+```
+
+codex
+```yaml
+verdict: APPROVE
+recommend_flip_now: yes
+sufficient_empirical_evidence: yes
+latency_acceptable_for_carney: yes
+false_positive_escape_hatch: not_needed
+test_migration_approach: set_off_explicitly
+extra_concerns:
+  - "Make tests explicit: cases that are not testing strict verification should set PG_STRICT_VERIFY_ENTAILMENT=off, while default-mode tests should assert enforce."
+  - "Ensure CI/unit tests mock the judge path so the new default does not create accidental live-network dependency."
+  - "Keep the operator rollback path documented: PG_STRICT_VERIFY_ENTAILMENT=off."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+rationale: "Approve flipping now: the known production failure mode is provenance fabrication with the fix currently dormant, and I-bug-094 gives enough targeted live evidence that the enforce path catches the audit-derived cases while preserving a valid paraphrase. The latency is acceptable for a Carney-grade deliverable, and a paraphrase-specific bypass would weaken the invariant; the existing explicit off switch is the right escape hatch."
+```
+tokens used
+3,080
+```yaml
+verdict: APPROVE
+recommend_flip_now: yes
+sufficient_empirical_evidence: yes
+latency_acceptable_for_carney: yes
+false_positive_escape_hatch: not_needed
+test_migration_approach: set_off_explicitly
+extra_concerns:
+  - "Make tests explicit: cases that are not testing strict verification should set PG_STRICT_VERIFY_ENTAILMENT=off, while default-mode tests should assert enforce."
+  - "Ensure CI/unit tests mock the judge path so the new default does not create accidental live-network dependency."
+  - "Keep the operator rollback path documented: PG_STRICT_VERIFY_ENTAILMENT=off."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+rationale: "Approve flipping now: the known production failure mode is provenance fabrication with the fix currently dormant, and I-bug-094 gives enough targeted live evidence that the enforce path catches the audit-derived cases while preserving a valid paraphrase. The latency is acceptable for a Carney-grade deliverable, and a paraphrase-specific bypass would weaken the invariant; the existing explicit off switch is the right escape hatch."
+```
