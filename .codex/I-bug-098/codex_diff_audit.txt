@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "I-bug-100: judge.judge() cost is uncounted in cost_usd. Ship this PR and track as follow-up unless cost_usd is an enforcement boundary rather than reporting."
+  - "Off mode still imports generator2.strict_verify on mechanically passing sentences because the import happens before _entailment_mode(). Not blocking, but the comment/claim of zero off-mode import cost is not true."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
