@@ -228,12 +228,32 @@ def _get_judge() -> _EntailmentJudge:
     return _JUDGE_SINGLETON
 
 
+# I-bug-097: dedup unknown-mode warnings so a long-running process logs
+# at most ONE WARNING per typo string. Operators sometimes set
+# PG_STRICT_VERIFY_ENTAILMENT=ENFORCE (already lowercased fine) or
+# =enforced (verb form, falls through to off). Without a warning, the
+# typo silently disables the gate.
+_UNKNOWN_MODE_WARNED: set[str] = set()
+
+
 def _entailment_mode() -> str:
-    """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'."""
+    """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'.
+
+    I-bug-097: emit a single WARNING per process per unrecognized typo
+    string. Empty / unset env returns 'off' silently — that is the
+    intended default, not a misconfiguration.
+    """
     raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "off").lower().strip()
-    if raw not in ("off", "warn", "enforce"):
+    if raw and raw not in ("off", "warn", "enforce"):
+        if raw not in _UNKNOWN_MODE_WARNED:
+            _UNKNOWN_MODE_WARNED.add(raw)
+            logger.warning(
+                "PG_STRICT_VERIFY_ENTAILMENT=%r unrecognized; "
+                "treating as 'off'. Valid: off, warn, enforce.",
+                raw,
+            )
         return "off"
-    return raw
+    return raw or "off"
 
 
 # ---------------------------------------------------------------------------
