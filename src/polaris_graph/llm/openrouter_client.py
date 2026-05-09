@@ -1919,11 +1919,38 @@ class OpenRouterClient:
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
                 )
-            else:
-                # No </think> tag — retry once (provider re-route)
+            elif len(result.reasoning.strip()) >= 100:
+                # I-bug-088: response-shape-centric normalization for
+                # reasoning-first models (e.g. DeepSeek V4 Pro) that route
+                # ALL assistant tokens to reasoning_content, leave content
+                # empty, and emit no </think> tag. The prior COT-2 retry
+                # cannot recover this — the provider produces the same shape
+                # on retry. Use raw reasoning as the answer; raw is preserved
+                # in result.reasoning for tracing. Threshold of 100 chars
+                # guards against treating a near-empty reasoning blip as a
+                # full answer.
                 logger.warning(
-                    "[polaris graph] COT-2: generate() content empty, no </think> "
-                    "in reasoning (%d chars). Retrying once.",
+                    "[polaris graph] I-bug-088: generate() content empty, "
+                    "reasoning has %d chars and no </think> tag. Model %s is "
+                    "reasoning-first — using reasoning as content directly.",
+                    len(result.reasoning), self.model,
+                )
+                result = LLMResponse(
+                    content=result.reasoning,
+                    reasoning=result.reasoning,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    reasoning_tokens=result.reasoning_tokens,
+                    model=result.model,
+                    duration_ms=result.duration_ms,
+                    raw_response=result.raw_response,
+                )
+            else:
+                # Reasoning is too sparse to be a real answer — retry once
+                # (provider may re-route on retry).
+                logger.warning(
+                    "[polaris graph] COT-2: generate() content empty, "
+                    "reasoning sparse (%d chars). Retrying once.",
                     len(result.reasoning),
                 )
                 result = await self._call(
@@ -1940,6 +1967,25 @@ class OpenRouterClient:
                     if extracted:
                         result = LLMResponse(
                             content=extracted,
+                            reasoning=result.reasoning,
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                            reasoning_tokens=result.reasoning_tokens,
+                            model=result.model,
+                            duration_ms=result.duration_ms,
+                            raw_response=result.raw_response,
+                        )
+                    elif len(result.reasoning.strip()) >= 100:
+                        # I-bug-088: same response-shape-centric recovery on
+                        # retry. If retry still produces reasoning-only output
+                        # with substance, treat reasoning as the answer.
+                        logger.warning(
+                            "[polaris graph] I-bug-088: retry still reasoning-"
+                            "only (%d chars) — promoting to content.",
+                            len(result.reasoning),
+                        )
+                        result = LLMResponse(
+                            content=result.reasoning,
                             reasoning=result.reasoning,
                             input_tokens=result.input_tokens,
                             output_tokens=result.output_tokens,

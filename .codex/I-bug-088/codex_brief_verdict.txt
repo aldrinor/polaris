@@ -1,0 +1,19 @@
+verdict: APPROVE
+recommended_option: hybrid
+root_cause: "V4 Pro returns a valid SSE completion with assistant tokens in reasoning_content and empty content; the SSE accumulator captures this correctly, and our reasoning_enabled=False path only omits the reasoning request block rather than guaranteeing provider-side suppression."
+test_surface:
+  - "Unit: mocked SSE content-only, reasoning_content-only, reasoning alias, both populated, and both-empty failure."
+  - "Unit: generate() promotes reasoning-only output on the first call with no retry; content still wins when both fields exist."
+  - "Unit: </think> extraction, raw reasoning fallback, and JSON-from-reasoning for structured calls including retry path."
+  - "Live opt-in: deepseek/deepseek-v4-pro 5-token probe asserts non-empty generate().content."
+  - "Live regression: V3.2-Exp content path and GLM-5 reasoning-only path still produce non-empty output."
+crown_jewel_candidate: yes
+follow_on_cleanups:
+  - "Move recovery to a shared output-normalization helper used by generate(), reason(), and generate_structured()."
+  - "Stop using _ALWAYS_REASON_MODELS as a recovery switch; keep only temporary request-shaping hints if GLM still needs them."
+  - "Delete the FIX-GLM5-COT regex pile after live regression confirms generic fallback is sufficient."
+  - "Simplify _extract_answer_from_reasoning into generic prose/JSON extraction helpers."
+  - "Document that reasoning_enabled=False is a client intent, not a guaranteed OpenRouter/provider contract."
+loc_estimate: 160
+loc_split_needed: no
+rationale: "Use Option 5 as the core fix, with a small Option 3-style normalization boundary: public methods should return usable output from content first, then extracted/proven reasoning, while preserving raw reasoning for tracing. Probes, model metadata, and memoized family detection keep the architecture model-centric; the robust invariant is response-shape-centric. This avoids the V4 Pro retry/death path immediately and works for future reasoning-first models without adding model slugs."
