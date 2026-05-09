@@ -1,0 +1,11 @@
+verdict: APPROVE
+skip_mechanism: skipif
+failure_on_model_drift: hard_fail
+register_pytest_marker: yes
+extra_test_cases:
+  - "Optional later: one more positive control with exact support, if live flake rate appears high."
+loc_estimate_ok: yes
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "Operator must set PG_ENTAILMENT_LIVE=1 and provide OPENROUTER_API_KEY."
+rationale: "The design matches the bug: it exercises the real _EntailmentJudge against live OpenRouter and fails on behavior drift that mocks cannot catch. skipif is the right default because normal CI remains clean and explicit, while hard failure under opt-in is the point of the canary. Registering a live marker is worth the small cost so operators can intentionally select this class of tests."

@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "tests/polaris_graph/generator2/test_strict_verify_entailment_live.py:38: `PG_ENTAILMENT_LIVE=0` or any non-empty value will run the live tests because the skip check uses `os.environ.get(...)`. Not blocking, but if you want exact documented semantics, compare to `'1'`."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
