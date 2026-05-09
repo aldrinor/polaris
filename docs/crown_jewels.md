@@ -5,7 +5,7 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track 
 | Issue | Invariant (CLAUDE.md §9.1) | Test path | Bound source-of-truth |
 |---|---|---|---|
 | I-cj-001 | §9.1.1 Two-family evaluator | `tests/crown_jewels/test_cj_001_two_family_segregation.py` | `src/polaris_graph/llm/openrouter_client.py::check_family_segregation` |
-| I-cj-002 | §9.1.2 Provenance tokens | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/provenance.py` |
+| I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
 | I-cj-003 | §9.1.3 Strict verify | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/strict_verify.py` |
 | I-cj-004 | §9.1.4 Zero-verified abort | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/verified_report.py` |
 | I-cj-005 | §9.1.5 Corpus approval enforcement | Pending — issued in subsequent CJ Issues | `src/polaris_graph/nodes/corpus_approval.py` |

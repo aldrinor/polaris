@@ -1,0 +1,101 @@
+diff --git a/docs/crown_jewels.md b/docs/crown_jewels.md
+index dd285843..0a8456fe 100644
+--- a/docs/crown_jewels.md
++++ b/docs/crown_jewels.md
+@@ -5,7 +5,7 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track
+ | Issue | Invariant (CLAUDE.md §9.1) | Test path | Bound source-of-truth |
+ |---|---|---|---|
+ | I-cj-001 | §9.1.1 Two-family evaluator | `tests/crown_jewels/test_cj_001_two_family_segregation.py` | `src/polaris_graph/llm/openrouter_client.py::check_family_segregation` |
+-| I-cj-002 | §9.1.2 Provenance tokens | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator/provenance.py` |
++| I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
+ | I-cj-003 | §9.1.3 Strict verify | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/strict_verify.py` |
+ | I-cj-004 | §9.1.4 Zero-verified abort | Pending — issued in subsequent CJ Issues | `src/polaris_graph/generator2/verified_report.py` |
+ | I-cj-005 | §9.1.5 Corpus approval enforcement | Pending — issued in subsequent CJ Issues | `src/polaris_graph/nodes/corpus_approval.py` |
+diff --git a/tests/crown_jewels/conftest.py b/tests/crown_jewels/conftest.py
+new file mode 100644
+index 00000000..56ab9892
+--- /dev/null
++++ b/tests/crown_jewels/conftest.py
+@@ -0,0 +1,11 @@
++"""Make src/ importable for crown-jewel tests so deep modules in
++src.polaris_graph.* can resolve their own `from polaris_graph...` imports."""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++_SRC = Path(__file__).resolve().parent.parent.parent / "src"
++if str(_SRC) not in sys.path:
++    sys.path.insert(0, str(_SRC))
+diff --git a/tests/crown_jewels/test_cj_002_provenance_tokens.py b/tests/crown_jewels/test_cj_002_provenance_tokens.py
+new file mode 100644
+index 00000000..c5550dfe
+--- /dev/null
++++ b/tests/crown_jewels/test_cj_002_provenance_tokens.py
+@@ -0,0 +1,63 @@
++"""Crown Jewel I-cj-002 — Provenance token format invariant.
++
++Per CLAUDE.md §9.1.2: every generated sentence carries
++[#ev:<source_id>:<start>-<end>] tokens. Sentences without valid tokens
++are dropped by strict_verify.
++
++These tests are the binding registry: a future PR that weakens the
++parser or accepts malformed tokens causes one of these tests to fail
++under a clearly named 'test_cj_002_*' identifier.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.generator2.provenance import (
++    extract_tokens,
++    has_any_token,
++    strip_tokens,
++)
++
++
++def test_cj_002_canonical_format_accepts() -> None:
++    tokens = extract_tokens("foo [#ev:src_001:10-25] bar")
++    assert len(tokens) == 1
++    t = tokens[0]
++    assert t.source_id == "src_001"
++    assert t.span_start == 10 and t.span_end == 25
++    assert t.raw == "[#ev:src_001:10-25]"
++
++
++def test_cj_002_uuid_shaped_source_id_accepts() -> None:
++    tokens = extract_tokens("[#ev:abc-1234-def-5678:0-12]")
++    assert len(tokens) == 1 and tokens[0].source_id == "abc-1234-def-5678"
++
++
++def test_cj_002_multiple_tokens_in_sentence() -> None:
++    tokens = extract_tokens("[#ev:s1:0-5] and [#ev:s2:10-20] together")
++    assert [(t.source_id, t.span_start, t.span_end) for t in tokens] == [
++        ("s1", 0, 5),
++        ("s2", 10, 20),
++    ]
++
++
++def test_cj_002_malformed_tokens_rejected() -> None:
++    bad = [
++        "[#ev:src:abc-def]",
++        "[#ev::0-5]",
++        "[#xx:src:0-5]",
++        "[ev:src:0-5]",
++        "[#ev:src:5]",
++    ]
++    for sentence in bad:
++        assert extract_tokens(sentence) == []
++        assert not has_any_token(sentence)
++
++
++def test_cj_002_strip_tokens_removes_all() -> None:
++    out = strip_tokens("hello [#ev:s1:0-5] world [#ev:s2:6-11]")
++    assert "[#ev:" not in out and "hello" in out and "world" in out
++
++
++def test_cj_002_no_token_sentence_is_droppable() -> None:
++    assert not has_any_token("This claim has no provenance.")
++    assert not has_any_token("")
+
+# canonical-diff-sha256: e96b3544efb847ed53c1178f1ce00aca3242a960a4b449ad84d1b3ec012018f0
