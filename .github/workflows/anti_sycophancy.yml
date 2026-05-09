@@ -1,0 +1,20 @@
+name: anti-sycophancy
+on:
+  pull_request:
+    branches: [polaris, main]
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  anti_sycophancy_gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-v6.txt
+      - run: |
+          python scripts/anti_sycophancy_ci_gate.py \
+            --corpus tests/v6/fixtures/sycophancy_v1/paired_prompts.json \
+            --responses tests/v6/fixtures/anti_sycophancy/passing_responses.json
