@@ -254,7 +254,20 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 # Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    "deepseek/deepseek-v4-pro",
+    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
+    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
+    # multi_section_generator's strict_verify provenance-token requirement.
+    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
+    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
+    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
+    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
+    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
+    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
+    # and continues to protect against any future reasoning-first generator
+    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
+    # when the multi_section caller adds explicit "include [#ev:...] tokens"
+    # re-prompt + retry handler for V4 Pro's CoT pattern.
+    "deepseek/deepseek-v3.2-exp",
 )
 PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
 
