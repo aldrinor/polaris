@@ -1,8 +1,11 @@
 """
-Live Qwen3-8B judge — HONEST-REBUILD Phase 5 live wiring.
+Live judge — HONEST-REBUILD Phase 5 live wiring.
 
-Calls the REAL Qwen3-8B model via OpenRouter to produce per-axis
-structured verdicts on a completed report.
+Calls the REAL evaluator model via OpenRouter (default Gemma 4 31B as
+of 2026-05-08 per I-bug-087; previously Qwen3-8B per HONEST-REBUILD
+Phase 1c) to produce per-axis structured verdicts on a completed
+report. Module name retained for backward compat; the actual model is
+read from PG_EVALUATOR_MODEL at runtime.
 
 This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
 judge is Qwen3-8B. `check_family_segregation()` must succeed before

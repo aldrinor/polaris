@@ -131,6 +131,7 @@ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
     "z-ai/glm-5.1":    (0.60, 2.20),
     "z-ai/":           (0.60, 2.20),
     "meta-llama/":     (0.30, 0.90),
+    "google/gemma-4-31b-it": (0.13, 0.38),
     "google/gemma":    (0.05, 0.30),
     "google/gemini":   (1.25, 5.00),
     "mistralai/":      (0.30, 0.90),
@@ -216,15 +217,22 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 #         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
 #         if V4 Pro produces regressions on the BEAT-BOTH benchmark
 #
-#   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
+#   Evaluator: google/gemma-4-31b-it     (role-fit: per-claim faithfulness
 #                                         judgment, runs 100s of times per
 #                                         report)
-#       - Vectara HHEM 4.8% (rank #9 — lower than Qwen3-32B's 5.9%)
-#       - Apache 2.0 license, 128K context
-#       - ~$0.05 in / $0.40 out per M tokens — cheapest of the verified-
-#         factuality evaluators; affordable to ensemble over 2-3 samples
-#       - Different family from generator (Alibaba vs DeepSeek) —
+#       - 30.7B dense parameters (not MoE — every parameter active per
+#         token; preferred for narrow judgment tasks where consistency
+#         matters more than raw capability)
+#       - 256K context, Apache 2.0 license
+#       - Released 2026-04-02 (current frontier open-weight from Google)
+#       - Different family from generator (Google vs DeepSeek) —
 #         check_family_segregation() allows this pair
+#       - Aligns with documented Phase-4 plan (Gemma 4 31B was always the
+#         eventual evaluator target; OpenRouter is the bridge until OVH
+#         hardware lands per I-phase0-009)
+#       - Predecessor Qwen3-8B retained on OpenRouter (`qwen/qwen3-8b`,
+#         Vectara HHEM 4.8%) — switch back via PG_EVALUATOR_MODEL env var
+#         if Gemma 4 produces regressions on internal benchmarks
 #
 # WHY NOT GLM 5.1 + Qwen 3.5 Plus (rejected after multi-axis analysis
 # 2026-04-17):
@@ -248,7 +256,7 @@ PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
     "deepseek/deepseek-v4-pro",
 )
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
@@ -340,7 +348,7 @@ def check_family_segregation(
             f"share blind spots and RLHF biases. Pick models from different "
             f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
             f"values to demonstrate you know the trade-off. Recommended pair: "
-            f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
+            f"deepseek/deepseek-v4-pro (generator) + google/gemma-4-31b-it "
             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
         )
     return (gen_family, eval_family)

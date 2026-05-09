@@ -1,0 +1,167 @@
+diff --git a/.env.example b/.env.example
+index 17226f68..dcfb7c6e 100644
+--- a/.env.example
++++ b/.env.example
+@@ -57,7 +57,7 @@ CROSSREF_EMAIL=your.email@example.com
+ # Current pair pinned 2026-04-17 (see comments in openrouter_client.py
+ # for verified HHEM benchmarks and two-family justification)
+ PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+-PG_EVALUATOR_MODEL=qwen/qwen3-8b
++PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+ # classification is wrong
+diff --git a/src/polaris_graph/evaluator/__init__.py b/src/polaris_graph/evaluator/__init__.py
+index ce32e45f..ab159059 100644
+--- a/src/polaris_graph/evaluator/__init__.py
++++ b/src/polaris_graph/evaluator/__init__.py
+@@ -1,5 +1,7 @@
+ """POLARIS honest-rebuild external evaluator package (Phase 5).
+ 
+-Non-same-family evaluator (DeepSeek V3.2-Exp generator + Qwen3-8B
+-evaluator) plus rule-based PRISMA-trAIce compliance checks.
++Non-same-family evaluator (DeepSeek V4 Pro generator + Gemma 4 31B
++evaluator by default; both swappable via PG_GENERATOR_MODEL /
++PG_EVALUATOR_MODEL env vars) plus rule-based PRISMA-trAIce compliance
++checks.
+ """
+diff --git a/src/polaris_graph/evaluator/external_evaluator.py b/src/polaris_graph/evaluator/external_evaluator.py
+index 75d385da..5d919454 100644
+--- a/src/polaris_graph/evaluator/external_evaluator.py
++++ b/src/polaris_graph/evaluator/external_evaluator.py
+@@ -26,7 +26,7 @@ Two complementary channels:
+    - Word-count + citation-count floors.
+ 
+ 2. LLM-JUDGE (non-same-family)
+-   - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
++   - Uses PG_EVALUATOR_MODEL (default google/gemma-4-31b-it) against
+      PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
+    - check_family_segregation() FAILS FAST if both are in the
+      same family.
+diff --git a/src/polaris_graph/evaluator/live_qwen_judge.py b/src/polaris_graph/evaluator/live_qwen_judge.py
+index c2bd4839..b692106b 100644
+--- a/src/polaris_graph/evaluator/live_qwen_judge.py
++++ b/src/polaris_graph/evaluator/live_qwen_judge.py
+@@ -1,8 +1,11 @@
+ """
+-Live Qwen3-8B judge — HONEST-REBUILD Phase 5 live wiring.
++Live judge — HONEST-REBUILD Phase 5 live wiring.
+ 
+-Calls the REAL Qwen3-8B model via OpenRouter to produce per-axis
+-structured verdicts on a completed report.
++Calls the REAL evaluator model via OpenRouter (default Gemma 4 31B as
++of 2026-05-08 per I-bug-087; previously Qwen3-8B per HONEST-REBUILD
++Phase 1c) to produce per-axis structured verdicts on a completed
++report. Module name retained for backward compat; the actual model is
++read from PG_EVALUATOR_MODEL at runtime.
+ 
+ This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
+ judge is Qwen3-8B. `check_family_segregation()` must succeed before
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index f9b6558c..4b6aea98 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -131,6 +131,7 @@ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+     "z-ai/glm-5.1":    (0.60, 2.20),
+     "z-ai/":           (0.60, 2.20),
+     "meta-llama/":     (0.30, 0.90),
++    "google/gemma-4-31b-it": (0.13, 0.38),
+     "google/gemma":    (0.05, 0.30),
+     "google/gemini":   (1.25, 5.00),
+     "mistralai/":      (0.30, 0.90),
+@@ -216,15 +217,22 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ #         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
+ #         if V4 Pro produces regressions on the BEAT-BOTH benchmark
+ #
+-#   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
++#   Evaluator: google/gemma-4-31b-it     (role-fit: per-claim faithfulness
+ #                                         judgment, runs 100s of times per
+ #                                         report)
+-#       - Vectara HHEM 4.8% (rank #9 — lower than Qwen3-32B's 5.9%)
+-#       - Apache 2.0 license, 128K context
+-#       - ~$0.05 in / $0.40 out per M tokens — cheapest of the verified-
+-#         factuality evaluators; affordable to ensemble over 2-3 samples
+-#       - Different family from generator (Alibaba vs DeepSeek) —
++#       - 30.7B dense parameters (not MoE — every parameter active per
++#         token; preferred for narrow judgment tasks where consistency
++#         matters more than raw capability)
++#       - 256K context, Apache 2.0 license
++#       - Released 2026-04-02 (current frontier open-weight from Google)
++#       - Different family from generator (Google vs DeepSeek) —
+ #         check_family_segregation() allows this pair
++#       - Aligns with documented Phase-4 plan (Gemma 4 31B was always the
++#         eventual evaluator target; OpenRouter is the bridge until OVH
++#         hardware lands per I-phase0-009)
++#       - Predecessor Qwen3-8B retained on OpenRouter (`qwen/qwen3-8b`,
++#         Vectara HHEM 4.8%) — switch back via PG_EVALUATOR_MODEL env var
++#         if Gemma 4 produces regressions on internal benchmarks
+ #
+ # WHY NOT GLM 5.1 + Qwen 3.5 Plus (rejected after multi-axis analysis
+ # 2026-04-17):
+@@ -248,7 +256,7 @@ PG_GENERATOR_MODEL = os.getenv(
+     "PG_GENERATOR_MODEL",
+     "deepseek/deepseek-v4-pro",
+ )
+-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
++PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+ 
+ # Explicit family overrides for the cases where the model-name prefix is
+ # not the true family (fine-tunes, licensed redistributions, etc.).
+@@ -340,7 +348,7 @@ def check_family_segregation(
+             f"share blind spots and RLHF biases. Pick models from different "
+             f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+             f"values to demonstrate you know the trade-off. Recommended pair: "
+-            f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
++            f"deepseek/deepseek-v4-pro (generator) + google/gemma-4-31b-it "
+             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+         )
+     return (gen_family, eval_family)
+diff --git a/tests/polaris_graph/test_gemma_4_evaluator.py b/tests/polaris_graph/test_gemma_4_evaluator.py
+new file mode 100644
+index 00000000..e83cb0fa
+--- /dev/null
++++ b/tests/polaris_graph/test_gemma_4_evaluator.py
+@@ -0,0 +1,41 @@
++"""I-bug-087 — Gemma 4 31B evaluator default.
++
++Pins:
++  - family resolution to "gemma" so two-family invariant holds with
++    DeepSeek generator
++  - model-specific price entry inserted BEFORE generic "google/gemma"
++    in _PRICE_TABLE_USD_PER_M so budget guard imputes correctly
++    (specific 0.13/0.38 wins over generic 0.05/0.30)
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.llm.openrouter_client import (
++    _impute_cost_from_tokens,
++    check_family_segregation,
++    family_from_model,
++)
++
++
++def test_gemma_4_31b_family_is_gemma() -> None:
++    assert family_from_model("google/gemma-4-31b-it") == "gemma"
++
++
++def test_gemma_4_31b_passes_two_family_segregation_with_deepseek_v4_pro() -> None:
++    gen, ev = check_family_segregation(
++        generator_model="deepseek/deepseek-v4-pro",
++        evaluator_model="google/gemma-4-31b-it",
++        generator_override="",
++        evaluator_override="",
++    )
++    assert (gen, ev) == ("deepseek", "gemma")
++
++
++def test_gemma_4_31b_specific_price_wins_over_generic_gemma_prefix() -> None:
++    cost = _impute_cost_from_tokens(
++        "google/gemma-4-31b-it",
++        input_tokens=1_000_000,
++        output_tokens=1_000_000,
++        reasoning_tokens=0,
++    )
++    assert abs(cost - (0.13 + 0.38)) < 1e-6
+
+# canonical-diff-sha256: 023ec42a07b1227e89d49aa49f34636eca5c01b25bec261937dd8a969da11ae1
