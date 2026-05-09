@@ -1,0 +1,149 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0c19-cf58-7da3-b26a-1bc3987ef1b4
+--------
+user
+# Codex Brief — I-bug-089 (ITER 4 of 5) — DO NOT EXEC
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- DO NOT call exec / rg / Get-ChildItem / Get-Content. The data is in this brief.
+- Iter 3 crashed on rg invocation (exit 1, "Total output lines: 3963"). Iter 1 spent its
+  budget exploring without producing a verdict. Iter 2 returned `verdict: REQUEST_CHANGES`
+  but with a clear actionable answer (Option E + 80 LOC). Iter 4 is your last chance to
+  return APPROVE on the implementation plan before the §8.3.1 force-APPROVE at iter 5.
+```
+
+## Background
+
+You APPROVE'd Option E (hybrid D+C) at iter 2 but with `verdict: REQUEST_CHANGES`. CI parses the literal `verdict:` line so I cannot land it. The plan below is the iter-2 recommendation rendered as concrete code changes ready to commit. Confirm APPROVE on the SPECIFIC PLAN, not a re-pick of options.
+
+## The plan (verbatim, ~80 LOC, ready to code)
+
+**Change 1 — `_REASONING_FIRST_MODELS` registry (3 LOC)**
+
+```python
+# In src/polaris_graph/llm/openrouter_client.py near _ALWAYS_REASON_MODELS:
+_REASONING_FIRST_MODELS = frozenset({
+    *_ALWAYS_REASON_MODELS,
+    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-flash",
+})
+```
+
+**Change 2 — Option D: reasoning.max_tokens cap in `_call()` body assembly (~15 LOC)**
+
+```python
+# In _call() body assembly, when reasoning_enabled=False:
+elif self.model in _REASONING_FIRST_MODELS:
+    # I-bug-089: V4 Pro/Flash routes to reasoning_content even when
+    # reasoning_enabled=False. Reserve 60% of max_tokens for content
+    # by capping reasoning at 40%, preventing token starvation.
+    reasoning_dict = {
+        "exclude": False,
+        "max_tokens": max(int(max_tokens * 0.4), 100),
+    }
+    body["reasoning"] = reasoning_dict
+```
+
+**Change 3 — Option C: fail-loud in I-bug-088 promote branch (~12 LOC)**
+
+```python
+# At openrouter_client.py:1922 (post-PR-339), inside the
+# `elif len(result.reasoning.strip()) >= 100:` branch, BEFORE the
+# LLMResponse(content=result.reasoning, ...) construction:
+if (
+    "[#ev:" not in result.reasoning
+    and not result.reasoning.rstrip().endswith((".", "!", "?", '"'))
+):
+    self.usage.total_errors += 1
+    raise RuntimeError(
+        f"I-bug-089: model {self.model} truncated mid-planning. "
+        f"content empty, reasoning has {len(result.reasoning)} chars but "
+        f"no [#ev:] markers and ends mid-sentence. SF-15 fail-loud — "
+        f"caller should retry with bigger max_tokens budget."
+    )
+```
+
+**Change 4 — Tests (3 new, ~50 LOC in `tests/polaris_graph/test_reasoning_first_normalize.py`)**
+
+```python
+# Test A: reasoning_cap_sent_for_reasoning_first_when_reasoning_disabled
+async def test_v4_pro_request_caps_reasoning_at_40pct_when_disabled():
+    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
+    captured = {}
+    async def fake_post(...):
+        captured["body"] = json.loads(...)
+        ...
+    # mock httpx.AsyncClient.post to capture body
+    await client.generate(prompt="test", max_tokens=2400)
+    assert captured["body"]["reasoning"]["max_tokens"] == 960  # 2400 * 0.4
+
+# Test B: truncated_reasoning_without_provenance_fails_loud
+async def test_v4_pro_truncated_planning_raises():
+    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
+    truncated_planning = "We are asked to write the section. Let's now" * 4
+    fake = _make_response(content="", reasoning=truncated_planning)
+    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
+        with pytest.raises(RuntimeError, match="truncated mid-planning"):
+            await client.generate(prompt="x")
+
+# Test C: capped_reasoning_answer_still_promotes_without_regressing_i_bug_088
+async def test_v4_pro_complete_answer_in_reasoning_still_promotes():
+    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
+    answer = "Tirzepatide reduced HbA1c by -2% [#ev:ev_001:0-50]." * 5
+    fake = _make_response(content="", reasoning=answer)
+    with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
+        result = await client.generate(prompt="x")
+    assert result.content == answer  # I-bug-088 promote preserved
+```
+
+## Constraints (verifiable from this brief)
+
+1. Two-family invariant unchanged (no edits to `check_family_segregation`).
+2. Budget-guard invariant unchanged (no edits to `_PRICE_TABLE_USD_PER_M`).
+3. I-bug-088 6 existing tests must still pass (`test_reasoning_first_normalize.py`).
+4. CHARTER §3 LOC under 200 (estimated 80 src+tests).
+5. §9.4 hygiene clean: no `try: except: pass`, no `unittest.mock` in src/, magic 0.4 ratio has docstring (40% reasoning / 60% content reserve).
+6. The 0.4 ratio matches OpenRouter's recommendation for DeepSeek family (see `loopback/audit/_open_source_models_2026.md` reference). If you have evidence for a different ratio, flag as P1.
+
+## Output schema (return ONLY this, no exploration)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+If APPROVE, the code lands as-is. If REQUEST_CHANGES with a real P0/P1 blocker, list it specifically (one sentence per blocker).
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+3,401
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
