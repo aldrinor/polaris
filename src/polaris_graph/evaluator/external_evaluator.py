@@ -26,7 +26,7 @@ Two complementary channels:
    - Word-count + citation-count floors.
 
 2. LLM-JUDGE (non-same-family)
-   - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
+   - Uses PG_EVALUATOR_MODEL (default google/gemma-4-31b-it) against
      PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
    - check_family_segregation() FAILS FAST if both are in the
      same family.

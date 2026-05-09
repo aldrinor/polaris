@@ -1,0 +1,1714 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0b6e-18f4-7a32-91cb-5a980e6f30f0
+--------
+user
+# Codex Brief Review — I-bug-087 (ITER 1 of 5)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Pre-flight
+
+- **Issue:** I-bug-087 — Default evaluator → `google/gemma-4-31b-it` (released 2026-04-02, 30.7B dense, 256K context, Apache 2.0). User directive 2026-05-08 after open-weight evaluator survey: "OK" to Gemma 4 31B. Generator stays `deepseek/deepseek-v4-pro` (just shipped in I-bug-086).
+- **Two-family invariant verified:** `google/gemma-4-31b-it` matches existing `_FAMILY_PREFIXES["gemma"]` prefix `("google/gemma", "google/gemma-", "gemma/")`. Family resolves to `"gemma"`. Generator family is `"deepseek"`. `check_family_segregation` returns `("deepseek", "gemma")` — passes.
+- **Substrate today:**
+  - `src/polaris_graph/llm/openrouter_client.py:251` — `PG_EVALUATOR_MODEL` env-var default (currently `qwen/qwen3-8b`).
+  - `:219` rationale doc-comment, `:343` error-msg recommended pair.
+  - `_PRICE_TABLE_USD_PER_M` (line 134) has generic `"google/gemma"` prefix already covering Gemma 4 (technical invariant for budget guard, not model-selection criteria).
+  - `.env.example:60` carries the Qwen default.
+  - `src/polaris_graph/evaluator/external_evaluator.py:29` doc comment.
+- **Honest framing per CLAUDE.md §9.4:** evaluator default-string change. Two-family invariant preserved. Existing tests that reference `qwen/qwen3-8b` literally (test_b4, test_external_evaluator, test_cj_001/006) test invariants not the specific evaluator string and continue to pass. Stale fixture strings are non-blocking; cleanup is a separate doc-hygiene Issue.
+
+## Plan
+
+### `src/polaris_graph/llm/openrouter_client.py` (MODIFY)
+
+1. `PG_EVALUATOR_MODEL` default at line ~251:
+```python
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+```
+
+2. Update rationale doc-comment around line ~219 — replace Qwen 3-8B paragraph with Gemma 4 31B note (released 2026-04-02, 30.7B dense not MoE, 256K context, Apache 2.0, Google family separates from DeepSeek lineage; aligns with documented Phase-4 plan).
+
+3. Update error-msg recommended pair at line ~343:
+   `deepseek/deepseek-v4-pro (generator) + google/gemma-4-31b-it (evaluator)`.
+
+### `src/polaris_graph/evaluator/external_evaluator.py` (MODIFY)
+
+4. Line 29 doc comment: `Uses PG_EVALUATOR_MODEL (default google/gemma-4-31b-it) against PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).`
+
+### `.env.example` (MODIFY)
+
+5. Line 60: change `qwen/qwen3-8b` → `google/gemma-4-31b-it`.
+
+### Tests
+
+6. **NEW** `tests/polaris_graph/test_gemma_4_evaluator.py` (~30 LOC, 3 tests):
+   - `family_from_model("google/gemma-4-31b-it")` returns `"gemma"`.
+   - `check_family_segregation("deepseek/deepseek-v4-pro", "google/gemma-4-31b-it")` returns `("deepseek", "gemma")` — passes.
+   - `_impute_cost_from_tokens("google/gemma-4-31b-it", ...)` returns positive value via existing `"google/gemma"` prefix (budget-guard invariant).
+
+### Existing tests (NO CHANGE)
+
+7. CJ-001 / CJ-006 / test_b4 / test_external_evaluator continue to use `qwen/qwen3-8b` as fixture strings; they test invariants not specific evaluator. Stale-but-passing.
+
+## Risks for Codex Red-Team
+
+1. **Two-family invariant** — `google/gemma-4-31b-it` matches existing `"google/gemma"` prefix in `_FAMILY_PREFIXES["gemma"]`. Generator `deepseek/deepseek-v4-pro` matches `"deepseek/"` in `_FAMILY_PREFIXES["deepseek"]`. Different families. Test 2 in new file pins this.
+2. **Substrate-honest** — pure default-string change. No new functionality. Aligns with documented Phase-4 plan target (which always specified Gemma 4 31B as the eventual evaluator).
+3. **No live API call in this PR** — config-default change. Live re-benchmark is a separate operation.
+4. **§9.4 hygiene** — clean.
+5. **CHARTER §3 LOC cap** — ~25 LOC under 200.
+
+## Acceptance criteria
+
+1. `PG_EVALUATOR_MODEL` default → `google/gemma-4-31b-it`.
+2. `.env.example` updated.
+3. Doc comments + error msg updated.
+4. New `tests/polaris_graph/test_gemma_4_evaluator.py` with 3 tests passes.
+5. Existing tests still pass (no break).
+6. CHARTER §3 LOC cap respected.
+
+**Forced enumeration:** before verdict, write one line per criterion 1-6.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll treat this as a review, not an implementation request. I’m checking the local model-family and pricing logic first, then I’ll sanity-check the external model slug because that is the main execution risk for a default OpenRouter model.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_EVALUATOR_MODEL|qwen/qwen3-8b|_FAMILY_PREFIXES|_PRICE_TABLE_USD_PER_M|check_family_segregation|family_from_model|_impute_cost_from_tokens|recommended|deepseek/deepseek-v4-pro|external_evaluator" src tests .env.example' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1444ms:
+?? .claude/hooks/__pycache__/
+?? .codex/I-bug-085/
+?? .codex/I-bug-087/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/next_issue_pick/
+?? .codex/next_issue_pick_2/
+?? .codex/next_issue_pick_3/
+?? .codex/next_pick_post_cj/
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-1cimqsu9/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-4jy7q_j2/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_i_bug_085_pytest/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 1835ms:
+.env.example:20:# Academic search (strongly recommended; pipeline will run without it
+.env.example:59:PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+.env.example:60:PG_EVALUATOR_MODEL=qwen/qwen3-8b
+.env.example:67:OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+tests\crown_jewels\test_cj_006_budget_imputation.py:4:_impute_cost_from_tokens backstops the token-only response so the
+tests\crown_jewels\test_cj_006_budget_imputation.py:12:from src.polaris_graph.llm.openrouter_client import _impute_cost_from_tokens
+tests\crown_jewels\test_cj_006_budget_imputation.py:16:    cost = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_006_budget_imputation.py:27:    cost = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_006_budget_imputation.py:37:    cost = _impute_cost_from_tokens("deepseek/deepseek-v3.2-exp", 0, 0, 0)
+tests\crown_jewels\test_cj_006_budget_imputation.py:42:    cost = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_006_budget_imputation.py:52:    out_only = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_006_budget_imputation.py:58:    out_plus_reasoning = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_006_budget_imputation.py:68:    cost = _impute_cost_from_tokens(
+tests\crown_jewels\test_cj_001_two_family_segregation.py:16:from src.polaris_graph.llm.openrouter_client import check_family_segregation
+tests\crown_jewels\test_cj_001_two_family_segregation.py:20:    gen, ev = check_family_segregation(
+tests\crown_jewels\test_cj_001_two_family_segregation.py:22:        evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:31:        check_family_segregation(
+tests\crown_jewels\test_cj_001_two_family_segregation.py:33:            evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:41:        check_family_segregation(
+tests\crown_jewels\test_cj_001_two_family_segregation.py:43:            evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:51:        check_family_segregation(
+tests\crown_jewels\test_cj_001_two_family_segregation.py:60:    gen, ev = check_family_segregation(
+tests\polaris_graph\test_audit_ir_loader.py:189:    """Codex fix #5: severity, relative_difference, subject, recommended_action."""
+tests\polaris_graph\test_audit_ir_loader.py:196:    assert "Disclose both values" in cluster.recommended_action
+tests\polaris_graph\test_audit_ir_loader.py:519:    assert mp.evaluator_model == "qwen/qwen3-8b"
+tests\polaris_graph\test_audit_ir_loader.py:527:    assert mp.judge_model == "qwen/qwen3-8b"
+tests\polaris_graph\test_b4_budget_imputation.py:17:    cost = mod._impute_cost_from_tokens(
+tests\polaris_graph\test_b4_budget_imputation.py:28:    cost = mod._impute_cost_from_tokens(
+tests\polaris_graph\test_b4_budget_imputation.py:29:        "qwen/qwen3-8b", 1000, 100, 50,
+tests\polaris_graph\test_b4_budget_imputation.py:38:    cost = mod._impute_cost_from_tokens(
+tests\polaris_graph\test_b4_budget_imputation.py:48:    assert mod._impute_cost_from_tokens("deepseek/x", 0, 0, 0) == 0.0
+tests\polaris_graph\test_b4_budget_imputation.py:63:        imputed = mod._impute_cost_from_tokens(
+tests\polaris_graph\test_b4_budget_imputation.py:84:    assert mod._impute_cost_from_tokens("deepseek/x", -100, -50, -10) == 0.0
+tests\polaris_graph\test_b4_budget_imputation.py:86:    cost = mod._impute_cost_from_tokens(
+tests\polaris_graph\test_b4_budget_imputation.py:98:    cost = mod._impute_cost_from_tokens("deepseek/x", 100.7, 50.3, 0)
+tests\unit\test_gemini_fixes.py:2:Regression tests for Gemini-recommended fixes.
+tests\unit\test_gemini_fixes.py:2691:        prose = "It removes 99% of lead [CITE:ev_001]. Regular testing is recommended [CITE:ev_001]."
+tests\unit\test_gemini_fixes.py:5100:                "as recommended by the manufacturer and independent testing laboratories "
+tests\polaris_graph\test_completeness_r6_gap3.py:61:            "impairment; use in pregnancy is not recommended."
+tests\polaris_graph\test_deepseek_v4_pricing.py:12:    _impute_cost_from_tokens,
+tests\polaris_graph\test_deepseek_v4_pricing.py:13:    check_family_segregation,
+tests\polaris_graph\test_deepseek_v4_pricing.py:14:    family_from_model,
+tests\polaris_graph\test_deepseek_v4_pricing.py:19:    cost = _impute_cost_from_tokens(
+tests\polaris_graph\test_deepseek_v4_pricing.py:20:        "deepseek/deepseek-v4-pro",
+tests\polaris_graph\test_deepseek_v4_pricing.py:29:    cost = _impute_cost_from_tokens(
+tests\polaris_graph\test_deepseek_v4_pricing.py:39:    assert family_from_model("deepseek/deepseek-v4-pro") == "deepseek"
+tests\polaris_graph\test_deepseek_v4_pricing.py:40:    gen, ev = check_family_segregation(
+tests\polaris_graph\test_deepseek_v4_pricing.py:41:        generator_model="deepseek/deepseek-v4-pro",
+tests\polaris_graph\test_deepseek_v4_pricing.py:42:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:431:            "starting dose as recommended by physician", "ev_ema",
+tests\polaris_graph\test_inspector_router.py:401:    absolute_difference, relative_difference, recommended_action)."""
+tests\polaris_graph\test_inspector_router.py:418:        assert "recommended_action" in cluster
+tests\polaris_graph\test_inspector_markdown.py:372:            recommended_action: 'Disclose both values.',
+tests\polaris_graph\test_hedging_gap2.py:10:from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
+tests\polaris_graph\test_hedging_gap2.py:107:        "Generator: deepseek/deepseek-v3.2-exp. Evaluator: qwen/qwen3-8b. "
+tests\polaris_graph\test_hedging_gap2.py:119:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_hedging_gap2.py:140:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_hedging_gap2.py:163:        evaluator_model="qwen/qwen3-8b",
+src\providers\llm_provider.py:350:            result["throttle_recommended"] = True
+tests\polaris_graph\test_external_evaluator.py:8:from src.polaris_graph.evaluator.external_evaluator import (
+tests\polaris_graph\test_external_evaluator.py:39:        "Evaluator model: qwen/qwen3-8b.\n"
+tests\polaris_graph\test_external_evaluator.py:117:        "deepseek/deepseek-v3.2-exp generated. qwen/qwen3-8b evaluated. "
+tests\polaris_graph\test_external_evaluator.py:167:        "Evaluator model: qwen/qwen3-8b.\n"
+tests\polaris_graph\test_external_evaluator.py:440:    monkeypatch.setenv("PG_EVALUATOR_MODEL", "deepseek/deepseek-coder")
+tests\polaris_graph\test_external_evaluator.py:457:    monkeypatch.setenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+src\llm\kimi_client.py:67:      Uses temperature 1.0 as recommended by KIMI
+src\llm\kimi_client.py:123:        # Temperature: 1.0 for thinking mode, 0.6 for instant (KIMI recommended)
+src\quality\gates.py:488:    Regular replacement of filters is recommended to minimize pathogen growth.
+src\quality\bias_detector.py:643:                    f"(minimum {self.config.min_viewpoints} recommended)"
+tests\polaris_graph\test_m207_invariant_coverage.py:101:    from src.polaris_graph.llm.openrouter_client import check_family_segregation
+tests\polaris_graph\test_m207_invariant_coverage.py:105:        check_family_segregation(
+tests\polaris_graph\test_m207_invariant_coverage.py:138:        _impute_cost_from_tokens,
+tests\polaris_graph\test_m207_invariant_coverage.py:142:    for fn in (check_run_budget, _impute_cost_from_tokens,
+tests\polaris_graph\test_m17_body_article_type.py:474:        "recommended approach to tirzepatide titration."
+src\agents\critic_agent.py:295:                f"Iteration recommended: {evaluation.iteration_recommendation}"
+src\agents\critic_agent.py:415:                iteration_recommendation="Manual review recommended due to evaluation error",
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:25:from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:45:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:99:            "4 weeks to recommended maintenance doses of 5 mg, 10 mg, or "
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:118:            + "Evaluator model: qwen/qwen3-8b. Retrieved 2026-04-21.\n"
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:20:from src.polaris_graph.evaluator.external_evaluator import (
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:240:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:271:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:305:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:125:        generator_model="deepseek/deepseek-v4-pro",
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:140:        generator_model="deepseek/deepseek-v4-pro",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:113:        generator_model="deepseek/deepseek-v4-pro",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:244:    assert metadata["generator_model"] == "deepseek/deepseek-v4-pro"
+tests\v3\test_react_agent.py:2289:        assert "95 %" in result or "recommended" in result
+src\polaris_graph\evaluator\live_qwen_judge.py:8:judge is Qwen3-8B. `check_family_segregation()` must succeed before
+src\polaris_graph\evaluator\live_qwen_judge.py:125:    check_family_segregation() is run BEFORE the call. If the configured
+src\polaris_graph\evaluator\live_qwen_judge.py:130:        PG_EVALUATOR_MODEL,
+src\polaris_graph\evaluator\live_qwen_judge.py:131:        check_family_segregation,
+src\polaris_graph\evaluator\live_qwen_judge.py:134:    check_family_segregation()   # raises if same family
+src\polaris_graph\evaluator\live_qwen_judge.py:136:    eval_model = model or PG_EVALUATOR_MODEL
+src\polaris_graph\evaluator\external_evaluator.py:29:   - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
+src\polaris_graph\evaluator\external_evaluator.py:30:     PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
+src\polaris_graph\evaluator\external_evaluator.py:31:   - check_family_segregation() FAILS FAST if both are in the
+src\polaris_graph\evaluator\external_evaluator.py:52:logger = logging.getLogger("polaris_graph.external_evaluator")
+src\polaris_graph\evaluator\external_evaluator.py:824:        PG_EVALUATOR_MODEL,
+src\polaris_graph\evaluator\external_evaluator.py:826:        check_family_segregation,
+src\polaris_graph\evaluator\external_evaluator.py:829:    gen_family, eval_family = check_family_segregation()
+src\polaris_graph\evaluator\external_evaluator.py:842:        evaluator_model=PG_EVALUATOR_MODEL,
+src\polaris_graph\evaluator\external_evaluator.py:849:        # hits PG_EVALUATOR_MODEL via OpenRouter with a fixed prompt
+src\polaris_graph\evaluator\external_evaluator.py:859:        evaluator_model=PG_EVALUATOR_MODEL,
+src\polaris_graph\llm\openrouter_client.py:121:_PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+src\polaris_graph\llm\openrouter_client.py:124:    # = iteration order = first-match-wins per _impute_cost_from_tokens.
+src\polaris_graph\llm\openrouter_client.py:125:    "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+src\polaris_graph\llm\openrouter_client.py:128:    "qwen/qwen3-8b":   (0.05, 0.40),
+src\polaris_graph\llm\openrouter_client.py:145:def _impute_cost_from_tokens(
+src\polaris_graph\llm\openrouter_client.py:170:    for prefix, (in_r, out_r) in _PRICE_TABLE_USD_PER_M.items():
+src\polaris_graph\llm\openrouter_client.py:207:#   Generator: deepseek/deepseek-v4-pro   (role-fit: long-form grounded
+src\polaris_graph\llm\openrouter_client.py:219:#   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
+src\polaris_graph\llm\openrouter_client.py:227:#         check_family_segregation() allows this pair
+src\polaris_graph\llm\openrouter_client.py:249:    "deepseek/deepseek-v4-pro",
+src\polaris_graph\llm\openrouter_client.py:251:PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+src\polaris_graph\llm\openrouter_client.py:260:_FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
+src\polaris_graph\llm\openrouter_client.py:276:def family_from_model(model_name: str, override: str = "") -> str:
+src\polaris_graph\llm\openrouter_client.py:291:    for family, prefixes in _FAMILY_PREFIXES.items():
+src\polaris_graph\llm\openrouter_client.py:298:def check_family_segregation(
+src\polaris_graph\llm\openrouter_client.py:313:    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+src\polaris_graph\llm\openrouter_client.py:317:    gen_family = family_from_model(gen_model, gen_override)
+src\polaris_graph\llm\openrouter_client.py:318:    eval_family = family_from_model(eval_model, eval_override)
+src\polaris_graph\llm\openrouter_client.py:343:            f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
+src\polaris_graph\llm\openrouter_client.py:1373:            imputed = _impute_cost_from_tokens(
+src\polaris_graph\agents\hallucination_detector.py:23:src/polaris_graph/evaluator/external_evaluator.py — non-same-family
+src\polaris_graph\agents\hallucination_detector.py:89:    Phase 5 (src/polaris_graph/evaluator/external_evaluator.py). That
+src\polaris_graph\agents\searcher.py:951:    - x-api-key header (Exa recommended standard)
+src\polaris_graph\generator2\verified_report.py:438:            "openrouter_client.check_family_segregation)."
+src\polaris_graph\agents\evidence_deepener.py:198:                recommended = await asyncio.wait_for(
+src\polaris_graph\agents\evidence_deepener.py:204:                recommended = []
+src\polaris_graph\agents\evidence_deepener.py:205:            all_new_papers.extend(recommended)
+src\polaris_graph\agents\evidence_deepener.py:206:            stats["recommendations_found"] = len(recommended)
+src\polaris_graph\agents\evidence_deepener.py:207:            logger.info("[deepener] OP-4: Got %d recommendations", len(recommended))
+src\polaris_graph\agents\evidence_deepener.py:772:        for paper in data.get("recommendedPapers", [])[:PG_DEEPENER_RECOMMEND_LIMIT]:
+src\polaris_graph\agents\evidence_deepener.py:1072:        "[deepener] Complete: %d new papers (chased=%d, recommended=%d, "
+src\polaris_graph\agents\evidence_deepener.py:1089:            recommended=stats["recommendations_found"],
+src\polaris_graph\generator2\section_blueprint.py:92:            "Outline recommended monitoring per regulatory labels and "
+src\polaris_graph\honest_pipeline.py:35:from src.polaris_graph.evaluator.external_evaluator import (
+src\polaris_graph\honest_pipeline.py:234:        PG_EVALUATOR_MODEL,
+src\polaris_graph\honest_pipeline.py:243:        f"Evaluator model: {PG_EVALUATOR_MODEL} (different family).\n"
+src\polaris_graph\api\generation_route.py:67:    `scope_class` is OPTIONAL but recommended; without it the generator
+src\polaris_graph\tools\react_agent.py:3983:                    f"recommended **because** {claim} "
+src\polaris_graph\tools\react_agent.py:4034:                f"recommended **because** {claim} "
+src\polaris_graph\generator\regulatory_synthesizer.py:178:        r"is\s+recommended\s+as\s+an\s+option",
+src\polaris_graph\retrieval\tier_classifier.py:1419:                f"review; manual review recommended if this paper is "
+src\polaris_graph\generator\provenance_generator.py:368:    # to the evaluator (stored as PT13 in external_evaluator).
+tests\polaris_graph\test_run_diff.py:197:        recommended_action="", claims=(),
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:244:def test_phase_1c_family_from_model_known_prefixes():
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:245:    """family_from_model correctly identifies all 10 known families."""
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:261:        assert mod.family_from_model(model) == expected, (
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:262:            f"family_from_model({model!r}) != {expected!r}"
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:266:def test_phase_1c_check_family_segregation_allows_different_families():
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:269:    gen, ev = mod.check_family_segregation(
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:277:def test_phase_1c_check_family_segregation_blocks_same_family():
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:281:        mod.check_family_segregation(
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:287:def test_phase_1c_check_family_segregation_blocks_unknown_without_override():
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:291:        mod.check_family_segregation(
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:297:def test_phase_1c_check_family_segregation_accepts_explicit_override():
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:300:    gen, ev = mod.check_family_segregation(
+tests\polaris_graph\test_slide_deck.py:365:        relative_difference=0.0, recommended_action="",
+tests\polaris_graph\test_regression_alerts.py:137:        relative_difference=0.0, recommended_action="",
+src\polaris_graph\retrieval\live_retriever.py:429:        r'as\s+recommended\s+by|as\s+per|based\s+on|in\s+line\s+with)'
+src\polaris_graph\retrieval\live_retriever.py:876:    # PG_FETCH_DEADLINE_SECONDS. Set to 0 to disable (not recommended).
+src\polaris_graph\retrieval\contradiction_detector.py:196:    recommended_action: str = (
+src\polaris_graph\retrieval\contradiction_detector.py:649:        lines.append(f"    Action: {r.recommended_action}")
+src\polaris_graph\schemas.py:1721:                        "search_queries", "recommended_queries"):
+src\polaris_graph\retrieval2\real_fetcher.py:10:     — academic-paper graph. SEMANTIC_SCHOLAR_API_KEY optional but recommended.
+src\polaris_graph\audit_ir\loader.py:142:    recommended_action: str
+src\polaris_graph\audit_ir\loader.py:575:                recommended_action=str(raw_cluster.get("recommended_action", "")),
+src\polaris_graph\audit_ir\model_pin.py:55:    See `DEFAULT_REPLAY_ENV_VARS` for the recommended capture set
+src\polaris_graph\synthesis\peptide_flow.py:215:            home = r.get("recommended_home", "")
+src\polaris_graph\synthesis\peptide_flow.py:369:                recommended_home = sid_i if sec_i_len >= sec_j_len else sid_j
+src\polaris_graph\synthesis\peptide_flow.py:375:                    "recommended_home": recommended_home,
+src\polaris_graph\synthesis\report_assembler.py:2099:            "(minimum %d recommended)",
+src\polaris_graph\synthesis\smart_art_generator.py:310:        # Validate that recommended section_ids actually exist
+src\polaris_graph\synthesis\smart_art_generator.py:316:                    "[smart_art] LLM recommended non-existent section_id '%s', skipping",
+src\polaris_graph\synthesis\smart_art_generator.py:337:            "[smart_art] Analysis complete: %d sections recommended for diagrams",
+src\polaris_graph\synthesis\smart_art_generator.py:552:            logger.info("[smart_art] No sections recommended for diagrams")
+src\polaris_graph\synthesis\smart_art_generator.py:566:        # Step 2: Generate Mermaid diagrams for each recommended section
+
+codex
+The local scan matches the brief’s main touch points, but it also exposed a stale live evaluator module comment that still names Qwen. I’m reading the exact helper implementations now so I can decide whether that is blocking or just hygiene.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/llm/openrouter_client.py' | ForEach-Object { "'$i++; if ($i -ge 115 -and $i -le 355) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/evaluator/live_qwen_judge.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 25) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force '.codex/I-bug-087' | Select-Object Mode,Length,Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/evaluator/external_evaluator.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 45) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1402ms:
+
+[32;1mMode [0m[32;1m Length[0m[32;1m Name[0m
+[32;1m---- [0m [32;1m------[0m [32;1m----[0m
+-a---   4630 brief.md
+-a---      0 codex_brief_verdict_iter_1.txt
+
+
+ succeeded in 1713ms:
+1: """
+2: Live Qwen3-8B judge — HONEST-REBUILD Phase 5 live wiring.
+3: 
+4: Calls the REAL Qwen3-8B model via OpenRouter to produce per-axis
+5: structured verdicts on a completed report.
+6: 
+7: This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
+8: judge is Qwen3-8B. `check_family_segregation()` must succeed before
+9: this is called.
+10: 
+11: DESIGN
+12: ------
+13: We do NOT ask the judge for a single "faithfulness %". Per Phase 5
+14: plan, that single number is the exact pattern that cooked Run #17.
+15: Instead the judge produces per-axis verdicts:
+16:   - citation_tightness: does each claim have an evidence citation?
+17:   - hedging_appropriateness: does the prose hedge when evidence disagrees?
+18:   - tone_consistency: is the tone evidence-grounded vs promotional?
+19:   - flow: are the sentences logically ordered?
+20:   - completeness: are major evidence rows touched on?
+21: 
+22: For each axis, the judge returns verdict ∈ {good, acceptable, needs_revision}
+23: and a 1-2 sentence note. No aggregate "score".
+24: """
+25: from __future__ import annotations
+
+ succeeded in 2195ms:
+115: 
+116: # Codex round 1 B-4: conservative per-model prices used when OpenRouter
+117: # omits usage.cost. Prices are $/M tokens and represent the UPPER END of
+118: # published rates for each provider family (if a cheaper provider is used
+119: # we overcharge the run cost, which is the safe direction for a budget
+120: # guard). When the model is unknown we use OPUS-tier defaults.
+121: _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+122:     # model prefix  :  (input $/M, output $/M)
+123:     # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
+124:     # = iteration order = first-match-wins per _impute_cost_from_tokens.
+125:     "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+126:     "deepseek/deepseek-v4-flash": (0.14, 0.28),
+127:     "deepseek/":       (0.27, 0.38),
+128:     "qwen/qwen3-8b":   (0.05, 0.40),
+129:     "qwen/qwen3-32b":  (0.10, 0.60),
+130:     "qwen/":           (0.10, 0.60),
+131:     "z-ai/glm-5.1":    (0.60, 2.20),
+132:     "z-ai/":           (0.60, 2.20),
+133:     "meta-llama/":     (0.30, 0.90),
+134:     "google/gemma":    (0.05, 0.30),
+135:     "google/gemini":   (1.25, 5.00),
+136:     "mistralai/":      (0.30, 0.90),
+137:     "moonshotai/":     (0.60, 2.50),
+138:     "openai/":         (3.00, 10.00),
+139:     "anthropic/":      (3.00, 15.00),
+140: }
+141: 
+142: _DEFAULT_PRICE_PER_M = (3.00, 15.00)  # Opus-tier worst-case
+143: 
+144: 
+145: def _impute_cost_from_tokens(
+146:     model: str,
+147:     input_tokens: int,
+148:     output_tokens: int,
+149:     reasoning_tokens: int,
+150: ) -> float:
+151:     """Estimate $/call from token counts + published prices. Reasoning
+152:     tokens bill at the output rate (matches OpenAI / Anthropic practice).
+153:     Used by the budget guard when OpenRouter omits usage.cost.
+154: 
+155:     Defensive: token counts are clamped to >=0. A corrupted API response
+156:     returning negative tokens must NOT produce a negative cost that
+157:     would silently shrink the accumulated run budget and let a runaway
+158:     loop keep calling past PG_MAX_COST_PER_RUN.
+159:     """
+160:     # Clamp negative token counts — these can only come from a
+161:     # corrupted API response. A negative cost here would be silently
+162:     # absorbed by _add_run_cost and weaken the budget guard.
+163:     input_tokens = max(0, int(input_tokens))
+164:     output_tokens = max(0, int(output_tokens))
+165:     reasoning_tokens = max(0, int(reasoning_tokens))
+166:     if input_tokens == 0 and output_tokens == 0 and reasoning_tokens == 0:
+167:         return 0.0
+168:     model_lower = (model or "").lower()
+169:     input_rate, output_rate = _DEFAULT_PRICE_PER_M
+170:     for prefix, (in_r, out_r) in _PRICE_TABLE_USD_PER_M.items():
+171:         if model_lower.startswith(prefix):
+172:             input_rate, output_rate = in_r, out_r
+173:             break
+174:     return (
+175:         (input_tokens / 1_000_000.0) * input_rate
+176:         + ((output_tokens + reasoning_tokens) / 1_000_000.0) * output_rate
+177:     )
+178: 
+179: 
+180: def check_run_budget(anticipated_additional: float = 0.0) -> None:
+181:     """Raise BudgetExceededError if the next call would exceed the cap.
+182: 
+183:     anticipated_additional: optional estimate of the upcoming call cost
+184:     (used only for guard-before-call — the actual cost is recorded by
+185:     `_add_run_cost()` after the call returns).
+186:     """
+187:     current = current_run_cost()
+188:     projected = current + max(0.0, float(anticipated_additional))
+189:     if projected > PG_MAX_COST_PER_RUN:
+190:         raise BudgetExceededError(
+191:             f"PG_MAX_COST_PER_RUN={PG_MAX_COST_PER_RUN:.4f} exceeded: "
+192:             f"current=${current:.4f} + anticipated=${anticipated_additional:.4f} "
+193:             f"= ${projected:.4f}. Set PG_MAX_COST_PER_RUN higher or call "
+194:             f"reset_run_cost() between runs."
+195:         )
+196: 
+197: # HONEST-REBUILD Phase 1c (plan: C:/Users/msn/.claude/plans/lovely-finding-firefly.md)
+198: # ─────────────────────────────────────────────────────────────────────────────
+199: # Two-family architecture: generator and evaluator MUST be from different
+200: # training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
+201: # 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
+202: #
+203: # Defaults pin the VERIFIED-ON-GROUNDED-FACTUALITY pair (user decision
+204: # 2026-04-17 after multi-axis reasoning; generator default upgraded to V4
+205: # Pro on 2026-05-08 per I-bug-086 once V4 hit OpenRouter):
+206: #
+207: #   Generator: deepseek/deepseek-v4-pro   (role-fit: long-form grounded
+208: #                                          synthesis)
+209: #       - 1.6T total / 49B active params, hybrid CSA+HCA attention
+210: #       - 1.05M context, MIT license, $0.435 in / $0.87 out per M tokens
+211: #         on OpenRouter
+212: #       - Released 2026-04-24 (current frontier open-weight)
+213: #       - Sovereign V4 hosting on OVH H200 still pending I-phase0-006
+214: #         hardware decision; OpenRouter is the bridge until then
+215: #       - Predecessor V3.2 retained on OpenRouter (`deepseek/deepseek-v3.2-exp`),
+216: #         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
+217: #         if V4 Pro produces regressions on the BEAT-BOTH benchmark
+218: #
+219: #   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
+220: #                                         judgment, runs 100s of times per
+221: #                                         report)
+222: #       - Vectara HHEM 4.8% (rank #9 — lower than Qwen3-32B's 5.9%)
+223: #       - Apache 2.0 license, 128K context
+224: #       - ~$0.05 in / $0.40 out per M tokens — cheapest of the verified-
+225: #         factuality evaluators; affordable to ensemble over 2-3 samples
+226: #       - Different family from generator (Alibaba vs DeepSeek) —
+227: #         check_family_segregation() allows this pair
+228: #
+229: # WHY NOT GLM 5.1 + Qwen 3.5 Plus (rejected after multi-axis analysis
+230: # 2026-04-17):
+231: #   - GLM-5.1's strengths (SWE-Bench Pro 58.4, BrowseComp 68.0, AIME 92.7)
+232: #     are for agentic coding tasks, NOT our role. Grounded-generation
+233: #     faithfulness is the core requirement; GLM-5 ancestor ranks 57/77 on
+234: #     Vectara at 10.1%. GLM-5.1 has no Vectara data but inherits the signal.
+235: #   - Qwen 3.5 Plus has zero Vectara data. Sibling Qwen 3.5 397B has 88%
+236: #     fabrication rate on AA-Omniscience. Unverified factuality is exactly
+237: #     the "no honest metric" pattern the rebuild is trying to escape.
+238: #   - Cost: GLM 5.1 at $2.15/M blended is ~5x the combined DeepSeek +
+239: #     Qwen3-8B cost per call.
+240: #
+241: # Research trail:
+242: #   loopback/audit/_open_source_models_2026.md
+243: #   loopback/audit/_open_source_models_2026_april_followup.md
+244: #
+245: # Escape hatch for fine-tunes / licensed redistributions: PG_*_FAMILY_OVERRIDE.
+246: # Family derivation uses OpenRouter publisher-slug prefix.
+247: PG_GENERATOR_MODEL = os.getenv(
+248:     "PG_GENERATOR_MODEL",
+249:     "deepseek/deepseek-v4-pro",
+250: )
+251: PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+252: 
+253: # Explicit family overrides for the cases where the model-name prefix is
+254: # not the true family (fine-tunes, licensed redistributions, etc.).
+255: PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
+256: PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+257: 
+258: # Known family prefixes. The first prefix matched wins. Distinct families
+259: # per the loopback/audit/_open_source_models_2026.md family-distance table.
+260: _FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
+261:     "deepseek": ("deepseek/", "deepseek-ai/"),
+262:     "qwen":     ("qwen/", "qwen-ai/", "alibaba/"),
+263:     "glm":      ("z-ai/", "zhipuai/", "thudm/"),
+264:     "llama":    ("meta-llama/", "meta/", "llama/"),
+265:     "gemma":    ("google/gemma", "google/gemma-", "gemma/"),
+266:     "mistral":  ("mistralai/", "mistral/"),
+267:     "kimi":     ("moonshotai/", "moonshot/", "kimi/"),
+268:     # Closed frontier families included for completeness (off-MVP, but if
+269:     # ever allowed via a closed-source fallback they get their own family).
+270:     "openai":   ("openai/", "gpt-"),
+271:     "anthropic":("anthropic/", "claude-"),
+272:     "google-closed": ("google/gemini",),
+273: }
+274: 
+275: 
+276: def family_from_model(model_name: str, override: str = "") -> str:
+277:     """Derive the training-lineage family from an OpenRouter model name.
+278: 
+279:     Returns the family label ("deepseek", "qwen", "glm", "llama", "gemma",
+280:     "mistral", "kimi", "openai", "anthropic", "google-closed") or
+281:     "unknown" if no prefix matches.
+282: 
+283:     A non-empty `override` bypasses prefix matching. Use it when a model
+284:     has been renamed or when a fine-tune needs its base-family tag.
+285:     """
+286:     if override:
+287:         return override.strip().lower()
+288:     if not model_name:
+289:         return "unknown"
+290:     m = model_name.strip().lower()
+291:     for family, prefixes in _FAMILY_PREFIXES.items():
+292:         for prefix in prefixes:
+293:             if m.startswith(prefix.lower()):
+294:                 return family
+295:     return "unknown"
+296: 
+297: 
+298: def check_family_segregation(
+299:     generator_model: str | None = None,
+300:     evaluator_model: str | None = None,
+301:     generator_override: str | None = None,
+302:     evaluator_override: str | None = None,
+303: ) -> tuple[str, str]:
+304:     """Fail fast if generator and evaluator are in the same family.
+305: 
+306:     Returns (generator_family, evaluator_family) on success.
+307:     Raises RuntimeError if same family or if either is "unknown" without
+308:     an explicit override (so misconfiguration is visible at init time).
+309: 
+310:     Defaults pull from the module-level env-var settings.
+311:     """
+312:     gen_model = generator_model or PG_GENERATOR_MODEL
+313:     eval_model = evaluator_model or PG_EVALUATOR_MODEL
+314:     gen_override = generator_override if generator_override is not None else PG_GENERATOR_FAMILY_OVERRIDE
+315:     eval_override = evaluator_override if evaluator_override is not None else PG_EVALUATOR_FAMILY_OVERRIDE
+316: 
+317:     gen_family = family_from_model(gen_model, gen_override)
+318:     eval_family = family_from_model(eval_model, eval_override)
+319: 
+320:     if gen_family == "unknown" and not gen_override:
+321:         raise RuntimeError(
+322:             f"HONEST-REBUILD Phase 1c: generator model '{gen_model}' does not "
+323:             f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+324:             f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+325:             f"family segregation can be checked. Family-distance from the "
+326:             f"evaluator is the primary mitigation for evaluator-generator "
+327:             f"self-bias (Play Favorites arXiv:2508.06709, DeepHalluBench "
+328:             f"arXiv:2601.22984)."
+329:         )
+330:     if eval_family == "unknown" and not eval_override:
+331:         raise RuntimeError(
+332:             f"HONEST-REBUILD Phase 1c: evaluator model '{eval_model}' does "
+333:             f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
+334:         )
+335:     if gen_family == eval_family:
+336:         raise RuntimeError(
+337:             f"HONEST-REBUILD Phase 1c: generator and evaluator are in the "
+338:             f"same training-lineage family ('{gen_family}'). This defeats "
+339:             f"the purpose of two-family architecture — same-family judges "
+340:             f"share blind spots and RLHF biases. Pick models from different "
+341:             f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+342:             f"values to demonstrate you know the trade-off. Recommended pair: "
+343:             f"deepseek/deepseek-v4-pro (generator) + qwen/qwen3-8b "
+344:             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+345:         )
+346:     return (gen_family, eval_family)
+347: 
+348: # FIX-GLM5: Models that always route output to reasoning_content.
+349: # These need reasoning_enabled=True for all calls, and generate() must
+350: # use reasoning as content directly (no </think> tag extraction).
+351: #
+352: # FIX-GLM51: z-ai/glm-5.1 added 2026-04-12. Smoke test confirmed it
+353: # routes generate() and reason() output into reasoning_content (content
+354: # empty). The previous COT-1/COT-2 fallback recovery logic worked but
+355: # wasted tokens via retries. Adding to this set makes the handling
+
+ succeeded in 2466ms:
+1: """
+2: External non-same-family evaluator — HONEST-REBUILD Phase 5.
+3: 
+4: Runs quality checks on a completed report using a DIFFERENT model
+5: family than the one that generated the report. Combined with rule-
+6: based PRISMA-trAIce compliance checks that run without any LLM at all.
+7: 
+8: ADDRESSES the self-grading problem documented across FIX-QM7 /
+9: FIX-043A / REMEDIATE-LOOP and quantified in PG_LB_SA_02_CONTENT_AUDIT:
+10: any evaluator in the same training lineage as the generator shares
+11: the generator's blind spots (Play Favorites arXiv:2508.06709,
+12: DeepHalluBench arXiv:2601.22984).
+13: 
+14: ARCHITECTURE
+15: ------------
+16: Two complementary channels:
+17: 
+18: 1. RULE-BASED CHECKS (deterministic, no LLM)
+19:    - Citation-span exact match: every [#ev:...] token must verify
+20:      against the stored evidence pool (reuses Phase 4 verifier).
+21:    - Tier-distribution arithmetic: actual corpus tier fractions
+22:      match the numbers reported in the methods section.
+23:    - Contradiction disclosure: every ContradictionRecord from
+24:      Phase 3 must have at least one mention in the report text.
+25:    - PRISMA-trAIce compliance checklist (26 items, see PRISMA_TRAICE).
+26:    - Word-count + citation-count floors.
+27: 
+28: 2. LLM-JUDGE (non-same-family)
+29:    - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
+30:      PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
+31:    - check_family_segregation() FAILS FAST if both are in the
+32:      same family.
+33:    - Only judges NUANCE items the rule-based checks can't cover:
+34:      tone consistency, hedging appropriateness, paragraph flow.
+35:    - The LLM does NOT produce a single faithfulness % — its output
+36:      is a structured profile (per-axis verdict) so we can avoid
+37:      the collapse to a single cooked number.
+38: 
+39: CRITICAL: Phase 5 emits `evaluator_output` (structured dict), NOT
+40: `faithfulness_score` (single float). Phase 1a removed the single-float
+41: from the UI to prevent the next wave of cooking.
+42: """
+43: 
+44: from __future__ import annotations
+45: 
+
+web search: 
+web search: site:openrouter.ai google/gemma-4-31b-it OpenRouter
+codex
+OpenRouter does expose `google/gemma-4-31b-it`, so the slug itself is not the problem. The issue I’m seeing is the fallback price table: the existing generic `google/gemma` row is lower than current Gemma 4 pricing, which matters because this file says the table is supposed to overcharge when API cost is missing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "live_qwen_judge|run_live|Qwen3|qwen3|Qwen" src/polaris_graph/evaluator src/polaris_graph/honest_pipeline.py tests/polaris_graph/test_external_evaluator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'tests/polaris_graph/test_b4_budget_imputation.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 120) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'tests/crown_jewels/test_cj_006_budget_imputation.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 90) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1430ms:
+src/polaris_graph/honest_pipeline.py:22:OpenAlex / DeepSeek / Qwen. For Phase 6 validation, offline mode is
+tests/polaris_graph/test_external_evaluator.py:39:        "Evaluator model: qwen/qwen3-8b.\n"
+tests/polaris_graph/test_external_evaluator.py:117:        "deepseek/deepseek-v3.2-exp generated. qwen/qwen3-8b evaluated. "
+tests/polaris_graph/test_external_evaluator.py:167:        "Evaluator model: qwen/qwen3-8b.\n"
+tests/polaris_graph/test_external_evaluator.py:457:    monkeypatch.setenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
+src/polaris_graph/evaluator\__init__.py:3:Non-same-family evaluator (DeepSeek V3.2-Exp generator + Qwen3-8B
+src/polaris_graph/evaluator\external_evaluator.py:29:   - Uses PG_EVALUATOR_MODEL (default qwen/qwen3-8b) against
+src/polaris_graph/evaluator\evaluator_gate.py:5:outline + rule_check_fail_count + adequacy + completeness. The Qwen
+src/polaris_graph/evaluator\evaluator_gate.py:17:  advisory_unavailable - Qwen parse failed; preserve other status
+src/polaris_graph/evaluator\evaluator_gate.py:21:  partial_qwen_advisory    - report ships, Qwen flagged critical axes
+src/polaris_graph/evaluator\evaluator_gate.py:53:# Qwen axes that are in the high-risk set (evidence-integrity adjacent).
+src/polaris_graph/evaluator\evaluator_gate.py:101:        qwen_result: optional live_qwen_judge.JudgeResult-like with
+src/polaris_graph/evaluator\evaluator_gate.py:106:            Qwen completeness: if deterministic completeness is already
+src/polaris_graph/evaluator\evaluator_gate.py:107:            thin, a solo Qwen completeness flag is more meaningful).
+src/polaris_graph/evaluator\evaluator_gate.py:109:            informs Qwen completeness severity.
+src/polaris_graph/evaluator\evaluator_gate.py:152:    # ── 2. Qwen verdicts ──
+src/polaris_graph/evaluator\evaluator_gate.py:169:        # Qwen critical conditions (from R5 findings §3):
+src/polaris_graph/evaluator\evaluator_gate.py:233:        # Qwen unavailable but no rule blockers; preserve other status.
+src/polaris_graph/evaluator\live_qwen_judge.py:2:Live Qwen3-8B judge — HONEST-REBUILD Phase 5 live wiring.
+src/polaris_graph/evaluator\live_qwen_judge.py:4:Calls the REAL Qwen3-8B model via OpenRouter to produce per-axis
+src/polaris_graph/evaluator\live_qwen_judge.py:8:judge is Qwen3-8B. `check_family_segregation()` must succeed before
+src/polaris_graph/evaluator\live_qwen_judge.py:33:logger = logging.getLogger("polaris_graph.live_qwen_judge")
+src/polaris_graph/evaluator\live_qwen_judge.py:123:    """Call Qwen3-8B via OpenRouter for a structured per-axis verdict.
+src/polaris_graph/evaluator\live_qwen_judge.py:145:    logger.info("[live_qwen_judge] calling %s, report_chars=%d",
+
+ succeeded in 1678ms:
+1: """
+2: Codex round 1 B-4 regression tests: budget cap must NOT be $0 when
+3: tokens were consumed but OpenRouter omitted usage.cost.
+4: """
+5: from __future__ import annotations
+6: 
+7: import importlib
+8: 
+9: 
+10: def _mod():
+11:     import src.polaris_graph.llm.openrouter_client as m
+12:     return m
+13: 
+14: 
+15: def test_b4_deepseek_tokens_impute_nonzero() -> None:
+16:     mod = _mod()
+17:     cost = mod._impute_cost_from_tokens(
+18:         "deepseek/deepseek-v3.2-exp", 5000, 500, 0,
+19:     )
+20:     # DeepSeek rates: $0.27 in / $0.38 out per M
+21:     # expected: 5000*0.27/1e6 + 500*0.38/1e6 = 0.00135 + 0.00019 = 0.00154
+22:     assert cost > 0.001
+23:     assert cost < 0.01, f"unexpectedly expensive: {cost}"
+24: 
+25: 
+26: def test_b4_qwen_8b_tokens_impute_cheap() -> None:
+27:     mod = _mod()
+28:     cost = mod._impute_cost_from_tokens(
+29:         "qwen/qwen3-8b", 1000, 100, 50,
+30:     )
+31:     # Qwen3-8B: $0.05 in / $0.40 out; reasoning tokens billed at output rate
+32:     # expected: 1000*0.05/1e6 + (100+50)*0.40/1e6 = 0.00005 + 0.00006 = 0.00011
+33:     assert 0 < cost < 0.001
+34: 
+35: 
+36: def test_b4_unknown_model_uses_opus_tier_default() -> None:
+37:     mod = _mod()
+38:     cost = mod._impute_cost_from_tokens(
+39:         "unknown-vendor/mystery-model-3.0", 1000, 100, 0,
+40:     )
+41:     # Opus-tier worst-case: $3/M in, $15/M out
+42:     # expected: 1000*3/1e6 + 100*15/1e6 = 0.003 + 0.0015 = 0.0045
+43:     assert cost > 0.003
+44: 
+45: 
+46: def test_b4_zero_tokens_zero_cost() -> None:
+47:     mod = _mod()
+48:     assert mod._impute_cost_from_tokens("deepseek/x", 0, 0, 0) == 0.0
+49: 
+50: 
+51: def test_b4_budget_guard_not_bypassable_when_cost_missing(
+52:     monkeypatch,
+53: ) -> None:
+54:     """If OpenRouter omits cost but tokens were used, the budget guard
+55:     must still accumulate a non-zero amount per call."""
+56:     monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+57:     import src.polaris_graph.llm.openrouter_client as mod
+58:     importlib.reload(mod)
+59:     mod.reset_run_cost()
+60:     # Simulate what the _call() code path does when api_cost is None
+61:     # and tokens were consumed: the imputed cost is fed into _add_run_cost.
+62:     for _ in range(10):
+63:         imputed = mod._impute_cost_from_tokens(
+64:             "unknown-vendor/mystery", 2000, 500, 0,
+65:         )
+66:         assert imputed > 0
+67:         mod._add_run_cost(imputed)
+68:     # 10 calls × ~$0.0135 imputed > $0.10 budget → check_run_budget raises
+69:     # (10 × (2000*3 + 500*15)/1M = 0.135)
+70:     assert mod.current_run_cost() > 0.10
+71:     import pytest
+72:     with pytest.raises(mod.BudgetExceededError):
+73:         mod.check_run_budget()
+74:     monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+75:     importlib.reload(mod)
+76: 
+77: 
+78: def test_b4_negative_tokens_clamped_to_zero() -> None:
+79:     """Codex round 5 probe: a corrupted API response with negative
+80:     token counts must NOT produce a negative cost that would silently
+81:     reduce the accumulated run budget."""
+82:     mod = _mod()
+83:     # All-negative: returns 0
+84:     assert mod._impute_cost_from_tokens("deepseek/x", -100, -50, -10) == 0.0
+85:     # Partial negative: negative inputs clamp to 0, positives still count
+86:     cost = mod._impute_cost_from_tokens(
+87:         "deepseek/deepseek-v3.2-exp", -100, 50, 0,
+88:     )
+89:     assert cost >= 0.0, f"Cost must be non-negative, got {cost}"
+90:     # Should equal the cost of (0 input, 50 output, 0 reasoning)
+91:     expected = 50 * 0.38 / 1_000_000
+92:     assert abs(cost - expected) < 1e-9
+93: 
+94: 
+95: def test_b4_float_tokens_coerced_via_int() -> None:
+96:     """If an upstream handler passes floats, the clamp cast must not crash."""
+97:     mod = _mod()
+98:     cost = mod._impute_cost_from_tokens("deepseek/x", 100.7, 50.3, 0)
+99:     assert cost > 0
+100: 
+101: 
+102: def test_b4_legacy_cost_field_still_honored() -> None:
+103:     """If OpenRouter DOES return usage.cost, we use it verbatim."""
+104:     mod = _mod()
+105:     mod.reset_run_cost()
+106:     # Simulate the _call path when api_cost=0.005 was returned by API
+107:     api_cost = 0.005
+108:     mod._add_run_cost(api_cost)
+109:     assert abs(mod.current_run_cost() - 0.005) < 1e-9
+
+ succeeded in 1999ms:
+1: """Crown Jewel I-cj-006 — Budget cap holds without usage.cost.
+2: 
+3: Per CLAUDE.md §9.1.6: when OpenRouter omits usage.cost,
+4: _impute_cost_from_tokens backstops the token-only response so the
+5: budget guard cannot be silently bypassed. Negative tokens clamp to
+6: zero — a corrupted API response cannot produce a negative cost that
+7: would shrink the accumulated run budget.
+8: """
+9: 
+10: from __future__ import annotations
+11: 
+12: from src.polaris_graph.llm.openrouter_client import _impute_cost_from_tokens
+13: 
+14: 
+15: def test_cj_006_known_model_imputes_positive_cost() -> None:
+16:     cost = _impute_cost_from_tokens(
+17:         "deepseek/deepseek-v3.2-exp",
+18:         input_tokens=1_000_000,
+19:         output_tokens=1_000_000,
+20:         reasoning_tokens=0,
+21:     )
+22:     assert cost > 0.0
+23:     assert cost < 5.0
+24: 
+25: 
+26: def test_cj_006_unknown_model_uses_fallback() -> None:
+27:     cost = _impute_cost_from_tokens(
+28:         "unknown-vendor/some-model",
+29:         input_tokens=1_000_000,
+30:         output_tokens=1_000_000,
+31:         reasoning_tokens=0,
+32:     )
+33:     assert 17.0 < cost < 19.0
+34: 
+35: 
+36: def test_cj_006_zero_tokens_zero_cost() -> None:
+37:     cost = _impute_cost_from_tokens("deepseek/deepseek-v3.2-exp", 0, 0, 0)
+38:     assert cost == 0.0
+39: 
+40: 
+41: def test_cj_006_negative_tokens_clamp_to_zero() -> None:
+42:     cost = _impute_cost_from_tokens(
+43:         "deepseek/deepseek-v3.2-exp",
+44:         input_tokens=-5_000_000,
+45:         output_tokens=-3_000_000,
+46:         reasoning_tokens=-1_000_000,
+47:     )
+48:     assert cost == 0.0
+49: 
+50: 
+51: def test_cj_006_reasoning_tokens_bill_at_output_rate() -> None:
+52:     out_only = _impute_cost_from_tokens(
+53:         "deepseek/deepseek-v3.2-exp",
+54:         input_tokens=0,
+55:         output_tokens=2_000_000,
+56:         reasoning_tokens=0,
+57:     )
+58:     out_plus_reasoning = _impute_cost_from_tokens(
+59:         "deepseek/deepseek-v3.2-exp",
+60:         input_tokens=0,
+61:         output_tokens=1_000_000,
+62:         reasoning_tokens=1_000_000,
+63:     )
+64:     assert abs(out_only - out_plus_reasoning) < 1e-9
+65: 
+66: 
+67: def test_cj_006_empty_model_uses_fallback() -> None:
+68:     cost = _impute_cost_from_tokens(
+69:         "",
+70:         input_tokens=1_000_000,
+71:         output_tokens=0,
+72:         reasoning_tokens=0,
+73:     )
+74:     assert 2.5 < cost < 3.5
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/evaluator/live_qwen_judge.py' | ForEach-Object { "'$i++; if ($i -ge 115 -and $i -le 170) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1395ms:
+115: async def judge_report(
+116:     *,
+117:     report_text: str,
+118:     research_question: str,
+119:     model: Optional[str] = None,
+120:     max_tokens: int = 800,
+121:     temperature: float = 0.2,
+122: ) -> LiveJudgeResult:
+123:     """Call Qwen3-8B via OpenRouter for a structured per-axis verdict.
+124: 
+125:     check_family_segregation() is run BEFORE the call. If the configured
+126:     generator/evaluator pair is same-family, this raises RuntimeError.
+127:     """
+128:     from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+129:         OpenRouterClient,
+130:         PG_EVALUATOR_MODEL,
+131:         check_family_segregation,
+132:     )
+133: 
+134:     check_family_segregation()   # raises if same family
+135: 
+136:     eval_model = model or PG_EVALUATOR_MODEL
+137:     client = OpenRouterClient(model=eval_model)
+138: 
+139:     prompt = (
+140:         f"Research question: {research_question}\n\n"
+141:         f"Report to audit:\n\n{report_text}\n\n"
+142:         f"Return the JSON object as specified in the system prompt."
+143:     )
+144: 
+145:     logger.info("[live_qwen_judge] calling %s, report_chars=%d",
+146:                 eval_model, len(report_text))
+147: 
+148:     try:
+149:         response = await client.generate(
+150:             prompt=prompt,
+151:             system=SYSTEM_PROMPT,
+152:             max_tokens=max_tokens,
+153:             temperature=temperature,
+154:         )
+155:     finally:
+156:         if hasattr(client, "close"):
+157:             try:
+158:                 await client.close()
+159:             except Exception:
+160:                 pass
+161:     raw = (response.content or "").strip()
+162:     parsed, parse_err = _parse_judge_json(raw)
+163: 
+164:     if parsed is None:
+165:         return LiveJudgeResult(
+166:             verdicts={},
+167:             model=eval_model,
+168:             raw_response=raw,
+169:             parse_ok=False,
+170:             input_tokens=response.input_tokens,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/evaluator/evaluator_gate.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 60) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/honest_pipeline.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 40) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path '"'src/polaris_graph/evaluator/__init__.py' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 20) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1418ms:
+1: """POLARIS honest-rebuild external evaluator package (Phase 5).
+2: 
+3: Non-same-family evaluator (DeepSeek V3.2-Exp generator + Qwen3-8B
+4: evaluator) plus rule-based PRISMA-trAIce compliance checks.
+5: """
+
+ succeeded in 1858ms:
+1: """
+2: Honest-rebuild pipeline orchestrator — wires Phase 2/3/4/5 together.
+3: 
+4: End-to-end flow:
+5:   T+0: Phase 2b scope_gate -> writes protocol.json
+6:   T+1: (mock) retrieval + Phase 2a tier classification of sources
+7:   T+2: Phase 2d prefetch off-topic filter (optional, applied during
+8:        retrieval — for offline run we skip it and go straight to
+9:        post-fetch)
+10:   T+3: Phase 2g corpus-approval gate -> writes corpus_approval.json
+11:   T+4: Phase 3 contradiction detection -> writes contradictions.json
+12:   T+5: Phase 4 provenance-emitting generator (mock draft) -> verified
+13:        report text with citations
+14:   T+6: Phase 5 external evaluator -> writes evaluator_output.json
+15: 
+16: The orchestrator is designed to run in a "dry-validation" mode where
+17: no network calls happen — evidence and draft are supplied by the
+18: caller. This lets us validate the ARTIFACT SHAPES and CONTENT GATES
+19: line-by-line without depending on API keys.
+20: 
+21: A separate online mode (not in this file) will plug in Serper /
+22: OpenAlex / DeepSeek / Qwen. For Phase 6 validation, offline mode is
+23: sufficient and explicitly what the audit plan calls for.
+24: """
+25: 
+26: from __future__ import annotations
+27: 
+28: import json
+29: import logging
+30: import time
+31: from dataclasses import asdict, dataclass, field
+32: from pathlib import Path
+33: from typing import Any, Optional
+34: 
+35: from src.polaris_graph.evaluator.external_evaluator import (
+36:     EvaluatorOutput,
+37:     run_external_evaluation,
+38: )
+39: from src.polaris_graph.generator.provenance_generator import (
+40:     resolve_provenance_to_citations,
+
+ succeeded in 2172ms:
+1: """
+2: Evaluator gate — BUG-M-205 fix (deep-dive R5).
+3: 
+4: Pre-fix, the orchestrator selected `success` / `partial_*` status from
+5: outline + rule_check_fail_count + adequacy + completeness. The Qwen
+6: judge's `needs_revision` verdicts were logged but never blocked a
+7: release. Some deterministic rule failures (PT08 contradiction
+8: disclosure, PT11 uncited numeric claims, PT12 invalid citation markers)
+9: should also block release but were lumped into a generic
+10: `warn_rule_checks` after three total failures.
+11: 
+12: Post-fix, `compute_evaluator_gate()` produces a structured gate
+13: decision with stable reason codes:
+14:   pass                - no blocking issues
+15:   partial             - report ships but release_allowed=False
+16:   abort               - release-blocking integrity failure
+17:   advisory_unavailable - Qwen parse failed; preserve other status
+18: 
+19: The orchestrator reads `gate_class` + `reasons` to select manifest
+20: status. Two new manifest statuses are added to the taxonomy:
+21:   partial_qwen_advisory    - report ships, Qwen flagged critical axes
+22:   abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
+23: """
+24: from __future__ import annotations
+25: 
+26: from dataclasses import dataclass, field
+27: from typing import Any, Optional
+28: 
+29: 
+30: # Reason codes that map rule-check item IDs to stable gate reasons.
+31: # Release-blocking deterministic rules:
+32: RELEASE_BLOCKING_RULES: dict[str, str] = {
+33:     "PT08": "rule_pt08_contradiction_missing",
+34:     "PT11": "rule_pt11_uncited_numeric_claims",
+35:     "PT12": "rule_pt12_invalid_citation_marker",
+36: }
+37: 
+38: # Rules that prevent clean success but don't abort.
+39: COMPLIANCE_BLOCKING_RULES: dict[str, str] = {
+40:     "PT02": "rule_model_disclosure_missing",
+41:     "PT03": "rule_model_disclosure_missing",
+42: }
+43: 
+44: # M-3 (Codex pass 5 follow-up): advisory rules that do NOT gate
+45: # release but whose failures should surface in `reasons` so operators
+46: # can see them in the manifest without opening evaluator_rule_checks.json.
+47: # Prefix is "advisory_" so downstream grep patterns that look for
+48: # "rule_*" or "qwen_*" don't accidentally treat these as blocking.
+49: ADVISORY_RULES: dict[str, str] = {
+50:     "PT13": "advisory_pt13_unhedged_superlatives",
+51: }
+52: 
+53: # Qwen axes that are in the high-risk set (evidence-integrity adjacent).
+54: HIGH_RISK_QWEN_AXES = frozenset({
+55:     "citation_tightness",
+56:     "hedging_appropriateness",
+57:     "completeness",
+58: })
+59: 
+60: 
+
+web search: 
+web search: 
+web search: 
+web search: https://openrouter.ai/google/gemma-4-31b-it
+codex
+```yaml
+# criterion 1: planned default-string change is correct, but unsafe without the P1 price-table fix below.
+# criterion 2: planned .env.example change is correct.
+# criterion 3: named doc comments/error message are covered; additional Qwen docstrings remain P2.
+# criterion 4: new tests are insufficient as written because the cost test only checks positive, not safe pricing.
+# criterion 5: not proven here; this was brief review, not patch/test execution.
+# criterion 6: still feasible under LOC cap after adding the explicit Gemma 4 price row/test.
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: budget-imputation-undercharges-gemma-4-default
+    where: "src/polaris_graph/llm/openrouter_client.py:121"
+    finding: "The plan relies on the generic `google/gemma` fallback price `(0.05, 0.30)` for the new default evaluator. OpenRouter lists `google/gemma-4-31b-it` at `$0.13/M` input and `$0.38/M` output, so when `usage.cost` is omitted the budget guard would undercount default evaluator calls. That violates the file's stated invariant that fallback prices should overcharge. Source: https://openrouter.ai/google/gemma-4-31b-it"
+    required_change: "Add a model-specific `google/gemma-4-31b-it` price row before `google/gemma`, using at least current OpenRouter rates, and change the new cost test to assert the expected Gemma 4 imputed cost/rate rather than only `> 0`."
+p2:
+  - id: stale-qwen-docstrings-after-default-switch
+    where: "src/polaris_graph/evaluator/live_qwen_judge.py:1, src/polaris_graph/evaluator/__init__.py:3"
+    finding: "Several core evaluator docstrings will still state that the live judge/default evaluator is Qwen3-8B. Not execution-blocking, but it weakens criterion 3 if doc-comment cleanup is meant to describe the new default honestly."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add explicit Gemma 4 pricing coverage to `_PRICE_TABLE_USD_PER_M` and pin it with a rate-sensitive test."
+```
+tokens used
+49,766
+```yaml
+# criterion 1: planned default-string change is correct, but unsafe without the P1 price-table fix below.
+# criterion 2: planned .env.example change is correct.
+# criterion 3: named doc comments/error message are covered; additional Qwen docstrings remain P2.
+# criterion 4: new tests are insufficient as written because the cost test only checks positive, not safe pricing.
+# criterion 5: not proven here; this was brief review, not patch/test execution.
+# criterion 6: still feasible under LOC cap after adding the explicit Gemma 4 price row/test.
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: budget-imputation-undercharges-gemma-4-default
+    where: "src/polaris_graph/llm/openrouter_client.py:121"
+    finding: "The plan relies on the generic `google/gemma` fallback price `(0.05, 0.30)` for the new default evaluator. OpenRouter lists `google/gemma-4-31b-it` at `$0.13/M` input and `$0.38/M` output, so when `usage.cost` is omitted the budget guard would undercount default evaluator calls. That violates the file's stated invariant that fallback prices should overcharge. Source: https://openrouter.ai/google/gemma-4-31b-it"
+    required_change: "Add a model-specific `google/gemma-4-31b-it` price row before `google/gemma`, using at least current OpenRouter rates, and change the new cost test to assert the expected Gemma 4 imputed cost/rate rather than only `> 0`."
+p2:
+  - id: stale-qwen-docstrings-after-default-switch
+    where: "src/polaris_graph/evaluator/live_qwen_judge.py:1, src/polaris_graph/evaluator/__init__.py:3"
+    finding: "Several core evaluator docstrings will still state that the live judge/default evaluator is Qwen3-8B. Not execution-blocking, but it weakens criterion 3 if doc-comment cleanup is meant to describe the new default honestly."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add explicit Gemma 4 pricing coverage to `_PRICE_TABLE_USD_PER_M` and pin it with a rate-sensitive test."
+```
