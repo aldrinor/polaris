@@ -1,0 +1,675 @@
+diff --git a/src/polaris_graph/generator2/strict_verify.py b/src/polaris_graph/generator2/strict_verify.py
+index b75b9f7a..c5ae5557 100644
+--- a/src/polaris_graph/generator2/strict_verify.py
++++ b/src/polaris_graph/generator2/strict_verify.py
+@@ -6,18 +6,38 @@ Per-sentence check enforcing:
+   (c) span bounds are valid (0 <= start <= end <= len(text))
+   (d) every decimal in the sentence appears in the cited spans
+   (e) sentence and span share >= MIN_CONTENT_OVERLAP content words
++  (f) I-bug-092: span semantically ENTAILS the sentence's specific claims
++      (gated behind PG_STRICT_VERIFY_ENTAILMENT, defaults off)
++
++Checks (a)-(e) are mechanical "provenance hygiene" — they bound a claim to
++the same TOPIC as its span. Check (f) is "provenance correctness" — it
++verifies the span actually entails the sentence's specific facts. The
++audit on 2026-05-09 found that a capable generator can pass (a)-(e) by
++producing topically-overlapping prose that introduces unsourced specifics
++(e.g. inserting "pancreatic β-cells", "lipid metabolism", "energy storage"
++into a span that says only "synergistic actions on insulin secretion,
++glucagon suppression, appetite regulation, and adipocyte metabolism").
+ 
+ Returns a (verifier_pass: bool, drop_reason: str | None) pair, or directly
+ constructs a VerifiedSentence for use by the generator orchestrator.
+ 
+-Pure-functions module: no I/O, no LLM, no network.
+-
+ Tunables (read at call time so tests can override):
+   PG_PROVENANCE_MIN_CONTENT_OVERLAP — minimum shared content words (default 2)
++  PG_STRICT_VERIFY_ENTAILMENT       — "off" (default) | "warn" | "enforce"
++                                       off:     skip check (f), current behavior
++                                       warn:    run check (f), log violations,
++                                                do NOT drop (collect telemetry)
++                                       enforce: run check (f), drop on
++                                                NEUTRAL or CONTRADICTED verdict
++  PG_ENTAILMENT_MODEL               — entailment judge model
++                                       (default: google/gemma-4-31b-it,
++                                        the two-family evaluator)
+ """
+ 
+ from __future__ import annotations
+ 
++import json
++import logging
+ import os
+ import re
+ 
+@@ -34,6 +54,8 @@ from polaris_graph.generator2.verified_report import (
+ )
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ 
++logger = logging.getLogger(__name__)
++
+ 
+ # ---------------------------------------------------------------------------
+ # Tunables
+@@ -82,6 +104,138 @@ def _decimals(text: str) -> set[str]:
+     return {m.group(0) for m in _DECIMAL_RE.finditer(text)}
+ 
+ 
++# ---------------------------------------------------------------------------
++# Entailment judge (I-bug-092 — provenance correctness)
++# ---------------------------------------------------------------------------
++#
++# After mechanical checks (a)-(e) pass, the entailment judge asks an LLM
++# whether the cited span semantically ENTAILS the sentence's specific
++# claims. This catches the residual fabrication patterns the audit on
++# 2026-05-09 surfaced:
++#   - mechanistic granularity insertion (M2: span says "adipocyte
++#     metabolism", sentence adds "lipid metabolism, energy storage")
++#   - specificity inflation (C2: span says "GLP-1 RAs", sentence
++#     upgrades to "semaglutide at the highest studied doses")
++#   - numbers nearby but not entailed (C1: span has 27/46/19 elsewhere,
++#     sentence claims 69-80% reach <=6.5% which is not in the span)
++#
++# The judge is the two-family evaluator (Gemma 4 31B by default), which
++# matches the §9.1.1 invariant — a different lineage than the generator
++# (DeepSeek). Calls go through OpenRouter using the existing project
++# auth substrate.
++
++_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
++_ENTAILMENT_TIMEOUT_S = 30.0
++_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
++
++Rules:
++- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
++- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
++- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
++
++Return STRICT JSON only, no prose:
++{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
++
++SPAN:
++{span}
++
++SENTENCE:
++{sentence}
++
++JSON:"""
++
++
++class _EntailmentJudge:
++    """Synchronous httpx wrapper around an OpenRouter entailment call.
++
++    Lazy-initialized via _get_judge() so import-time cost is zero when
++    PG_STRICT_VERIFY_ENTAILMENT=off (the default).
++    """
++
++    def __init__(self) -> None:
++        import httpx  # local import: avoid forcing the dep when off
++
++        # Lazy-import the family-segregation check so the off-mode path
++        # never touches openrouter_client. The judge is acting as a
++        # content evaluator (Layer-2), so it MUST differ from the
++        # generator family per CLAUDE.md §9.1.1 — fail at construction
++        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
++        from polaris_graph.llm.openrouter_client import check_family_segregation
++
++        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++        if not api_key:
++            raise RuntimeError(
++                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
++            )
++        self._api_key = api_key
++        self._model = os.environ.get(
++            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
++        )
++        # Two-family invariant per §9.1.1: raises RuntimeError if the
++        # entailment judge ends up in the same family as the generator
++        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
++        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
++        # default model (google/gemma-4-31b-it) is in a different
++        # family from DeepSeek by construction.
++        check_family_segregation(evaluator_model=self._model)
++        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
++
++    def judge(self, sentence: str, span: str) -> tuple[str, str]:
++        """Return (verdict, reason).
++
++        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
++        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
++        fail-open so a transient OpenRouter outage does not nuke a run.
++        """
++        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
++        try:
++            response = self._client.post(
++                "https://openrouter.ai/api/v1/chat/completions",
++                headers={
++                    "Authorization": f"Bearer {self._api_key}",
++                    "Content-Type": "application/json",
++                },
++                json={
++                    "model": self._model,
++                    "messages": [{"role": "user", "content": prompt}],
++                    "temperature": 0.0,
++                    "max_tokens": 100,
++                    "response_format": {"type": "json_object"},
++                },
++            )
++            response.raise_for_status()
++            data = response.json()
++            content = data["choices"][0]["message"]["content"]
++            parsed = json.loads(content)
++            verdict = str(parsed.get("verdict", "")).upper().strip()
++            reason = str(parsed.get("reason", ""))
++            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
++                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
++            return verdict, reason
++        except Exception as exc:  # noqa: BLE001 — fail-open by design
++            logger.warning("entailment judge error: %s", exc)
++            return "ENTAILED", f"judge_error: {type(exc).__name__}"
++
++
++_JUDGE_SINGLETON: _EntailmentJudge | None = None
++
++
++def _get_judge() -> _EntailmentJudge:
++    """Lazy singleton so off-mode pays zero import/connection cost."""
++    global _JUDGE_SINGLETON
++    if _JUDGE_SINGLETON is None:
++        _JUDGE_SINGLETON = _EntailmentJudge()
++    return _JUDGE_SINGLETON
++
++
++def _entailment_mode() -> str:
++    """Return one of 'off', 'warn', 'enforce'. Unknown values map to 'off'."""
++    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "off").lower().strip()
++    if raw not in ("off", "warn", "enforce"):
++        return "off"
++    return raw
++
++
+ # ---------------------------------------------------------------------------
+ # Per-sentence verifier
+ # ---------------------------------------------------------------------------
+@@ -103,6 +257,8 @@ def verify_sentence(
+       3. spans within source bounds            → span_out_of_range
+       4. every decimal in sentence in spans    → numeric_mismatch
+       5. >=N shared content words              → overlap_too_low
++      6. (I-bug-092) span entails sentence     → entailment_failed
++         (gated by PG_STRICT_VERIFY_ENTAILMENT, off by default)
+ 
+     If `is_synthesis_claim=True` AND the sentence has no tokens, return
+     (True, None) — synthesis claims pass without provenance by definition
+@@ -155,6 +311,21 @@ def verify_sentence(
+     if overlap < threshold:
+         return False, "overlap_too_low"
+ 
++    # Check (f) — entailment judge (I-bug-092). Synthesis claims with no
++    # tokens already short-circuited above; if a synthesis claim DOES
++    # carry tokens it must clear the same content-correctness bar as
++    # any other cited sentence.
++    mode = _entailment_mode()
++    if mode in ("warn", "enforce"):
++        verdict, reason = _get_judge().judge(sentence_clean, combined_span)
++        if verdict in ("NEUTRAL", "CONTRADICTED"):
++            logger.warning(
++                "entailment %s (mode=%s): sentence=%r reason=%r",
++                verdict, mode, sentence_clean, reason,
++            )
++            if mode == "enforce":
++                return False, "entailment_failed"
++
+     return True, None
+ 
+ 
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index 0a0b773c..b9069674 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -60,6 +60,7 @@ DropReason = Literal[
+     "numeric_mismatch",    # decimal in sentence not present in cited span
+     "overlap_too_low",     # < min_content_overlap shared content words
+     "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
++    "entailment_failed",   # I-bug-092: span does not entail sentence (semantic check)
+ ]
+ 
+ 
+diff --git a/tests/polaris_graph/generator2/test_strict_verify_entailment.py b/tests/polaris_graph/generator2/test_strict_verify_entailment.py
+new file mode 100644
+index 00000000..ff6e716f
+--- /dev/null
++++ b/tests/polaris_graph/generator2/test_strict_verify_entailment.py
+@@ -0,0 +1,430 @@
++"""Tests for strict_verify check (f) — entailment judge (I-bug-092).
++
++The entailment judge is the 6th strict_verify check, gated by
++PG_STRICT_VERIFY_ENTAILMENT. It runs an LLM-as-judge content check
++on top of the existing 5 mechanical checks. The tests below pin the
++audit-derived failure patterns (M2, C2, C1) plus a positive-control
++paraphrase and the synthesis-with-tokens edge case, so the new gate
++cannot regress on the architectural fix while leaving the off-mode
++behavior identical to pre-I-bug-092.
++
++The judge is monkeypatched with a deterministic fake — these tests
++verify the GATE WIRING, not the production model's semantic accuracy
++(that is verified at the integration layer with a live OpenRouter
++call once the env is configured).
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++import pytest
++
++from polaris_graph.generator2 import strict_verify
++from polaris_graph.generator2.strict_verify import (
++    verify_sentence,
++    verify_sentence_to_record,
++)
++from polaris_graph.retrieval2.evidence_pool import (
++    AdequacyVerdict,
++    EvidencePool,
++    Source,
++    SourceTier,
++)
++
++
++# ---------- Helpers ----------
++
++def _src(
++    source_id: str = "src-1",
++    full_text: str | None = None,
++    snippet: str = "snippet text",
++) -> Source:
++    return Source(
++        url="https://www.urncst.org/article",
++        domain="urncst.org",
++        tier=SourceTier.T1,
++        title="Source",
++        snippet=snippet,
++        full_text=full_text,
++        full_text_available=full_text is not None,
++        source_id=source_id,
++    )
++
++
++def _pool(*sources: Source) -> EvidencePool:
++    return EvidencePool(
++        decision_id="dec-entail",
++        sources=list(sources),
++        adequacy=AdequacyVerdict(
++            is_adequate=True,
++            sources_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
++            min_required_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
++        ),
++        retrieval_started_at_utc=datetime.now(timezone.utc),
++        retrieval_finished_at_utc=datetime.now(timezone.utc),
++        latency_ms=0,
++        cost_usd=0.0,
++    )
++
++
++class _FakeJudge:
++    """Deterministic judge driven by an explicit (sentence_substring -> verdict) map.
++
++    Tests construct a FakeJudge with the expected verdicts pre-loaded, so we
++    don't hit OpenRouter at all. The substring match keeps the table small
++    while allowing one fixture to cover many sentences.
++    """
++
++    def __init__(self, verdicts: list[tuple[str, str]]) -> None:
++        # list of (sentence_substring, verdict) — first match wins
++        self._verdicts = verdicts
++        self.calls: list[tuple[str, str]] = []  # (sentence, span) for assertions
++
++    def judge(self, sentence: str, span: str) -> tuple[str, str]:
++        self.calls.append((sentence, span))
++        for needle, verdict in self._verdicts:
++            if needle in sentence:
++                return verdict, f"fake: matched {needle!r}"
++        return "ENTAILED", "fake: default"
++
++
++def _install_fake_judge(
++    monkeypatch: pytest.MonkeyPatch,
++    verdicts: list[tuple[str, str]],
++) -> _FakeJudge:
++    fake = _FakeJudge(verdicts)
++    # Reset singleton + install replacement so _get_judge() returns the fake.
++    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
++    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
++    return fake
++
++
++# ---------- Off mode (default) — gate is invisible ----------
++
++def test_off_mode_skips_judge_even_when_set_explicitly(monkeypatch):
++    """PG_STRICT_VERIFY_ENTAILMENT='off' must not invoke the judge."""
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    # Install a judge that would mark every sentence NEUTRAL — if the
++    # gate were running, the sentence would be dropped.
++    fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
++    full_text = "Adults with chronic pain showed clinical benefit from treatment."
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    passed, reason = verify_sentence(
++        f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
++        pool,
++    )
++    assert passed is True, f"off-mode must not drop, got reason={reason}"
++    assert fake.calls == [], "off-mode must not call the judge"
++
++
++def test_unknown_mode_falls_back_to_off(monkeypatch):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "verbose-strict")
++    fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
++    full_text = "Adults with chronic pain showed clinical benefit from treatment."
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    passed, _ = verify_sentence(
++        f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
++        pool,
++    )
++    assert passed is True
++    assert fake.calls == []
++
++
++# ---------- Warn mode — log but do not drop ----------
++
++def test_warn_mode_does_not_drop_on_neutral(monkeypatch, caplog):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "warn")
++    _install_fake_judge(monkeypatch, [("β-cells", "NEUTRAL")])
++    full_text = (
++        "tirzepatide demonstrates synergistic actions on insulin secretion, "
++        "glucagon suppression, appetite regulation, and adipocyte metabolism."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "GIP receptor agonism independently potentiates insulin secretion "
++        "from pancreatic β-cells and acts on adipocytes to influence lipid "
++        f"metabolism and energy storage [#ev:src-1:0-{len(full_text)}]."
++    )
++    with caplog.at_level("WARNING"):
++        passed, reason = verify_sentence(sentence, pool)
++    # warn mode still returns pass because reason chain is unchanged
++    assert passed is True
++    assert reason is None
++    # but a warning was logged
++    assert any("entailment NEUTRAL" in rec.message for rec in caplog.records), (
++        "warn mode must log on NEUTRAL verdict"
++    )
++
++
++# ---------- Enforce mode — M2 fabricated mechanistic granularity ----------
++
++def test_enforce_mode_drops_m2_fabricated_granularity(monkeypatch):
++    """M2 audit case: span says 'adipocyte metabolism', sentence adds
++    'pancreatic β-cells', 'lipid metabolism', 'energy storage' — strict_verify
++    checks (a)-(e) all pass, but the entailment judge must reject.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("β-cells", "NEUTRAL")])
++    full_text = (
++        "tirzepatide demonstrates synergistic actions on insulin secretion, "
++        "glucagon suppression, appetite regulation, and adipocyte metabolism."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "GIP receptor agonism independently potentiates insulin secretion "
++        "from pancreatic β-cells and acts on adipocytes to influence lipid "
++        f"metabolism and energy storage [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(sentence, pool)
++    assert passed is False
++    assert reason == "entailment_failed"
++
++
++# ---------- Enforce mode — C2 specificity inflation ----------
++
++def test_enforce_mode_drops_c2_specificity_inflation(monkeypatch):
++    """C2 audit case: span says 'GLP-1 RAs' (class-level), sentence
++    upgrades to 'semaglutide at the highest studied doses' — that
++    specificity is generator-invented and the judge must reject.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("semaglutide", "NEUTRAL")])
++    full_text = (
++        "tirzepatide produced HbA1c reductions up to 2.4% compared to "
++        "GLP-1 RAs across SURPASS clinical trial program."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "tirzepatide HbA1c reductions up to 2.4%, exceeding semaglutide "
++        f"at the highest studied doses [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(sentence, pool)
++    assert passed is False
++    assert reason == "entailment_failed"
++
++
++# ---------- Enforce mode — C1 numbers nearby but not entailed ----------
++
++def test_enforce_mode_drops_c1_unentailed_numbers(monkeypatch):
++    """C1 audit case: span contains decimals 27, 46, 19, 64, 69, 80 (so
++    decimal-subset check passes), and shares topical content words. But
++    the SPECIFIC claim '69-80% reach <=6.5%' is not stated by the span.
++    Mechanical checks pass; entailment judge must reject.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("69-80", "NEUTRAL")])
++    # Span contains every decimal the sentence cites (so check (d) passes)
++    # AND shares topical content words (so check (e) passes), but does
++    # NOT actually state the specific claim "69-80% reach <=6.5%".
++    full_text = (
++        "tirzepatide patients achieved HbA1c targets in clinical trials "
++        "across SURPASS program. Across endpoints the studies report a "
++        "spread of values including 6.5, 19, 27, 46, 64, 69, 80 in "
++        "different efficacy contexts and subgroup analyses."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "Among tirzepatide patients, 69-80% reached HbA1c <=6.5% versus "
++        f"64% with semaglutide [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(sentence, pool)
++    assert passed is False
++    assert reason == "entailment_failed"
++
++
++# ---------- Enforce mode — CONTRADICTED also drops ----------
++
++def test_enforce_mode_drops_on_contradicted_verdict(monkeypatch):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("decreased", "CONTRADICTED")])
++    full_text = "Treatment increased HbA1c reduction by 2.4% in clinical trials."
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        f"Treatment decreased HbA1c reduction by 2.4% [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(sentence, pool)
++    assert passed is False
++    assert reason == "entailment_failed"
++
++
++# ---------- Enforce mode — positive control passes ----------
++
++def test_enforce_mode_keeps_legit_paraphrase(monkeypatch):
++    """Positive control: a conservative paraphrase fully entailed by the
++    span must keep passing under enforce mode. This is the false-positive
++    regression guard called out in Codex's `false_positive_risk`.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    fake = _install_fake_judge(monkeypatch, [("HbA1c reduction", "ENTAILED")])
++    full_text = (
++        "Tirzepatide demonstrated significant HbA1c reduction of 2.4% "
++        "in adult patients with type 2 diabetes across SURPASS trials."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "Tirzepatide showed significant HbA1c reduction of 2.4% in "
++        f"type 2 diabetes patients [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(sentence, pool)
++    assert passed is True, f"legit paraphrase must pass, got reason={reason}"
++    assert reason is None
++    assert len(fake.calls) == 1, "judge should have been called exactly once"
++
++
++# ---------- Synthesis claim with tokens — still gated ----------
++
++def test_synthesis_claim_with_tokens_still_runs_entailment(monkeypatch):
++    """A synthesis-flagged claim that DOES carry tokens must clear the
++    same content-correctness bar as any other cited sentence — the
++    is_synthesis_claim exemption only short-circuits the no-token path.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("invented mechanism", "NEUTRAL")])
++    full_text = (
++        "Across the trials, tirzepatide produced consistent HbA1c reductions "
++        "and weight loss in adults with type 2 diabetes."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "These trials suggest an invented mechanism explains tirzepatide "
++        f"effects [#ev:src-1:0-{len(full_text)}]."
++    )
++    passed, reason = verify_sentence(
++        sentence, pool, is_synthesis_claim=True
++    )
++    assert passed is False
++    assert reason == "entailment_failed"
++
++
++def test_synthesis_claim_without_tokens_skips_entailment(monkeypatch):
++    """The pure synthesis path (no tokens, is_synthesis_claim=True) MUST
++    NOT call the judge — that path was always exempt and stays exempt.
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
++    pool = _pool(_src(full_text="Aspirin reduced cardiovascular events."))
++    passed, reason = verify_sentence(
++        "These trials together suggest a moderate effect.",
++        pool,
++        is_synthesis_claim=True,
++    )
++    assert passed is True
++    assert reason is None
++    assert fake.calls == [], "synthesis-no-token path must not invoke the judge"
++
++
++# ---------- Drop reason propagates through verify_sentence_to_record ----------
++
++def test_record_carries_entailment_failed_reason(monkeypatch):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_fake_judge(monkeypatch, [("β-cells", "NEUTRAL")])
++    full_text = (
++        "tirzepatide demonstrates synergistic actions on insulin secretion, "
++        "glucagon suppression, appetite regulation, and adipocyte metabolism."
++    )
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    sentence = (
++        "GIP receptor agonism independently potentiates insulin secretion "
++        "from pancreatic β-cells and acts on adipocytes to influence lipid "
++        f"metabolism and energy storage [#ev:src-1:0-{len(full_text)}]."
++    )
++    record = verify_sentence_to_record(sentence, "sec_m", pool)
++    assert record.verifier_pass is False
++    assert record.drop_reason == "entailment_failed"
++    assert record.evaluator_agrees is False
++
++
++# ---------- Mode helper — env interpretation ----------
++
++@pytest.mark.parametrize(
++    ("env_value", "expected"),
++    [
++        ("off", "off"),
++        ("OFF", "off"),
++        (" off ", "off"),
++        ("warn", "warn"),
++        ("WARN", "warn"),
++        ("enforce", "enforce"),
++        ("Enforce", "enforce"),
++        ("", "off"),
++        ("strict", "off"),  # unknown -> off
++        ("1", "off"),        # truthy but not a valid mode -> off
++    ],
++)
++def test_entailment_mode_env_parsing(monkeypatch, env_value, expected):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", env_value)
++    assert strict_verify._entailment_mode() == expected
++
++
++def test_entailment_mode_unset_defaults_off(monkeypatch):
++    monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)
++    assert strict_verify._entailment_mode() == "off"
++
++
++# ---------- Two-family invariant on judge model (§9.1.1) ----------
++
++def test_judge_construction_fails_when_judge_same_family_as_generator(
++    monkeypatch,
++):
++    """If an operator sets PG_ENTAILMENT_MODEL to the same family as
++    PG_GENERATOR_MODEL, _EntailmentJudge.__init__ must raise so the
++    misconfiguration is visible at construction (§9.1.1, mirroring
++    OpenRouterClient.check_family_segregation).
++    """
++    # Force an obvious same-family collision: generator AND judge both
++    # set to the deepseek family.
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
++    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "deepseek/deepseek-v3.2-exp")
++    # Reset module-level singleton + the cached model constants on
++    # openrouter_client so the env-var read sees the new values.
++    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", None, raising=False)
++    from polaris_graph.llm import openrouter_client as _orc
++    monkeypatch.setattr(_orc, "PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
++    with pytest.raises(RuntimeError, match="(?i)same training-lineage family"):
++        strict_verify._EntailmentJudge()
++
++
++def test_judge_construction_requires_api_key(monkeypatch):
++    """No API key -> immediate RuntimeError. Misconfiguration must be
++    surfaced at __init__, not at first .judge() call.
++    """
++    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
++    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", None, raising=False)
++    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
++        strict_verify._EntailmentJudge()
++
++
++# ---------- Mechanical checks still fire BEFORE entailment ----------
++
++def test_numeric_mismatch_short_circuits_before_judge(monkeypatch):
++    """If decimal-subset fails, the gate returns numeric_mismatch and
++    the judge must not be called — keeps the cheap gates in front of
++    the expensive one (cost-and-latency invariant).
++    """
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
++    full_text = "Trial showed event rate of 18% in treatment arm."
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    passed, reason = verify_sentence(
++        f"Trial showed event rate of 23.5% [#ev:src-1:0-{len(full_text)}].",
++        pool,
++    )
++    assert passed is False
++    assert reason == "numeric_mismatch"
++    assert fake.calls == [], "judge must not run after a mechanical failure"
++
++
++def test_overlap_too_low_short_circuits_before_judge(monkeypatch):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
++    full_text = "Tomato basil mozzarella pizza dough recipe pasta"
++    pool = _pool(_src(source_id="src-1", full_text=full_text))
++    passed, reason = verify_sentence(
++        f"Adults with chronic pain experienced relief [#ev:src-1:0-{len(full_text)}].",
++        pool,
++    )
++    assert passed is False
++    assert reason == "overlap_too_low"
++    assert fake.calls == []
+
+
+# canonical-diff-sha256: 75a5f58c56d3a8d6b0ccfcb90e7a4609221e2f3085644bc770979cf314e8f411

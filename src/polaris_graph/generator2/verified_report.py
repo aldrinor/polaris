@@ -60,6 +60,7 @@ DropReason = Literal[
     "numeric_mismatch",    # decimal in sentence not present in cited span
     "overlap_too_low",     # < min_content_overlap shared content words
     "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
+    "entailment_failed",   # I-bug-092: span does not entail sentence (semantic check)
 ]
 
 
