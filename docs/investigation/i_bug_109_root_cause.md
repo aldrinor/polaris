@@ -1,0 +1,114 @@
+# I-bug-109 — Synthesis [N] hallucination root cause
+
+**Status:** investigation; runtime guardrail in place (PR #351 I-bug-108 +
+PR #382 I-bug-106 + PR #384 I-bug-110 + PR #385 I-bug-111). Root cause
+inferred but not isolated to a single mechanism.
+
+## Symptom
+
+During I-bug-108 v1 sweep, synthesis emitted citation markers `[18]` and
+`[19]` while the bibliography contained only 17 entries. Downstream
+PT12 (`rule_pt12_invalid_citation_marker`) aborted the run with
+`max_marker=19, biblio_size=17`.
+
+The runtime guardrail `_scrub_invalid_n_markers` (PR #351) strips
+out-of-range / malformed markers; production no longer aborts on this
+class of hallucination. But the guardrail does not explain WHY the
+synthesis LLM emits invalid indices.
+
+## Hypotheses (ranked by likelihood)
+
+### H1 — bibliography rendering does not cap at biblio_size (HIGH)
+
+`_format_bibliography_for_prompt` produces sequential `[1] Title`
+entries up to the actual bibliography size. The synthesis prompt
+SHOULD see the maximum legal index. But:
+
+- **The prompt asks for "concrete-evidence" sentences** and the
+  bibliography is rendered AFTER the verified-prose context. The LLM
+  may attend to the verified-prose `[#ev:...]` token positions and
+  generate citation markers based on positional inference rather
+  than the bibliography count.
+- **The verified-prose context itself might contain `[N]`-shaped
+  numerics** (years, percentages with brackets in some sources)
+  which the LLM mistakes for citation indices. e.g. `"reduced by
+  [18]%"` parsed by the LLM as a citation reference.
+
+**Test:** instrument `_format_evidence_pool_for_prompt` to log
+verified-prose chars containing `[\d+]` patterns. If a high-scrub
+run correlates with such patterns in the input, H1 is supported.
+
+### H2 — bibliography size mismatch between biblio render + prompt count claim (MEDIUM)
+
+The synthesis prompt mentions structure with "4-6 sub-sections". If
+the prompt also contains a stale "cite from N references" line where
+N differs from the actual `len(bibliography)`, the LLM honors the
+stated count. A grep-able invariant.
+
+**Test:** assert that the prompt does NOT contain the substring
+`{len(bibliography)}` or any number that could be interpreted as a
+biblio cap distinct from the rendered list.
+
+### H3 — LLM tokenizer / context-truncation artifact (LOW)
+
+If the rendered bibliography is long enough to be partially
+truncated mid-render before the synthesis call (e.g. by upstream
+context-window pressure), the LLM sees partial state and infers
+indices beyond what it can read. This would manifest as a
+correlation: longer evidence pools → more scrub events.
+
+**Test:** correlate `synthesis_n_scrub_count` against the prompt
+token count over many production runs. (Now possible per
+I-bug-110 telemetry.)
+
+### H4 — synthesis prompt instruction is ambiguous (MEDIUM)
+
+The prompt says "Use [N] markers for concrete evidence." If the LLM
+interprets "concrete evidence" as evidence beyond what the
+bibliography supplies (e.g., world knowledge), it might invent
+indices for those references. A prompt-engineering fix.
+
+**Test:** remove "concrete evidence" framing in favor of "ONLY cite
+the numbered entries in the bibliography below; do not cite anything
+not in that list" and measure scrub rate change in a controlled
+sweep. Note: this overlaps with the I-bug-104 prompt-rewrite
+failure mode (over-strict prompts shift failure modes laterally),
+so test under I-bug-110 telemetry to avoid trading scrub for a
+different drop-reason.
+
+## Recommended next step
+
+Wire I-bug-110 telemetry (`synthesis_n_scrub_count`,
+`synthesis_n_scrub_runs`) into a per-sweep aggregation that
+correlates scrub count against:
+- `evidence_pool_size`
+- `verified_prose_char_count`
+- `bibliography_size`
+- `prompt_token_count`
+
+5-10 production sweeps with this telemetry should isolate H1 vs H3.
+H2 + H4 can be validated by code inspection / controlled prompt
+A/B respectively.
+
+## Why the root cause is bounded in priority
+
+The runtime guardrail (`_scrub_invalid_n_markers` + alert at >5)
+makes this a quality-monitoring issue, not a production-breaker.
+PT12 aborts no longer occur. The investigation is worth doing
+because:
+
+1. Persistent high scrub rate indicates synthesis prompt drift over
+   time (e.g., model swap to a different DeepSeek variant might
+   trip H4).
+2. If H1 is correct, fixing the verified-prose `[N]`-disambiguation
+   could reduce scrub rate to zero.
+3. Carney delivery requires defensible synthesis quality — knowing
+   the exact failure mechanism is part of the audit story.
+
+## Closing as investigation document; no code change
+
+Issue #361 acceptance: "docs/investigation/i_bug_109_root_cause.md
+with finding + fix recommendation". Delivered. Empirical isolation
+deferred until I-bug-110 telemetry has 5-10 sweeps of data, at
+which point a follow-up issue can isolate H1 vs H3 with a small
+A/B test guarded by telemetry rather than another paper-only round.
