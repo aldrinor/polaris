@@ -1,0 +1,2697 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e10c5-1b59-7203-b4a5-97097a7ed720
+--------
+user
+## §0 — HARD ITERATION CAP (per CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §1 — Diff under review
+
+Issue: GH#376 — I-doc-001 (brief APPROVE iter 1, 0 P0 / 0 P1, 3 P2 cosmetic).
+
+Diff: `.codex/I-doc-001/codex_diff.patch` (5 files, +324 lines, 0 deletions).
+
+| File | +lines | Purpose |
+|---|---|---|
+| `CLAUDE.md` | +45 | Insert §-1 (§-1.1 line-by-line audit standard, §-1.2 standard debug workflow) above §0 |
+| `web/AGENTS.md` | +32 | Insert mirrored §-1 block above existing `polaris-restart-2026-05-05` block |
+| `logs/session_log.md` | +10 | Append SESSION_INIT-style entry per CLAUDE.md §2.2 |
+| `scripts/close_stale_issues.sh` | +149 | New: bash script that closed 88 stale-open feature issues |
+| `scripts/create_followup_issues.sh` | +88 | New: bash script that opened 24 follow-up issues + closed 9 retroactive [SHIPPED] |
+
+## §2 — Brief-iter-1 P2 findings — disposition
+
+The brief-iter-1 P2 findings (none are P0/P1; per §8.3.1 they don't block APPROVE) are addressed below for transparency:
+
+| Brief P2 | Status | Disposition |
+|---|---|---|
+| `P2-trace-counts` (log says 85 closures, script has 100 close calls) | acknowledged | The log entry recorded 85 because that was the count after the *first* batch (f1-f15/ecg/f4-f10/f7-f9/f6/f10/f13/f14); the second batch (P2C #179-183, F11 #184-188, F12 #189-192, Bench #194 = 15 more) brings total to 100. Net-open math (122 → 34) is correct; the log entry's 85 is a partial-batch undercount. **Not changing the log entry** — it's an append-only audit trail per CLAUDE.md §2.2; future entries will use accurate cumulative counts. |
+| `P2-non-verbatim-mirror` | acknowledged | The brief said "mirrors §-1.1 + §-1.2 verbatim". The actual mirror in `web/AGENTS.md` is substantively equivalent but condensed (32 lines vs 45). For frontend-agent guidance the condensation is appropriate — `web/` agents need the binding rules, not the full prose context. **Updating the brief language** is not required for diff approval; the diff itself is correct. |
+| `P2-script-hygiene` (create_issue ignores label parameter) | acknowledged | Pre-existing artifact: I edited the script to force `--label bug` because the GitHub repo doesn't have `type-bug` label. The `label` parameter on the function signature is now vestigial. **Leaving as-is** — these scripts are one-shot historical artifacts of the 2026-05-09 issue cleanup and won't be re-run. Removing them or hardening them is beyond the scope of I-doc-001. |
+
+## §3 — Files I have ALSO checked and they're clean
+
+- `pytest tests/polaris_graph/generator2/test_strict_verify_entailment.py tests/polaris_graph/generator2/test_strict_verify_telemetry.py tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py tests/polaris_graph/test_provenance_generator_entailment.py tests/crown_jewels/test_cj_008_entailment_correctness.py -x -q` → 66 passed (smoke run before diff authored).
+- No source code changed in this PR. CI gate `polaris/codex-required` will need this diff_audit.txt + the brief verdict.txt — both will be committed in the same PR.
+- `state/active_issue.json` not touched; will update on next issue boot per §10.
+- `state/polaris_restart/charter_sha_pin.txt` not touched; CHARTER+PLAN SHA pins unchanged.
+- `docs/canonical_pin.txt` not touched; the 10 canonical files are untouched (CLAUDE.md is NOT one of the 10 canonical files).
+- `.github/workflows/codex-required.yml` parses `codex_brief_verdict.txt` and `codex_diff_audit.txt` for the LAST `verdict:` line — both files will exist with `verdict: APPROVE` after this PR is approved.
+
+## §4 — What Codex MUST verify in this diff
+
+1. **CLAUDE.md §-1.1 + §-1.2** does not contradict any existing section (§0, §3.0, §8.3, §9, §10).
+2. **web/AGENTS.md** mirror is coherent — agents reading only `web/AGENTS.md` get the binding rules, no governance gap.
+3. **Helper scripts** are safe — they were one-shot executions; committing them as historical artifacts doesn't introduce live behavior.
+4. **logs/session_log.md** entry follows §2.2 format.
+5. **No source-code regression** — no .py / .ts / .tsx files in the diff.
+
+## §5 — Output Schema Bound (per CLAUDE.md §8.3.9)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## §6 — Convergence Hint
+
+Brief APPROVE'd iter 1. Diff is exactly what the brief described. Expected: APPROVE iter 1 with `accept_remaining` on any non-blocking P2 cosmetics.
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 043cb23f..139017ce 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,6 +7,51 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
+ 
+ ---
+ 
++## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
++
++**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
++
++### §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
++
++1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
++2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
++3. **Citation-by-citation** — verify each citation is appropriate for the claim.
++4. **Apply industrial benchmarks** appropriate to the domain:
++   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
++   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++   - Methodology: appropriate risk-of-bias tool for the study type.
++5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
++6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
++
++**STRICTLY BANNED:**
++- Word counts / citation counts / unique-source counts as quality signals
++- Pattern presence ("does the report mention 'tirzepatide'?")
++- Sample-based audits ("we audited 5 of 50 claims")
++- String-presence PASS/FAIL checks (e.g., gate tables)
++- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
++
++**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
++
++**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
++
++### §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this exact sequence — no shortcuts:
++
++1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
++3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
++4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
++
++---
++
+ ## §0. Core Identity and Operational Mode
+ 
+ **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+diff --git a/logs/session_log.md b/logs/session_log.md
+index 4112dbfa..04f07f4a 100644
+--- a/logs/session_log.md
++++ b/logs/session_log.md
+@@ -3898,3 +3898,13 @@
+ - EVIDENCE/FINDINGS: 14 commits this thread total. Final v6 test status: 48 passed, 1 skipped, 7 xfailed in 2.17s. End-to-end vertical slices working: dashboard form → POST /scope/check → inline scope panel; dashboard form → POST /runs → /runs/[id] → SSE subscription → Export bundle. BPEI failure pattern caught at substrate (test_bpei_pattern_detects_ambiguity PASSING). Scope refusal patterns (treatment / legal / political) all reject correctly. Evidence Contract v1.0 schema validates 3 golden artifacts including a contradiction case + an abort_no_verified_sections case. Sycophancy CI catches drift + anchor-loss + inconsistent-refusal.
+ - STATUS: Phase 0 status: 3/10 done (0.1, 0.2, 0.4) + 3/10 substrate-deeply-shipped with real tests (0.5, 0.8, 0.10) + 4/10 still need user $ signal (0.3, 0.6, 0.7, 0.9). PLUS: Phase 1 substrate landed early — 1.1 scope F1, 1.2 BPEI F2 (HDBSCAN swap + frontend modal in real Phase 1), 1.4 Evidence Contract Gate, 1.6 bundle F15 (real source-span embedding in Phase 1 + IP review), 1.7 sycophancy CI (LLM hookup in Phase 1). The end-to-end slice from dashboard → backend → bundle works. Branch: polaris. Last commit: 1b672ed.
+ - NEXT_STEP: Continue autoloop. Next moves without $: F3b drag-drop upload UI + backend (Phase 1 Task 1.5); Codex review briefs for the 6 substrate-shipped tasks at .codex/task_X_review_brief.md; live screenshot of /dashboard with scope panel rendered; F2 frontend disambiguation modal hooked to /ambiguity. Halt ONLY when asymptoting (≥6 deferred-to-cluster framings stack) or user $ signal arrives.
++
++[2026-05-10 06:59:22 UTC]
++- ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
++- RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
++- DOCS/RESEARCH: N/A — directive-driven, no external research.
++- SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
++- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
++- EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
++- STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
++- NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+diff --git a/scripts/close_stale_issues.sh b/scripts/close_stale_issues.sh
+new file mode 100644
+index 00000000..21059ce6
+--- /dev/null
++++ b/scripts/close_stale_issues.sh
+@@ -0,0 +1,149 @@
++#!/bin/bash
++# Close GitHub issues whose work shipped via merged PR.
++# Cross-referenced via git log on origin/polaris/main.
++set -e
++REPO="aldrinor/polaris"
++
++close() {
++  local num="$1"
++  local pr="$2"
++  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
++}
++
++# F1 (PRs #220-226)
++close 92 220   # I-f1-001
++close 93 222   # I-f1-002
++close 94 223   # I-f1-003
++close 95 224   # I-f1-004
++close 96 225   # I-f1-005
++close 97 226   # I-f1-006
++
++# F2 (PRs #227-234)
++close 98 227   # I-f2-001
++close 99 228   # I-f2-002
++close 100 229  # I-f2-003
++close 101 230  # I-f2-004
++close 102 231  # I-f2-005
++close 103 232  # I-f2-006
++close 104 233  # I-f2-007
++close 105 234  # I-f2-008
++
++# F3 (PRs #237-245)
++close 107 236  # I-f3-001 (PR ref TBD; cite git log)
++close 108 237  # I-f3-002
++close 109 238  # I-f3-003
++close 110 239  # I-f3-004
++close 111 240  # I-f3-005
++close 112 241  # I-f3-006
++close 113 242  # I-f3-007
++close 114 243  # I-f3-008
++close 115 244  # I-f3-009
++close 116 245  # I-f3-010
++
++# F15 (PRs #246-251)
++close 117 246  # I-f15-001
++close 118 247  # I-f15-002
++close 119 248  # I-f15-003
++close 120 249  # I-f15-004
++close 121 250  # I-f15-005
++close 122 251  # I-f15-006
++
++# ECG (PRs #253-256)
++close 124 253  # I-ecg-001
++close 125 254  # I-ecg-002
++close 126 255  # I-ecg-003
++close 127 256  # I-ecg-004
++
++# F4 (PRs #257-261)
++close 128 257  # I-f4-001
++close 129 258  # I-f4-002
++close 130 259  # I-f4-003
++close 131 260  # I-f4-004
++close 132 261  # I-f4-005
++
++# F5 (PRs #262-272)
++close 133 262  # I-f5-001
++close 134 263  # I-f5-002
++close 135 264  # I-f5-003
++close 136 265  # I-f5-004
++close 137 266  # I-f5-005
++close 138 267  # I-f5-006
++close 139 268  # I-f5-007
++close 140 269  # I-f5-008
++close 141 270  # I-f5-009
++close 142 271  # I-f5-010
++close 143 272  # I-f5-011
++
++# F7 (PRs #273-276)
++close 144 273  # I-f7-001
++close 145 274  # I-f7-002
++close 146 275  # I-f7-003
++close 147 276  # I-f7-004
++
++# F8 (PRs #277-282)
++close 148 277  # I-f8-001
++close 149 278  # I-f8-002
++close 150 279  # I-f8-003
++close 151 280  # I-f8-004
++close 152 281  # I-f8-005
++close 153 282  # I-f8-006
++
++# F9 (PRs #283-285)
++close 154 283  # I-f9-001
++close 155 284  # I-f9-002
++close 156 285  # I-f9-003
++
++# F6 (PRs #286-290)
++close 157 286  # I-f6-001
++close 158 287  # I-f6-002
++close 159 288  # I-f6-003
++close 160 289  # I-f6-004
++close 161 290  # I-f6-005
++
++# F10 (PRs #291-298)
++close 162 291  # I-f10-001
++close 163 292  # I-f10-002
++close 164 293  # I-f10-003
++close 165 294  # I-f10-004
++close 166 295  # I-f10-005
++close 167 296  # I-f10-006
++close 168 297  # I-f10-007
++close 169 298  # I-f10-008
++
++# F13 (PRs #299-302)
++close 170 299  # I-f13-001
++close 171 300  # I-f13-002
++close 172 301  # I-f13-003
++close 173 302  # I-f13-004
++
++# F14 (PRs #303-309)
++close 174 303  # I-f14-001
++close 175 306  # I-f14-002
++close 176 307  # I-f14-003
++close 177 308  # I-f14-004
++close 178 309  # I-f14-005
++
++# P2C (PRs #310-314)
++close 179 310  # I-p2c-001
++close 180 311  # I-p2c-002
++close 181 312  # I-p2c-003
++close 182 313  # I-p2c-004
++close 183 314  # I-p2c-005
++
++# F11 (PRs #315-319)
++close 184 315  # I-f11-001
++close 185 316  # I-f11-002
++close 186 317  # I-f11-003
++close 187 318  # I-f11-004
++close 188 319  # I-f11-005
++
++# F12 (PRs #320-323)
++close 189 320  # I-f12-001
++close 190 321  # I-f12-002
++close 191 322  # I-f12-003
++close 192 323  # I-f12-004
++
++# Bench (PR #325)
++close 194 325  # I-bench-001
++
++echo "Done"
+diff --git a/scripts/create_followup_issues.sh b/scripts/create_followup_issues.sh
+new file mode 100644
+index 00000000..64b71416
+--- /dev/null
++++ b/scripts/create_followup_issues.sh
+@@ -0,0 +1,88 @@
++#!/bin/bash
++set -e
++
++REPO="aldrinor/polaris"
++
++create_issue() {
++  local title="$1"
++  local body="$2"
++  local label="${3:-type-bug}"
++  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
++}
++
++# Outstanding follow-ups (open and keep open)
++create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
++  "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
++
++create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
++  "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
++
++create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
++  "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
++
++create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
++  "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
++
++create_issue "I-bug-102 — Off-mode should skip generator2 import" \
++  "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
++
++create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
++  "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
++
++create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
++  "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
++
++create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
++  "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
++
++create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
++  "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
++
++create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
++  "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
++
++create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
++  "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
++
++create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
++  "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
++
++create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
++  "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
++
++create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
++  "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
++
++create_issue "I-decompose-001 — Path G multi-question decomposition" \
++  "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
++
++# Retroactive issues for shipped PRs this session (§3.0 hygiene)
++create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
++  "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
++
++create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
++  "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
++
++create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
++  "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
++
++create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
++  "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
++
++create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
++  "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
++
++create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
++  "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
++
++create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
++  "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
++
++create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
++  "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
++
++create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
++  "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
++  "type-bug"
++
++echo "Done creating issues"
+diff --git a/web/AGENTS.md b/web/AGENTS.md
+index 9506f4b7..28d3f8b4 100644
+--- a/web/AGENTS.md
++++ b/web/AGENTS.md
+@@ -6,6 +6,38 @@ This version has breaking changes — APIs, conventions, and file structure may
+ 
+ <!-- END:nextjs-agent-rules -->
+ 
++<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
++
++# STANDING EVALUATION & DEBUG STANDARDS (binding)
++
++Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
++
++## §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++
++Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
++
++Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
++
++**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
++
++**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
++
++## §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this sequence:
++
++1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
++3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
++4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
++
+ <!-- BEGIN:polaris-restart-2026-05-05 -->
+ 
+ # POLARIS issue-driven workflow (mandatory)
+
+codex
+I’ll verify the actual patch and the surrounding project rules, then return only the requested verdict schema with any blockers or non-blocking notes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "polaris-evaluation-debug-standards|§-1|GitHub Issue FIRST|Line-by-line|STRICTLY BANNED|polaris-restart" web/AGENTS.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .codex\\I-doc-001; if (Test-Path .codex\\I-doc-001\\codex_diff.patch) { Get-Content .codex\\I-doc-001\\codex_diff.patch -TotalCount 40 }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"§-1|§0|§3\\.0|§8\\.3|§9|§10|§2\\.2|SESSION_INIT|session_log\" CLAUDE.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat -- .codex/I-doc-001/codex_diff.patch CLAUDE.md web/AGENTS.md logs/session_log.md scripts/close_stale_issues.sh scripts/create_followup_issues.sh' in C:\POLARIS
+ succeeded in 1596ms:
+10:## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+14:### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+39:### §-1.2 Standard debug workflow (no §3.0 bypass)
+46:4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+51:**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+55:## §0. Core Identity and Operational Mode
+71:The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+82:**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+88:6. Recent `logs/session_log.md` (The History).
+92:**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
+108:Log all consulted resources in `logs/session_log.md`.
+134:### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+135:- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+140:- `logs/session_log.md`: A chronological, append-only audit trail.
+151:Every action must be appended to `logs/session_log.md` using this structure:
+156:- RATIONALE: <Summary of the extended thinking process (§0.3)>
+167:## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+187:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+211:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+214:2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+228:3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+236:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+237:12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+239:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+313:│   ├── session_log.md
+416:### 8.1 No status blocks mid-batch (DEPRECATED 2026-05-05 per polaris-restart §9.1)
+418:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+471:### 8.2 Zero prose between merge and next branch + active_issue.json transition gate (DEPRECATED 2026-05-05 + UPDATED per polaris-restart §9.1)
+473:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+475:**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+519:## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+529:**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+543:2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+544:3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+553:### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+555:Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+557:`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+563:When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+573:**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+599:## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+604:- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+605:- Codex saying "stop paper, build harness" (§8.3.6).
+606:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+650:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
+654:## §9. POLARIS-Specific Invariants
+726:## §10 Session boot ritual (per polaris-restart Plan §9.1)
+739:Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on iterate-vs-restructure" principle remains, bounded at 5 iterations.
+
+ succeeded in 2281ms:
+9:<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+13:Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+15:## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+23:**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+27:## §-1.2 Standard debug workflow (no §3.0 bypass)
+31:1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+39:<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+41:<!-- BEGIN:polaris-restart-2026-05-05 -->
+56:<!-- END:polaris-restart-2026-05-05 -->
+
+ succeeded in 2776ms:
+
+    Directory: C:\POLARIS\.codex\I-doc-001
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-10 12:19 AM           6475 brief.md
+-a---          2026-05-10 12:22 AM         174295 codex_brief_stderr_iter_1.txt
+-a---          2026-05-10 12:22 AM            902 codex_brief_verdict_iter_1.txt
+-a---          2026-05-10 12:22 AM            902 codex_brief_verdict.txt
+-a---          2026-05-10 12:23 AM              0 codex_diff_audit_iter_1.txt
+-a---          2026-05-10 12:23 AM              0 codex_diff_audit_stderr_iter_1.txt
+-a---          2026-05-10 12:22 AM          22579 codex_diff.patch
+-a---          2026-05-10 12:23 AM           5285 diff_review_brief.md
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 043cb23f..139017ce 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,6 +7,51 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
+ 
+ ---
+ 
++## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
++
++**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
++
++### §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
++
++1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
++2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
++3. **Citation-by-citation** — verify each citation is appropriate for the claim.
++4. **Apply industrial benchmarks** appropriate to the domain:
++   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
++   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++   - Methodology: appropriate risk-of-bias tool for the study type.
++5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
++6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
++
++**STRICTLY BANNED:**
++- Word counts / citation counts / unique-source counts as quality signals
++- Pattern presence ("does the report mention 'tirzepatide'?")
++- Sample-based audits ("we audited 5 of 50 claims")
++- String-presence PASS/FAIL checks (e.g., gate tables)
++- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
++
++**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
++
++**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
++
++### §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this exact sequence — no shortcuts:
+
+
+ succeeded in 3506ms:
+codex
+The patch is present and matches the high-level shape. I’m now checking the surrounding mandatory workflow sections, because the main risk is whether the new “first tool call” rule accidentally overrides boot or halt gates.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content CLAUDE.md | ForEach-Object { $i++; if (($i -ge 1 -and $i -le 80) -or ($i -ge 145 -and $i -le 195) -or ($i -ge 519 -and $i -le 585) -or ($i -ge 654 -and $i -le 750)) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web'"\\AGENTS.md | ForEach-Object { "'$i++; if ($i -le 80) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content logs'"\\session_log.md | ForEach-Object { "'$i++; if ($i -ge 3890) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git apply --check .codex\\I-doc-001\\codex_diff.patch; if ("'$LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' in C:\POLARIS
+ succeeded in 1595ms:
+   1: # POLARIS PROJECT - Operational Directives
+   2: 
+   3: CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+   4: 
+   5: Document Class: Operational, Binding, Project-Specific
+   6: Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+   7: 
+   8: ---
+   9: 
+  10: ## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+  11: 
+  12: **These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+  13: 
+  14: ### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+  15: 
+  16: Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+  17: 
+  18: 1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+  19: 2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+  20: 3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+  21: 4. **Apply industrial benchmarks** appropriate to the domain:
+  22:    - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+  23:    - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+  24:    - Methodology: appropriate risk-of-bias tool for the study type.
+  25: 5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+  26: 6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+  27: 
+  28: **STRICTLY BANNED:**
+  29: - Word counts / citation counts / unique-source counts as quality signals
+  30: - Pattern presence ("does the report mention 'tirzepatide'?")
+  31: - Sample-based audits ("we audited 5 of 50 claims")
+  32: - String-presence PASS/FAIL checks (e.g., gate tables)
+  33: - Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+  34: 
+  35: **Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+  36: 
+  37: **Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+  38: 
+  39: ### §-1.2 Standard debug workflow (no §3.0 bypass)
+  40: 
+  41: Every task / bug / issue follows this exact sequence — no shortcuts:
+  42: 
+  43: 1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+  44: 2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+  45: 3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+  46: 4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+  47: 5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+  48: 6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+  49: 7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+  50: 
+  51: **Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+  52: 
+  53: ---
+  54: 
+  55: ## §0. Core Identity and Operational Mode
+  56: 
+  57: **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+  58: 
+  59: **0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+  60: - **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+  61: - **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+  62: 
+  63: **0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+  64: 1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+  65: 2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+  66: 3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+  67: 4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+  68: 5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+  69: 6. **Record:** Update all mandatory documentation and state files (§2).
+  70: 
+  71: The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+  72: 
+  73: ---
+  74: 
+  75: ## §1. The LAWS (Non-Negotiable Directives)
+  76: 
+  77: These LAWS supersede all other instructions.
+  78: 
+  79: ### LAW I — Active Definition and Synchronization
+  80: You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+ 145: - `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+ 146: - `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+ 147: - `state/last_pointer.json`: Resume point after crash/restart.
+ 148: - `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+ 149: 
+ 150: ### 2.2 Session Log Format (MANDATORY)
+ 151: Every action must be appended to `logs/session_log.md` using this structure:
+ 152: 
+ 153: ```
+ 154: [YYYY-MM-DD HH:MM:SS]
+ 155: - ACTION: <Brief description of the action taken>
+ 156: - RATIONALE: <Summary of the extended thinking process (§0.3)>
+ 157: - DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+ 158: - SYNC: <Description of documentation synchronized due to APD changes (LAW I, §1.2). "N/A" otherwise.>
+ 159: - AFFECTED_FILES: <List of files read/written/modified>
+ 160: - EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+ 161: - STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+ 162: - NEXT_STEP: <The single, clear next action to be taken>
+ 163: ```
+ 164: 
+ 165: ---
+ 166: 
+ 167: ## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+ 168: 
+ 169: **Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+ 170: 
+ 171: **Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+ 172: - `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+ 173: - `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+ 174: - `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+ 175: - `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+ 176: - `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+ 177: 
+ 178: **Forbidden patterns:**
+ 179: - `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+ 180: - PR opened without all 5 artifacts above
+ 181: - Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+ 182: - "While we're at it" polish in same PR
+ 183: - STATUS block / recap text between PR merge and next branch creation (per §8.2)
+ 184: 
+ 185: **Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+ 186: - canonical pin SHA mismatch
+ 187: - CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+ 188: - issue jump attempt
+ 189: - PR opened with missing artifact triple
+ 190: - Codex unavailable >1h
+ 191: - 2-cycle repeated root cause
+ 192: - 200-LOC PR cap exceeded
+ 193: - 3+ PRs queued for user in 24h (reviewer fatigue)
+ 194: 
+ 195: **Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+ 519: ## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+ 520: 
+ 521: When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+ 522: 
+ 523: ### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
+ 524: 
+ 525: **Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and matches the cycle-time budget needed to ship Carney by Sep 6.
+ 526: 
+ 527: This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+ 528: 
+ 529: **Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+ 530: 
+ 531: ```
+ 532: HARD ITERATION CAP: 5 per document. This is iter N of 5.
+ 533: - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+ 534: - Same quality bar regardless of iteration count.
+ 535: - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+ 536: - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+ 537: - If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+ 538: - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+ 539: ```
+ 540: 
+ 541: **Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+ 542: 1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+ 543: 2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+ 544: 3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+ 545: 4. Proceed to next step (commit, push, PR, merge).
+ 546: 
+ 547: History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+ 548: 
+ 549: ### 8.3.2 Trust Codex's verdicts
+ 550: 
+ 551: Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+ 552: 
+ 553: ### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+ 554: 
+ 555: Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+ 556: 
+ 557: `.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+ 558: 
+ 559: Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+ 560: 
+ 561: ### 8.3.4 No scope-narrowing for false convergence
+ 562: 
+ 563: When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+ 564: 
+ 565: ### 8.3.5 Iteration trajectory MUST be logged
+ 566: 
+ 567: Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
+ 568: 
+ 569: ### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
+ 570: 
+ 571: Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+ 572: 
+ 573: **ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+ 574: 
+ 575: ### 8.3.7 Codex auth uses ChatGPT subscription, not API
+ 576: 
+ 577: Always invoke as `env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < brief.md > verdict.txt`. The `-u` flag UNSETS the variable, forcing OAuth fallback to `~/.codex/auth.json`. Confirm via `codex login status` returning "Logged in using ChatGPT." Never run `codex exec` without `env -u OPENAI_API_KEY`.
+ 578: 
+ 579: ### 8.3.8 When uncertain about brief structure or Codex-as-reviewer best practice
+ 580: 
+ 581: Before iter N+1, search OpenAI engineering blog + GitHub PR-review automation literature for current best practice. Topics: constraining Codex to verdict-only output (saves tokens vs exec exploration), providing reset-target inventory deterministically, structuring rename-completeness gates, binding Codex output to JSON schema for machine-parseable verdicts.
+ 582: 
+ 583: ### 8.3.9 Output schema bound (every brief specifies)
+ 584: 
+ 585: ```yaml
+ 654: ## §9. POLARIS-Specific Invariants
+ 655: 
+ 656: **Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+ 657: C (frozen legacy) are governed separately — see `architecture.md`.**
+ 658: 
+ 659: ### 9.1 Core Invariants (Non-Negotiable)
+ 660: 
+ 661: 1. **Two-family evaluator**: generator and evaluator MUST be from
+ 662:    different training lineages. `openrouter_client.check_family_segregation`
+ 663:    raises `RuntimeError` at construction if violated.
+ 664: 2. **Provenance tokens**: every generated sentence carries
+ 665:    `[#ev:<evidence_id>:<start>-<end>]` tokens. Sentences without valid
+ 666:    tokens are dropped by `strict_verify`.
+ 667: 3. **Strict verify**: per-sentence check enforces (a) evidence-id in pool,
+ 668:    (b) span bounds valid, (c) every decimal in sentence appears in span,
+ 669:    (d) sentence and span share ≥2 content words
+ 670:    (`PG_PROVENANCE_MIN_CONTENT_OVERLAP`). Fabricated claims fail at least
+ 671:    one of these.
+ 672: 4. **Zero-verified abort**: if every section fails strict_verify,
+ 673:    `report.md` is a pipeline-verdict artifact (not an empty-findings
+ 674:    pseudo-report). Status: `abort_no_verified_sections`.
+ 675: 5. **Corpus approval enforcement**: a corpus with material tier deviation
+ 676:    plus a rubber-stamp note aborts before any generator token is billed.
+ 677:    Status: `abort_corpus_approval_denied`.
+ 678: 6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+ 679:    backstops token-only responses. Negative tokens clamp to zero.
+ 680: 7. **Delimiter sanitization** (prompt-injection defense): evidence text
+ 681:    containing `<<<evidence:...>>>` or other delimiter literals —
+ 682:    including via NFKD/invisible-char/homoglyph evasions — is neutralized
+ 683:    before prompt wrapping. Byte-preserves legitimate multilingual content.
+ 684: 
+ 685: ### 9.2 Quality Gates (pipeline A)
+ 686: 
+ 687: | Gate | Threshold | Fail Action |
+ 688: |---|---|---|
+ 689: | Corpus adequacy | Min sources per tier (template-driven) | `abort_corpus_inadequate` |
+ 690: | Corpus approval | Auto-approved OR substantive operator note | `abort_corpus_approval_denied` |
+ 691: | Strict verify (per sentence) | Numeric match + ≥2 content-word overlap | Drop sentence |
+ 692: | Strict verify (per section) | ≥40% sentences verified | Attempt one regeneration |
+ 693: | Strict verify (pipeline) | At least one section with verified prose | `abort_no_verified_sections` |
+ 694: | Budget | Accumulated cost ≤ `PG_MAX_COST_PER_RUN` | `BudgetExceededError` |
+ 695: 
+ 696: ### 9.3 Pipeline verdict statuses (manifest.json)
+ 697: 
+ 698: | Status | Condition |
+ 699: |---|---|
+ 700: | `success` | All gates passed, generator produced verified prose |
+ 701: | `abort_scope_rejected` | Scope gate rejected the research question |
+ 702: | `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+ 703: | `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+ 704: | `abort_no_verified_sections` | Every generated section failed strict_verify |
+ 705: | `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+ 706: 
+ 707: ### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+ 708: 
+ 709: **Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+ 710: 
+ 711: - `try: ... except: pass` without logging or re-raise (silent failure)
+ 712: - `import unittest.mock` or `from unittest.mock import ...` in `src/`
+ 713:   production code
+ 714: - Magic numbers (`if score > 0.7` instead of a named constant or env var)
+ 715: - `time.sleep()` to simulate work
+ 716: - `# TODO`, `# FIXME`, `# XXX`, `pass` as function body
+ 717: - Mocking the live-evidence database in integration tests (per user
+ 718:   feedback memory: integration tests must hit real data sources)
+ 719: 
+ 720: Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+ 721: currently meet these invariants. It is frozen; see
+ 722: `src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+ 723: 
+ 724: ---
+ 725: 
+ 726: ## §10 Session boot ritual (per polaris-restart Plan §9.1)
+ 727: 
+ 728: Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+ 729: 
+ 730: 1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+ 731: 2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+ 732: 3. **Read `state/active_issue.json`** — if shows in_progress issue, resume that issue ONLY (no scope expansion).
+ 733: 4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. Do NOT pick a task autonomously.
+ 734: 5. **State to user explicitly:**
+ 735:    - active issue ID
+ 736:    - current step within issue (brief / diff / audit / merge / complete)
+ 737:    - next action
+ 738: 
+ 739: Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on iterate-vs-restructure" principle remains, bounded at 5 iterations.
+ 740: 
+ 741: Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+ 742: 
+ 743: Per `failure_28_commits_2026_05_03.md`: I have no admin merge authority. CI gate enforces. Promises do not work; structural removal does.
+ 744: 
+ 745: ---
+ 746: 
+ 747: THIS IS THE LAW. FOLLOW IT.
+
+ succeeded in 2162ms:
+   1: <!-- BEGIN:nextjs-agent-rules -->
+   2: 
+   3: # This is NOT the Next.js you know
+   4: 
+   5: This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+   6: 
+   7: <!-- END:nextjs-agent-rules -->
+   8: 
+   9: <!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+  10: 
+  11: # STANDING EVALUATION & DEBUG STANDARDS (binding)
+  12: 
+  13: Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+  14: 
+  15: ## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+  16: 
+  17: Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+  18: 
+  19: Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+  20: 
+  21: Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+  22: 
+  23: **STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+  24: 
+  25: **Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+  26: 
+  27: ## §-1.2 Standard debug workflow (no §3.0 bypass)
+  28: 
+  29: Every task / bug / issue follows this sequence:
+  30: 
+  31: 1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+  32: 2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+  33: 3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+  34: 4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+  35: 5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+  36: 6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+  37: 7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+  38: 
+  39: <!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+  40: 
+  41: <!-- BEGIN:polaris-restart-2026-05-05 -->
+  42: 
+  43: # POLARIS issue-driven workflow (mandatory)
+  44: 
+  45: Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+  46: 
+  47: - Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+  48: - Per-Issue 5-artifact triple required (brief + verdict + diff + audit + claude_audit). CI enforcement lands at PR-D; pre-PR-D, Codex review enforces.
+  49: - Per plan §7.A LOCKED A2 + §7.B LOCKED B1: Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); CI required check `polaris/codex-required` gates GitHub auto-merge; user reads `git log` morning.
+  50: - **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+  51: - **Resource discipline (CPU/RAM/GPU)** per CLAUDE.md §8.4 (added 2026-05-06): one `codex exec` at a time; kill leftover python/node/codex processes between iters; no heavy ML/CUDA processes in autonomous loops; track long-running dev servers and kill before next Issue; pre/post-task `Get-Process` inventory.
+  52: - `gh pr merge --admin` REVOKED from Claude.
+  53: 
+  54: Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+  55: 
+  56: <!-- END:polaris-restart-2026-05-05 -->
+
+ succeeded in 2804ms:
+3890:   - 813a0a2: src/polaris_v6/bpei/ + scripts/v6/vastai_query_pricing.py + tests/v6/test_ambiguity_detector.py
+3891:   - 2785874: src/polaris_v6/api/ambiguity.py + app.py + tests/v6/test_api_ambiguity.py
+3892:   - 5ed7083: tests/v6/test_evidence_contract_gate.py + tests/v6/fixtures/evidence_contract_v1/{3 golden}.json
+3893:   - 223cd3f: src/polaris_v6/sycophancy/ + tests/v6/test_sycophancy_ci.py
+3894:   - 9c003d4: src/polaris_v6/api/bundle.py + app.py + tests/v6/test_api_bundle.py
+3895:   - 917e496: web/lib/api.ts (EvidenceContract types + getBundle + downloadBundleAsJson) + web/app/runs/[runId]/page.tsx (Export button)
+3896:   - 5d349f2: src/polaris_v6/scope/ + src/polaris_v6/api/scope.py + app.py + tests/v6/test_scope.py + docs/todo_list.md
+3897:   - 1b672ed: web/lib/api.ts (checkScope + ScopeDecision types) + web/app/dashboard/page.tsx (inline scope panel + Check-scope button + reject-blocks-submit)
+3898: - EVIDENCE/FINDINGS: 14 commits this thread total. Final v6 test status: 48 passed, 1 skipped, 7 xfailed in 2.17s. End-to-end vertical slices working: dashboard form → POST /scope/check → inline scope panel; dashboard form → POST /runs → /runs/[id] → SSE subscription → Export bundle. BPEI failure pattern caught at substrate (test_bpei_pattern_detects_ambiguity PASSING). Scope refusal patterns (treatment / legal / political) all reject correctly. Evidence Contract v1.0 schema validates 3 golden artifacts including a contradiction case + an abort_no_verified_sections case. Sycophancy CI catches drift + anchor-loss + inconsistent-refusal.
+3899: - STATUS: Phase 0 status: 3/10 done (0.1, 0.2, 0.4) + 3/10 substrate-deeply-shipped with real tests (0.5, 0.8, 0.10) + 4/10 still need user $ signal (0.3, 0.6, 0.7, 0.9). PLUS: Phase 1 substrate landed early — 1.1 scope F1, 1.2 BPEI F2 (HDBSCAN swap + frontend modal in real Phase 1), 1.4 Evidence Contract Gate, 1.6 bundle F15 (real source-span embedding in Phase 1 + IP review), 1.7 sycophancy CI (LLM hookup in Phase 1). The end-to-end slice from dashboard → backend → bundle works. Branch: polaris. Last commit: 1b672ed.
+3900: - NEXT_STEP: Continue autoloop. Next moves without $: F3b drag-drop upload UI + backend (Phase 1 Task 1.5); Codex review briefs for the 6 substrate-shipped tasks at .codex/task_X_review_brief.md; live screenshot of /dashboard with scope panel rendered; F2 frontend disambiguation modal hooked to /ambiguity. Halt ONLY when asymptoting (≥6 deferred-to-cluster framings stack) or user $ signal arrives.
+3901: 
+3902: [2026-05-10 06:59:22 UTC]
+3903: - ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
+3904: - RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
+3905: - DOCS/RESEARCH: N/A — directive-driven, no external research.
+3906: - SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
+3907: - AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
+3908: - EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
+3909: - STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
+3910: - NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+
+2026-05-10T07:24:09.296670Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.4 seconds
+Output:
+error: patch failed: logs/session_log.md:3898
+error: logs/session_log.md: patch does not apply
+error: scripts/close_stale_issues.sh: already exists in working directory
+error: scripts/create_followup_issues.sh: already exists in working directory
+error: patch failed: web/AGENTS.md:6
+error: web/AGENTS.md: patch does not apply
+
+ exited 1 in 3421ms:
+error: patch failed: logs/session_log.md:3898
+error: logs/session_log.md: patch does not apply
+error: scripts/close_stale_issues.sh: already exists in working directory
+error: scripts/create_followup_issues.sh: already exists in working directory
+error: patch failed: web/AGENTS.md:6
+error: web/AGENTS.md: patch does not apply
+
+codex
+`git apply --check` fails because these edits are already present in the working tree, so I’m checking the reverse application and status instead. That distinguishes a malformed patch from a patch already applied.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git apply --reverse --check .codex\\I-doc-001\\codex_diff.patch; if ("'$LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --name-only -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh; git diff --numstat -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --check -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+ succeeded in 1482ms:
+ succeeded in 2284ms:
+M  CLAUDE.md
+M  logs/session_log.md
+A  scripts/close_stale_issues.sh
+A  scripts/create_followup_issues.sh
+M  web/AGENTS.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-bug-085/
+?? .codex/I-bug-103/
+?? .codex/I-doc-001/
+?? .codex/audit_v32_baseline/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/faithfulness_gap/
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/next_issue_pick/
+?? .codex/next_issue_pick_2/
+?? .codex/next_issue_pick_3/
+?? .codex/next_pick_post_cj/
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/strategic_review_high_quality/
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-1cimqsu9/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-4jy7q_j2/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_i_bug_085_pytest/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 2883ms:
+ succeeded in 3326ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --cached --numstat -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --cached --check -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^diff --git|''^'"\\+\\+\\+|"'^---" .codex'"\\I-doc-001\\codex_diff.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --cached --name-only -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+ succeeded in 1529ms:
+45	0	CLAUDE.md
+10	0	logs/session_log.md
+149	0	scripts/close_stale_issues.sh
+88	0	scripts/create_followup_issues.sh
+32	0	web/AGENTS.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2245ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2678ms:
+1:diff --git a/CLAUDE.md b/CLAUDE.md
+3:--- a/CLAUDE.md
+4:+++ b/CLAUDE.md
+57:diff --git a/logs/session_log.md b/logs/session_log.md
+59:--- a/logs/session_log.md
+60:+++ b/logs/session_log.md
+75:diff --git a/scripts/close_stale_issues.sh b/scripts/close_stale_issues.sh
+78:--- /dev/null
+79:+++ b/scripts/close_stale_issues.sh
+230:diff --git a/scripts/create_followup_issues.sh b/scripts/create_followup_issues.sh
+233:--- /dev/null
+234:+++ b/scripts/create_followup_issues.sh
+324:diff --git a/web/AGENTS.md b/web/AGENTS.md
+326:--- a/web/AGENTS.md
+327:+++ b/web/AGENTS.md
+
+ succeeded in 3300ms:
+CLAUDE.md
+logs/session_log.md
+scripts/close_stale_issues.sh
+scripts/create_followup_issues.sh
+web/AGENTS.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+The staged diff is exactly five files with +324/0 and no whitespace errors. I’m doing one last live-behavior search for the new helper script names to confirm they are inert artifacts rather than wired into CI or tooling.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"scripts/.*\\.sh|close_stale_issues|create_followup_issues|gh issue\" .github workflows scripts -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"close_stale_issues|create_followup_issues\" -S . --glob '"'!scripts/close_stale_issues.sh'"' --glob '"'!scripts/create_followup_issues.sh'"' --glob '"'!.git/**'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts'"\\close_stale_issues.sh | ForEach-Object { "'$i++; if ($i -le 170) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts'"\\create_followup_issues.sh | ForEach-Object { "'$i++; if ($i -le 120) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+2026-05-10T07:24:43.047174Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+scripts\cleanup\zero_hit_gate.sh:2:# scripts/cleanup/zero_hit_gate.sh — CI-safe rename-completeness gate
+.github\workflows\protection_drift_check.yml:151:          gh issue create \
+scripts\cleanup\delete_pytest_tmpdirs.sh:2:# scripts/cleanup/delete_pytest_tmpdirs.sh — Linux/CI fallback (DRY-RUN ONLY).
+scripts\cleanup\count_hits.sh:2:# scripts/cleanup/count_hits.sh — preflight count, no exit-on-hit
+scripts\deploy.sh:10:#   ./scripts/deploy.sh               Full deployment (venv + start server)
+scripts\deploy.sh:11:#   ./scripts/deploy.sh --check-only  Validate environment without deploying
+scripts\deploy.sh:12:#   ./scripts/deploy.sh --docker      Build and run via Docker Compose
+scripts\deploy.sh:13:#   ./scripts/deploy.sh --gpu         Force GPU mode (PG_DEVICE=cuda)
+scripts\deploy.sh:14:#   ./scripts/deploy.sh --no-gpu      Force CPU mode (PG_DEVICE=cpu)
+scripts\deploy.sh:15:#   ./scripts/deploy.sh --help        Show this help text
+scripts\deploy.sh:150:  ./scripts/deploy.sh
+scripts\deploy.sh:153:  ./scripts/deploy.sh --check-only
+scripts\deploy.sh:156:  ./scripts/deploy.sh --docker --gpu
+scripts\deploy.sh:159:  ./scripts/deploy.sh --no-gpu --port 9000
+scripts\deploy.sh:1152:        echo -e "    ${C_DIM}Restart:${C_RESET}      ./scripts/deploy.sh"
+scripts\deploy.sh:1153:        echo -e "    ${C_DIM}Check only:${C_RESET}   ./scripts/deploy.sh --check-only"
+scripts\create_followup_issues.sh:10:  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
+scripts\autoloop\runner\README.md:73:sudo cp scripts/autoloop/runner/polaris_egress_firewall.sh /usr/local/bin/polaris_egress_firewall.sh
+scripts\close_stale_issues.sh:10:  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
+scripts\hooks\session_start_check.sh:2:# scripts/hooks/session_start_check.sh
+scripts\restart\open_github_issues.py:23:- --apply: parse + render + call `gh issue create` for each Issue.
+scripts\restart\open_github_issues.py:442:    """Call `gh issue create` and return the new issue number, or None on error."""
+scripts\restart\open_github_issues.py:454:        # `gh issue create` returns the URL; extract the number.
+scripts\restart\open_github_issues.py:461:        print(f"ERROR: gh issue create failed for {issue['id']}: {exc.stderr}", file=sys.stderr)
+scripts\restart\open_github_issues.py:503:        # repo BEFORE attempting any `gh issue create`. Without this, the
+rg: workflows: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 1600ms:
+scripts\cleanup\zero_hit_gate.sh:2:# scripts/cleanup/zero_hit_gate.sh — CI-safe rename-completeness gate
+.github\workflows\protection_drift_check.yml:151:          gh issue create \
+scripts\cleanup\delete_pytest_tmpdirs.sh:2:# scripts/cleanup/delete_pytest_tmpdirs.sh — Linux/CI fallback (DRY-RUN ONLY).
+scripts\cleanup\count_hits.sh:2:# scripts/cleanup/count_hits.sh — preflight count, no exit-on-hit
+scripts\deploy.sh:10:#   ./scripts/deploy.sh               Full deployment (venv + start server)
+scripts\deploy.sh:11:#   ./scripts/deploy.sh --check-only  Validate environment without deploying
+scripts\deploy.sh:12:#   ./scripts/deploy.sh --docker      Build and run via Docker Compose
+scripts\deploy.sh:13:#   ./scripts/deploy.sh --gpu         Force GPU mode (PG_DEVICE=cuda)
+scripts\deploy.sh:14:#   ./scripts/deploy.sh --no-gpu      Force CPU mode (PG_DEVICE=cpu)
+scripts\deploy.sh:15:#   ./scripts/deploy.sh --help        Show this help text
+scripts\deploy.sh:150:  ./scripts/deploy.sh
+scripts\deploy.sh:153:  ./scripts/deploy.sh --check-only
+scripts\deploy.sh:156:  ./scripts/deploy.sh --docker --gpu
+scripts\deploy.sh:159:  ./scripts/deploy.sh --no-gpu --port 9000
+scripts\deploy.sh:1152:        echo -e "    ${C_DIM}Restart:${C_RESET}      ./scripts/deploy.sh"
+scripts\deploy.sh:1153:        echo -e "    ${C_DIM}Check only:${C_RESET}   ./scripts/deploy.sh --check-only"
+scripts\create_followup_issues.sh:10:  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
+scripts\autoloop\runner\README.md:73:sudo cp scripts/autoloop/runner/polaris_egress_firewall.sh /usr/local/bin/polaris_egress_firewall.sh
+scripts\close_stale_issues.sh:10:  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
+scripts\hooks\session_start_check.sh:2:# scripts/hooks/session_start_check.sh
+scripts\restart\open_github_issues.py:23:- --apply: parse + render + call `gh issue create` for each Issue.
+scripts\restart\open_github_issues.py:442:    """Call `gh issue create` and return the new issue number, or None on error."""
+scripts\restart\open_github_issues.py:454:        # `gh issue create` returns the URL; extract the number.
+scripts\restart\open_github_issues.py:461:        print(f"ERROR: gh issue create failed for {issue['id']}: {exc.stderr}", file=sys.stderr)
+scripts\restart\open_github_issues.py:503:        # repo BEFORE attempting any `gh issue create`. Without this, the
+rg: workflows: The system cannot find the file specified. (os error 2)
+
+2026-05-10T07:24:43.926542Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\pytest_basetemp_i_bug_085_r2: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\python_mode_700_probe: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\tmp_i_bug_085_pytest\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 2476ms:
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\pytest_basetemp_i_bug_085_r2: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\python_mode_700_probe: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\tmp_i_bug_085_pytest\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ succeeded in 2847ms:
+   1: #!/bin/bash
+   2: # Close GitHub issues whose work shipped via merged PR.
+   3: # Cross-referenced via git log on origin/polaris/main.
+   4: set -e
+   5: REPO="aldrinor/polaris"
+   6: 
+   7: close() {
+   8:   local num="$1"
+   9:   local pr="$2"
+  10:   gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
+  11: }
+  12: 
+  13: # F1 (PRs #220-226)
+  14: close 92 220   # I-f1-001
+  15: close 93 222   # I-f1-002
+  16: close 94 223   # I-f1-003
+  17: close 95 224   # I-f1-004
+  18: close 96 225   # I-f1-005
+  19: close 97 226   # I-f1-006
+  20: 
+  21: # F2 (PRs #227-234)
+  22: close 98 227   # I-f2-001
+  23: close 99 228   # I-f2-002
+  24: close 100 229  # I-f2-003
+  25: close 101 230  # I-f2-004
+  26: close 102 231  # I-f2-005
+  27: close 103 232  # I-f2-006
+  28: close 104 233  # I-f2-007
+  29: close 105 234  # I-f2-008
+  30: 
+  31: # F3 (PRs #237-245)
+  32: close 107 236  # I-f3-001 (PR ref TBD; cite git log)
+  33: close 108 237  # I-f3-002
+  34: close 109 238  # I-f3-003
+  35: close 110 239  # I-f3-004
+  36: close 111 240  # I-f3-005
+  37: close 112 241  # I-f3-006
+  38: close 113 242  # I-f3-007
+  39: close 114 243  # I-f3-008
+  40: close 115 244  # I-f3-009
+  41: close 116 245  # I-f3-010
+  42: 
+  43: # F15 (PRs #246-251)
+  44: close 117 246  # I-f15-001
+  45: close 118 247  # I-f15-002
+  46: close 119 248  # I-f15-003
+  47: close 120 249  # I-f15-004
+  48: close 121 250  # I-f15-005
+  49: close 122 251  # I-f15-006
+  50: 
+  51: # ECG (PRs #253-256)
+  52: close 124 253  # I-ecg-001
+  53: close 125 254  # I-ecg-002
+  54: close 126 255  # I-ecg-003
+  55: close 127 256  # I-ecg-004
+  56: 
+  57: # F4 (PRs #257-261)
+  58: close 128 257  # I-f4-001
+  59: close 129 258  # I-f4-002
+  60: close 130 259  # I-f4-003
+  61: close 131 260  # I-f4-004
+  62: close 132 261  # I-f4-005
+  63: 
+  64: # F5 (PRs #262-272)
+  65: close 133 262  # I-f5-001
+  66: close 134 263  # I-f5-002
+  67: close 135 264  # I-f5-003
+  68: close 136 265  # I-f5-004
+  69: close 137 266  # I-f5-005
+  70: close 138 267  # I-f5-006
+  71: close 139 268  # I-f5-007
+  72: close 140 269  # I-f5-008
+  73: close 141 270  # I-f5-009
+  74: close 142 271  # I-f5-010
+  75: close 143 272  # I-f5-011
+  76: 
+  77: # F7 (PRs #273-276)
+  78: close 144 273  # I-f7-001
+  79: close 145 274  # I-f7-002
+  80: close 146 275  # I-f7-003
+  81: close 147 276  # I-f7-004
+  82: 
+  83: # F8 (PRs #277-282)
+  84: close 148 277  # I-f8-001
+  85: close 149 278  # I-f8-002
+  86: close 150 279  # I-f8-003
+  87: close 151 280  # I-f8-004
+  88: close 152 281  # I-f8-005
+  89: close 153 282  # I-f8-006
+  90: 
+  91: # F9 (PRs #283-285)
+  92: close 154 283  # I-f9-001
+  93: close 155 284  # I-f9-002
+  94: close 156 285  # I-f9-003
+  95: 
+  96: # F6 (PRs #286-290)
+  97: close 157 286  # I-f6-001
+  98: close 158 287  # I-f6-002
+  99: close 159 288  # I-f6-003
+ 100: close 160 289  # I-f6-004
+ 101: close 161 290  # I-f6-005
+ 102: 
+ 103: # F10 (PRs #291-298)
+ 104: close 162 291  # I-f10-001
+ 105: close 163 292  # I-f10-002
+ 106: close 164 293  # I-f10-003
+ 107: close 165 294  # I-f10-004
+ 108: close 166 295  # I-f10-005
+ 109: close 167 296  # I-f10-006
+ 110: close 168 297  # I-f10-007
+ 111: close 169 298  # I-f10-008
+ 112: 
+ 113: # F13 (PRs #299-302)
+ 114: close 170 299  # I-f13-001
+ 115: close 171 300  # I-f13-002
+ 116: close 172 301  # I-f13-003
+ 117: close 173 302  # I-f13-004
+ 118: 
+ 119: # F14 (PRs #303-309)
+ 120: close 174 303  # I-f14-001
+ 121: close 175 306  # I-f14-002
+ 122: close 176 307  # I-f14-003
+ 123: close 177 308  # I-f14-004
+ 124: close 178 309  # I-f14-005
+ 125: 
+ 126: # P2C (PRs #310-314)
+ 127: close 179 310  # I-p2c-001
+ 128: close 180 311  # I-p2c-002
+ 129: close 181 312  # I-p2c-003
+ 130: close 182 313  # I-p2c-004
+ 131: close 183 314  # I-p2c-005
+ 132: 
+ 133: # F11 (PRs #315-319)
+ 134: close 184 315  # I-f11-001
+ 135: close 185 316  # I-f11-002
+ 136: close 186 317  # I-f11-003
+ 137: close 187 318  # I-f11-004
+ 138: close 188 319  # I-f11-005
+ 139: 
+ 140: # F12 (PRs #320-323)
+ 141: close 189 320  # I-f12-001
+ 142: close 190 321  # I-f12-002
+ 143: close 191 322  # I-f12-003
+ 144: close 192 323  # I-f12-004
+ 145: 
+ 146: # Bench (PR #325)
+ 147: close 194 325  # I-bench-001
+ 148: 
+ 149: echo "Done"
+
+ succeeded in 3469ms:
+   1: #!/bin/bash
+   2: set -e
+   3: 
+   4: REPO="aldrinor/polaris"
+   5: 
+   6: create_issue() {
+   7:   local title="$1"
+   8:   local body="$2"
+   9:   local label="${3:-type-bug}"
+  10:   gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
+  11: }
+  12: 
+  13: # Outstanding follow-ups (open and keep open)
+  14: create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
+  15:   "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
+  16: 
+  17: create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
+  18:   "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
+  19: 
+  20: create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
+  21:   "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
+  22: 
+  23: create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
+  24:   "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
+  25: 
+  26: create_issue "I-bug-102 — Off-mode should skip generator2 import" \
+  27:   "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
+  28: 
+  29: create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
+  30:   "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
+  31: 
+  32: create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
+  33:   "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
+  34: 
+  35: create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
+  36:   "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
+  37: 
+  38: create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
+  39:   "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
+  40: 
+  41: create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
+  42:   "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
+  43: 
+  44: create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
+  45:   "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
+  46: 
+  47: create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
+  48:   "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
+  49: 
+  50: create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
+  51:   "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
+  52: 
+  53: create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
+  54:   "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
+  55: 
+  56: create_issue "I-decompose-001 — Path G multi-question decomposition" \
+  57:   "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
+  58: 
+  59: # Retroactive issues for shipped PRs this session (§3.0 hygiene)
+  60: create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
+  61:   "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
+  62: 
+  63: create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
+  64:   "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
+  65: 
+  66: create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
+  67:   "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
+  68: 
+  69: create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
+  70:   "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
+  71: 
+  72: create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
+  73:   "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
+  74: 
+  75: create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
+  76:   "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
+  77: 
+  78: create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
+  79:   "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
+  80: 
+  81: create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
+  82:   "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
+  83: 
+  84: create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
+  85:   "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
+  86:   "type-bug"
+  87: 
+  88: echo "Done creating issues"
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git grep --cached -n \"close_stale_issues\\|create_followup_issues\" -- . ':"'!scripts/close_stale_issues.sh'"' ':"'!scripts/create_followup_issues.sh'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git grep --cached -n \"scripts/close_stale_issues.sh\\|scripts/create_followup_issues.sh\" -- .github scripts web CLAUDE.md logs" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .github\\workflows | Select-Object -ExpandProperty Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git grep --cached -n \"codex_diff_audit.txt\\|codex_brief_verdict.txt\\|verdict:\" -- .github\\workflows\\codex-required.yml .github/workflows/codex-required.yml" in C:\POLARIS
+ succeeded in 1879ms:
+logs/session_log.md:3907:- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
+
+ succeeded in 2115ms:
+logs/session_log.md:3907:- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
+
+ succeeded in 2771ms:
+anti_sycophancy.yml
+cleanup_pr_ancestry_check.yml
+codex_verdict_check.yml
+codex-required.yml
+legacy_protection.yml
+m_live_4_regression_gate.yml.pending_workflow_scope
+protection_drift_check.yml
+sovereignty.yml.pending_workflow_scope
+web_ci.yml
+
+ succeeded in 3513ms:
+.github/workflows/codex-required.yml:5:# verdicts (brief + diff) end with `verdict: APPROVE` as the FINAL verdict
+.github/workflows/codex-required.yml:14:#   string "verdict: APPROVE" cannot fool the gate. The convention is:
+.github/workflows/codex-required.yml:15:#   the LAST `verdict: APPROVE` or `verdict: REQUEST_CHANGES` line in the
+.github/workflows/codex-required.yml:142:        # literal string "verdict: APPROVE" (e.g., the brief schema block).
+.github/workflows/codex-required.yml:156:          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
+.github/workflows/codex-required.yml:158:          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
+.github/workflows/codex-required.yml:172:          # Parse FINAL verdict line (last `verdict: ...` line in file).
+.github/workflows/codex-required.yml:174:          # `grep` returns the last match via `tail -1`; `[[ "$x" = "verdict: APPROVE" ]]`
+.github/workflows/codex-required.yml:180:            final="$(grep -E '^verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES)$' "$file" | tail -1 || true)"
+.github/workflows/codex-required.yml:182:              echo "ERROR: $label ($file) contains no final verdict line ('verdict: APPROVE' or 'verdict: REQUEST_CHANGES')"
+.github/workflows/codex-required.yml:185:            if [ "$final" != "verdict: APPROVE" ]; then
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^'"\\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}( UTC)?\\]\" logs\\session_log.md | Select-Object -Last 20" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --cached -- CLAUDE.md web\\AGENTS.md logs\\session_log.md scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh | rg -n \""'^diff --git|''^'"\\+["'^+]"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^'"\\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC\\]\" logs\\session_log.md | Select-Object -First 20" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff --cached --name-only | rg \"\\.(py|ts|tsx)"'$"' in C:\POLARIS
+ succeeded in 2247ms:
+3499:[2026-04-19 00:45:00]
+3520:[2026-04-19 01:25:00]
+3531:[2026-04-19 01:55:00]
+3546:[2026-04-19 02:25:00]
+3561:[2026-04-19 02:55:00]
+3578:[2026-04-19 03:30:00]
+3594:[2026-04-19 04:05:00]
+3611:[2026-04-19 04:50:00]
+3625:[2026-04-19 05:15:00]
+3631:[2026-04-19 05:30:00]
+3648:[2026-04-19 06:15:00] — ★ FULL-SCALE APPROVAL ★
+3683:[2026-04-22 23:45:00]
+3694:[2026-04-23 10:45:00]
+3705:[2026-04-23 11:20:00]
+3724:[2026-04-23 11:50:00]
+3749:[2026-04-23 12:25:00]
+3778:[2026-04-23 13:00:00]
+3800:[2026-04-23 13:30:00]
+3823:[2026-04-27 14:50:00]
+3902:[2026-05-10 06:59:22 UTC]
+
+ succeeded in 3451ms:
+1:diff --git a/CLAUDE.md b/CLAUDE.md
+9:+## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+11:+**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+13:+### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+15:+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+17:+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+18:+2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+19:+3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+20:+4. **Apply industrial benchmarks** appropriate to the domain:
+21:+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+22:+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+23:+   - Methodology: appropriate risk-of-bias tool for the study type.
+24:+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+25:+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+27:+**STRICTLY BANNED:**
+28:+- Word counts / citation counts / unique-source counts as quality signals
+29:+- Pattern presence ("does the report mention 'tirzepatide'?")
+30:+- Sample-based audits ("we audited 5 of 50 claims")
+31:+- String-presence PASS/FAIL checks (e.g., gate tables)
+32:+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+34:+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+36:+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+38:+### §-1.2 Standard debug workflow (no §3.0 bypass)
+40:+Every task / bug / issue follows this exact sequence — no shortcuts:
+42:+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+43:+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+44:+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+45:+4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+46:+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+47:+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+48:+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+50:+**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+52:+---
+57:diff --git a/logs/session_log.md b/logs/session_log.md
+66:+[2026-05-10 06:59:22 UTC]
+67:+- ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
+68:+- RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
+69:+- DOCS/RESEARCH: N/A — directive-driven, no external research.
+70:+- SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
+71:+- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
+72:+- EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
+73:+- STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
+74:+- NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+75:diff --git a/scripts/close_stale_issues.sh b/scripts/close_stale_issues.sh
+81:+#!/bin/bash
+82:+# Close GitHub issues whose work shipped via merged PR.
+83:+# Cross-referenced via git log on origin/polaris/main.
+84:+set -e
+85:+REPO="aldrinor/polaris"
+87:+close() {
+88:+  local num="$1"
+89:+  local pr="$2"
+90:+  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
+91:+}
+93:+# F1 (PRs #220-226)
+94:+close 92 220   # I-f1-001
+95:+close 93 222   # I-f1-002
+96:+close 94 223   # I-f1-003
+97:+close 95 224   # I-f1-004
+98:+close 96 225   # I-f1-005
+99:+close 97 226   # I-f1-006
+101:+# F2 (PRs #227-234)
+102:+close 98 227   # I-f2-001
+103:+close 99 228   # I-f2-002
+104:+close 100 229  # I-f2-003
+105:+close 101 230  # I-f2-004
+106:+close 102 231  # I-f2-005
+107:+close 103 232  # I-f2-006
+108:+close 104 233  # I-f2-007
+109:+close 105 234  # I-f2-008
+111:+# F3 (PRs #237-245)
+112:+close 107 236  # I-f3-001 (PR ref TBD; cite git log)
+113:+close 108 237  # I-f3-002
+114:+close 109 238  # I-f3-003
+115:+close 110 239  # I-f3-004
+116:+close 111 240  # I-f3-005
+117:+close 112 241  # I-f3-006
+118:+close 113 242  # I-f3-007
+119:+close 114 243  # I-f3-008
+120:+close 115 244  # I-f3-009
+121:+close 116 245  # I-f3-010
+123:+# F15 (PRs #246-251)
+124:+close 117 246  # I-f15-001
+125:+close 118 247  # I-f15-002
+126:+close 119 248  # I-f15-003
+127:+close 120 249  # I-f15-004
+128:+close 121 250  # I-f15-005
+129:+close 122 251  # I-f15-006
+131:+# ECG (PRs #253-256)
+132:+close 124 253  # I-ecg-001
+133:+close 125 254  # I-ecg-002
+134:+close 126 255  # I-ecg-003
+135:+close 127 256  # I-ecg-004
+137:+# F4 (PRs #257-261)
+138:+close 128 257  # I-f4-001
+139:+close 129 258  # I-f4-002
+140:+close 130 259  # I-f4-003
+141:+close 131 260  # I-f4-004
+142:+close 132 261  # I-f4-005
+144:+# F5 (PRs #262-272)
+145:+close 133 262  # I-f5-001
+146:+close 134 263  # I-f5-002
+147:+close 135 264  # I-f5-003
+148:+close 136 265  # I-f5-004
+149:+close 137 266  # I-f5-005
+150:+close 138 267  # I-f5-006
+151:+close 139 268  # I-f5-007
+152:+close 140 269  # I-f5-008
+153:+close 141 270  # I-f5-009
+154:+close 142 271  # I-f5-010
+155:+close 143 272  # I-f5-011
+157:+# F7 (PRs #273-276)
+158:+close 144 273  # I-f7-001
+159:+close 145 274  # I-f7-002
+160:+close 146 275  # I-f7-003
+161:+close 147 276  # I-f7-004
+163:+# F8 (PRs #277-282)
+164:+close 148 277  # I-f8-001
+165:+close 149 278  # I-f8-002
+166:+close 150 279  # I-f8-003
+167:+close 151 280  # I-f8-004
+168:+close 152 281  # I-f8-005
+169:+close 153 282  # I-f8-006
+171:+# F9 (PRs #283-285)
+172:+close 154 283  # I-f9-001
+173:+close 155 284  # I-f9-002
+174:+close 156 285  # I-f9-003
+176:+# F6 (PRs #286-290)
+177:+close 157 286  # I-f6-001
+178:+close 158 287  # I-f6-002
+179:+close 159 288  # I-f6-003
+180:+close 160 289  # I-f6-004
+181:+close 161 290  # I-f6-005
+183:+# F10 (PRs #291-298)
+184:+close 162 291  # I-f10-001
+185:+close 163 292  # I-f10-002
+186:+close 164 293  # I-f10-003
+187:+close 165 294  # I-f10-004
+188:+close 166 295  # I-f10-005
+189:+close 167 296  # I-f10-006
+190:+close 168 297  # I-f10-007
+191:+close 169 298  # I-f10-008
+193:+# F13 (PRs #299-302)
+194:+close 170 299  # I-f13-001
+195:+close 171 300  # I-f13-002
+196:+close 172 301  # I-f13-003
+197:+close 173 302  # I-f13-004
+199:+# F14 (PRs #303-309)
+200:+close 174 303  # I-f14-001
+201:+close 175 306  # I-f14-002
+202:+close 176 307  # I-f14-003
+203:+close 177 308  # I-f14-004
+204:+close 178 309  # I-f14-005
+206:+# P2C (PRs #310-314)
+207:+close 179 310  # I-p2c-001
+208:+close 180 311  # I-p2c-002
+209:+close 181 312  # I-p2c-003
+210:+close 182 313  # I-p2c-004
+211:+close 183 314  # I-p2c-005
+213:+# F11 (PRs #315-319)
+214:+close 184 315  # I-f11-001
+215:+close 185 316  # I-f11-002
+216:+close 186 317  # I-f11-003
+217:+close 187 318  # I-f11-004
+218:+close 188 319  # I-f11-005
+220:+# F12 (PRs #320-323)
+221:+close 189 320  # I-f12-001
+222:+close 190 321  # I-f12-002
+223:+close 191 322  # I-f12-003
+224:+close 192 323  # I-f12-004
+226:+# Bench (PR #325)
+227:+close 194 325  # I-bench-001
+229:+echo "Done"
+230:diff --git a/scripts/create_followup_issues.sh b/scripts/create_followup_issues.sh
+236:+#!/bin/bash
+237:+set -e
+239:+REPO="aldrinor/polaris"
+241:+create_issue() {
+242:+  local title="$1"
+243:+  local body="$2"
+244:+  local label="${3:-type-bug}"
+245:+  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
+246:+}
+248:+# Outstanding follow-ups (open and keep open)
+249:+create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
+250:+  "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
+252:+create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
+253:+  "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
+255:+create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
+256:+  "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
+258:+create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
+259:+  "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
+261:+create_issue "I-bug-102 — Off-mode should skip generator2 import" \
+262:+  "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
+264:+create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
+265:+  "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
+267:+create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
+268:+  "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
+270:+create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
+271:+  "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
+273:+create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
+274:+  "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
+276:+create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
+277:+  "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
+279:+create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
+280:+  "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
+282:+create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
+283:+  "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
+285:+create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
+286:+  "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
+288:+create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
+289:+  "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
+291:+create_issue "I-decompose-001 — Path G multi-question decomposition" \
+292:+  "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
+294:+# Retroactive issues for shipped PRs this session (§3.0 hygiene)
+295:+create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
+296:+  "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
+298:+create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
+299:+  "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
+301:+create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
+302:+  "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
+304:+create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
+305:+  "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
+307:+create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
+308:+  "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
+310:+create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
+311:+  "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
+313:+create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
+314:+  "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
+316:+create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
+317:+  "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
+319:+create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
+320:+  "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
+321:+  "type-bug"
+323:+echo "Done creating issues"
+324:diff --git a/web/AGENTS.md b/web/AGENTS.md
+332:+<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+334:+# STANDING EVALUATION & DEBUG STANDARDS (binding)
+336:+Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+338:+## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+340:+Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+342:+Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+344:+Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+346:+**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+348:+**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+350:+## §-1.2 Standard debug workflow (no §3.0 bypass)
+352:+Every task / bug / issue follows this sequence:
+354:+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+355:+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+356:+3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+357:+4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+358:+5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+359:+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+360:+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+362:+<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 4868ms:
+3902:[2026-05-10 06:59:22 UTC]
+
+2026-05-10T07:25:38.499146Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6 seconds
+Output:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ exited 1 in 5960ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '(rg -n "''^close [0-9]" scripts'"\\close_stale_issues.sh | Measure-Object).Count; (rg -n \""'^create_issue '"\\\"\" scripts\\create_followup_issues.sh | Measure-Object).Count" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Read project `CLAUDE.md` §3'"\\.0 \\+ §10|GitHub Issue FIRST|FIRST tool call|Read polaris-controls|Verify SHAs|Halt conditions|canonical pin SHA mismatch|CHARTER.md OR PLAN.md\" CLAUDE.md web\\AGENTS.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^close [0-9]|''^create_issue '"\\\"|local label|--label \\\"bug\\\"|head -1\" scripts\\close_stale_issues.sh scripts\\create_followup_issues.sh" in C:\POLARIS
+2026-05-10T07:26:12.370307Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+
+ exited 1 in 1649ms:
+2026-05-10T07:26:13.196701Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.4 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "^close [0-9]|^create_issue \"|local label|--[36;1ml[0mabel \"bug\"|head .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                    ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing expression after unary operator '--'.[0m
+
+ exited 1 in 2435ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "^close [0-9]|^create_issue \"|local label|--[36;1ml[0mabel \"bug\"|head .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                    ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing expression after unary operator '--'.[0m
+
+ succeeded in 3173ms:
+web\AGENTS.md:31:1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+CLAUDE.md:43:1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+CLAUDE.md:51:**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+CLAUDE.md:185:**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+CLAUDE.md:186:- canonical pin SHA mismatch
+CLAUDE.md:187:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+CLAUDE.md:730:1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+CLAUDE.md:731:2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "CLAUDE.md:12 + CLAUDE.md:51 create a real contradiction with the §10 boot ritual and §3.0 halt gates. The new global override plus 'FIRST tool call is gh issue create or gh issue view' can supersede CLAUDE.md:730-731 SHA verification and CLAUDE.md:185-187 pin-mismatch halt checks. Fix by scoping §-1.2 to 'after §10 boot ritual and halt checks pass, the first task-work tool call...'."
+p2:
+  - "logs/session_log.md:3902 uses '[YYYY-MM-DD HH:MM:SS UTC]' while CLAUDE.md §2.2 specifies '[YYYY-MM-DD HH:MM:SS]'. Non-blocking format drift."
+  - "scripts/close_stale_issues.sh:10 can hide gh failures because the pipeline exits on head, not gh. Inert historical artifact, non-blocking."
+  - "scripts/create_followup_issues.sh:9-10 keeps a vestigial label parameter but always passes --label bug. Non-blocking."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the §-1.2 vs §10/§3.0 ordering contradiction before approval."
+```
+tokens used
+82,212

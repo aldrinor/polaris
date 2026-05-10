@@ -1,0 +1,2199 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e10c1-c23c-7bc2-8d3c-60e58b114e93
+--------
+user
+## §0 — HARD ITERATION CAP (per CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §1 — Issue + Acceptance Criteria
+
+**GH#376 — I-doc-001: Codify §-1 line-by-line audit standard + standard debug workflow.**
+
+User directive 2026-05-09 night (repeat-flagged 4+ times across sessions): every audit / evaluation / comparison / regression check / BEAT-BOTH framing MUST be a line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step audit against the actually-fetched cited source content using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks). Both Claude AND Codex run independent line-by-line audits in parallel.
+
+Strictly banned: word counts / citation counts / unique-source counts / pattern presence / sample-based / string-presence / metadata comparison / spot-checks / "looks coherent" assertions. Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE.
+
+Why: clinical context — pattern audits are lethal.
+
+User directive 2026-05-09 night (parallel directive after §3.0 violation backlog): every task / bug / issue follows: GitHub Issue FIRST → comprehensive grep adjacent files → offline smoke test → Codex brief with adjacent-scan → 1-2 iter target → close issue when PR merges.
+
+**Acceptance:**
+- New §-1 STANDING EVALUATION & DEBUG STANDARDS section at top of `CLAUDE.md` (above §0)
+  - §-1.1 Line-by-line audit standard
+  - §-1.2 Standard debug workflow
+- Mirrored §-1 section block in `web/AGENTS.md`
+- Session log entry recording the codification
+- Helper scripts `scripts/create_followup_issues.sh` and `scripts/close_stale_issues.sh` committed for traceability of the GitHub-issue cleanup that landed in the same session
+
+**No source code change. Pure governance docs + 2 helper bash scripts.**
+
+## §2 — Proposed Change (diff scope)
+
+| File | Change | Lines added |
+|---|---|---|
+| `CLAUDE.md` | New §-1 section (§-1.1 audit standard + §-1.2 debug workflow) above §0 | +52 |
+| `web/AGENTS.md` | New `<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->` block above existing `polaris-restart-2026-05-05` block; mirrors §-1.1 + §-1.2 verbatim | +33 |
+| `logs/session_log.md` | Append SESSION_INIT-style entry per CLAUDE.md §2.2 documenting standards-codification + GitHub-issue cleanup | +12 |
+| `scripts/create_followup_issues.sh` | New: bash script that opened the 24 follow-up GitHub Issues (15 outstanding + 9 retroactive [SHIPPED]) | +106 |
+| `scripts/close_stale_issues.sh` | New: bash script that closed the 88 stale-open feature issues (cross-referenced by git log against merged PRs #220-#325) | +124 |
+
+**Total: ~327 lines added, 0 removed. Well under §3.0 200-LOC cap on source-code PRs; this is a docs+scripts PR.**
+
+## §3 — Files I have ALSO checked and they're clean
+
+Comprehensive grep performed before drafting this brief. No source-code change in this PR; the §-1 standards are purely declarative governance text. Nevertheless I confirmed:
+
+- `src/polaris_graph/generator2/strict_verify.py` — no behavior change required by §-1.1 (the entailment judge is a code-correctness gate, not an evaluation-of-output gate).
+- `src/polaris_graph/generator/provenance_generator.py` — same.
+- `tests/polaris_graph/generator2/test_strict_verify_entailment.py` — 66 entailment tests still pass on `polaris` HEAD (smoke-test run 2026-05-10 06:59 UTC, all green).
+- `.codex/REVIEW_BRIEF_FORMAT.md` — already references §8.3.1 cap directive; §-1.1 line-by-line audit standard is binding for evaluation tasks but does not change brief format.
+- `.github/workflows/codex-required.yml` — CI gate parses `codex_brief_verdict.txt` / `codex_diff_audit.txt`, no schema change.
+- `state/active_issue.json` — will be updated on next issue start, not by this PR.
+- `state/polaris_restart/issue_breakdown.md` — historical pre-issue-driven Plan-v13 tracker; unchanged.
+
+## §4 — Test Strategy
+
+- **No source-code change** → no new unit tests required.
+- **Smoke test:** `pytest tests/polaris_graph/generator2/test_strict_verify_entailment.py tests/polaris_graph/generator2/test_strict_verify_telemetry.py tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py tests/polaris_graph/test_provenance_generator_entailment.py tests/crown_jewels/test_cj_008_entailment_correctness.py -x -q` — 66 passed in 3.62s on `polaris` HEAD just before this brief was authored.
+- **Helper scripts:** `scripts/create_followup_issues.sh` and `scripts/close_stale_issues.sh` were already executed against `aldrinor/polaris` GitHub during this session. Outputs verified: 24 issues created (#352-#375), 9 [SHIPPED] closed (#367-#375), 85 stale features closed (#92-#194 cross-referenced by git log against merged PR commits). Full audit trail in `logs/session_log.md` 2026-05-10 06:59 UTC entry.
+
+## §5 — Output Schema Bound (per CLAUDE.md §8.3.9)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Loose verdict prose will be rejected.
+
+## §6 — Convergence Hint
+
+This is a **pure governance/docs PR**. The §-1 content was authored at user directive 2026-05-09 night (verbatim quotes captured in the memory entries `feedback_line_by_line_audit_standard_2026_05_09.md`, `feedback_frontier_dr_not_agentic_2026_05_09.md`, `feedback_standard_debug_workflow_2026_05_09.md`). Codex's role here is to verify the proposed CLAUDE.md and web/AGENTS.md edits are coherent, mutually consistent, and do not contradict existing sections (§0, §3.0, §8.3, §9, §10).
+
+Expected APPROVE on iter 1.
+
+codex
+I’ll inspect the actual changed files and their surrounding governance sections before giving the bounded verdict. I’ll focus on acceptance coverage, internal contradictions, and whether the helper scripts are traceable without introducing execution risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- CLAUDE.md web/AGENTS.md logs/session_log.md scripts/create_followup_issues.sh scripts/close_stale_issues.sh' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1594ms:
+ succeeded in 2407ms:
+M  CLAUDE.md
+M  logs/session_log.md
+A  scripts/close_stale_issues.sh
+A  scripts/create_followup_issues.sh
+M  web/AGENTS.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-bug-085/
+?? .codex/I-bug-103/
+?? .codex/I-doc-001/
+?? .codex/audit_v32_baseline/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/faithfulness_gap/
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/next_issue_pick/
+?? .codex/next_issue_pick_2/
+?? .codex/next_issue_pick_3/
+?? .codex/next_pick_post_cj/
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/strategic_review_high_quality/
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-1cimqsu9/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-4jy7q_j2/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_i_bug_085_pytest/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 3054ms:
+codex
+The working tree shows the target files staged, so the ordinary unstaged diff is empty. I’m switching to the staged diff and then I’ll read the resulting files with line numbers for exact references.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- CLAUDE.md web/AGENTS.md logs/session_log.md scripts/create_followup_issues.sh scripts/close_stale_issues.sh' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --name-status' in C:\POLARIS
+ succeeded in 1807ms:
+ CLAUDE.md                         |  45 ++++++++++++
+ logs/session_log.md               |  10 +++
+ scripts/close_stale_issues.sh     | 149 ++++++++++++++++++++++++++++++++++++++
+ scripts/create_followup_issues.sh |  88 ++++++++++++++++++++++
+ web/AGENTS.md                     |  32 ++++++++
+ 5 files changed, 324 insertions(+)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3136ms:
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 043cb23f..139017ce 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,6 +7,51 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
+ 
+ ---
+ 
++## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
++
++**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
++
++### §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
++
++1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
++2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
++3. **Citation-by-citation** — verify each citation is appropriate for the claim.
++4. **Apply industrial benchmarks** appropriate to the domain:
++   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
++   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++   - Methodology: appropriate risk-of-bias tool for the study type.
++5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
++6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
++
++**STRICTLY BANNED:**
++- Word counts / citation counts / unique-source counts as quality signals
++- Pattern presence ("does the report mention 'tirzepatide'?")
++- Sample-based audits ("we audited 5 of 50 claims")
++- String-presence PASS/FAIL checks (e.g., gate tables)
++- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
++
++**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
++
++**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
++
++### §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this exact sequence — no shortcuts:
++
++1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
++3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
++4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
++
++---
++
+ ## §0. Core Identity and Operational Mode
+ 
+ **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+diff --git a/logs/session_log.md b/logs/session_log.md
+index 4112dbfa..04f07f4a 100644
+--- a/logs/session_log.md
++++ b/logs/session_log.md
+@@ -3898,3 +3898,13 @@
+ - EVIDENCE/FINDINGS: 14 commits this thread total. Final v6 test status: 48 passed, 1 skipped, 7 xfailed in 2.17s. End-to-end vertical slices working: dashboard form → POST /scope/check → inline scope panel; dashboard form → POST /runs → /runs/[id] → SSE subscription → Export bundle. BPEI failure pattern caught at substrate (test_bpei_pattern_detects_ambiguity PASSING). Scope refusal patterns (treatment / legal / political) all reject correctly. Evidence Contract v1.0 schema validates 3 golden artifacts including a contradiction case + an abort_no_verified_sections case. Sycophancy CI catches drift + anchor-loss + inconsistent-refusal.
+ - STATUS: Phase 0 status: 3/10 done (0.1, 0.2, 0.4) + 3/10 substrate-deeply-shipped with real tests (0.5, 0.8, 0.10) + 4/10 still need user $ signal (0.3, 0.6, 0.7, 0.9). PLUS: Phase 1 substrate landed early — 1.1 scope F1, 1.2 BPEI F2 (HDBSCAN swap + frontend modal in real Phase 1), 1.4 Evidence Contract Gate, 1.6 bundle F15 (real source-span embedding in Phase 1 + IP review), 1.7 sycophancy CI (LLM hookup in Phase 1). The end-to-end slice from dashboard → backend → bundle works. Branch: polaris. Last commit: 1b672ed.
+ - NEXT_STEP: Continue autoloop. Next moves without $: F3b drag-drop upload UI + backend (Phase 1 Task 1.5); Codex review briefs for the 6 substrate-shipped tasks at .codex/task_X_review_brief.md; live screenshot of /dashboard with scope panel rendered; F2 frontend disambiguation modal hooked to /ambiguity. Halt ONLY when asymptoting (≥6 deferred-to-cluster framings stack) or user $ signal arrives.
++
++[2026-05-10 06:59:22 UTC]
++- ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
++- RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
++- DOCS/RESEARCH: N/A — directive-driven, no external research.
++- SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
++- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
++- EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
++- STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
++- NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+diff --git a/scripts/close_stale_issues.sh b/scripts/close_stale_issues.sh
+new file mode 100644
+index 00000000..21059ce6
+--- /dev/null
++++ b/scripts/close_stale_issues.sh
+@@ -0,0 +1,149 @@
++#!/bin/bash
++# Close GitHub issues whose work shipped via merged PR.
++# Cross-referenced via git log on origin/polaris/main.
++set -e
++REPO="aldrinor/polaris"
++
++close() {
++  local num="$1"
++  local pr="$2"
++  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
++}
++
++# F1 (PRs #220-226)
++close 92 220   # I-f1-001
++close 93 222   # I-f1-002
++close 94 223   # I-f1-003
++close 95 224   # I-f1-004
++close 96 225   # I-f1-005
++close 97 226   # I-f1-006
++
++# F2 (PRs #227-234)
++close 98 227   # I-f2-001
++close 99 228   # I-f2-002
++close 100 229  # I-f2-003
++close 101 230  # I-f2-004
++close 102 231  # I-f2-005
++close 103 232  # I-f2-006
++close 104 233  # I-f2-007
++close 105 234  # I-f2-008
++
++# F3 (PRs #237-245)
++close 107 236  # I-f3-001 (PR ref TBD; cite git log)
++close 108 237  # I-f3-002
++close 109 238  # I-f3-003
++close 110 239  # I-f3-004
++close 111 240  # I-f3-005
++close 112 241  # I-f3-006
++close 113 242  # I-f3-007
++close 114 243  # I-f3-008
++close 115 244  # I-f3-009
++close 116 245  # I-f3-010
++
++# F15 (PRs #246-251)
++close 117 246  # I-f15-001
++close 118 247  # I-f15-002
++close 119 248  # I-f15-003
++close 120 249  # I-f15-004
++close 121 250  # I-f15-005
++close 122 251  # I-f15-006
++
++# ECG (PRs #253-256)
++close 124 253  # I-ecg-001
++close 125 254  # I-ecg-002
++close 126 255  # I-ecg-003
++close 127 256  # I-ecg-004
++
++# F4 (PRs #257-261)
++close 128 257  # I-f4-001
++close 129 258  # I-f4-002
++close 130 259  # I-f4-003
++close 131 260  # I-f4-004
++close 132 261  # I-f4-005
++
++# F5 (PRs #262-272)
++close 133 262  # I-f5-001
++close 134 263  # I-f5-002
++close 135 264  # I-f5-003
++close 136 265  # I-f5-004
++close 137 266  # I-f5-005
++close 138 267  # I-f5-006
++close 139 268  # I-f5-007
++close 140 269  # I-f5-008
++close 141 270  # I-f5-009
++close 142 271  # I-f5-010
++close 143 272  # I-f5-011
++
++# F7 (PRs #273-276)
++close 144 273  # I-f7-001
++close 145 274  # I-f7-002
++close 146 275  # I-f7-003
++close 147 276  # I-f7-004
++
++# F8 (PRs #277-282)
++close 148 277  # I-f8-001
++close 149 278  # I-f8-002
++close 150 279  # I-f8-003
++close 151 280  # I-f8-004
++close 152 281  # I-f8-005
++close 153 282  # I-f8-006
++
++# F9 (PRs #283-285)
++close 154 283  # I-f9-001
++close 155 284  # I-f9-002
++close 156 285  # I-f9-003
++
++# F6 (PRs #286-290)
++close 157 286  # I-f6-001
++close 158 287  # I-f6-002
++close 159 288  # I-f6-003
++close 160 289  # I-f6-004
++close 161 290  # I-f6-005
++
++# F10 (PRs #291-298)
++close 162 291  # I-f10-001
++close 163 292  # I-f10-002
++close 164 293  # I-f10-003
++close 165 294  # I-f10-004
++close 166 295  # I-f10-005
++close 167 296  # I-f10-006
++close 168 297  # I-f10-007
++close 169 298  # I-f10-008
++
++# F13 (PRs #299-302)
++close 170 299  # I-f13-001
++close 171 300  # I-f13-002
++close 172 301  # I-f13-003
++close 173 302  # I-f13-004
++
++# F14 (PRs #303-309)
++close 174 303  # I-f14-001
++close 175 306  # I-f14-002
++close 176 307  # I-f14-003
++close 177 308  # I-f14-004
++close 178 309  # I-f14-005
++
++# P2C (PRs #310-314)
++close 179 310  # I-p2c-001
++close 180 311  # I-p2c-002
++close 181 312  # I-p2c-003
++close 182 313  # I-p2c-004
++close 183 314  # I-p2c-005
++
++# F11 (PRs #315-319)
++close 184 315  # I-f11-001
++close 185 316  # I-f11-002
++close 186 317  # I-f11-003
++close 187 318  # I-f11-004
++close 188 319  # I-f11-005
++
++# F12 (PRs #320-323)
++close 189 320  # I-f12-001
++close 190 321  # I-f12-002
++close 191 322  # I-f12-003
++close 192 323  # I-f12-004
++
++# Bench (PR #325)
++close 194 325  # I-bench-001
++
++echo "Done"
+diff --git a/scripts/create_followup_issues.sh b/scripts/create_followup_issues.sh
+new file mode 100644
+index 00000000..64b71416
+--- /dev/null
++++ b/scripts/create_followup_issues.sh
+@@ -0,0 +1,88 @@
++#!/bin/bash
++set -e
++
++REPO="aldrinor/polaris"
++
++create_issue() {
++  local title="$1"
++  local body="$2"
++  local label="${3:-type-bug}"
++  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
++}
++
++# Outstanding follow-ups (open and keep open)
++create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
++  "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
++
++create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
++  "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
++
++create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
++  "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
++
++create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
++  "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
++
++create_issue "I-bug-102 — Off-mode should skip generator2 import" \
++  "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
++
++create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
++  "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
++
++create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
++  "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
++
++create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
++  "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
++
++create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
++  "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
++
++create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
++  "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
++
++create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
++  "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
++
++create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
++  "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
++
++create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
++  "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
++
++create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
++  "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
++
++create_issue "I-decompose-001 — Path G multi-question decomposition" \
++  "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
++
++# Retroactive issues for shipped PRs this session (§3.0 hygiene)
++create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
++  "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
++
++create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
++  "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
++
++create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
++  "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
++
++create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
++  "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
++
++create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
++  "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
++
++create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
++  "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
++
++create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
++  "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
++
++create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
++  "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
++
++create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
++  "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
++  "type-bug"
++
++echo "Done creating issues"
+diff --git a/web/AGENTS.md b/web/AGENTS.md
+index 9506f4b7..28d3f8b4 100644
+--- a/web/AGENTS.md
++++ b/web/AGENTS.md
+@@ -6,6 +6,38 @@ This version has breaking changes — APIs, conventions, and file structure may
+ 
+ <!-- END:nextjs-agent-rules -->
+ 
++<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
++
++# STANDING EVALUATION & DEBUG STANDARDS (binding)
++
++Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
++
++## §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++
++Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
++
++Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
++
++**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
++
++**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
++
++## §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this sequence:
++
++1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
++3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
++4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
++
+ <!-- BEGIN:polaris-restart-2026-05-05 -->
+ 
+ # POLARIS issue-driven workflow (mandatory)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3808ms:
+M	CLAUDE.md
+M	logs/session_log.md
+A	scripts/close_stale_issues.sh
+A	scripts/create_followup_issues.sh
+M	web/AGENTS.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+The staged diff satisfies the broad file-scope shape, but there are count and workflow-detail inconsistencies worth checking before I classify them. I’m now reading surrounding sections and counting the script operations rather than relying on the brief’s summary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content scripts'"\\close_stale_issues.sh | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"§3\\.0|§8\\.3|HARD ITERATION|GitHub Issue|Codex APPROVE|codex_diff|codex_brief|line-by-line|STRICTLY BANNED|polaris-evaluation|polaris-restart|SESSION_INIT|SESSION_INIT-style\" CLAUDE.md web/AGENTS.md .codex/REVIEW_BRIEF_FORMAT.md .github/workflows/codex-required.yml logs/session_log.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content CLAUDE.md | Select-Object -First 90 | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content scripts'"\\create_followup_issues.sh | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\AGENTS.md | Select-Object -First 90 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 1682ms:
+CLAUDE.md:25:5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+CLAUDE.md:28:**STRICTLY BANNED:**
+CLAUDE.md:37:**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+CLAUDE.md:39:### §-1.2 Standard debug workflow (no §3.0 bypass)
+CLAUDE.md:43:1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+CLAUDE.md:46:4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+CLAUDE.md:48:6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+CLAUDE.md:49:7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+CLAUDE.md:51:**Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+CLAUDE.md:82:**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+CLAUDE.md:84:2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+CLAUDE.md:85:3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+CLAUDE.md:86:4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+CLAUDE.md:134:### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+CLAUDE.md:135:- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+CLAUDE.md:136:- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+CLAUDE.md:137:- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+CLAUDE.md:139:- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+CLAUDE.md:167:## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+CLAUDE.md:169:**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+CLAUDE.md:173:- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+CLAUDE.md:174:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+CLAUDE.md:175:- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+CLAUDE.md:195:**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+CLAUDE.md:196:- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+CLAUDE.md:211:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+CLAUDE.md:214:2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+CLAUDE.md:215:   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+CLAUDE.md:216:   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+CLAUDE.md:217:   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+CLAUDE.md:236:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+CLAUDE.md:237:12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+CLAUDE.md:239:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+CLAUDE.md:416:### 8.1 No status blocks mid-batch (DEPRECATED 2026-05-05 per polaris-restart §9.1)
+CLAUDE.md:418:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+CLAUDE.md:471:### 8.2 Zero prose between merge and next branch + active_issue.json transition gate (DEPRECATED 2026-05-05 + UPDATED per polaris-restart §9.1)
+CLAUDE.md:473:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+CLAUDE.md:475:**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+CLAUDE.md:519:## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+CLAUDE.md:529:**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+CLAUDE.md:532:HARD ITERATION CAP: 5 per document. This is iter N of 5.
+CLAUDE.md:542:1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+CLAUDE.md:543:2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+CLAUDE.md:544:3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+CLAUDE.md:553:### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+CLAUDE.md:555:Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+CLAUDE.md:557:`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+CLAUDE.md:563:When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+CLAUDE.md:573:**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+CLAUDE.md:599:## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+CLAUDE.md:604:- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+CLAUDE.md:605:- Codex saying "stop paper, build harness" (§8.3.6).
+CLAUDE.md:606:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+CLAUDE.md:650:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
+CLAUDE.md:726:## §10 Session boot ritual (per polaris-restart Plan §9.1)
+CLAUDE.md:739:Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on iterate-vs-restructure" principle remains, bounded at 5 iterations.
+.github/workflows/codex-required.yml:2:# Per polaris-restart Plan section 10.1 + section 10.0 Codex isolation invariant.
+.github/workflows/codex-required.yml:4:# Verifies the full §3.0 5-artifact triple is present and BOTH Codex
+.github/workflows/codex-required.yml:46:          # codex_diff.patch.
+.github/workflows/codex-required.yml:53:          # Bot-PR head refs follow `bot/<issue_id>` per plan §3.0 + §7.A
+.github/workflows/codex-required.yml:97:            #   - bot/pr-e (open all GitHub Issues)
+.github/workflows/codex-required.yml:107:            # `.codex/pr_d_mechanical_gates_review_brief.md`, NOT the §3.0
+.github/workflows/codex-required.yml:138:        # CLAUDE.md §3.0 mandatory contract.
+.github/workflows/codex-required.yml:146:        # PR-D iter 3 PRD3-P1-001 fix: BIND `codex_diff.patch` to the
+.github/workflows/codex-required.yml:149:        # require codex_diff.patch to declare the matching hash via a
+.github/workflows/codex-required.yml:151:        # binding, Codex APPROVE on codex_diff.patch could cover code
+.github/workflows/codex-required.yml:156:          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
+.github/workflows/codex-required.yml:157:          DIFF_PATCH=".codex/${ISSUE_ID}/codex_diff.patch"
+.github/workflows/codex-required.yml:158:          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
+.github/workflows/codex-required.yml:164:              echo "ERROR: missing $f (CLAUDE.md §3.0 5-artifact triple)"
+.github/workflows/codex-required.yml:195:          # PR-D iter 3 PRD3-P1-001 fix: bind codex_diff.patch to actual
+.github/workflows/codex-required.yml:202:          # Codex reviewed and must match the codex_diff.patch hash.
+.github/workflows/codex-required.yml:215:          # codex_diff.patch. Convention: Claude appends this line as a
+.github/workflows/codex-required.yml:218:          # the Codex APPROVE to one specific code change.
+.github/workflows/codex-required.yml:222:            echo "       Required by PR-D iter 3 PRD3-P1-001 fix to bind Codex APPROVE"
+.github/workflows/codex-required.yml:229:            echo "ERROR: PR diff hash mismatch — codex_diff.patch was approved for a"
+.github/workflows/codex-required.yml:231:            echo "  declared (in codex_diff.patch trailer): $declared_hash"
+.github/workflows/codex-required.yml:239:          echo "    and codex_diff.patch hash matches actual PR diff for $ISSUE_ID"
+.github/workflows/codex-required.yml:254:            echo "codex-required: skipped (non-bot PR head ref '$HEAD_REF_FOR_LOG'; not gated by §3.0 issue-driven workflow)"
+logs/session_log.md:133:- RATIONALE: TEST_062 produced 0 citations, 0 words despite $3.21 spent. Root cause discovery process: (1) read reasoning traces from JSONL, found model detecting citation format conflict every section write, (2) traced to CITATION_RULES ([SRC-NNN]) injected into v1/v3 prompt expecting [CITE:evidence_id], (3) built micro test proving the fix, (4) expanded to full audit of content/reasoning/artifacts, (5) iterated 6 pipeline runs with line-by-line content review after each. Key methodology: small-scale micro tests before each pipeline run, reading actual output content not just metrics.
+logs/session_log.md:720:- ACTION: SESSION_INIT — Session 29 continuation-3: bibliography backfill, legacy test cleanup, tier scoring fixes
+logs/session_log.md:782:- ACTION: SESSION_INIT — Session 29 continuation: live audit bug fixes + performance optimization
+logs/session_log.md:850:- ACTION: SESSION_INIT — Session 29 Integrity Overhaul + Enterprise Audit Completion
+logs/session_log.md:867:- ACTION: SESSION_INIT — Session 28 comprehensive audit + deferred integration tests
+logs/session_log.md:936:- ACTION: SESSION_INIT — Continuing from Session 26 (54/54 audit, 43 integration tests)
+logs/session_log.md:1065:- ACTION: SESSION_INIT — Implement 100% Completion Plan (Fix-Audit-Fix Loop v3)
+logs/session_log.md:1174:- ACTION: SESSION_INIT — Sprint 3 implementation (Mind Map + Memory Visualization + Human Correction Feedback Loop)
+logs/session_log.md:1207:- ACTION: SESSION_INIT — Sprint 2 continuation (Sessions 17-18 combined)
+logs/session_log.md:1236:- ACTION: SESSION_INIT — Sprint 1 of POLARIS Enterprise Product Transformation Plan
+logs/session_log.md:1419:- ACTION: Comprehensive line-by-line audit of Sovereign Deep Research Platform plan vs actual implementation. Created 174-item ultimate todo list.
+logs/session_log.md:2149:## [2026-02-23 19:10:00] SESSION_INIT
+logs/session_log.md:2150:- **ACTION:** SESSION_INIT — Forensic audit verification and PG_TEST_047 live validation session.
+logs/session_log.md:2929:- ACTION: SESSION_INIT — Implemented 27-defect fix plan from 7-run stress test audit
+logs/session_log.md:3248:## [2026-04-18 11:58:00] SESSION_INIT — Codex↔Claude autonomous audit loop
+logs/session_log.md:3786:  - NEW outputs/codex_findings/m56_code_audit/pass2_findings.md (Codex APPROVED verdict + scoped regression evidence 130/130)
+logs/session_log.md:3904:- RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
+logs/session_log.md:3906:- SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
+.codex/REVIEW_BRIEF_FORMAT.md:3:v3 changelog (2026-05-06): added §0 mandatory iteration-cap directive per CLAUDE.md §8.3.1 user directive (commercial viability override). All v2 sections (§1-§8 below) remain in force unchanged.
+.codex/REVIEW_BRIEF_FORMAT.md:13:Paste the verbatim canonical block from CLAUDE.md §8.3.1 (the "Communication to Codex" fenced block) as the very first content of every brief, BEFORE any other section. Do NOT paraphrase, abbreviate, or restate — copy the §8.3.1 block byte-for-byte. Single source of truth: if §8.3.1 changes, every brief authored after that change inherits the new text on next composition.
+.codex/REVIEW_BRIEF_FORMAT.md:15:For reference at time of v3 authoring (2026-05-06), the §8.3.1 canonical block specifies a 5-iteration cap, front-loaded findings, "don't pick bone from egg" severity discipline, and force-APPROVE at iter 5 if Codex still returns REQUEST_CHANGES. Re-read CLAUDE.md §8.3.1 at brief authoring time — DO NOT trust this snapshot.
+web/AGENTS.md:9:<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+web/AGENTS.md:17:Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+web/AGENTS.md:23:**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+web/AGENTS.md:27:## §-1.2 Standard debug workflow (no §3.0 bypass)
+web/AGENTS.md:31:1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+web/AGENTS.md:35:5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+web/AGENTS.md:36:6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+web/AGENTS.md:37:7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+web/AGENTS.md:39:<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+web/AGENTS.md:41:<!-- BEGIN:polaris-restart-2026-05-05 -->
+web/AGENTS.md:45:Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+web/AGENTS.md:47:- Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+web/AGENTS.md:50:- **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+web/AGENTS.md:54:Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+web/AGENTS.md:56:<!-- END:polaris-restart-2026-05-05 -->
+
+ succeeded in 2316ms:
+   1: #!/bin/bash
+   2: # Close GitHub issues whose work shipped via merged PR.
+   3: # Cross-referenced via git log on origin/polaris/main.
+   4: set -e
+   5: REPO="aldrinor/polaris"
+   6: 
+   7: close() {
+   8:   local num="$1"
+   9:   local pr="$2"
+  10:   gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
+  11: }
+  12: 
+  13: # F1 (PRs #220-226)
+  14: close 92 220   # I-f1-001
+  15: close 93 222   # I-f1-002
+  16: close 94 223   # I-f1-003
+  17: close 95 224   # I-f1-004
+  18: close 96 225   # I-f1-005
+  19: close 97 226   # I-f1-006
+  20: 
+  21: # F2 (PRs #227-234)
+  22: close 98 227   # I-f2-001
+  23: close 99 228   # I-f2-002
+  24: close 100 229  # I-f2-003
+  25: close 101 230  # I-f2-004
+  26: close 102 231  # I-f2-005
+  27: close 103 232  # I-f2-006
+  28: close 104 233  # I-f2-007
+  29: close 105 234  # I-f2-008
+  30: 
+  31: # F3 (PRs #237-245)
+  32: close 107 236  # I-f3-001 (PR ref TBD; cite git log)
+  33: close 108 237  # I-f3-002
+  34: close 109 238  # I-f3-003
+  35: close 110 239  # I-f3-004
+  36: close 111 240  # I-f3-005
+  37: close 112 241  # I-f3-006
+  38: close 113 242  # I-f3-007
+  39: close 114 243  # I-f3-008
+  40: close 115 244  # I-f3-009
+  41: close 116 245  # I-f3-010
+  42: 
+  43: # F15 (PRs #246-251)
+  44: close 117 246  # I-f15-001
+  45: close 118 247  # I-f15-002
+  46: close 119 248  # I-f15-003
+  47: close 120 249  # I-f15-004
+  48: close 121 250  # I-f15-005
+  49: close 122 251  # I-f15-006
+  50: 
+  51: # ECG (PRs #253-256)
+  52: close 124 253  # I-ecg-001
+  53: close 125 254  # I-ecg-002
+  54: close 126 255  # I-ecg-003
+  55: close 127 256  # I-ecg-004
+  56: 
+  57: # F4 (PRs #257-261)
+  58: close 128 257  # I-f4-001
+  59: close 129 258  # I-f4-002
+  60: close 130 259  # I-f4-003
+  61: close 131 260  # I-f4-004
+  62: close 132 261  # I-f4-005
+  63: 
+  64: # F5 (PRs #262-272)
+  65: close 133 262  # I-f5-001
+  66: close 134 263  # I-f5-002
+  67: close 135 264  # I-f5-003
+  68: close 136 265  # I-f5-004
+  69: close 137 266  # I-f5-005
+  70: close 138 267  # I-f5-006
+  71: close 139 268  # I-f5-007
+  72: close 140 269  # I-f5-008
+  73: close 141 270  # I-f5-009
+  74: close 142 271  # I-f5-010
+  75: close 143 272  # I-f5-011
+  76: 
+  77: # F7 (PRs #273-276)
+  78: close 144 273  # I-f7-001
+  79: close 145 274  # I-f7-002
+  80: close 146 275  # I-f7-003
+  81: close 147 276  # I-f7-004
+  82: 
+  83: # F8 (PRs #277-282)
+  84: close 148 277  # I-f8-001
+  85: close 149 278  # I-f8-002
+  86: close 150 279  # I-f8-003
+  87: close 151 280  # I-f8-004
+  88: close 152 281  # I-f8-005
+  89: close 153 282  # I-f8-006
+  90: 
+  91: # F9 (PRs #283-285)
+  92: close 154 283  # I-f9-001
+  93: close 155 284  # I-f9-002
+  94: close 156 285  # I-f9-003
+  95: 
+  96: # F6 (PRs #286-290)
+  97: close 157 286  # I-f6-001
+  98: close 158 287  # I-f6-002
+  99: close 159 288  # I-f6-003
+ 100: close 160 289  # I-f6-004
+ 101: close 161 290  # I-f6-005
+ 102: 
+ 103: # F10 (PRs #291-298)
+ 104: close 162 291  # I-f10-001
+ 105: close 163 292  # I-f10-002
+ 106: close 164 293  # I-f10-003
+ 107: close 165 294  # I-f10-004
+ 108: close 166 295  # I-f10-005
+ 109: close 167 296  # I-f10-006
+ 110: close 168 297  # I-f10-007
+ 111: close 169 298  # I-f10-008
+ 112: 
+ 113: # F13 (PRs #299-302)
+ 114: close 170 299  # I-f13-001
+ 115: close 171 300  # I-f13-002
+ 116: close 172 301  # I-f13-003
+ 117: close 173 302  # I-f13-004
+ 118: 
+ 119: # F14 (PRs #303-309)
+ 120: close 174 303  # I-f14-001
+ 121: close 175 306  # I-f14-002
+ 122: close 176 307  # I-f14-003
+ 123: close 177 308  # I-f14-004
+ 124: close 178 309  # I-f14-005
+ 125: 
+ 126: # P2C (PRs #310-314)
+ 127: close 179 310  # I-p2c-001
+ 128: close 180 311  # I-p2c-002
+ 129: close 181 312  # I-p2c-003
+ 130: close 182 313  # I-p2c-004
+ 131: close 183 314  # I-p2c-005
+ 132: 
+ 133: # F11 (PRs #315-319)
+ 134: close 184 315  # I-f11-001
+ 135: close 185 316  # I-f11-002
+ 136: close 186 317  # I-f11-003
+ 137: close 187 318  # I-f11-004
+ 138: close 188 319  # I-f11-005
+ 139: 
+ 140: # F12 (PRs #320-323)
+ 141: close 189 320  # I-f12-001
+ 142: close 190 321  # I-f12-002
+ 143: close 191 322  # I-f12-003
+ 144: close 192 323  # I-f12-004
+ 145: 
+ 146: # Bench (PR #325)
+ 147: close 194 325  # I-bench-001
+ 148: 
+ 149: echo "Done"
+
+ succeeded in 2958ms:
+   1: #!/bin/bash
+   2: set -e
+   3: 
+   4: REPO="aldrinor/polaris"
+   5: 
+   6: create_issue() {
+   7:   local title="$1"
+   8:   local body="$2"
+   9:   local label="${3:-type-bug}"
+  10:   gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
+  11: }
+  12: 
+  13: # Outstanding follow-ups (open and keep open)
+  14: create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
+  15:   "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
+  16: 
+  17: create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
+  18:   "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
+  19: 
+  20: create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
+  21:   "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
+  22: 
+  23: create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
+  24:   "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
+  25: 
+  26: create_issue "I-bug-102 — Off-mode should skip generator2 import" \
+  27:   "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
+  28: 
+  29: create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
+  30:   "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
+  31: 
+  32: create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
+  33:   "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
+  34: 
+  35: create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
+  36:   "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
+  37: 
+  38: create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
+  39:   "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
+  40: 
+  41: create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
+  42:   "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
+  43: 
+  44: create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
+  45:   "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
+  46: 
+  47: create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
+  48:   "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
+  49: 
+  50: create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
+  51:   "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
+  52: 
+  53: create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
+  54:   "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
+  55: 
+  56: create_issue "I-decompose-001 — Path G multi-question decomposition" \
+  57:   "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
+  58: 
+  59: # Retroactive issues for shipped PRs this session (§3.0 hygiene)
+  60: create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
+  61:   "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
+  62: 
+  63: create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
+  64:   "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
+  65: 
+  66: create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
+  67:   "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
+  68: 
+  69: create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
+  70:   "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
+  71: 
+  72: create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
+  73:   "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
+  74: 
+  75: create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
+  76:   "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
+  77: 
+  78: create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
+  79:   "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
+  80: 
+  81: create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
+  82:   "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
+  83: 
+  84: create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
+  85:   "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
+  86:   "type-bug"
+  87: 
+  88: echo "Done creating issues"
+
+ succeeded in 3703ms:
+   1: <!-- BEGIN:nextjs-agent-rules -->
+   2: 
+   3: # This is NOT the Next.js you know
+   4: 
+   5: This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+   6: 
+   7: <!-- END:nextjs-agent-rules -->
+   8: 
+   9: <!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+  10: 
+  11: # STANDING EVALUATION & DEBUG STANDARDS (binding)
+  12: 
+  13: Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+  14: 
+  15: ## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+  16: 
+  17: Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+  18: 
+  19: Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+  20: 
+  21: Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+  22: 
+  23: **STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+  24: 
+  25: **Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+  26: 
+  27: ## §-1.2 Standard debug workflow (no §3.0 bypass)
+  28: 
+  29: Every task / bug / issue follows this sequence:
+  30: 
+  31: 1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+  32: 2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+  33: 3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+  34: 4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+  35: 5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+  36: 6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+  37: 7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+  38: 
+  39: <!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+  40: 
+  41: <!-- BEGIN:polaris-restart-2026-05-05 -->
+  42: 
+  43: # POLARIS issue-driven workflow (mandatory)
+  44: 
+  45: Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+  46: 
+  47: - Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+  48: - Per-Issue 5-artifact triple required (brief + verdict + diff + audit + claude_audit). CI enforcement lands at PR-D; pre-PR-D, Codex review enforces.
+  49: - Per plan §7.A LOCKED A2 + §7.B LOCKED B1: Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); CI required check `polaris/codex-required` gates GitHub auto-merge; user reads `git log` morning.
+  50: - **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+  51: - **Resource discipline (CPU/RAM/GPU)** per CLAUDE.md §8.4 (added 2026-05-06): one `codex exec` at a time; kill leftover python/node/codex processes between iters; no heavy ML/CUDA processes in autonomous loops; track long-running dev servers and kill before next Issue; pre/post-task `Get-Process` inventory.
+  52: - `gh pr merge --admin` REVOKED from Claude.
+  53: 
+  54: Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+  55: 
+  56: <!-- END:polaris-restart-2026-05-05 -->
+
+ succeeded in 4384ms:
+   1: # POLARIS PROJECT - Operational Directives
+   2: 
+   3: CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+   4: 
+   5: Document Class: Operational, Binding, Project-Specific
+   6: Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+   7: 
+   8: ---
+   9: 
+  10: ## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+  11: 
+  12: **These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+  13: 
+  14: ### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+  15: 
+  16: Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+  17: 
+  18: 1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+  19: 2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+  20: 3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+  21: 4. **Apply industrial benchmarks** appropriate to the domain:
+  22:    - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+  23:    - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+  24:    - Methodology: appropriate risk-of-bias tool for the study type.
+  25: 5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+  26: 6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+  27: 
+  28: **STRICTLY BANNED:**
+  29: - Word counts / citation counts / unique-source counts as quality signals
+  30: - Pattern presence ("does the report mention 'tirzepatide'?")
+  31: - Sample-based audits ("we audited 5 of 50 claims")
+  32: - String-presence PASS/FAIL checks (e.g., gate tables)
+  33: - Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+  34: 
+  35: **Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+  36: 
+  37: **Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+  38: 
+  39: ### §-1.2 Standard debug workflow (no §3.0 bypass)
+  40: 
+  41: Every task / bug / issue follows this exact sequence — no shortcuts:
+  42: 
+  43: 1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+  44: 2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+  45: 3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+  46: 4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+  47: 5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+  48: 6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+  49: 7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+  50: 
+  51: **Application:** when assigned work, the FIRST tool call is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+  52: 
+  53: ---
+  54: 
+  55: ## §0. Core Identity and Operational Mode
+  56: 
+  57: **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+  58: 
+  59: **0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+  60: - **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+  61: - **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+  62: 
+  63: **0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+  64: 1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+  65: 2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+  66: 3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+  67: 4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+  68: 5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+  69: 6. **Record:** Update all mandatory documentation and state files (§2).
+  70: 
+  71: The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+  72: 
+  73: ---
+  74: 
+  75: ## §1. The LAWS (Non-Negotiable Directives)
+  76: 
+  77: These LAWS supersede all other instructions.
+  78: 
+  79: ### LAW I — Active Definition and Synchronization
+  80: You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+  81: 
+  82: **1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+  83: 1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+  84: 2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+  85: 3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+  86: 4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+  87: 5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+  88: 6. Recent `logs/session_log.md` (The History).
+  89: 7. `architecture.md` (The Baseline).
+  90: 8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=160; $count=70; $lines=Get-Content CLAUDE.md; for($idx=$start; $idx -lt [Math]::Min($start+$count,$lines.Length+1); $idx++){ '"'{0,4}: {1}' -f "'$idx, $lines[$idx-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=519; $count=60; $lines=Get-Content CLAUDE.md; for($idx=$start; $idx -lt [Math]::Min($start+$count,$lines.Length+1); $idx++){ '"'{0,4}: {1}' -f "'$idx, $lines[$idx-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(Select-String -Path scripts\\close_stale_issues.sh -Pattern '"'^close '"' | Measure-Object).Count; (Select-String -Path scripts\\create_followup_issues.sh -Pattern '"'^create_issue '"' | Measure-Object).Count; Select-String -Path scripts\\close_stale_issues.sh -Pattern 'TBD|220-226|237-245'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=3898; $count=16; $lines=Get-Content logs'"\\session_log.md; for("'$idx=$start; $idx -lt [Math]::Min($start+$count,$lines.Length+1); $idx++){ '"'{0,4}: {1}' -f "'$idx, $lines[$idx-1] }' in C:\POLARIS
+ succeeded in 2143ms:
+ 519: ## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+ 520: 
+ 521: When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+ 522: 
+ 523: ### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
+ 524: 
+ 525: **Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and matches the cycle-time budget needed to ship Carney by Sep 6.
+ 526: 
+ 527: This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+ 528: 
+ 529: **Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+ 530: 
+ 531: ```
+ 532: HARD ITERATION CAP: 5 per document. This is iter N of 5.
+ 533: - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+ 534: - Same quality bar regardless of iteration count.
+ 535: - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+ 536: - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+ 537: - If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+ 538: - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+ 539: ```
+ 540: 
+ 541: **Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+ 542: 1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+ 543: 2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+ 544: 3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+ 545: 4. Proceed to next step (commit, push, PR, merge).
+ 546: 
+ 547: History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+ 548: 
+ 549: ### 8.3.2 Trust Codex's verdicts
+ 550: 
+ 551: Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+ 552: 
+ 553: ### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+ 554: 
+ 555: Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+ 556: 
+ 557: `.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+ 558: 
+ 559: Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+ 560: 
+ 561: ### 8.3.4 No scope-narrowing for false convergence
+ 562: 
+ 563: When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+ 564: 
+ 565: ### 8.3.5 Iteration trajectory MUST be logged
+ 566: 
+ 567: Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
+ 568: 
+ 569: ### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
+ 570: 
+ 571: Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+ 572: 
+ 573: **ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+ 574: 
+ 575: ### 8.3.7 Codex auth uses ChatGPT subscription, not API
+ 576: 
+ 577: Always invoke as `env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < brief.md > verdict.txt`. The `-u` flag UNSETS the variable, forcing OAuth fallback to `~/.codex/auth.json`. Confirm via `codex login status` returning "Logged in using ChatGPT." Never run `codex exec` without `env -u OPENAI_API_KEY`.
+ 578: 
+
+ succeeded in 2840ms:
+ 160: - EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+ 161: - STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+ 162: - NEXT_STEP: <The single, clear next action to be taken>
+ 163: ```
+ 164: 
+ 165: ---
+ 166: 
+ 167: ## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+ 168: 
+ 169: **Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+ 170: 
+ 171: **Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+ 172: - `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+ 173: - `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+ 174: - `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+ 175: - `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+ 176: - `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+ 177: 
+ 178: **Forbidden patterns:**
+ 179: - `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+ 180: - PR opened without all 5 artifacts above
+ 181: - Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+ 182: - "While we're at it" polish in same PR
+ 183: - STATUS block / recap text between PR merge and next branch creation (per §8.2)
+ 184: 
+ 185: **Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+ 186: - canonical pin SHA mismatch
+ 187: - CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+ 188: - issue jump attempt
+ 189: - PR opened with missing artifact triple
+ 190: - Codex unavailable >1h
+ 191: - 2-cycle repeated root cause
+ 192: - 200-LOC PR cap exceeded
+ 193: - 3+ PRs queued for user in 24h (reviewer fatigue)
+ 194: 
+ 195: **Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+ 196: - **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+ 197: - **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+ 198: - **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
+ 199: - Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
+ 200: 
+ 201: ---
+ 202: 
+ 203: ## §3. Mandatory Session Protocol (Startup/Restart)
+ 204: 
+ 205: This protocol MUST be executed automatically at the start of every session and after any restart or crash.
+ 206: 
+ 207: ### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+ 208: 
+ 209: **CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+ 210: 
+ 211: 0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+ 212: 
+ 213: 1. **Read CLAUDE.md:** This file completely.
+ 214: 2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+ 215:    - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+ 216:    - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+ 217:    - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+ 218:    - `docs/carney_delivery_plan_v6_2.md` (mission)
+ 219:    - `architecture.md` (current-state baseline)
+ 220:    - `docs/blockers.md` (10 user-side decisions)
+ 221:    - `docs/agent_architecture.md`
+ 222:    - `docs/substrate_audit_2026-05-01.md`
+ 223:    - `.codex/codex_red_team_checklist.md`
+ 224:    - `.codex/REVIEW_BRIEF_FORMAT.md`
+ 225:    - `.codex/AUDIT_CYCLE_PROTOCOL.md`
+ 226:    - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
+ 227:    - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
+ 228: 3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+ 229: 4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+
+ succeeded in 3530ms:
+100
+24
+
+scripts\close_stale_issues.sh:13:# F1 (PRs #[7m220-226[0m)
+scripts\close_stale_issues.sh:31:# F3 (PRs #[7m237-245[0m)
+scripts\close_stale_issues.sh:32:close 107 236  # I-f3-001 (PR ref [7mTBD[0m; cite git log)
+
+
+ succeeded in 4233ms:
+3898: - EVIDENCE/FINDINGS: 14 commits this thread total. Final v6 test status: 48 passed, 1 skipped, 7 xfailed in 2.17s. End-to-end vertical slices working: dashboard form → POST /scope/check → inline scope panel; dashboard form → POST /runs → /runs/[id] → SSE subscription → Export bundle. BPEI failure pattern caught at substrate (test_bpei_pattern_detects_ambiguity PASSING). Scope refusal patterns (treatment / legal / political) all reject correctly. Evidence Contract v1.0 schema validates 3 golden artifacts including a contradiction case + an abort_no_verified_sections case. Sycophancy CI catches drift + anchor-loss + inconsistent-refusal.
+3899: - STATUS: Phase 0 status: 3/10 done (0.1, 0.2, 0.4) + 3/10 substrate-deeply-shipped with real tests (0.5, 0.8, 0.10) + 4/10 still need user $ signal (0.3, 0.6, 0.7, 0.9). PLUS: Phase 1 substrate landed early — 1.1 scope F1, 1.2 BPEI F2 (HDBSCAN swap + frontend modal in real Phase 1), 1.4 Evidence Contract Gate, 1.6 bundle F15 (real source-span embedding in Phase 1 + IP review), 1.7 sycophancy CI (LLM hookup in Phase 1). The end-to-end slice from dashboard → backend → bundle works. Branch: polaris. Last commit: 1b672ed.
+3900: - NEXT_STEP: Continue autoloop. Next moves without $: F3b drag-drop upload UI + backend (Phase 1 Task 1.5); Codex review briefs for the 6 substrate-shipped tasks at .codex/task_X_review_brief.md; live screenshot of /dashboard with scope panel rendered; F2 frontend disambiguation modal hooked to /ambiguity. Halt ONLY when asymptoting (≥6 deferred-to-cluster framings stack) or user $ signal arrives.
+3901: 
+3902: [2026-05-10 06:59:22 UTC]
+3903: - ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
+3904: - RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
+3905: - DOCS/RESEARCH: N/A — directive-driven, no external research.
+3906: - SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
+3907: - AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
+3908: - EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
+3909: - STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
+3910: - NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+
+codex
+The core standards text is present in both governance files and the existing §3.0/§8.3 sections mostly reinforce it. The main discrepancy I found is in the issue-cleanup trace: the session log says 85 stale feature issues, while the committed close script contains 100 `close` calls, plus one “PR ref TBD” line inside a script that claims git-log verification.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'bash -n scripts/create_followup_issues.sh; if($LASTEXITCODE -eq 0){ '"'create_followup_issues.sh syntax OK' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'bash -n scripts/close_stale_issues.sh; if($LASTEXITCODE -eq 0){ '"'close_stale_issues.sh syntax OK' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "I-f3-001|#236|#237|I-f1-002|#221|#222|I-bench-001|#325" logs state .codex outputs docs scripts -g "*.md" -g "*.sh"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git log --oneline --decorate --all --grep='#236\\|#237\\|#220\\|#221\\|#222\\|#325' --max-count=20" in C:\POLARIS
+2026-05-10T07:21:31.537175Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+      0 [main] bash (12604) C:\Program Files\Git\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+ exited 1 in 1836ms:
+      0 [main] bash (12604) C:\Program Files\Git\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+2026-05-10T07:21:32.298970Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+      0 [main] bash (54552) C:\Program Files\Git\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+ exited 1 in 2596ms:
+      0 [main] bash (54552) C:\Program Files\Git\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+2026-05-10T07:21:33.390218Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.7 seconds
+Output:
+scripts\close_stale_issues.sh:15:close 93 222   # I-f1-002
+scripts\close_stale_issues.sh:31:# F3 (PRs #237-245)
+scripts\close_stale_issues.sh:32:close 107 236  # I-f3-001 (PR ref TBD; cite git log)
+scripts\close_stale_issues.sh:146:# Bench (PR #325)
+scripts\close_stale_issues.sh:147:close 194 325  # I-bench-001
+.codex\I-bench-001\diff_review_combined.md:1:# Codex Diff Review — I-bench-001 (ITER 1 of 5)
+.codex\I-bench-001\diff_review_combined.md:10:- **Issue:** I-bench-001 — benchmark proof-package harness. Brief APPROVE iter 4.
+.codex\I-bench-001\diff_review_combined.md:12:- **Branch:** `bot/I-bench-001`.
+.codex\I-bench-001\diff_review_combined.md:53:+"""I-bench-001 — v6 benchmark proof-package harness. Deterministic internal scoring per docs/benchmark/scoring_rubric.md. Always emits all 6 v6 canonical dimensions; suite.score_dimensions filters composite (others get raw=0.0)."""
+.codex\I-bench-001\diff_review_combined.md:163:+"""I-bench-001 — benchmark proof-package harness tests."""
+.codex\I-bench-001\diff_review_brief.md:1:# Codex Diff Review — I-bench-001 (ITER 1 of 5)
+.codex\I-bench-001\diff_review_brief.md:10:- **Issue:** I-bench-001 — benchmark proof-package harness. Brief APPROVE iter 4.
+.codex\I-bench-001\diff_review_brief.md:12:- **Branch:** `bot/I-bench-001`.
+.codex\I-bench-001\brief.md:1:# Codex Brief Review — I-bench-001 (ITER 4 of 5)
+.codex\I-bench-001\brief.md:16:- **Issue:** I-bench-001 — benchmark harness `scripts/benchmark_proof_package.py`. Acceptance: harness runs end-to-end. LOC estimate 200.
+.codex\I-bench-001\brief.md:23:"""I-bench-001 — v6 benchmark proof-package harness.
+outputs\audits\I-bench-001\claude_audit.md:1:# Claude architect audit — I-bench-001
+outputs\audits\I-f1-001\claude_audit.md:48:- Does not add a Command palette / react-hotkeys-hook (that's I-f1-002).
+outputs\audits\I-f1-002\claude_audit.md:1:# Claude architect self-audit — I-f1-002
+outputs\audits\I-f1-002\claude_audit.md:3:**Issue:** I-f1-002 — Command palette + ⌘K keyboard nav (F1)
+outputs\audits\I-f1-002\claude_audit.md:4:**Brief:** `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5)
+outputs\audits\I-f1-002\claude_audit.md:5:**Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+outputs\audits\I-f3-001\claude_audit.md:1:# Claude Architect Audit — I-f3-001
+outputs\audits\I-f3-001\claude_audit.md:3:**Branch:** bot/I-f3-001 / **Diff SHA256:** `140b8e9e8572f2156d171a04bdf5e61893bfc24da0110d46613dd5f7b360d96c`
+outputs\audits\I-f3-001\claude_audit.md:34:7. **q-dict threading.** Helper output appended to `q["uploaded_documents"]` ONLY when `document_ids` is truthy (handles None and []). Pipeline-A consumption is the next Issue (I-f3-001b).
+outputs\audits\I-f3-001\claude_audit.md:58:- **Pipeline-A consumption** of `q["uploaded_documents"]` → **I-f3-001b** follow-up Issue.
+outputs\audits\I-f3-001\claude_audit.md:59:- **PDF semantic chunking** → **I-f3-001c** follow-up.
+outputs\audits\I-f3-001\claude_audit.md:60:- **End-to-end** "upload PDF → strict_verify cites span" integration test → blocked on I-f3-001b + I-f3-001c.
+outputs\audits\I-f1-003\claude_audit.md:9:Per iter-2 brief (Codex APPROVE), adds debounced + scored search to the command palette built in I-f1-002:
+outputs\audits\I-f1-003\claude_audit.md:47:- **No cross-Issue regression.** I-f1-002 tests use empty search (all 8 visible) or arrow nav over default order (clinical/housing/climate/ai_sovereignty/...) — score=1 sentinel for empty search preserves order so tests pass.
+state\polaris_restart\iteration_trajectory.md:136:I-f3-001 brief iter1=REQ_CH (2P1 _UPLOAD_TABLE wrong) iter2=REQ_CH (2P1 stale+security) iter3=APPROVE (0P0/0P1/3P2)
+state\polaris_restart\iteration_trajectory.md:137:I-f3-001 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=110992
+state\polaris_restart\issue_breakdown.md:224:- **Blocks:** I-f1-002
+state\polaris_restart\issue_breakdown.md:226:### I-f1-002 — Command palette + react-hotkeys-hook keyboard nav
+state\polaris_restart\issue_breakdown.md:240:- **Blocked by:** I-f1-002
+state\polaris_restart\issue_breakdown.md:346:- **Blocks:** I-f3-001
+state\polaris_restart\issue_breakdown.md:352:### I-f3-001 — Backend: wire document_ids into graph_v4 evidence pool
+state\polaris_restart\issue_breakdown.md:366:- **Blocked by:** I-f3-001
+state\polaris_restart\issue_breakdown.md:1042:- **Blocks:** I-bench-001
+state\polaris_restart\issue_breakdown.md:1048:### I-bench-001 — 50 questions × 4 systems × 6 dimensions
+state\polaris_restart\issue_breakdown.md:1060:- **Blocked by:** I-bench-001
+state\polaris_restart\issue_breakdown.md:1287:  → I-f1-001 → I-f1-002 → I-f1-003 → I-f1-004 → I-f1-005 → I-f1-006
+state\polaris_restart\issue_breakdown.md:1290:  → I-f3-001 → I-f3-002 → I-f3-003 → I-f3-004 → I-f3-005 → I-f3-006 → I-f3-007 → I-f3-008 → I-f3-009 → I-f3-010
+state\polaris_restart\issue_breakdown.md:1307:  → I-bench-001 → I-bench-002 (USER-BLOCKED)
+.codex\I-f3-003\brief.md:23:- I-f3-002 (just merged, PR #237): `DataClassification`, `EXTERNAL_LEAK_FORBIDDEN = {CAN_REAL, PRIVATE, CLIENT, UNKNOWN}`, `is_external_leak_forbidden()`, `parse_classification()`.
+.codex\I-f3-001\_diff_review_input.md:1:# Codex Diff Review — I-f3-001 (ITER 1 of 5)
+.codex\I-f3-001\_diff_review_input.md:11:**Issue:** I-f3-001 — wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\_diff_review_input.md:12:**Branch:** bot/I-f3-001
+.codex\I-f3-001\_diff_review_input.md:70:11. **Pipeline-A still does NOT consume `uploaded_documents`.** This Issue scopes to v4-layer wiring. Pipeline-A integration is I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:76:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:77:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\_diff_review_input.md:78:- End-to-end strict_verify integration → blocked on I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:119:+    Per I-f3-001. Validates each doc_id against 16-hex format (matches
+.codex\I-f3-001\_diff_review_input.md:176:+"""Unit tests for I-f3-001 — graph_v4 _load_uploaded_documents + q-dict threading."""
+.codex\I-f3-001\diff_review_brief.md:1:# Codex Diff Review — I-f3-001 (ITER 1 of 5)
+.codex\I-f3-001\diff_review_brief.md:11:**Issue:** I-f3-001 — wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\diff_review_brief.md:12:**Branch:** bot/I-f3-001
+.codex\I-f3-001\diff_review_brief.md:70:11. **Pipeline-A still does NOT consume `uploaded_documents`.** This Issue scopes to v4-layer wiring. Pipeline-A integration is I-f3-001b.
+.codex\I-f3-001\diff_review_brief.md:76:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\diff_review_brief.md:77:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\diff_review_brief.md:78:- End-to-end strict_verify integration → blocked on I-f3-001b.
+.codex\I-f3-001\brief.md:1:# Codex Brief Review — I-f3-001 (ITER 3 of 5)
+.codex\I-f3-001\brief.md:11:**Issue:** I-f3-001 — Backend: wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\brief.md:45:- **I-f3-001b — Backend: pipeline-A consumes uploaded_documents.** Reads `q["uploaded_documents"]` in `scripts/run_honest_sweep_r3.py`'s evidence-pool builder; emits document chunks as evidence items the strict_verify gate cites.
+.codex\I-f3-001\brief.md:48:- **I-f3-001c — Backend: PDF chunk pre-segmentation.** Currently `DocumentIngester` returns one long `content` string; production may need finer chunking (semantic boundaries, page-aware) — that's a separate concern.
+.codex\I-f3-001\brief.md:100:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\brief.md:101:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\brief.md:102:- End-to-end `upload PDF → strict_verify cites span` integration test → blocked by I-f3-001b.
+.codex\I-f1-006\brief.md:31:- I-f1-002 + I-f1-003 + I-f1-005 merged the palette + scoring + a11y. State (`palette_open`, `search`, `debounced_search`, `active_index`, `signInLinkRef`) is React-component-local — no `localStorage`, no `sessionStorage`, no `window.*` shared mutable state. So multi-tab pollution would only happen if (a) future code introduces a shared singleton, or (b) the global keydown listener on `window` somehow cross-talks (it can't — each tab has its own `window`).
+.codex\I-f1-005\brief.md:24:- `/` with command palette OPEN (Ctrl+K, palette + backdrop visible — built in I-f1-002).
+.codex\I-f1-005\brief.md:35:- I-f1-002 added `<DialogPrimitive.Title className="sr-only">` (screen-reader-only "Search templates" label) so the open-palette dialog has the required title. Should pass axe.
+.codex\I-f1-005\brief.md:72:2. **Open-palette state requires Ctrl+K press AFTER hydration.** Test waits for `header-sign-in-link` visible before pressing (hydration race avoidance, same pattern as I-f1-002 + I-f1-003). axe runs after `command-palette` testid is visible (proves Dialog mounted in portal).
+.codex\I-f1-005\brief.md:76:4. **Sr-only DialogPrimitive.Title.** I-f1-002 added the screen-reader title. axe `aria-required-children` and `dialog-name` rules check for accessible names; should pass.
+.codex\I-f1-004\brief.md:20:Add a Playwright adversarial-corpus test that verifies the command palette + scoring (built in I-f1-002 + I-f1-003) does NOT produce false-positive template suggestions for ambiguous, off-topic, or unrelated inputs. Prevents the "ChatGPT/Gemini fail BPEI silently" failure mode the Carney plan §F1 calls out.
+.codex\I-f1-003\diff_review_brief.md:27:- No regressions to `command_palette.spec.ts` (I-f1-002 tests) — empty search returns all templates in original order via score=1 sentinel, same arrow-nav path.
+.codex\I-f1-003\diff_review_brief.md:48:5. **Empty search preserves existing I-f1-002 behavior.** `score_template(t, "")` returns 1 (sentinel); all templates pass `s > 0` filter; sort is stable (all equal scores). Templates render in original page.tsx array order: clinical, housing, climate, ai_sovereignty, canada_us, defense, trade, workforce. Existing arrow-down-3 → ai_sovereignty test in `command_palette.spec.ts` still resolves correctly.
+outputs\codex_findings\v30_real_user_wishlist\SYNTHESIS.md:37:| 12 | **BYOK / OpenAI-compatible endpoint / no vendor lock-in** | 5 sources | 4 sources | Perplexica #824, langchain #221, btahir #33 |
+.codex\I-f1-003\brief.md:17:Inside the command palette (added by I-f1-002 at `web/app/components/command_palette.tsx`), as the user types in the search input, the **first matching template** receives a "suggested" highlight + scroll-into-view within **200ms** of the last keystroke (debounced). Goal: zero-click "tirzepatide" → "Clinical drug audit" template moves to top, ready for Enter.
+.codex\I-f1-003\brief.md:23:- I-f1-002 just merged at `2c5ec511`; `command_palette.tsx` already has substring-filtering `templates.filter((t) => t.name.toLowerCase().includes(q) || ...)`. Iter-1 builds on this.
+.codex\I-f1-003\brief.md:71:- Does NOT change the existing 3 I-f1-002 tests (no regression).
+.codex\I-f1-003\brief.md:87:7. **Mobile tap-to-show.** Default `<input>` accepts tap focus on iOS/Android Chrome. The visible Sign in link click area surfaces the palette via Ctrl+K which most mobile users won't have — they'd need a visible "Open palette" button. **Honest disclosure:** mobile UX is suboptimal in I-f1-002 design (no on-screen palette trigger). I-f1-003 doesn't add one (would expand scope). Carney plan §F1 mention of "mobile" is satisfied by the input being tappable; full mobile-first palette trigger could be a follow-up Issue.
+.codex\I-f3-008\brief.md:28:- I-f3-001: graph_v4.build_and_run_v4 accepts `document_ids: list[str]`. Currently any uploaded doc that the user provides is consumed.
+.codex\I-f1-002\diff_review_brief.md:1:# Codex Diff Review Brief — I-f1-002 (ITER 1 of 5)
+.codex\I-f1-002\diff_review_brief.md:12:Second of two Codex review gates for I-f1-002. Brief Codex APPROVE'd iter 5 (zero P0/P1). This iter reviews the actual code diff against the iter-5 spec.
+.codex\I-f1-002\diff_review_brief.md:14:- **Brief:** `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5 with 1 cosmetic P2)
+.codex\I-f1-002\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+.codex\I-f1-002\diff_review_brief.md:16:- **Audit:** `outputs/audits/I-f1-002/claude_audit.md`
+.codex\I-f1-002\diff_review_brief.md:37:1. **CHARTER §1 200-LOC cap.** +198 net. Under cap. Verify `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/ | numstat` matches.
+.codex\I-f1-002\diff_review_brief.md:53:9. **`canonical-diff-sha256` trailer correctness.** `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e` produced via `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/`.
+.codex\I-f1-002\brief.md:1:# Codex Brief Review — I-f1-002 (ITER 5 of 5 FINAL)
+.codex\I-f1-002\brief.md:11:**Issue:** I-f1-002 — Command palette + react-hotkeys-hook keyboard nav
+.codex\I-f1-002\brief.md:13:**LOC budget:** 120 net per `state/polaris_restart/issue_breakdown.md` §I-f1-002. **CHARTER §1 hard cap: 200 net additions per PR.** Iter-3 trimmed scope to fit under 200 (Codex iter-2 P1-LOC-HARD-CAP fix).
+.codex\I-f1-001\brief.md:82:- Command palette + react-hotkeys-hook → I-f1-002
+.codex\I-f1-001\brief.md:92:- Does NOT add filtering or search UI (I-f1-002/003).
+.codex\I-f3-005\brief.md:91:5. **`document_id` rendering.** On success, the list item shows the `response.document_id` (uuid hex). This is the input to subsequent F3 issues (I-f3-001's `document_ids` parameter).
+.codex\I-doc-001\brief.md:43:| `scripts/close_stale_issues.sh` | New: bash script that closed the 88 stale-open feature issues (cross-referenced by git log against merged PRs #220-#325) | +124 |
+.codex\next_issue_pick\brief.md:3:POLARIS HEAD: e5cccae3. 9 PRs shipped this session; the I-f11/I-f12/I-bench-001/I-bug-084 chain has reached its tail. state/active_issue.json shows active_issue_id: null.
+.codex\next_issue_pick\brief.md:73:- **Blocked by:** I-bench-001
+.codex\next_issue_pick_2\brief.md:64:- **Blocked by:** I-bench-001
+.codex\next_issue_pick_3\brief.md:47:- **Blocked by:** I-bench-001
+rg: outputs\codex_pytest_base: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_fullwipe_23n0qna8: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_wl9o43lv: Access is denied. (os error 5)
+rg: outputs\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_temp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp_pass5_20260423_1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m9\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m3v2\pytest-of-msn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\md10: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-trpp2lhz: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-z3ditaf2: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\run1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-hf82j1ev: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-nkj6x505: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_router: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_target: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-awr1k0_j: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-g693n1fn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-lcz1hd3_: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-o49ruyzk: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v2_review\basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 3682ms:
+scripts\close_stale_issues.sh:15:close 93 222   # I-f1-002
+scripts\close_stale_issues.sh:31:# F3 (PRs #237-245)
+scripts\close_stale_issues.sh:32:close 107 236  # I-f3-001 (PR ref TBD; cite git log)
+scripts\close_stale_issues.sh:146:# Bench (PR #325)
+scripts\close_stale_issues.sh:147:close 194 325  # I-bench-001
+.codex\I-bench-001\diff_review_combined.md:1:# Codex Diff Review — I-bench-001 (ITER 1 of 5)
+.codex\I-bench-001\diff_review_combined.md:10:- **Issue:** I-bench-001 — benchmark proof-package harness. Brief APPROVE iter 4.
+.codex\I-bench-001\diff_review_combined.md:12:- **Branch:** `bot/I-bench-001`.
+.codex\I-bench-001\diff_review_combined.md:53:+"""I-bench-001 — v6 benchmark proof-package harness. Deterministic internal scoring per docs/benchmark/scoring_rubric.md. Always emits all 6 v6 canonical dimensions; suite.score_dimensions filters composite (others get raw=0.0)."""
+.codex\I-bench-001\diff_review_combined.md:163:+"""I-bench-001 — benchmark proof-package harness tests."""
+.codex\I-bench-001\diff_review_brief.md:1:# Codex Diff Review — I-bench-001 (ITER 1 of 5)
+.codex\I-bench-001\diff_review_brief.md:10:- **Issue:** I-bench-001 — benchmark proof-package harness. Brief APPROVE iter 4.
+.codex\I-bench-001\diff_review_brief.md:12:- **Branch:** `bot/I-bench-001`.
+.codex\I-bench-001\brief.md:1:# Codex Brief Review — I-bench-001 (ITER 4 of 5)
+.codex\I-bench-001\brief.md:16:- **Issue:** I-bench-001 — benchmark harness `scripts/benchmark_proof_package.py`. Acceptance: harness runs end-to-end. LOC estimate 200.
+.codex\I-bench-001\brief.md:23:"""I-bench-001 — v6 benchmark proof-package harness.
+outputs\audits\I-bench-001\claude_audit.md:1:# Claude architect audit — I-bench-001
+outputs\audits\I-f1-001\claude_audit.md:48:- Does not add a Command palette / react-hotkeys-hook (that's I-f1-002).
+outputs\audits\I-f1-002\claude_audit.md:1:# Claude architect self-audit — I-f1-002
+outputs\audits\I-f1-002\claude_audit.md:3:**Issue:** I-f1-002 — Command palette + ⌘K keyboard nav (F1)
+outputs\audits\I-f1-002\claude_audit.md:4:**Brief:** `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5)
+outputs\audits\I-f1-002\claude_audit.md:5:**Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+outputs\audits\I-f3-001\claude_audit.md:1:# Claude Architect Audit — I-f3-001
+outputs\audits\I-f3-001\claude_audit.md:3:**Branch:** bot/I-f3-001 / **Diff SHA256:** `140b8e9e8572f2156d171a04bdf5e61893bfc24da0110d46613dd5f7b360d96c`
+outputs\audits\I-f3-001\claude_audit.md:34:7. **q-dict threading.** Helper output appended to `q["uploaded_documents"]` ONLY when `document_ids` is truthy (handles None and []). Pipeline-A consumption is the next Issue (I-f3-001b).
+outputs\audits\I-f3-001\claude_audit.md:58:- **Pipeline-A consumption** of `q["uploaded_documents"]` → **I-f3-001b** follow-up Issue.
+outputs\audits\I-f3-001\claude_audit.md:59:- **PDF semantic chunking** → **I-f3-001c** follow-up.
+outputs\audits\I-f3-001\claude_audit.md:60:- **End-to-end** "upload PDF → strict_verify cites span" integration test → blocked on I-f3-001b + I-f3-001c.
+outputs\audits\I-f1-003\claude_audit.md:9:Per iter-2 brief (Codex APPROVE), adds debounced + scored search to the command palette built in I-f1-002:
+outputs\audits\I-f1-003\claude_audit.md:47:- **No cross-Issue regression.** I-f1-002 tests use empty search (all 8 visible) or arrow nav over default order (clinical/housing/climate/ai_sovereignty/...) — score=1 sentinel for empty search preserves order so tests pass.
+state\polaris_restart\iteration_trajectory.md:136:I-f3-001 brief iter1=REQ_CH (2P1 _UPLOAD_TABLE wrong) iter2=REQ_CH (2P1 stale+security) iter3=APPROVE (0P0/0P1/3P2)
+state\polaris_restart\iteration_trajectory.md:137:I-f3-001 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=110992
+state\polaris_restart\issue_breakdown.md:224:- **Blocks:** I-f1-002
+state\polaris_restart\issue_breakdown.md:226:### I-f1-002 — Command palette + react-hotkeys-hook keyboard nav
+state\polaris_restart\issue_breakdown.md:240:- **Blocked by:** I-f1-002
+state\polaris_restart\issue_breakdown.md:346:- **Blocks:** I-f3-001
+state\polaris_restart\issue_breakdown.md:352:### I-f3-001 — Backend: wire document_ids into graph_v4 evidence pool
+state\polaris_restart\issue_breakdown.md:366:- **Blocked by:** I-f3-001
+state\polaris_restart\issue_breakdown.md:1042:- **Blocks:** I-bench-001
+state\polaris_restart\issue_breakdown.md:1048:### I-bench-001 — 50 questions × 4 systems × 6 dimensions
+state\polaris_restart\issue_breakdown.md:1060:- **Blocked by:** I-bench-001
+state\polaris_restart\issue_breakdown.md:1287:  → I-f1-001 → I-f1-002 → I-f1-003 → I-f1-004 → I-f1-005 → I-f1-006
+state\polaris_restart\issue_breakdown.md:1290:  → I-f3-001 → I-f3-002 → I-f3-003 → I-f3-004 → I-f3-005 → I-f3-006 → I-f3-007 → I-f3-008 → I-f3-009 → I-f3-010
+state\polaris_restart\issue_breakdown.md:1307:  → I-bench-001 → I-bench-002 (USER-BLOCKED)
+.codex\I-f3-003\brief.md:23:- I-f3-002 (just merged, PR #237): `DataClassification`, `EXTERNAL_LEAK_FORBIDDEN = {CAN_REAL, PRIVATE, CLIENT, UNKNOWN}`, `is_external_leak_forbidden()`, `parse_classification()`.
+.codex\I-f3-001\_diff_review_input.md:1:# Codex Diff Review — I-f3-001 (ITER 1 of 5)
+.codex\I-f3-001\_diff_review_input.md:11:**Issue:** I-f3-001 — wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\_diff_review_input.md:12:**Branch:** bot/I-f3-001
+.codex\I-f3-001\_diff_review_input.md:70:11. **Pipeline-A still does NOT consume `uploaded_documents`.** This Issue scopes to v4-layer wiring. Pipeline-A integration is I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:76:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:77:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\_diff_review_input.md:78:- End-to-end strict_verify integration → blocked on I-f3-001b.
+.codex\I-f3-001\_diff_review_input.md:119:+    Per I-f3-001. Validates each doc_id against 16-hex format (matches
+.codex\I-f3-001\_diff_review_input.md:176:+"""Unit tests for I-f3-001 — graph_v4 _load_uploaded_documents + q-dict threading."""
+.codex\I-f3-001\diff_review_brief.md:1:# Codex Diff Review — I-f3-001 (ITER 1 of 5)
+.codex\I-f3-001\diff_review_brief.md:11:**Issue:** I-f3-001 — wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\diff_review_brief.md:12:**Branch:** bot/I-f3-001
+.codex\I-f3-001\diff_review_brief.md:70:11. **Pipeline-A still does NOT consume `uploaded_documents`.** This Issue scopes to v4-layer wiring. Pipeline-A integration is I-f3-001b.
+.codex\I-f3-001\diff_review_brief.md:76:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\diff_review_brief.md:77:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\diff_review_brief.md:78:- End-to-end strict_verify integration → blocked on I-f3-001b.
+.codex\I-f3-001\brief.md:1:# Codex Brief Review — I-f3-001 (ITER 3 of 5)
+.codex\I-f3-001\brief.md:11:**Issue:** I-f3-001 — Backend: wire document_ids into graph_v4 evidence pool
+.codex\I-f3-001\brief.md:45:- **I-f3-001b — Backend: pipeline-A consumes uploaded_documents.** Reads `q["uploaded_documents"]` in `scripts/run_honest_sweep_r3.py`'s evidence-pool builder; emits document chunks as evidence items the strict_verify gate cites.
+.codex\I-f3-001\brief.md:48:- **I-f3-001c — Backend: PDF chunk pre-segmentation.** Currently `DocumentIngester` returns one long `content` string; production may need finer chunking (semantic boundaries, page-aware) — that's a separate concern.
+.codex\I-f3-001\brief.md:100:- Pipeline-A consumption → I-f3-001b.
+.codex\I-f3-001\brief.md:101:- PDF semantic chunking → I-f3-001c.
+.codex\I-f3-001\brief.md:102:- End-to-end `upload PDF → strict_verify cites span` integration test → blocked by I-f3-001b.
+.codex\I-f1-006\brief.md:31:- I-f1-002 + I-f1-003 + I-f1-005 merged the palette + scoring + a11y. State (`palette_open`, `search`, `debounced_search`, `active_index`, `signInLinkRef`) is React-component-local — no `localStorage`, no `sessionStorage`, no `window.*` shared mutable state. So multi-tab pollution would only happen if (a) future code introduces a shared singleton, or (b) the global keydown listener on `window` somehow cross-talks (it can't — each tab has its own `window`).
+.codex\I-f1-005\brief.md:24:- `/` with command palette OPEN (Ctrl+K, palette + backdrop visible — built in I-f1-002).
+.codex\I-f1-005\brief.md:35:- I-f1-002 added `<DialogPrimitive.Title className="sr-only">` (screen-reader-only "Search templates" label) so the open-palette dialog has the required title. Should pass axe.
+.codex\I-f1-005\brief.md:72:2. **Open-palette state requires Ctrl+K press AFTER hydration.** Test waits for `header-sign-in-link` visible before pressing (hydration race avoidance, same pattern as I-f1-002 + I-f1-003). axe runs after `command-palette` testid is visible (proves Dialog mounted in portal).
+.codex\I-f1-005\brief.md:76:4. **Sr-only DialogPrimitive.Title.** I-f1-002 added the screen-reader title. axe `aria-required-children` and `dialog-name` rules check for accessible names; should pass.
+.codex\I-f1-004\brief.md:20:Add a Playwright adversarial-corpus test that verifies the command palette + scoring (built in I-f1-002 + I-f1-003) does NOT produce false-positive template suggestions for ambiguous, off-topic, or unrelated inputs. Prevents the "ChatGPT/Gemini fail BPEI silently" failure mode the Carney plan §F1 calls out.
+.codex\I-f1-003\diff_review_brief.md:27:- No regressions to `command_palette.spec.ts` (I-f1-002 tests) — empty search returns all templates in original order via score=1 sentinel, same arrow-nav path.
+.codex\I-f1-003\diff_review_brief.md:48:5. **Empty search preserves existing I-f1-002 behavior.** `score_template(t, "")` returns 1 (sentinel); all templates pass `s > 0` filter; sort is stable (all equal scores). Templates render in original page.tsx array order: clinical, housing, climate, ai_sovereignty, canada_us, defense, trade, workforce. Existing arrow-down-3 → ai_sovereignty test in `command_palette.spec.ts` still resolves correctly.
+outputs\codex_findings\v30_real_user_wishlist\SYNTHESIS.md:37:| 12 | **BYOK / OpenAI-compatible endpoint / no vendor lock-in** | 5 sources | 4 sources | Perplexica #824, langchain #221, btahir #33 |
+.codex\I-f1-003\brief.md:17:Inside the command palette (added by I-f1-002 at `web/app/components/command_palette.tsx`), as the user types in the search input, the **first matching template** receives a "suggested" highlight + scroll-into-view within **200ms** of the last keystroke (debounced). Goal: zero-click "tirzepatide" → "Clinical drug audit" template moves to top, ready for Enter.
+.codex\I-f1-003\brief.md:23:- I-f1-002 just merged at `2c5ec511`; `command_palette.tsx` already has substring-filtering `templates.filter((t) => t.name.toLowerCase().includes(q) || ...)`. Iter-1 builds on this.
+.codex\I-f1-003\brief.md:71:- Does NOT change the existing 3 I-f1-002 tests (no regression).
+.codex\I-f1-003\brief.md:87:7. **Mobile tap-to-show.** Default `<input>` accepts tap focus on iOS/Android Chrome. The visible Sign in link click area surfaces the palette via Ctrl+K which most mobile users won't have — they'd need a visible "Open palette" button. **Honest disclosure:** mobile UX is suboptimal in I-f1-002 design (no on-screen palette trigger). I-f1-003 doesn't add one (would expand scope). Carney plan §F1 mention of "mobile" is satisfied by the input being tappable; full mobile-first palette trigger could be a follow-up Issue.
+.codex\I-f3-008\brief.md:28:- I-f3-001: graph_v4.build_and_run_v4 accepts `document_ids: list[str]`. Currently any uploaded doc that the user provides is consumed.
+.codex\I-f1-002\diff_review_brief.md:1:# Codex Diff Review Brief — I-f1-002 (ITER 1 of 5)
+.codex\I-f1-002\diff_review_brief.md:12:Second of two Codex review gates for I-f1-002. Brief Codex APPROVE'd iter 5 (zero P0/P1). This iter reviews the actual code diff against the iter-5 spec.
+.codex\I-f1-002\diff_review_brief.md:14:- **Brief:** `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5 with 1 cosmetic P2)
+.codex\I-f1-002\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+.codex\I-f1-002\diff_review_brief.md:16:- **Audit:** `outputs/audits/I-f1-002/claude_audit.md`
+.codex\I-f1-002\diff_review_brief.md:37:1. **CHARTER §1 200-LOC cap.** +198 net. Under cap. Verify `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/ | numstat` matches.
+.codex\I-f1-002\diff_review_brief.md:53:9. **`canonical-diff-sha256` trailer correctness.** `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e` produced via `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/`.
+.codex\I-f1-002\brief.md:1:# Codex Brief Review — I-f1-002 (ITER 5 of 5 FINAL)
+.codex\I-f1-002\brief.md:11:**Issue:** I-f1-002 — Command palette + react-hotkeys-hook keyboard nav
+.codex\I-f1-002\brief.md:13:**LOC budget:** 120 net per `state/polaris_restart/issue_breakdown.md` §I-f1-002. **CHARTER §1 hard cap: 200 net additions per PR.** Iter-3 trimmed scope to fit under 200 (Codex iter-2 P1-LOC-HARD-CAP fix).
+.codex\I-f1-001\brief.md:82:- Command palette + react-hotkeys-hook → I-f1-002
+.codex\I-f1-001\brief.md:92:- Does NOT add filtering or search UI (I-f1-002/003).
+.codex\I-f3-005\brief.md:91:5. **`document_id` rendering.** On success, the list item shows the `response.document_id` (uuid hex). This is the input to subsequent F3 issues (I-f3-001's `document_ids` parameter).
+.codex\I-doc-001\brief.md:43:| `scripts/close_stale_issues.sh` | New: bash script that closed the 88 stale-open feature issues (cross-referenced by git log against merged PRs #220-#325) | +124 |
+.codex\next_issue_pick\brief.md:3:POLARIS HEAD: e5cccae3. 9 PRs shipped this session; the I-f11/I-f12/I-bench-001/I-bug-084 chain has reached its tail. state/active_issue.json shows active_issue_id: null.
+.codex\next_issue_pick\brief.md:73:- **Blocked by:** I-bench-001
+.codex\next_issue_pick_2\brief.md:64:- **Blocked by:** I-bench-001
+.codex\next_issue_pick_3\brief.md:47:- **Blocked by:** I-bench-001
+rg: outputs\codex_pytest_base: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_fullwipe_23n0qna8: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_wl9o43lv: Access is denied. (os error 5)
+rg: outputs\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_temp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp_pass5_20260423_1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m9\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m3v2\pytest-of-msn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\md10: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-trpp2lhz: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-z3ditaf2: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\run1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-hf82j1ev: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-nkj6x505: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_router: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_target: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-awr1k0_j: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-g693n1fn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-lcz1hd3_: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-o49ruyzk: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v2_review\basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ succeeded in 4325ms:
+e5cccae3 I-bench-001: Benchmark proof-package harness (#325)
+4f0234ef I-f3-002: data classification taxonomy + sovereignty default-deny policy (#237)
+f6c1a183 I-f3-001: wire document_ids into graph_v4 evidence pool (#236)
+2c5ec511 I-f1-002: Command palette (⌘K) + keyboard nav (#222)
+52775b04 I-policy-001: 5-iter Codex cap + §8.4 resource discipline (#221)
+f20e7795 I-f1-001: Next.js landing page Card grid (#220)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --numstat -- CLAUDE.md web/AGENTS.md logs/session_log.md scripts/create_followup_issues.sh scripts/close_stale_issues.sh' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --summary -- scripts/create_followup_issues.sh scripts/close_stale_issues.sh' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$text = Get-Content scripts'"\\close_stale_issues.sh; "'$calls = $text | Select-String -Pattern '"'"'^close '"' | ForEach-Object { "'$_.Line.Trim() }; $byGroup = @{}; $group='"'(none)'; foreach("'$line in $text){ if($line -match '"'"'^#'"\\s+(.+)'){ "'$group=$Matches[1] } elseif($line -match '"'"'^close '"'){ if("'!$byGroup.ContainsKey($group)){$byGroup[$group]=0}; $byGroup[$group]++ } }; $byGroup.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Value)" }' in C:\POLARIS
+ succeeded in 1657ms:
+45	0	CLAUDE.md
+10	0	logs/session_log.md
+149	0	scripts/close_stale_issues.sh
+88	0	scripts/create_followup_issues.sh
+32	0	web/AGENTS.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2402ms:
+ create mode 100644 scripts/close_stale_issues.sh
+ create mode 100644 scripts/create_followup_issues.sh
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3100ms:
+Bench (PR #325): 1
+ECG (PRs #253-256): 4
+F1 (PRs #220-226): 6
+F10 (PRs #291-298): 8
+F11 (PRs #315-319): 5
+F12 (PRs #320-323): 4
+F13 (PRs #299-302): 4
+F14 (PRs #303-309): 5
+F15 (PRs #246-251): 6
+F2 (PRs #227-234): 8
+F3 (PRs #237-245): 10
+F4 (PRs #257-261): 5
+F5 (PRs #262-272): 11
+F6 (PRs #286-290): 5
+F7 (PRs #273-276): 4
+F8 (PRs #277-282): 6
+F9 (PRs #283-285): 3
+P2C (PRs #310-314): 5
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - id: P2-trace-counts
+    location: "logs/session_log.md:3908; scripts/close_stale_issues.sh:14-147"
+    finding: "Trace counts are not fully reconciled: the log names 85 stale feature closures, while the committed close script contains 100 close calls. Net-open math works only if the 15 P2C/F11/F12/Bench closures are also counted."
+  - id: P2-non-verbatim-mirror
+    location: "CLAUDE.md:10-51; web/AGENTS.md:9-39"
+    finding: "web/AGENTS.md substantively mirrors §-1, but it is not verbatim despite the brief claiming verbatim mirroring."
+  - id: P2-script-hygiene
+    location: "scripts/create_followup_issues.sh:9-10"
+    finding: "create_issue defines a label parameter but always passes --label bug, so non-bug issue types are not represented by the script."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+59,445
