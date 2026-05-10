@@ -58,3 +58,4 @@ index d67888d9..1e1eb8a9 100644
 +    prompt_lower = ANALYST_SYNTHESIS_SYSTEM_PROMPT.lower()
 +    # The prompt should explicitly mention "not ##" or "do not emit ##"
 +    assert "not ##" in prompt_lower or "do not emit ##" in prompt_lower
+# canonical-diff-sha256: bd21880f3a88484ef8d184b20fd3cbc14283a77a766f15ee86eafd40ae403876
