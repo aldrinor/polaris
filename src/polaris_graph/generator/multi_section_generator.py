@@ -125,6 +125,18 @@ class MultiSectionResult:
     # trial_summary_table_text being empty OR populated by LLM fallback
     # path which doesn't produce a timeline).
     trial_timeline_text: str = ""
+    # I-bug-105 (2026-05-09): two-layer report contract per Codex
+    # strategic-review iter 1. The Verified Findings section above is
+    # the audit-grade core (per-sentence span-verified). This new
+    # `analyst_synthesis_text` is interpretive expert commentary
+    # explicitly NOT span-verified, rendered under a labeled section
+    # header in report.md. Empty when generation fails or returns
+    # empty content (caller MUST omit the entire Analyst Synthesis
+    # section in that case — no empty disclosure block).
+    analyst_synthesis_text: str = ""
+    analyst_synthesis_input_tokens: int = 0
+    analyst_synthesis_output_tokens: int = 0
+    analyst_synthesis_words: int = 0
     # M-45 (2026-04-22): per-URL refetch diagnostics collected during
     # M-42b trial-table building. List of dicts (see
     # `refetch_for_extraction_with_diagnostics` in live_retriever for
@@ -3768,6 +3780,52 @@ async def generate_multi_section_report(
         if lim_text:
             total_words += len(lim_text.split())
 
+    # I-bug-105: Analyst Synthesis pass — second LLM call that takes
+    # the verified prose + bibliography + evidence pool and writes a
+    # longer interpretive narrative. CLEARLY labeled in report.md as
+    # NOT span-verified. Per Codex strategic-review iter 1 + I-bug-105
+    # brief verdict: DeepSeek V3.2-Exp writer (consistent voice with
+    # verified prose); Gemma stays in evaluator role. Per-call cost
+    # capped via max_tokens; empty result -> caller omits the entire
+    # section (no empty disclosure block).
+    analyst_synth_text = ""
+    analyst_synth_in_tok = 0
+    analyst_synth_out_tok = 0
+    if section_results and global_biblio:
+        try:
+            from src.polaris_graph.generator.analyst_synthesis import (
+                generate_analyst_synthesis,
+            )
+            verified_prose_joined = "\n\n".join(
+                f"## {sr.title}\n\n{sr.verified_text}"
+                for sr in section_results
+                if sr.verified_text
+            )
+            if verified_prose_joined.strip():
+                analyst_synth_text, analyst_synth_in_tok, analyst_synth_out_tok = (
+                    await generate_analyst_synthesis(
+                        verified_prose=verified_prose_joined,
+                        bibliography=global_biblio,
+                        evidence_rows=evidence,
+                        research_question=research_question,
+                        model=gen_model,
+                        max_tokens=4000,
+                        temperature=0.3,
+                    )
+                )
+                total_in_tok += analyst_synth_in_tok
+                total_out_tok += analyst_synth_out_tok
+                if analyst_synth_text:
+                    total_words += len(analyst_synth_text.split())
+        except Exception as exc:
+            logger.warning(
+                "[multi_section] analyst_synthesis failed (non-fatal): %s",
+                exc,
+            )
+    analyst_synth_words = (
+        len(analyst_synth_text.split()) if analyst_synth_text else 0
+    )
+
     # M-42b (2026-04-22): Deterministic Trial Summary + Timeline
     # builder from EvidenceRow.direct_quote. Consumes selected
     # primary-trial evidence rows directly (not generated prose).
@@ -3973,6 +4031,11 @@ async def generate_multi_section_report(
         limitations_text=lim_text,
         limitations_input_tokens=lim_in_tok,
         limitations_output_tokens=lim_out_tok,
+        # I-bug-105 two-layer report
+        analyst_synthesis_text=analyst_synth_text,
+        analyst_synthesis_input_tokens=analyst_synth_in_tok,
+        analyst_synthesis_output_tokens=analyst_synth_out_tok,
+        analyst_synthesis_words=analyst_synth_words,
         trial_summary_table_text=trial_table_text,
         trial_summary_table_input_tokens=trial_table_in_tok,
         trial_summary_table_output_tokens=trial_table_out_tok,
