@@ -44,3 +44,4 @@ index 00000000..e23cad4b
 +- **I-decompose-001 (Path G):** decomposing complex questions into sub-questions may allow more targeted retrieval per sub-claim, addressing ranking quality at the question level rather than at the search-engine breadth level.
 +
 +Closing as superseded by these forward-looking follow-ups, with no code shipped from this experiment.
+# canonical-diff-sha256: b55f1c7285c4c61d2b888a671700f9d6558e35f6f709782e1d5fe31e0b1a929f
