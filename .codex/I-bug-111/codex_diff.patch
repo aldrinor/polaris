@@ -1,0 +1,272 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 1dfc7660..9714136e 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1007,6 +1007,20 @@ async def run_one_query(
+ ) -> dict:
+     """Run the full honest pipeline on one query. Returns a summary dict."""
+     reset_run_cost()
++    # I-bug-111: reset synthesis-scrub alert + telemetry at run
++    # boundary so per-run manifest reflects ONLY this run's
++    # synthesis behavior. Without this reset, the sticky alert from
++    # query N leaks into query N+1's manifest. Defensive lazy
++    # import: tolerate environments where the module isn't loaded.
++    try:
++        from src.polaris_graph.generator.analyst_synthesis import (
++            reset_synthesis_scrub_alert,
++            reset_synthesis_telemetry,
++        )
++        reset_synthesis_scrub_alert()
++        reset_synthesis_telemetry()
++    except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
++        pass
+ 
+     run_dir = out_root / q["domain"] / q["slug"]
+     run_dir.mkdir(parents=True, exist_ok=True)
+@@ -2653,6 +2667,21 @@ async def run_one_query(
+                     f"{type(_v30_exc).__name__}: {_v30_exc}"
+                 )
+ 
++        # I-bug-111: surface synthesis [N] scrub alert in manifest.
++        # `synthesis_n_scrub_alert: bool` is True iff any single
++        # synthesis call in this run scrubbed more than
++        # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
++        # the synthesis prompt or bibliography may be degenerating.
++        # Defensive lazy import: tolerate environments where the
++        # module isn't available.
++        try:
++            from src.polaris_graph.generator.analyst_synthesis import (
++                synthesis_scrub_alert_state,
++            )
++            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
++        except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
++            pass
++
+         (run_dir / "manifest.json").write_text(
+             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+             encoding="utf-8",
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 0fdb7736..3038f555 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -129,6 +129,38 @@ _SYNTHESIS_TELEMETRY: dict[str, int] = {
+ }
+ 
+ 
++# I-bug-111: WARN-level alert threshold per single scrub call. When
++# synthesis hallucinates >5 [N] markers in ONE call, the bibliography
++# rendering / synthesis prompt is likely degenerating (typical clean
++# runs scrub 0; a healthy run with one stray hallucination scrubs 1-2).
++# Operators see a distinct "synthesis_n_scrub_alert" log + the manifest
++# bool flag below.
++SYNTHESIS_SCRUB_ALERT_THRESHOLD = 5
++
++_SYNTHESIS_SCRUB_ALERT_FIRED = False
++
++
++def synthesis_scrub_alert_state() -> bool:
++    """Return True if any scrub call in this process exceeded the
++    alert threshold (`SYNTHESIS_SCRUB_ALERT_THRESHOLD`).
++
++    Operator-facing: aggregators (sweep manifest writers) read this
++    once at end-of-run and surface the bool as
++    `manifest.synthesis_n_scrub_alert`. The flag is sticky across
++    calls (true if any single call tripped it) — a transient spike
++    in any one call is still worth surfacing.
++    """
++    return _SYNTHESIS_SCRUB_ALERT_FIRED
++
++
++def reset_synthesis_scrub_alert() -> None:
++    """Reset the sticky alert flag in-place. Tests + sweep
++    orchestrators call this at start-of-run.
++    """
++    global _SYNTHESIS_SCRUB_ALERT_FIRED
++    _SYNTHESIS_SCRUB_ALERT_FIRED = False
++
++
+ def get_synthesis_telemetry() -> dict[str, int]:
+     """Snapshot of process-lifetime synthesis-scrub counters.
+ 
+@@ -201,6 +233,19 @@ def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
+         # is the number of synthesis calls that needed any scrub.
+         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_count"] += scrubbed
+         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_runs"] += 1
++        # I-bug-111: trip the sticky alert flag on any high-scrub call.
++        # Threshold = 5 markers in ONE call — typical healthy synthesis
++        # scrubs 0; the I-bug-108 incident scrubbed 6 in one call,
++        # validating this threshold empirically.
++        if scrubbed > SYNTHESIS_SCRUB_ALERT_THRESHOLD:
++            global _SYNTHESIS_SCRUB_ALERT_FIRED
++            _SYNTHESIS_SCRUB_ALERT_FIRED = True
++            logger.warning(
++                "[analyst_synthesis] synthesis_n_scrub_alert: %d markers "
++                "scrubbed in single call (threshold=%d). Synthesis "
++                "prompt or bibliography rendering may be degenerating.",
++                scrubbed, SYNTHESIS_SCRUB_ALERT_THRESHOLD,
++            )
+     return cleaned, scrubbed
+ 
+ 
+diff --git a/tests/polaris_graph/test_synthesis_alert.py b/tests/polaris_graph/test_synthesis_alert.py
+new file mode 100644
+index 00000000..05463797
+--- /dev/null
++++ b/tests/polaris_graph/test_synthesis_alert.py
+@@ -0,0 +1,156 @@
++"""Tests for I-bug-111 — synthesis [N] scrub alert threshold.
++
++When `_scrub_invalid_n_markers` strips MORE than
++`SYNTHESIS_SCRUB_ALERT_THRESHOLD` (default: 5) markers in a single
++call, a sticky alert flag is set. Operator-facing: sweep manifest
++writers surface this as `manifest.synthesis_n_scrub_alert: bool`.
++
++The flag is sticky across calls (true if ANY single call tripped it)
++so a transient spike in one call is still surfaced after subsequent
++clean calls.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator.analyst_synthesis import (
++    SYNTHESIS_SCRUB_ALERT_THRESHOLD,
++    _scrub_invalid_n_markers,
++    reset_synthesis_scrub_alert,
++    reset_synthesis_telemetry,
++    synthesis_scrub_alert_state,
++)
++
++
++@pytest.fixture(autouse=True)
++def _reset_alert_state():
++    reset_synthesis_scrub_alert()
++    reset_synthesis_telemetry()
++    yield
++    reset_synthesis_scrub_alert()
++    reset_synthesis_telemetry()
++
++
++def test_alert_threshold_value():
++    """Per acceptance: alert threshold = 5 (matches issue body 'scrub > 5')."""
++    assert SYNTHESIS_SCRUB_ALERT_THRESHOLD == 5
++
++
++def test_no_alert_on_clean_synthesis():
++    text = "Result [1] [2] [3]."
++    _scrub_invalid_n_markers(text, biblio_size=5)
++    assert synthesis_scrub_alert_state() is False
++
++
++def test_no_alert_when_scrub_at_threshold():
++    """Threshold 5 means STRICTLY GREATER than 5 fires. Exactly 5 does NOT."""
++    # 5 invalid markers
++    text = "[99] [98] [97] [96] [95] and [1] survives."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 5
++    assert synthesis_scrub_alert_state() is False, (
++        "exactly threshold (5) should NOT fire alert"
++    )
++
++
++def test_alert_when_scrub_exceeds_threshold():
++    """6 markers scrubbed in ONE call > threshold 5 → alert fires."""
++    text = "[99] [98] [97] [96] [95] [94] and [1]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 6
++    assert synthesis_scrub_alert_state() is True
++
++
++def test_alert_is_sticky_across_calls():
++    """Once tripped, alert stays True even after subsequent clean calls."""
++    # First call trips it
++    _scrub_invalid_n_markers("[99] [98] [97] [96] [95] [94].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++    # Second call is clean — alert MUST remain True (sticky)
++    _scrub_invalid_n_markers("[1] [2] [3].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++
++
++def test_reset_clears_alert():
++    _scrub_invalid_n_markers("[99] [98] [97] [96] [95] [94].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++    reset_synthesis_scrub_alert()
++    assert synthesis_scrub_alert_state() is False
++
++
++def test_alert_log_message_includes_count_and_threshold(caplog):
++    """The WARN log line surfaces both the scrubbed count and threshold,
++    so operators have actionable info without checking source code.
++    """
++    text = "[99] [98] [97] [96] [95] [94] [93]."
++    with caplog.at_level("WARNING"):
++        _scrub_invalid_n_markers(text, biblio_size=5)
++    alert_lines = [
++        r for r in caplog.records
++        if "synthesis_n_scrub_alert" in r.message
++    ]
++    assert len(alert_lines) == 1
++    msg = alert_lines[0].message
++    assert "7" in msg, "scrubbed count must appear in alert log"
++    assert "5" in msg, "threshold must appear in alert log"
++
++
++def test_manifest_field_picks_up_alert_state():
++    """I-bug-111 iter-1 P1 regression: scripts/run_honest_sweep_r3.py
++    surfaces the alert as `manifest['synthesis_n_scrub_alert']`. This
++    test simulates that wiring: scrub > threshold → alert fires →
++    manifest field reflects True.
++    """
++    text = "[99] [98] [97] [96] [95] [94] [93]."  # 7 invalid markers
++    _scrub_invalid_n_markers(text, biblio_size=5)
++    manifest_field_value = synthesis_scrub_alert_state()
++    # This is the exact expression the sweep's manifest writer uses
++    manifest = {"synthesis_n_scrub_alert": manifest_field_value}
++    assert manifest["synthesis_n_scrub_alert"] is True
++
++
++def test_manifest_field_false_on_clean_run():
++    """No scrub events → manifest field is False (not absent / not None)."""
++    _scrub_invalid_n_markers("[1] [2] [3].", biblio_size=5)
++    manifest = {"synthesis_n_scrub_alert": synthesis_scrub_alert_state()}
++    assert manifest["synthesis_n_scrub_alert"] is False
++
++
++def test_two_sequential_runs_alert_resets_between_them():
++    """I-bug-111 iter-1 diff P1 fix: sweep calls run_one_query in a
++    loop within a single process. The sticky alert MUST be reset at
++    the START of each run so a high-scrub query 1 does not poison
++    the manifest of clean query 2.
++
++    This test simulates the per-run reset that
++    `scripts/run_honest_sweep_r3.py:run_one_query` does at line 1009
++    (next to `reset_run_cost`).
++    """
++    # Run 1: high-scrub. Alert fires.
++    text_high = "[99] [98] [97] [96] [95] [94]."  # 6 invalid markers
++    _scrub_invalid_n_markers(text_high, biblio_size=5)
++    run1_alert = synthesis_scrub_alert_state()
++    assert run1_alert is True
++
++    # Run 2 boundary: simulate run_one_query's start-of-run reset.
++    reset_synthesis_scrub_alert()
++    reset_synthesis_telemetry()
++
++    # Run 2: clean synthesis. Alert MUST be False.
++    _scrub_invalid_n_markers("[1] [2] [3].", biblio_size=5)
++    run2_alert = synthesis_scrub_alert_state()
++    assert run2_alert is False, (
++        "alert from run 1 leaked into run 2 — start-of-run reset broken"
++    )
++
++
++def test_alert_does_not_fire_for_low_volume_scrubs():
++    """Multiple separate calls each scrubbing a few markers: cumulative
++    count exceeds threshold, but no SINGLE call does → no alert.
++    """
++    # 3 calls, 2 scrubs each = 6 total. None individually > 5.
++    for _ in range(3):
++        _scrub_invalid_n_markers("[99] [98] and [1].", biblio_size=5)
++    # No single call exceeded threshold
++    assert synthesis_scrub_alert_state() is False

@@ -1,0 +1,685 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e112e-d222-7273-99d6-bce42f94fe5a
+--------
+user
+## §0 — HARD ITERATION CAP
+
+```
+HARD ITERATION CAP: 5. iter 1 of 5. Verdict APPROVE iff zero P0/P1.
+```
+
+## §1 — Diff under review
+
+GH#363 I-bug-111. Brief iter-1 force-APPROVE; code now wires alert into manifest writer.
+
+| Fix | Description |
+|---|---|
+| Brief P1 (manifest wiring) | `scripts/run_honest_sweep_r3.py:2657` lazy-imports `synthesis_scrub_alert_state` and writes `manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()` BEFORE the `manifest.json` write. Defensive try/except so import failure cannot abort manifest write. |
+| Regression tests | Added `test_manifest_field_picks_up_alert_state` (alert→True surfaces in dict) + `test_manifest_field_false_on_clean_run` (no alert → False, not absent). |
+
+Diff: 3 files, +~80 lines. Tests: 10 alert + 8 telemetry + 29 baseline = 47 pass.
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 1dfc7660..8401f02e 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2653,6 +2653,21 @@ async def run_one_query(
+                     f"{type(_v30_exc).__name__}: {_v30_exc}"
+                 )
+ 
++        # I-bug-111: surface synthesis [N] scrub alert in manifest.
++        # `synthesis_n_scrub_alert: bool` is True iff any single
++        # synthesis call in this run scrubbed more than
++        # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
++        # the synthesis prompt or bibliography may be degenerating.
++        # Defensive lazy import: tolerate environments where the
++        # module isn't available.
++        try:
++            from src.polaris_graph.generator.analyst_synthesis import (
++                synthesis_scrub_alert_state,
++            )
++            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
++        except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
++            pass
++
+         (run_dir / "manifest.json").write_text(
+             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+             encoding="utf-8",
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 0fdb7736..3038f555 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -129,6 +129,38 @@ _SYNTHESIS_TELEMETRY: dict[str, int] = {
+ }
+ 
+ 
++# I-bug-111: WARN-level alert threshold per single scrub call. When
++# synthesis hallucinates >5 [N] markers in ONE call, the bibliography
++# rendering / synthesis prompt is likely degenerating (typical clean
++# runs scrub 0; a healthy run with one stray hallucination scrubs 1-2).
++# Operators see a distinct "synthesis_n_scrub_alert" log + the manifest
++# bool flag below.
++SYNTHESIS_SCRUB_ALERT_THRESHOLD = 5
++
++_SYNTHESIS_SCRUB_ALERT_FIRED = False
++
++
++def synthesis_scrub_alert_state() -> bool:
++    """Return True if any scrub call in this process exceeded the
++    alert threshold (`SYNTHESIS_SCRUB_ALERT_THRESHOLD`).
++
++    Operator-facing: aggregators (sweep manifest writers) read this
++    once at end-of-run and surface the bool as
++    `manifest.synthesis_n_scrub_alert`. The flag is sticky across
++    calls (true if any single call tripped it) — a transient spike
++    in any one call is still worth surfacing.
++    """
++    return _SYNTHESIS_SCRUB_ALERT_FIRED
++
++
++def reset_synthesis_scrub_alert() -> None:
++    """Reset the sticky alert flag in-place. Tests + sweep
++    orchestrators call this at start-of-run.
++    """
++    global _SYNTHESIS_SCRUB_ALERT_FIRED
++    _SYNTHESIS_SCRUB_ALERT_FIRED = False
++
++
+ def get_synthesis_telemetry() -> dict[str, int]:
+     """Snapshot of process-lifetime synthesis-scrub counters.
+ 
+@@ -201,6 +233,19 @@ def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
+         # is the number of synthesis calls that needed any scrub.
+         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_count"] += scrubbed
+         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_runs"] += 1
++        # I-bug-111: trip the sticky alert flag on any high-scrub call.
++        # Threshold = 5 markers in ONE call — typical healthy synthesis
++        # scrubs 0; the I-bug-108 incident scrubbed 6 in one call,
++        # validating this threshold empirically.
++        if scrubbed > SYNTHESIS_SCRUB_ALERT_THRESHOLD:
++            global _SYNTHESIS_SCRUB_ALERT_FIRED
++            _SYNTHESIS_SCRUB_ALERT_FIRED = True
++            logger.warning(
++                "[analyst_synthesis] synthesis_n_scrub_alert: %d markers "
++                "scrubbed in single call (threshold=%d). Synthesis "
++                "prompt or bibliography rendering may be degenerating.",
++                scrubbed, SYNTHESIS_SCRUB_ALERT_THRESHOLD,
++            )
+     return cleaned, scrubbed
+ 
+ 
+diff --git a/tests/polaris_graph/test_synthesis_alert.py b/tests/polaris_graph/test_synthesis_alert.py
+new file mode 100644
+index 00000000..62d02f7f
+--- /dev/null
++++ b/tests/polaris_graph/test_synthesis_alert.py
+@@ -0,0 +1,128 @@
++"""Tests for I-bug-111 — synthesis [N] scrub alert threshold.
++
++When `_scrub_invalid_n_markers` strips MORE than
++`SYNTHESIS_SCRUB_ALERT_THRESHOLD` (default: 5) markers in a single
++call, a sticky alert flag is set. Operator-facing: sweep manifest
++writers surface this as `manifest.synthesis_n_scrub_alert: bool`.
++
++The flag is sticky across calls (true if ANY single call tripped it)
++so a transient spike in one call is still surfaced after subsequent
++clean calls.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator.analyst_synthesis import (
++    SYNTHESIS_SCRUB_ALERT_THRESHOLD,
++    _scrub_invalid_n_markers,
++    reset_synthesis_scrub_alert,
++    reset_synthesis_telemetry,
++    synthesis_scrub_alert_state,
++)
++
++
++@pytest.fixture(autouse=True)
++def _reset_alert_state():
++    reset_synthesis_scrub_alert()
++    reset_synthesis_telemetry()
++    yield
++    reset_synthesis_scrub_alert()
++    reset_synthesis_telemetry()
++
++
++def test_alert_threshold_value():
++    """Per acceptance: alert threshold = 5 (matches issue body 'scrub > 5')."""
++    assert SYNTHESIS_SCRUB_ALERT_THRESHOLD == 5
++
++
++def test_no_alert_on_clean_synthesis():
++    text = "Result [1] [2] [3]."
++    _scrub_invalid_n_markers(text, biblio_size=5)
++    assert synthesis_scrub_alert_state() is False
++
++
++def test_no_alert_when_scrub_at_threshold():
++    """Threshold 5 means STRICTLY GREATER than 5 fires. Exactly 5 does NOT."""
++    # 5 invalid markers
++    text = "[99] [98] [97] [96] [95] and [1] survives."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 5
++    assert synthesis_scrub_alert_state() is False, (
++        "exactly threshold (5) should NOT fire alert"
++    )
++
++
++def test_alert_when_scrub_exceeds_threshold():
++    """6 markers scrubbed in ONE call > threshold 5 → alert fires."""
++    text = "[99] [98] [97] [96] [95] [94] and [1]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 6
++    assert synthesis_scrub_alert_state() is True
++
++
++def test_alert_is_sticky_across_calls():
++    """Once tripped, alert stays True even after subsequent clean calls."""
++    # First call trips it
++    _scrub_invalid_n_markers("[99] [98] [97] [96] [95] [94].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++    # Second call is clean — alert MUST remain True (sticky)
++    _scrub_invalid_n_markers("[1] [2] [3].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++
++
++def test_reset_clears_alert():
++    _scrub_invalid_n_markers("[99] [98] [97] [96] [95] [94].", biblio_size=5)
++    assert synthesis_scrub_alert_state() is True
++    reset_synthesis_scrub_alert()
++    assert synthesis_scrub_alert_state() is False
++
++
++def test_alert_log_message_includes_count_and_threshold(caplog):
++    """The WARN log line surfaces both the scrubbed count and threshold,
++    so operators have actionable info without checking source code.
++    """
++    text = "[99] [98] [97] [96] [95] [94] [93]."
++    with caplog.at_level("WARNING"):
++        _scrub_invalid_n_markers(text, biblio_size=5)
++    alert_lines = [
++        r for r in caplog.records
++        if "synthesis_n_scrub_alert" in r.message
++    ]
++    assert len(alert_lines) == 1
++    msg = alert_lines[0].message
++    assert "7" in msg, "scrubbed count must appear in alert log"
++    assert "5" in msg, "threshold must appear in alert log"
++
++
++def test_manifest_field_picks_up_alert_state():
++    """I-bug-111 iter-1 P1 regression: scripts/run_honest_sweep_r3.py
++    surfaces the alert as `manifest['synthesis_n_scrub_alert']`. This
++    test simulates that wiring: scrub > threshold → alert fires →
++    manifest field reflects True.
++    """
++    text = "[99] [98] [97] [96] [95] [94] [93]."  # 7 invalid markers
++    _scrub_invalid_n_markers(text, biblio_size=5)
++    manifest_field_value = synthesis_scrub_alert_state()
++    # This is the exact expression the sweep's manifest writer uses
++    manifest = {"synthesis_n_scrub_alert": manifest_field_value}
++    assert manifest["synthesis_n_scrub_alert"] is True
++
++
++def test_manifest_field_false_on_clean_run():
++    """No scrub events → manifest field is False (not absent / not None)."""
++    _scrub_invalid_n_markers("[1] [2] [3].", biblio_size=5)
++    manifest = {"synthesis_n_scrub_alert": synthesis_scrub_alert_state()}
++    assert manifest["synthesis_n_scrub_alert"] is False
++
++
++def test_alert_does_not_fire_for_low_volume_scrubs():
++    """Multiple separate calls each scrubbing a few markers: cumulative
++    count exceeds threshold, but no SINGLE call does → no alert.
++    """
++    # 3 calls, 2 scrubs each = 6 total. None individually > 5.
++    for _ in range(3):
++        _scrub_invalid_n_markers("[99] [98] and [1].", biblio_size=5)
++    # No single call exceeded threshold
++    assert synthesis_scrub_alert_state() is False
+
+codex
+I’ll review the actual surrounding code, not just the patch, because the key risk here is whether the sticky process-level flag is reset at the right run boundary and whether the manifest field is reliably present.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- scripts/run_honest_sweep_r3.py src/polaris_graph/generator/analyst_synthesis.py tests/polaris_graph/test_synthesis_alert.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"run_one_query\\(|async def run_one_query|manifest\\[|write_text\\(|run_dir\" scripts/run_honest_sweep_r3.py -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"synthesis_scrub_alert|reset_synthesis|manifest\\.json|manifest =|run_one_query|reset_synthesis_telemetry\" scripts/run_honest_sweep_r3.py src/polaris_graph/generator/analyst_synthesis.py tests/polaris_graph -S" in C:\POLARIS
+ succeeded in 1960ms:
+250:def write_per_run_cost_ledger(run_dir: Path, run_id: str) -> int:
+253:    <run_dir>/cost_ledger.jsonl. Returns the count of entries written.
+263:    out_path = run_dir / "cost_ledger.jsonl"
+488:# completed query writes a `model_pin.json` to its run_dir. Enables
+495:#   - Run-log evidence: model_pin.json written to run_dir; manifest.json
+896:    run_dir: Path,
+905:    queue_path = run_dir / "operator_review_queue.jsonl"
+926:    run_dir: Path,
+933:    in run_dir, surfacing them for human review.
+954:                    run_dir=run_dir, query=query, verdict=verdict,
+969:    run_dir: Path,
+994:        pin_path = run_dir / "model_pin.json"
+995:        pin_path.write_text(pin_to_json(pin) + "\n", encoding="utf-8")
+1004:async def run_one_query(
+1011:    run_dir = out_root / q["domain"] / q["slug"]
+1012:    run_dir.mkdir(parents=True, exist_ok=True)
+1018:    log_path = run_dir / "run_log.txt"
+1032:        "run_dir": str(run_dir),
+1046:            run_dir=run_dir,
+1155:                run_dir=run_dir,
+1180:            (run_dir / "report.md").write_text(
+1214:            (run_dir / "manifest.json").write_text(
+1220:            try: write_per_run_cost_ledger(run_dir, run_id)
+1336:            (run_dir / "manifest.json").write_text(
+1342:            try: write_per_run_cost_ledger(run_dir, run_id)
+1349:        (run_dir / "live_corpus_dump.json").write_text(
+1375:        (run_dir / "corpus_adequacy.json").write_text(
+1396:        (run_dir / "completeness.json").write_text(
+1492:                (run_dir / "corpus_adequacy.json").write_text(
+1509:            (run_dir / "report.md").write_text(
+1550:            (run_dir / "manifest.json").write_text(
+1556:            try: write_per_run_cost_ledger(run_dir, run_id)
+1579:        save_approval_decision(decision, run_dir)
+1592:            (run_dir / "report.md").write_text(
+1629:            (run_dir / "manifest.json").write_text(
+1635:            try: write_per_run_cost_ledger(run_dir, run_id)
+1650:        (run_dir / "contradictions.json").write_text(
+2035:        (run_dir / "refetch_diagnostics.json").write_text(
+2050:        (run_dir / "m44_primary_citation_telemetry.json").write_text(
+2074:        (run_dir / "m47_mechanism_clamp_diagnostic.json").write_text(
+2094:        (run_dir / "v29_primary_custody.json").write_text(
+2110:        (run_dir / "m50_per_trial_subsections.json").write_text(
+2163:            (run_dir / "report.md").write_text(
+2186:            (run_dir / "manifest.json").write_text(
+2192:            try: write_per_run_cost_ledger(run_dir, run_id)
+2333:        (run_dir / "report.md").write_text(final_report, encoding="utf-8")
+2334:        (run_dir / "bibliography.json").write_text(
+2396:        (run_dir / "verification_details.json").write_text(
+2410:        (run_dir / "evaluator_rule_checks.json").write_text(
+2441:            (run_dir / "qwen_judge_output.json").write_text(
+2612:                _report_path = run_dir / "report.md"
+2617:                    run_dir=run_dir,
+2652:                manifest["v30_error"] = (
+2667:            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
+2671:        (run_dir / "manifest.json").write_text(
+2695:            if run_dir is not None:
+2707:                (run_dir / "manifest.json").write_text(
+2720:        n_ledger = write_per_run_cost_ledger(run_dir, run_id)
+2914:                refusal_path.write_text(
+2940:            summary = await run_one_query(q, out_root)
+2946:            run_dir = Path(summary.get("run_dir", out_root))
+2949:                run_id, run_dir,
+2962:    sweep_summary_path.write_text(
+3007:        md_lines.append(f"- Artifacts: `{s.get('run_dir', '')}`")
+3010:    (out_root / "sweep_summary.md").write_text(
+
+ succeeded in 2691ms:
+src/polaris_graph/generator/analyst_synthesis.py:138:SYNTHESIS_SCRUB_ALERT_THRESHOLD = 5
+src/polaris_graph/generator/analyst_synthesis.py:140:_SYNTHESIS_SCRUB_ALERT_FIRED = False
+src/polaris_graph/generator/analyst_synthesis.py:143:def synthesis_scrub_alert_state() -> bool:
+src/polaris_graph/generator/analyst_synthesis.py:145:    alert threshold (`SYNTHESIS_SCRUB_ALERT_THRESHOLD`).
+src/polaris_graph/generator/analyst_synthesis.py:153:    return _SYNTHESIS_SCRUB_ALERT_FIRED
+src/polaris_graph/generator/analyst_synthesis.py:156:def reset_synthesis_scrub_alert() -> None:
+src/polaris_graph/generator/analyst_synthesis.py:160:    global _SYNTHESIS_SCRUB_ALERT_FIRED
+src/polaris_graph/generator/analyst_synthesis.py:161:    _SYNTHESIS_SCRUB_ALERT_FIRED = False
+src/polaris_graph/generator/analyst_synthesis.py:174:def reset_synthesis_telemetry() -> None:
+src/polaris_graph/generator/analyst_synthesis.py:240:        if scrubbed > SYNTHESIS_SCRUB_ALERT_THRESHOLD:
+src/polaris_graph/generator/analyst_synthesis.py:241:            global _SYNTHESIS_SCRUB_ALERT_FIRED
+src/polaris_graph/generator/analyst_synthesis.py:242:            _SYNTHESIS_SCRUB_ALERT_FIRED = True
+src/polaris_graph/generator/analyst_synthesis.py:247:                scrubbed, SYNTHESIS_SCRUB_ALERT_THRESHOLD,
+scripts/run_honest_sweep_r3.py:147:# Pre-fix, successful runs wrote manifest.json WITHOUT a "status" key
+scripts/run_honest_sweep_r3.py:153:# Post-fix, EVERY exit path writes a manifest.json with a "status"
+scripts/run_honest_sweep_r3.py:304:    behavior test can call it without mocking run_one_query."""
+scripts/run_honest_sweep_r3.py:494:#   - Substrate IS invoked (this helper called from run_one_query)
+scripts/run_honest_sweep_r3.py:495:#   - Run-log evidence: model_pin.json written to run_dir; manifest.json
+scripts/run_honest_sweep_r3.py:1004:async def run_one_query(
+scripts/run_honest_sweep_r3.py:1079:            # aborted run_one_query via the outer fatal handler
+scripts/run_honest_sweep_r3.py:1201:            abort_manifest = _base_manifest_envelope(
+scripts/run_honest_sweep_r3.py:1214:            (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:1329:            abort_manifest = _base_manifest_envelope(
+scripts/run_honest_sweep_r3.py:1336:            (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:1533:            manifest = _base_manifest_envelope(
+scripts/run_honest_sweep_r3.py:1550:            (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:1615:            manifest = _base_manifest_envelope(
+scripts/run_honest_sweep_r3.py:1629:            (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:2168:            manifest = _base_manifest_envelope(
+scripts/run_honest_sweep_r3.py:2186:            (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:2501:        manifest = {
+scripts/run_honest_sweep_r3.py:2659:        # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
+scripts/run_honest_sweep_r3.py:2665:                synthesis_scrub_alert_state,
+scripts/run_honest_sweep_r3.py:2667:            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
+scripts/run_honest_sweep_r3.py:2671:        (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:2697:                error_manifest = {
+scripts/run_honest_sweep_r3.py:2707:                (run_dir / "manifest.json").write_text(
+scripts/run_honest_sweep_r3.py:2892:            # run_one_query showed the loop still executed.
+scripts/run_honest_sweep_r3.py:2940:            summary = await run_one_query(q, out_root)
+tests/polaris_graph\test_b3_no_verified_sections.py:118:    src = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_b3_no_verified_sections.py:132:    src = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\audit_bundle\test_manifest_builder.py:309:    manifest = BundleManifest(
+tests/polaris_graph\audit_bundle\test_manifest_builder.py:323:    manifest = BundleManifest(
+tests/polaris_graph\test_audit_ir_registry.py:30:    assert (CANONICAL_DEMO_DIR / "manifest.json").exists()
+tests/polaris_graph\test_b2_corpus_approval_enforcement.py:87:    src = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_audit_ir_loader.py:414:    minimal_manifest = {
+tests/polaris_graph\test_audit_ir_loader.py:428:    (run / "manifest.json").write_text(json.dumps(minimal_manifest), encoding="utf-8")
+tests/polaris_graph\test_audit_ir_loader.py:442:    manifest = json.loads((run / "manifest.json").read_text())
+tests/polaris_graph\test_audit_ir_loader.py:444:    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+tests/polaris_graph\test_audit_ir_loader.py:451:    manifest = json.loads((run / "manifest.json").read_text())
+tests/polaris_graph\test_audit_ir_loader.py:453:    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+tests/polaris_graph\test_audit_ir_loader.py:460:    manifest = json.loads((run / "manifest.json").read_text())
+tests/polaris_graph\test_audit_ir_loader.py:462:    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+tests/polaris_graph\test_v30_sweep_integration.py:705:        manifest = {"status": "success", "run_id": "r1"}
+tests/polaris_graph\test_v30_sweep_integration.py:716:        assert manifest == {"status": "success", "run_id": "r1"}
+tests/polaris_graph\test_v30_sweep_integration.py:723:        manifest = {"status": "success"}
+tests/polaris_graph\test_v30_sweep_integration.py:744:        manifest = {}
+tests/polaris_graph\test_v30_sweep_integration.py:763:        manifest = {}
+tests/polaris_graph\test_citation_health.py:77:    manifest = RunManifest(
+tests/polaris_graph\test_citation_health.py:526:    if not (artifact_dir / "manifest.json").exists():
+tests/polaris_graph\test_citation_health.py:573:    if not (artifact_dir / "manifest.json").exists():
+tests/polaris_graph\test_b102_graph_v4.py:9:Post-fix (R2b-R2g): graph_v4.py shim wraps pipeline-A's run_one_query.
+tests/polaris_graph\test_b102_graph_v4.py:80:    manifest = {
+tests/polaris_graph\test_b102_graph_v4.py:92:    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+tests/polaris_graph\test_b102_graph_v4.py:142:# 5. Error path: graph_v4 catches run_one_query exceptions gracefully
+tests/polaris_graph\test_b102_graph_v4.py:148:    """When run_one_query raises, graph_v4 writes an error UI JSON
+tests/polaris_graph\test_b102_graph_v4.py:159:        "scripts.run_honest_sweep_r3.run_one_query",
+tests/polaris_graph\test_b102_graph_v4.py:245:    """Mock run_one_query to return a successful summary; verify
+tests/polaris_graph\test_b102_graph_v4.py:256:        manifest = {
+tests/polaris_graph\test_b102_graph_v4.py:268:        (run_dir / "manifest.json").write_text(json.dumps(manifest))
+tests/polaris_graph\test_b102_graph_v4.py:280:        "scripts.run_honest_sweep_r3.run_one_query",
+tests/polaris_graph\test_v30_runner.py:152:        with open(os.path.join(slug_dir, "manifest.json"), "w") as f:
+tests/polaris_graph\test_v30_runner.py:184:    assert (artifact_dir / "manifest.json").exists()
+tests/polaris_graph\test_m205_evaluator_gate.py:237:    """Source check: run_one_query imports + calls compute_evaluator_gate
+tests/polaris_graph\test_m205_evaluator_gate.py:241:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_m60_frame_manifest.py:5:for manifest.json plus Methods-section disclosure + M-61 task list.
+tests/polaris_graph\test_m60_frame_manifest.py:438:        assert "manifest.json" in text
+tests/polaris_graph\test_inspector_router.py:635:            "manifest.json",
+tests/polaris_graph\test_inspector_router.py:726:    # Build a stub allowlist run that only has manifest.json (missing report.md)
+tests/polaris_graph\test_inspector_router.py:731:    minimal_manifest = {
+tests/polaris_graph\test_inspector_router.py:742:    (incomplete / "manifest.json").write_text(_json.dumps(minimal_manifest), encoding="utf-8")
+tests/polaris_graph\test_graph_v4_documents.py:88:async def test_q_dict_threading_with_stubbed_run_one_query(monkeypatch):
+tests/polaris_graph\test_graph_v4_documents.py:89:    """Test 7 per Codex iter-2 P2 #1: stubs run_one_query + DocumentIngester
+tests/polaris_graph\test_graph_v4_documents.py:99:    async def stub_run_one_query(q, out_root):
+tests/polaris_graph\test_graph_v4_documents.py:107:    monkeypatch.setattr("scripts.run_honest_sweep_r3.run_one_query", stub_run_one_query)
+tests/polaris_graph\test_m207_invariant_coverage.py:78:    in run_honest_sweep_r3.py — either written to manifest.json or
+tests/polaris_graph\test_m207_invariant_coverage.py:191:    # Find all `(run_dir / "manifest.json").write_text` positions
+tests/polaris_graph\test_m207_invariant_coverage.py:194:        if 'run_dir / "manifest.json"' in line and "write_text" in line:
+tests/polaris_graph\test_m203_outline_collapse.py:186:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_m206_n301_cost_ledger.py:13:  - set_current_run_id(run_id) at the top of run_one_query threads
+tests/polaris_graph\test_m206_n301_cost_ledger.py:173:    """Source check: run_one_query calls set_current_run_id(run_id)."""
+tests/polaris_graph\test_m206_n301_cost_ledger.py:176:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_m206_n301_cost_ledger.py:187:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_m202_contradiction_domain.py:137:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_m201_evidence_selection.py:237:    """Source check: run_one_query calls select_evidence_for_generation
+tests/polaris_graph\test_m201_evidence_selection.py:241:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_synthesis_telemetry.py:20:    reset_synthesis_telemetry,
+tests/polaris_graph\test_synthesis_telemetry.py:25:def _reset_synthesis_counters():
+tests/polaris_graph\test_synthesis_telemetry.py:26:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_telemetry.py:28:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_telemetry.py:85:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_telemetry.py:92:    """reset_synthesis_telemetry mutates in place — anyone holding a
+tests/polaris_graph\test_synthesis_telemetry.py:98:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_alert.py:4:`SYNTHESIS_SCRUB_ALERT_THRESHOLD` (default: 5) markers in a single
+tests/polaris_graph\test_synthesis_alert.py:18:    SYNTHESIS_SCRUB_ALERT_THRESHOLD,
+tests/polaris_graph\test_synthesis_alert.py:20:    reset_synthesis_scrub_alert,
+tests/polaris_graph\test_synthesis_alert.py:21:    reset_synthesis_telemetry,
+tests/polaris_graph\test_synthesis_alert.py:22:    synthesis_scrub_alert_state,
+tests/polaris_graph\test_synthesis_alert.py:28:    reset_synthesis_scrub_alert()
+tests/polaris_graph\test_synthesis_alert.py:29:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_alert.py:31:    reset_synthesis_scrub_alert()
+tests/polaris_graph\test_synthesis_alert.py:32:    reset_synthesis_telemetry()
+tests/polaris_graph\test_synthesis_alert.py:37:    assert SYNTHESIS_SCRUB_ALERT_THRESHOLD == 5
+tests/polaris_graph\test_synthesis_alert.py:43:    assert synthesis_scrub_alert_state() is False
+tests/polaris_graph\test_synthesis_alert.py:52:    assert synthesis_scrub_alert_state() is False, (
+tests/polaris_graph\test_synthesis_alert.py:62:    assert synthesis_scrub_alert_state() is True
+tests/polaris_graph\test_synthesis_alert.py:69:    assert synthesis_scrub_alert_state() is True
+tests/polaris_graph\test_synthesis_alert.py:72:    assert synthesis_scrub_alert_state() is True
+tests/polaris_graph\test_synthesis_alert.py:77:    assert synthesis_scrub_alert_state() is True
+tests/polaris_graph\test_synthesis_alert.py:78:    reset_synthesis_scrub_alert()
+tests/polaris_graph\test_synthesis_alert.py:79:    assert synthesis_scrub_alert_state() is False
+tests/polaris_graph\test_synthesis_alert.py:107:    manifest_field_value = synthesis_scrub_alert_state()
+tests/polaris_graph\test_synthesis_alert.py:109:    manifest = {"synthesis_n_scrub_alert": manifest_field_value}
+tests/polaris_graph\test_synthesis_alert.py:116:    manifest = {"synthesis_n_scrub_alert": synthesis_scrub_alert_state()}
+tests/polaris_graph\test_synthesis_alert.py:128:    assert synthesis_scrub_alert_state() is False
+tests/polaris_graph\test_m_int_0b_pin_capture_integration.py:7:     called after each run_one_query)
+tests/polaris_graph\test_manifest_contract.py:4:Pre-fix, successful pipeline-A runs wrote manifest.json WITHOUT a
+tests/polaris_graph\test_manifest_contract.py:9:Post-fix, every exit path in run_one_query writes a manifest with
+tests/polaris_graph\test_manifest_contract.py:86:# Test 2: Every manifest-writing branch in run_one_query emits a
+tests/polaris_graph\test_manifest_contract.py:91:    """Find every `(run_dir / "manifest.json").write_text(...)` call
+tests/polaris_graph\test_manifest_contract.py:103:            # Check the receiver is `(... / "manifest.json")`
+tests/polaris_graph\test_manifest_contract.py:107:                if isinstance(right, ast.Constant) and right.value == "manifest.json":
+tests/polaris_graph\test_manifest_contract.py:126:    """Every site that writes manifest.json in run_honest_sweep_r3.py
+tests/polaris_graph\test_manifest_contract.py:133:        f"Expected >=4 manifest write sites in run_one_query, got {len(blocks)}"
+tests/polaris_graph\test_manifest_contract.py:166:    allowed_non_manifest = {"started"}
+tests/polaris_graph\test_manifest_contract.py:182:    manifest.json with status='abort_no_sources' before returning."""
+tests/polaris_graph\test_manifest_contract.py:197:    assert 'manifest.json' in branch, (
+tests/polaris_graph\test_manifest_contract.py:198:        "zero-sources branch must write manifest.json before returning"
+tests/polaris_graph\test_manifest_contract.py:203:    """Source check: the OUTER exception handler in run_one_query writes
+tests/polaris_graph\test_manifest_contract.py:205:    outermost try/except in run_one_query (not an inner one)."""
+tests/polaris_graph\test_manifest_contract.py:212:    # Find the async def run_one_query
+tests/polaris_graph\test_manifest_contract.py:215:         if isinstance(n, _ast.AsyncFunctionDef) and n.name == "run_one_query"),
+tests/polaris_graph\test_manifest_contract.py:218:    assert func is not None, "expected async def run_one_query"
+tests/polaris_graph\test_manifest_contract.py:224:    assert outer_try is not None, "expected outer try in run_one_query"
+tests/polaris_graph\test_manifest_contract.py:236:    assert 'manifest.json' in combined, (
+tests/polaris_graph\test_manifest_contract.py:237:        "Outer exception handler must attempt to write manifest.json"
+tests/polaris_graph\test_manifest_contract.py:266:    """The success-path manifest construction in run_one_query
+tests/polaris_graph\test_manifest_contract.py:344:    manifest.json write in run_one_query (except the success path,
+tests/polaris_graph\test_manifest_contract.py:349:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_md9_phase2_beat_both.py:207:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:221:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:233:    manifest = {"citations": [None, 42, ["nested"], "https://valid.com"]}
+tests/polaris_graph\test_md9_phase2_beat_both.py:483:    manifest = {"contracts": [1, 2, 3]}
+tests/polaris_graph\test_md9_phase2_beat_both.py:593:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:610:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:625:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:641:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:659:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:672:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:685:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:697:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:708:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:724:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:743:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:769:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:801:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:828:    manifest = {
+tests/polaris_graph\test_md9_phase2_beat_both.py:852:    manifest = {
+tests/polaris_graph\test_slide_deck.py:106:    manifest = RunManifest(
+tests/polaris_graph\test_slide_deck.py:680:    if not (artifact_dir / "manifest.json").exists():
+tests/polaris_graph\test_m_int_8_slide_deck_endpoint.py:169:    manifest = RunManifest(
+tests/polaris_graph\test_run_diff.py:50:    if not (artifact_dir / "manifest.json").exists():
+tests/polaris_graph\test_run_diff.py:65:    if not (artifact_dir / "manifest.json").exists():
+tests/polaris_graph\test_run_diff.py:130:    manifest = RunManifest(
+tests/polaris_graph\test_m_int_7_billing_quota_integration.py:216:    # Track whether run_one_query gets called.
+tests/polaris_graph\test_m_int_7_billing_quota_integration.py:219:    async def _fake_run_one_query(query, out_root_arg):
+tests/polaris_graph\test_m_int_7_billing_quota_integration.py:228:    monkeypatch.setattr(sweep, "run_one_query", _fake_run_one_query)
+tests/polaris_graph\test_m_int_7_billing_quota_integration.py:406:    async def _fake_run_one_query(query, out_root_arg):
+tests/polaris_graph\test_m_int_7_billing_quota_integration.py:417:    monkeypatch.setattr(sweep, "run_one_query", _fake_run_one_query)
+tests/polaris_graph\test_m_int_3_freshness_integration.py:151:    async def _fake_run_one_query(query: dict, out_root: Path) -> dict:
+tests/polaris_graph\test_m_int_3_freshness_integration.py:167:    monkeypatch.setattr(sweep, "run_one_query", _fake_run_one_query)
+tests/polaris_graph\test_regression_alerts.py:82:    manifest = RunManifest(
+tests/polaris_graph\test_scope_gate.py:275:    source = inspect.getsource(sweep.run_one_query)
+tests/polaris_graph\test_scope_gate.py:279:    assert reject_idx > 0, "expected scope_rejected check in run_one_query"
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:245:# abort run_one_query (LAW II — best-effort telemetry).
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:249:def test_run_one_query_survives_malformed_scope_llm_dict(
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:255:    that aborted run_one_query at the outer fatal handler. v2
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:297:    # so run_one_query's downstream dereferences (total_candidates_pre_filter,
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:330:    summary = asyncio.run(sweep.run_one_query(q, out_root))
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:350:def test_run_one_query_survives_scope_llm_helper_raise(
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:356:    exception escaped run_one_query's M-INT-4 wiring and aborted
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:426:    summary = asyncio.run(sweep.run_one_query(q, out_root))
+tests/polaris_graph\test_m_int_5_domain_router_integration.py:434:        f"M-INT-4 helper raise propagated to run_one_query: {error_msg!r}"
+
+ succeeded in 3509ms:
+codex
+The first pass shows the manifest write reads a process-global sticky flag, but I don’t see a corresponding reset in `run_one_query` or the sweep loop. I’m checking the exact call boundaries now, because that determines whether this is a per-run alert or a stale cross-run value.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts/run_honest_sweep_r3.py | ForEach-Object { $i++; if ($i -ge 1004 -and $i -le 1035) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts/run_honest_sweep_r3.py | ForEach-Object { $i++; if ($i -ge 2648 -and $i -le 2674) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts/run_honest_sweep_r3.py | ForEach-Object { $i++; if ($i -ge 2932 -and $i -le 2952) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/analyst_synthesis.py | ForEach-Object { $i++; if ($i -ge 136 -and $i -le 162) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 3480ms:
+ 2648:                 _log(
+ 2649:                     f"[V30]         ERROR integration exception: "
+ 2650:                     f"{type(_v30_exc).__name__}: {_v30_exc}"
+ 2651:                 )
+ 2652:                 manifest["v30_error"] = (
+ 2653:                     f"{type(_v30_exc).__name__}: {_v30_exc}"
+ 2654:                 )
+ 2655: 
+ 2656:         # I-bug-111: surface synthesis [N] scrub alert in manifest.
+ 2657:         # `synthesis_n_scrub_alert: bool` is True iff any single
+ 2658:         # synthesis call in this run scrubbed more than
+ 2659:         # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
+ 2660:         # the synthesis prompt or bibliography may be degenerating.
+ 2661:         # Defensive lazy import: tolerate environments where the
+ 2662:         # module isn't available.
+ 2663:         try:
+ 2664:             from src.polaris_graph.generator.analyst_synthesis import (
+ 2665:                 synthesis_scrub_alert_state,
+ 2666:             )
+ 2667:             manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
+ 2668:         except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
+ 2669:             pass
+ 2670: 
+ 2671:         (run_dir / "manifest.json").write_text(
+ 2672:             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+ 2673:             encoding="utf-8",
+ 2674:         )
+
+ succeeded in 4322ms:
+ 1004: async def run_one_query(
+ 1005:     q: dict,
+ 1006:     out_root: Path,
+ 1007: ) -> dict:
+ 1008:     """Run the full honest pipeline on one query. Returns a summary dict."""
+ 1009:     reset_run_cost()
+ 1010: 
+ 1011:     run_dir = out_root / q["domain"] / q["slug"]
+ 1012:     run_dir.mkdir(parents=True, exist_ok=True)
+ 1013:     run_id = f"SWEEP_{q['domain']}_{q['slug']}_{int(time.time())}"
+ 1014:     # BUG-N-301 fix: set ambient run_id so every downstream
+ 1015:     # OpenRouterClient tags its cost-ledger entries with this run.
+ 1016:     set_current_run_id(run_id)
+ 1017: 
+ 1018:     log_path = run_dir / "run_log.txt"
+ 1019:     log_f = log_path.open("w", encoding="utf-8")
+ 1020: 
+ 1021:     def _log(msg: str) -> None:
+ 1022:         print(msg)
+ 1023:         log_f.write(msg + "\n")
+ 1024:         log_f.flush()
+ 1025: 
+ 1026:     summary: dict = {
+ 1027:         "slug": q["slug"],
+ 1028:         "domain": q["domain"],
+ 1029:         "question": q["question"],
+ 1030:         "run_id": run_id,
+ 1031:         "status": "started",
+ 1032:         "run_dir": str(run_dir),
+ 1033:         "error": "",
+ 1034:     }
+ 1035: 
+
+ succeeded in 5008ms:
+ 2932: 
+ 2933:     all_summaries: list[dict] = []
+ 2934:     replay_ctx_mgr.__enter__()
+ 2935:     sweep_exc_info: tuple | None = None
+ 2936:     try:
+ 2937:         for q in queries_to_run:
+ 2938:             print(f"\n>>> {q['domain']} / {q['slug']}")
+ 2939:             t0 = time.time()
+ 2940:             summary = await run_one_query(q, out_root)
+ 2941:             dt = time.time() - t0
+ 2942:             summary["wall_time_seconds"] = round(dt, 1)
+ 2943:             # M-INT-0b: capture a ModelPin for every run so later
+ 2944:             # replays can reproduce the exact runtime configuration.
+ 2945:             # Best-effort — failure does NOT gate the sweep summary.
+ 2946:             run_dir = Path(summary.get("run_dir", out_root))
+ 2947:             run_id = summary.get("run_id", "unknown")
+ 2948:             pin_path = _capture_run_pin(
+ 2949:                 run_id, run_dir,
+ 2950:                 notes=f"sweep {q['domain']}/{q['slug']} status={summary['status']}",
+ 2951:             )
+ 2952:             if pin_path is not None:
+
+ succeeded in 5754ms:
+  136: # Operators see a distinct "synthesis_n_scrub_alert" log + the manifest
+  137: # bool flag below.
+  138: SYNTHESIS_SCRUB_ALERT_THRESHOLD = 5
+  139: 
+  140: _SYNTHESIS_SCRUB_ALERT_FIRED = False
+  141: 
+  142: 
+  143: def synthesis_scrub_alert_state() -> bool:
+  144:     """Return True if any scrub call in this process exceeded the
+  145:     alert threshold (`SYNTHESIS_SCRUB_ALERT_THRESHOLD`).
+  146: 
+  147:     Operator-facing: aggregators (sweep manifest writers) read this
+  148:     once at end-of-run and surface the bool as
+  149:     `manifest.synthesis_n_scrub_alert`. The flag is sticky across
+  150:     calls (true if any single call tripped it) — a transient spike
+  151:     in any one call is still worth surfacing.
+  152:     """
+  153:     return _SYNTHESIS_SCRUB_ALERT_FIRED
+  154: 
+  155: 
+  156: def reset_synthesis_scrub_alert() -> None:
+  157:     """Reset the sticky alert flag in-place. Tests + sweep
+  158:     orchestrators call this at start-of-run.
+  159:     """
+  160:     global _SYNTHESIS_SCRUB_ALERT_FIRED
+  161:     _SYNTHESIS_SCRUB_ALERT_FIRED = False
+  162: 
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "scripts/run_honest_sweep_r3.py:1009 / 2667: `synthesis_n_scrub_alert` is read from a process-global sticky flag, but `run_one_query` never resets it at the start of a run. Since the sweep loop calls multiple `run_one_query` executions in one process, one high-scrub query will make later clean query manifests report `true`, violating the stated per-run contract."
+p2:
+  - "tests/polaris_graph/test_synthesis_alert.py:100: the manifest regression tests only reconstruct `{'synthesis_n_scrub_alert': synthesis_scrub_alert_state()}` instead of exercising `scripts/run_honest_sweep_r3.py`, so they would not catch missing writer wiring, stale state across two runs, or fallback behavior."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Reset the synthesis scrub alert at the actual run boundary, e.g. near `reset_run_cost()` in `run_one_query`, and add a regression covering two sequential runs where the first trips the alert and the second clean run writes `false`."
+```
+tokens used
+16,693
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "scripts/run_honest_sweep_r3.py:1009 / 2667: `synthesis_n_scrub_alert` is read from a process-global sticky flag, but `run_one_query` never resets it at the start of a run. Since the sweep loop calls multiple `run_one_query` executions in one process, one high-scrub query will make later clean query manifests report `true`, violating the stated per-run contract."
+p2:
+  - "tests/polaris_graph/test_synthesis_alert.py:100: the manifest regression tests only reconstruct `{'synthesis_n_scrub_alert': synthesis_scrub_alert_state()}` instead of exercising `scripts/run_honest_sweep_r3.py`, so they would not catch missing writer wiring, stale state across two runs, or fallback behavior."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Reset the synthesis scrub alert at the actual run boundary, e.g. near `reset_run_cost()` in `run_one_query`, and add a regression covering two sequential runs where the first trips the alert and the second clean run writes `false`."
+```
