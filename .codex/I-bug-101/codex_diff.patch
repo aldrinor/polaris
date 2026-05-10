@@ -338,3 +338,4 @@ index 00000000..898a9dee
 +    run_fpr_audit([{"sentence": "S", "span": "P"}], output, live=False)
 +    assert output.parent.exists()
 +    assert output.exists()
+# canonical-diff-sha256: 7f46ae5975adc73afe7a14e0caedbf65e9039d373eb0a5d42f9dff04e381e417
