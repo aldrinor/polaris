@@ -602,3 +602,4 @@ index 00000000..ef31a13f
 +        pairs, tmp_path / "o.json", live=False, framework="PRISMA 2020",
 +    )
 +    assert result["framework"] == "PRISMA 2020"
+# canonical-diff-sha256: d0db4a29b2cea20af14aec6e542ecdb2fe7d8e31f909a94d689abfaaeb344947
