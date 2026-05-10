@@ -154,3 +154,4 @@ index 00000000..01d54526
 +    # __init__ is not on the off-path.
 +    mode = strict_verify._entailment_mode()
 +    assert mode == "off"
+# canonical-diff-sha256: 0b54670010f537412fba9728fa3bf2d09a5dd6616368ec1932611b485bb439b2
