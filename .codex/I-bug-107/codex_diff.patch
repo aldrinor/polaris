@@ -627,3 +627,4 @@ index 00000000..2bec86ce
 +    # other_dim seen in 1 run — has 1 value, stddev=0 (single sample)
 +    assert result["polaris_scores_aggregate"]["other_dim"]["n"] == 1
 +    assert result["polaris_scores_aggregate"]["other_dim"]["stddev"] == 0.0
+# canonical-diff-sha256: aa6d978c364b36c6bb3348c6bcf1ee6626776d37fe51b1c493d656d0eb1cac42
