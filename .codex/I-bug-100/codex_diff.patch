@@ -385,3 +385,4 @@ index 00000000..e10194af
 +
 +    with pytest.raises(openrouter_client.BudgetExceededError):
 +        judge.judge("sentence", "span")
+# canonical-diff-sha256: e945a41ec2c02fc48620bd9c2ac4b4794f79c7ade1cc3f9b8e4bf41d2e3ae242
