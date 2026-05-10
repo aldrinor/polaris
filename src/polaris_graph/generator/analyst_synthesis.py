@@ -129,6 +129,38 @@ _SYNTHESIS_TELEMETRY: dict[str, int] = {
 }
 
 
+# I-bug-111: WARN-level alert threshold per single scrub call. When
+# synthesis hallucinates >5 [N] markers in ONE call, the bibliography
+# rendering / synthesis prompt is likely degenerating (typical clean
+# runs scrub 0; a healthy run with one stray hallucination scrubs 1-2).
+# Operators see a distinct "synthesis_n_scrub_alert" log + the manifest
+# bool flag below.
+SYNTHESIS_SCRUB_ALERT_THRESHOLD = 5
+
+_SYNTHESIS_SCRUB_ALERT_FIRED = False
+
+
+def synthesis_scrub_alert_state() -> bool:
+    """Return True if any scrub call in this process exceeded the
+    alert threshold (`SYNTHESIS_SCRUB_ALERT_THRESHOLD`).
+
+    Operator-facing: aggregators (sweep manifest writers) read this
+    once at end-of-run and surface the bool as
+    `manifest.synthesis_n_scrub_alert`. The flag is sticky across
+    calls (true if any single call tripped it) — a transient spike
+    in any one call is still worth surfacing.
+    """
+    return _SYNTHESIS_SCRUB_ALERT_FIRED
+
+
+def reset_synthesis_scrub_alert() -> None:
+    """Reset the sticky alert flag in-place. Tests + sweep
+    orchestrators call this at start-of-run.
+    """
+    global _SYNTHESIS_SCRUB_ALERT_FIRED
+    _SYNTHESIS_SCRUB_ALERT_FIRED = False
+
+
 def get_synthesis_telemetry() -> dict[str, int]:
     """Snapshot of process-lifetime synthesis-scrub counters.
 
@@ -201,6 +233,19 @@ def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
         # is the number of synthesis calls that needed any scrub.
         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_count"] += scrubbed
         _SYNTHESIS_TELEMETRY["synthesis_n_scrub_runs"] += 1
+        # I-bug-111: trip the sticky alert flag on any high-scrub call.
+        # Threshold = 5 markers in ONE call — typical healthy synthesis
+        # scrubs 0; the I-bug-108 incident scrubbed 6 in one call,
+        # validating this threshold empirically.
+        if scrubbed > SYNTHESIS_SCRUB_ALERT_THRESHOLD:
+            global _SYNTHESIS_SCRUB_ALERT_FIRED
+            _SYNTHESIS_SCRUB_ALERT_FIRED = True
+            logger.warning(
+                "[analyst_synthesis] synthesis_n_scrub_alert: %d markers "
+                "scrubbed in single call (threshold=%d). Synthesis "
+                "prompt or bibliography rendering may be degenerating.",
+                scrubbed, SYNTHESIS_SCRUB_ALERT_THRESHOLD,
+            )
     return cleaned, scrubbed
 
 

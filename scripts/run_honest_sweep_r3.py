@@ -1007,6 +1007,20 @@ async def run_one_query(
 ) -> dict:
     """Run the full honest pipeline on one query. Returns a summary dict."""
     reset_run_cost()
+    # I-bug-111: reset synthesis-scrub alert + telemetry at run
+    # boundary so per-run manifest reflects ONLY this run's
+    # synthesis behavior. Without this reset, the sticky alert from
+    # query N leaks into query N+1's manifest. Defensive lazy
+    # import: tolerate environments where the module isn't loaded.
+    try:
+        from src.polaris_graph.generator.analyst_synthesis import (
+            reset_synthesis_scrub_alert,
+            reset_synthesis_telemetry,
+        )
+        reset_synthesis_scrub_alert()
+        reset_synthesis_telemetry()
+    except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
+        pass
 
     run_dir = out_root / q["domain"] / q["slug"]
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -2652,6 +2666,21 @@ async def run_one_query(
                 manifest["v30_error"] = (
                     f"{type(_v30_exc).__name__}: {_v30_exc}"
                 )
+
+        # I-bug-111: surface synthesis [N] scrub alert in manifest.
+        # `synthesis_n_scrub_alert: bool` is True iff any single
+        # synthesis call in this run scrubbed more than
+        # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
+        # the synthesis prompt or bibliography may be degenerating.
+        # Defensive lazy import: tolerate environments where the
+        # module isn't available.
+        try:
+            from src.polaris_graph.generator.analyst_synthesis import (
+                synthesis_scrub_alert_state,
+            )
+            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
+        except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
+            pass
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
