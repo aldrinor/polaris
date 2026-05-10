@@ -68,8 +68,8 @@ _SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
 # free-form UI queries don't all route through clinical/tech/etc.
 SUPPORTED_DOMAINS = frozenset({
     "clinical", "policy", "tech", "due_diligence", "custom",
-    # Carney delivery templates (workforce lands with I-tpl-008).
-    "ai_sovereignty", "canada_us",
+    # Carney delivery templates (I-tpl-006/7/8 trio complete).
+    "ai_sovereignty", "canada_us", "workforce",
 })
 
 DEFAULT_DOMAIN = "clinical"

@@ -1,0 +1,100 @@
+diff --git a/config/scope_templates/workforce.yaml b/config/scope_templates/workforce.yaml
+new file mode 100644
+index 00000000..bd268e8c
+--- /dev/null
++++ b/config/scope_templates/workforce.yaml
+@@ -0,0 +1,79 @@
++# Workforce / labour scope template — Carney delivery (I-tpl-008).
++#
++# Used when the user is researching workforce, labour-market,
++# employment, skills, automation displacement, immigration policy
++# affecting labour, or productivity questions. The corpus should be
++# dominated by labour-statistical agency outputs (T3) plus
++# peer-reviewed labour economics research (T1) and policy-institute
++# commentary (T6).
++
++domain: workforce
++description: >
++  Workforce and labour-market corpus for employment trends, skills
++  policy, automation displacement, and labour-economics research.
++  Statistical-agency outputs and peer-reviewed labour economics are
++  the primary evidence; advocacy-group reports require explicit
++  funding-disclosure provenance.
++
++inclusion_criteria:
++  - "Statistics Canada (StatCan) Labour Force Survey, Survey of Employment Payrolls and Hours, Census long-form."
++  - "US Bureau of Labor Statistics (BLS) — Current Employment Statistics, Current Population Survey, Job Openings and Labor Turnover Survey, Productivity and Costs."
++  - "OECD Employment Outlook, OECD Skills Outlook, OECD Future of Work."
++  - "International Labour Organization (ILO) reports + ILOSTAT."
++  - "Eurostat labour-market statistics."
++  - "Peer-reviewed labour economics journals — Quarterly Journal of Economics, Journal of Labor Economics, Labour Economics, Industrial Labor Relations Review."
++  - "Government-of-Canada Employment and Social Development Canada (ESDC) outputs + provincial labour-market analytics."
++  - "Policy-institute reports — Brookings Hamilton Project, Aspen Institute Future of Work, Pew Research Center labour, RBC Climate Institute Future of Work."
++  - "World Bank labour-market reports for international comparisons."
++
++exclusion_criteria:
++  - "Industry-association studies presented as primary research (allowed only as T6 with funding disclosure)."
++  - "Advocacy-group reports without methodology section."
++  - "Recruiting / staffing-agency surveys presented as labour-market data (allowed only as T5 vendor tier)."
++  - "Op-eds in business media without disclosed analyst affiliation."
++
++expected_tier_distribution:
++  - tier: T3
++    min_fraction: 0.35
++    max_fraction: 0.65
++    rationale: >
++      Statistical-agency outputs (StatCan, BLS, OECD, ILO, Eurostat)
++      are the primary quantitative evidence. Required for any claim
++      involving labour-market metrics.
++  - tier: T1
++    min_fraction: 0.10
++    max_fraction: 0.30
++    rationale: >
++      Peer-reviewed labour economics research papers.
++  - tier: T6
++    min_fraction: 0.10
++    max_fraction: 0.25
++    rationale: >
++      Policy-institute reports — Brookings Hamilton Project, Aspen,
++      Pew, RBC Climate Institute. Analyst tier, NOT peer-reviewed.
++  - tier: T2
++    min_fraction: 0.05
++    max_fraction: 0.20
++    rationale: >
++      Systematic reviews / meta-analyses of labour-market literature.
++  - tier: T5
++    min_fraction: 0.00
++    max_fraction: 0.10
++    rationale: >
++      Industry / staffing-agency surveys. Treat with skepticism;
++      cite for technical-trade claims only.
++  - tier: T4
++    min_fraction: 0.00
++    max_fraction: 0.10
++    rationale: >
++      Narrative reviews of workforce trends.
++
++required_jurisdictions:
++  - CA
++  - US
++  - OECD  # cross-country comparisons via OECD aggregates
++
++audit_emphasis:
++  - statistical_agency_citation_required_for_quantitative_claims
++  - per_jurisdiction_metric_definition_disclosed
++  - advocacy_group_funding_disclosure_required
+diff --git a/src/polaris_graph/nodes/scope_gate.py b/src/polaris_graph/nodes/scope_gate.py
+index f9284870..55b08900 100644
+--- a/src/polaris_graph/nodes/scope_gate.py
++++ b/src/polaris_graph/nodes/scope_gate.py
+@@ -68,8 +68,8 @@ _SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
+ # free-form UI queries don't all route through clinical/tech/etc.
+ SUPPORTED_DOMAINS = frozenset({
+     "clinical", "policy", "tech", "due_diligence", "custom",
+-    # Carney delivery templates (workforce lands with I-tpl-008).
+-    "ai_sovereignty", "canada_us",
++    # Carney delivery templates (I-tpl-006/7/8 trio complete).
++    "ai_sovereignty", "canada_us", "workforce",
+ })
+ 
+ DEFAULT_DOMAIN = "clinical"
