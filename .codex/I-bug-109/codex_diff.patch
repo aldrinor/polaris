@@ -118,3 +118,4 @@ index 00000000..46b3a1c1
 +deferred until I-bug-110 telemetry has 5-10 sweeps of data, at
 +which point a follow-up issue can isolate H1 vs H3 with a small
 +A/B test guarded by telemetry rather than another paper-only round.
+# canonical-diff-sha256: 9e1b728e7f69712d7da478bba1b532f53cfa1fb414fc71728c67559d03ecd332
