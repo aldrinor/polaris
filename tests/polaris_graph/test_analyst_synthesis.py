@@ -19,7 +19,88 @@ from src.polaris_graph.generator.analyst_synthesis import (
     _format_bibliography_for_prompt,
     _format_evidence_pool_for_prompt,
     _scrub_ev_tokens,
+    _scrub_invalid_n_markers,
 )
+
+
+# ---------- Invalid [N] marker scrub (I-bug-108 P0) ----------
+
+def test_scrub_invalid_n_markers_drops_out_of_range():
+    text = "Result A [1]. Result B [3]. Result C [19]. Result D [2]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
+    assert n == 1
+    assert "[19]" not in cleaned
+    assert "[1]" in cleaned
+    assert "[2]" in cleaned
+    assert "[3]" in cleaned
+
+
+def test_scrub_invalid_n_markers_preserves_in_range():
+    text = "Result [1] and [2] and [5]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
+    assert n == 0
+    assert cleaned == text
+
+
+def test_scrub_invalid_n_markers_drops_zero_and_negative():
+    """Markers like [0] and [-1] are invalid — bibliography indices start at 1.
+
+    Codex iter-1 P0 hardening: regex now matches both `[N]` and `[-N]` so
+    both forms get scrubbed. Bibliography emits "[1]" not "[0]" or "[-1]".
+    """
+    text = "Result [0] [1] [-1] [2]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
+    assert "[0]" not in cleaned
+    assert "[-1]" not in cleaned, "negative markers must be scrubbed (Codex iter-1 P0)"
+    assert "[1]" in cleaned
+    assert "[2]" in cleaned
+    assert n >= 2  # [0] and [-1]
+
+
+def test_scrub_invalid_n_markers_drops_padded_forms():
+    """Whitespace-padded markers like [ 5 ] don't match the canonical
+    bibliography format `[5]` and are scrubbed (parser-fragile).
+    """
+    text = "Result [ 5 ] and [5]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
+    assert "[ 5 ]" not in cleaned
+    assert "[5]" in cleaned
+    assert n == 1
+
+
+def test_scrub_invalid_n_markers_drops_leading_zero_forms():
+    """`[01]` parses as 1 but raw form differs from canonical `[1]`."""
+    text = "Result [01] and [1]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
+    assert "[01]" not in cleaned
+    assert "[1]" in cleaned
+    assert n == 1
+
+
+def test_scrub_invalid_n_markers_logs_warning(caplog):
+    text = "Result [99]."
+    with caplog.at_level("WARNING"):
+        _scrub_invalid_n_markers(text, biblio_size=5)
+    assert any("invalid [N]" in r.message for r in caplog.records)
+
+
+def test_scrub_invalid_n_markers_no_warning_on_clean(caplog):
+    text = "Result [1] [2]."
+    with caplog.at_level("WARNING"):
+        _scrub_invalid_n_markers(text, biblio_size=5)
+    assert not any("invalid [N]" in r.message for r in caplog.records)
+
+
+def test_scrub_invalid_n_markers_handles_mass_hallucination():
+    """Real-world failure mode: synthesis LLM emitted [18] [19] when
+    biblio had 17 entries. Scrub fixes both.
+    """
+    text = "Result [18] and [19] and [3]."
+    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=17)
+    assert n == 2
+    assert "[18]" not in cleaned
+    assert "[19]" not in cleaned
+    assert "[3]" in cleaned
 
 
 # ---------- Scrub guardrail (Codex iter-1 P0) ----------

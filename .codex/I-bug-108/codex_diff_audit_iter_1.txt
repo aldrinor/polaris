@@ -1,0 +1,1169 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1053-5248-70c3-b4f8-fa81729ecd39
+--------
+user
+# Codex Diff Review — I-bug-108 (verifier-driven repair loop + synthesis [N] scrub)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings.
+- "Don't pick bone from egg".
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- DO NOT call exec / rg / shell tools.
+```
+
+## Pre-flight
+
+- Brief APPROVE'd iter 1 (recovery_rate_floor=0.30, max_retries=1, max_per_section=10, full strict_verify rerun).
+- Diff: `.codex/I-bug-108/codex_diff.patch` (canonical-diff-sha256: `9b0d3c9c73342716d55303c6c68ac8dc0a36957e075c3abb5fbefaeebac2ae11`)
+- 5 files / 970 lines: 2 src modules + 1 generator integration + 2 test files (28 new tests; all 48 passing across the suite).
+- Production validation: status=success, release_allowed=TRUE, recovery_rate=35.3%, 0 token-set violations.
+
+## What this PR ships
+
+1. **`sentence_repair.py`** — verifier-driven repair loop module (Codex iter-1 path B). When strict_verify drops a sentence due to drift failures (entailment/numbers/trial-name/content overlap), feed (sentence, cited spans, judge reason) back to the generator for one rewrite. Repaired sentences must pass full `verify_sentence_provenance` re-run including entailment.
+
+2. **`multi_section_generator.py` integration** — calls `repair_dropped_section_sentences` between strict_verify and M-41c filter. Augmented kept[] flows through downstream filters as if the repaired sentences had passed first time.
+
+3. **PT12 root-cause fix in `analyst_synthesis.py`** — added `_scrub_invalid_n_markers` runtime guardrail because the production v2 sweep aborted at PT12 (`max_marker=19, biblio_size=17`). Diagnosed: synthesis LLM hallucinates [N] markers beyond bibliography size. The scrub fires after the existing `_scrub_ev_tokens` call. Empirically caught 6 invalid markers in v3 sweep.
+
+## All 3 Codex iter-1 brief P0s addressed
+
+| Codex iter-1 directive | Implementation |
+|---|---|
+| Token-set preservation: repaired output must carry exactly the original [#ev:...] markers | `_extract_token_signature` + post-repair check in orchestrator. Verified: 0 violations across 47 first-run + 17 v3 attempts. |
+| Drop accounting honest: recovered MOVE from dropped to kept | `final_dropped` list excludes recovered SVs; `new_kept` appends. No double-counting. |
+| Deterministic order | Walk dropped[] in original input order; MAX_PER_SECTION cap on attempt count. |
+
+Plus PT12 safety filter (added after first-run abort): repaired sentence's evidence_ids must be a subset of the pre-repair kept set's evidence_ids — prevents introducing new ev_ids that the section bibliography won't include.
+
+## Production-validated empirical result (v3 sweep)
+
+```
+status: success
+release_allowed: TRUE   (PT12 abort fixed)
+total_words: 1457   (+50% vs 974 baseline)
+verified_words: 368
+analyst_synth_words: 1089
+
+Repair loop per-section:
+  Efficacy:           0/1 = 0%
+  Mechanism:          3/6 = 50%
+  Comparative:        2/6 = 33%
+  Long-term Outcomes: 1/4 = 25%
+  Aggregate:          6/17 = 35.3%   ← above Codex's 0.30 floor
+  Token-set violations: 0
+
+Synthesis [N] scrub fired:
+  "scrubbed 6 invalid [N] markers (N > biblio_size=8)"
+```
+
+The first-run aggregate hit 40.4% (47 attempts, 19 successes); v3 hit 35.3% (17 attempts, 6 successes). Both above the floor. Recovery rate variance is from per-run variation in which dropped reasons are repairable.
+
+## Tests pinned (28 new)
+
+- 8 `is_repairable` classifier tests
+- 4 token-signature extraction tests
+- 8 repair-loop orchestrator tests (off-mode skip, unrepairable-skip, recovery, NULL_DROP, token-violation, MAX_PER_SECTION cap, deterministic order, telemetry)
+- 2 PT12 safety filter tests (skip when ev_id not in kept; allow when in kept)
+- 6 invalid-[N]-marker scrub tests (drop out-of-range, preserve in-range, drop zero/negative, log on dirty, no-log on clean, real-world hallucination case)
+
+## What I want from you
+
+1. **Verdict** APPROVE / REQUEST_CHANGES.
+2. **Any P0/P1 you find** — please be exhaustive iter 1.
+3. The PT12 root cause is in I-bug-105 (synthesis `[N]` hallucination); I included the scrub fix in this PR rather than carving it into I-bug-109. Codex has reviewed: bundle or split?
+4. Recovery rate variance (40.4% v1, 35.3% v3) — accept as stochastic? Or do you want me to run a third validation sweep before merge?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+
+## Diff content
+
+```diff
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 036d0f1a..38cf194a 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -102,6 +102,36 @@ preamble, no sign-off, no [#ev:...] tokens anywhere."""
+ 
+ 
+ _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
++_N_MARKER_RE = re.compile(r"\[(\d+)\]")
++
++
++def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
++    """Remove [N] bibliography markers where N > biblio_size.
++
++    I-bug-108 P0 fix: the synthesis LLM occasionally hallucinates [N]
++    indices beyond the bibliography. The downstream evaluator rule
++    PT12 (rule_pt12_invalid_citation_marker) aborts the report when
++    max_marker > evidence_pool size. Scrub them runtime so production
++    runs don't abort. Returns (cleaned_text, num_scrubbed).
++    """
++    scrubbed = 0
++
++    def _replace(match: re.Match) -> str:
++        nonlocal scrubbed
++        n = int(match.group(1))
++        if n < 1 or n > biblio_size:
++            scrubbed += 1
++            return ""  # drop the invalid marker entirely
++        return match.group(0)
++
++    cleaned = _N_MARKER_RE.sub(_replace, text)
++    if scrubbed > 0:
++        logger.warning(
++            "[analyst_synthesis] scrubbed %d invalid [N] marker(s) "
++            "(N > biblio_size=%d) — synthesis LLM hallucinated indices",
++            scrubbed, biblio_size,
++        )
++    return cleaned, scrubbed
+ 
+ 
+ def _scrub_ev_tokens(text: str) -> str:
+@@ -221,4 +251,9 @@ async def generate_analyst_synthesis(
+ 
+     # Codex iter-1 P0 guardrail: scrub [#ev:...] tokens from synthesis.
+     cleaned = _scrub_ev_tokens(text)
++    # I-bug-108 P0: scrub [N] markers exceeding bibliography size
++    # to prevent rule_pt12_invalid_citation_marker from aborting the
++    # report. Synthesis LLM occasionally hallucinates indices; scrub
++    # them runtime so production runs don't abort.
++    cleaned, _ = _scrub_invalid_n_markers(cleaned, biblio_size=len(bibliography))
+     return cleaned, in_tok, out_tok
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index a0eb9ef2..3c7e0a13 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -1114,6 +1114,65 @@ async def _run_section(
+     # Strict verify against full evidence_pool (not subset — the model
+     # might cite an ev from outside the assigned subset; still valid).
+     report = strict_verify(rewritten, evidence_pool)
++
++    # I-bug-108: verifier-driven sentence repair loop. Per Codex
++    # strategic-review iter 1 path B (recommended after PR #350 D).
++    # When strict_verify drops sentences for "drift" reasons (entailment
++    # failed, number/trial-name mismatches, content overlap), feed the
++    # dropped sentence + cited spans + failure reason back to the
++    # generator and ask for one rewrite that the cited span entails.
++    # Repaired sentences re-run the FULL verification chain before
++    # entering kept[]; failures stay dropped (no double-counting).
++    # Per Codex iter-1 brief verdict: 1 retry per sentence, MAX 10
++    # repairs per section, deterministic order, token-set preservation
++    # check. Telemetry (attempts/successes/failures) accumulates on
++    # the SectionResult so the manifest can report recovery rate.
++    section_repair_telemetry = None
++    try:
++        from src.polaris_graph.generator.sentence_repair import (
++            repair_dropped_section_sentences,
++        )
++        repaired_kept, repaired_dropped, section_repair_telemetry = (
++            await repair_dropped_section_sentences(
++                kept=report.kept_sentences,
++                dropped=report.dropped_sentences,
++                evidence_pool=evidence_pool,
++                model=model,
++                max_tokens=400,
++                temperature=0.2,
++            )
++        )
++        if section_repair_telemetry.attempts > 0:
++            logger.info(
++                "[multi_section] %s repair_loop: attempts=%d "
++                "successes=%d (rate=%.2f) null_drops=%d "
++                "token_set_violations=%d re_verify_fail=%d "
++                "api_fail=%d",
++                section.title,
++                section_repair_telemetry.attempts,
++                section_repair_telemetry.successes,
++                section_repair_telemetry.recovery_rate,
++                section_repair_telemetry.null_drops,
++                section_repair_telemetry.token_set_violations,
++                section_repair_telemetry.re_verify_failures,
++                section_repair_telemetry.api_failures,
++            )
++            total_in_tok += section_repair_telemetry.input_tokens
++            total_out_tok += section_repair_telemetry.output_tokens
++        # Codex iter-1 P0 #2: drop accounting honest — recovered
++        # sentences are removed from dropped (already done in repair
++        # orchestrator) and added to kept. Replace the report's lists
++        # in-place so downstream M-41c filter sees the augmented kept.
++        report.kept_sentences = repaired_kept
++        report.dropped_sentences = repaired_dropped
++        report.total_kept = len(repaired_kept)
++        report.total_dropped = len(repaired_dropped)
++    except Exception as exc:
++        logger.warning(
++            "[multi_section] %s repair_loop failed (non-fatal): %s",
++            section.title, exc,
++        )
++
+     total = max(1, report.total_in)
+     kept_fraction = report.total_kept / total
+ 
+diff --git a/src/polaris_graph/generator/sentence_repair.py b/src/polaris_graph/generator/sentence_repair.py
+new file mode 100644
+index 00000000..ebb8f15c
+--- /dev/null
++++ b/src/polaris_graph/generator/sentence_repair.py
+@@ -0,0 +1,356 @@
++"""I-bug-108 — Verifier-driven sentence repair loop.
++
++Per Codex strategic-review iter 1 path B + I-bug-108 brief APPROVE:
++when strict_verify drops a sentence due to "drift" failures (entailment,
++number, trial-name, content overlap), feed (sentence, cited spans,
++failure reason) back to the generator and ask for a single rewrite that
++makes the cited span actually entail the claim.
++
++Key design points:
++
++1. **Loop runs AFTER strict_verify** — does not modify the verifier;
++   the verifier remains the source of truth. Repair is a downstream
++   recovery layer that re-presents repaired candidates to the same
++   verification chain.
++
++2. **Targets drift failures only** — no_provenance_token, invalid_token,
++   span_out_of_range are NOT repairable (the sentence has no anchor or
++   its anchor is invalid; rewriting won't help). See REPAIRABLE_REASONS.
++
++3. **Token-set preservation (Codex iter-1 P0)** — repaired output MUST
++   carry exactly the same [#ev:id:start-end] markers as the original,
++   in any order. Any change → treated as repair failure (preserves the
++   audit invariant: kept prose never references evidence the original
++   draft didn't cite).
++
++4. **Bounded** — 1 retry per sentence, cap MAX_PER_SECTION repairs.
++   Deterministic order (original drop order) so MAX_PER_SECTION cap
++   doesn't make runs noisy.
++
++5. **Drop accounting honest** — recovered sentences move from dropped
++   to kept; failed-repair sentences stay dropped (no double-counting).
++
++6. **Off by default in tests, on by default in production** — gated by
++   PG_REPAIR_LOOP_ENABLED env var. Tests autouse-fixture set =false to
++   keep CI free of accidental network calls.
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import re
++from dataclasses import dataclass
++from typing import Any
++
++from src.polaris_graph.generator.provenance_generator import (
++    SentenceVerification,
++    parse_provenance_tokens,
++    verify_sentence_provenance,
++)
++
++logger = logging.getLogger(__name__)
++
++
++# ---------------------------------------------------------------------------
++# Tunables
++# ---------------------------------------------------------------------------
++
++MAX_RETRIES_PER_SENTENCE = 1  # Codex iter-1 brief: bounded; cost discipline
++MAX_PER_SECTION_DEFAULT = 10  # Codex iter-1 brief
++NULL_DROP_SENTINEL = "NULL_DROP"
++
++# Failures that benefit from rewriting. See module docstring point 2.
++REPAIRABLE_REASON_PREFIXES: frozenset[str] = frozenset({
++    "entailment_failed",
++    "number_not_in_any_cited_span",
++    "no_integer_overlap_any_cited_span",
++    "trial_name_mismatch",
++    "no_content_word_overlap_any_cited_span",
++    "overlap_too_low",
++})
++
++
++REPAIR_SYSTEM_PROMPT = """You are repairing a single sentence that a strict verifier dropped because the cited span does NOT support the sentence's specific claims. Your job is to rewrite the sentence so the cited span actually entails it — drop unsupported specifics, keep the [#ev:...] markers EXACTLY as they appear in the original, output exactly one rewritten sentence (no preamble, no sign-off).
++
++CONSTRAINTS (STRICT — non-compliance = repair failure):
++
++1. **Preserve [#ev:...] markers EXACTLY**: same evidence_id, same start-end byte range. The number of markers and their content must match the original. Do NOT add new markers, do NOT remove existing markers, do NOT change the byte ranges.
++
++2. **No new specifics not in the cited span**: do NOT introduce numbers, study names, jurisdictions, mechanism details, or comparators that aren't literally in the cited span text. The verifier will reject again if you do.
++
++3. **Hedge generic where the original was specific**: if the original said "tirzepatide reduced HbA1c by 1.7%" and the span only says "tirzepatide reduced HbA1c", rewrite as "tirzepatide reduced HbA1c [#ev:...]" — the qualitative claim is in the span, the magnitude is not.
++
++4. **If you cannot make the claim entailed by the span**: output exactly NULL_DROP (capital, no quotes, nothing else). The original drop will be preserved.
++
++5. **Output format**: just the rewritten sentence on a single line, ending with the [#ev:...] markers preserved. No quotes, no preamble, no explanation."""
++
++
++# ---------------------------------------------------------------------------
++# Repair invocation
++# ---------------------------------------------------------------------------
++
++
++def is_repairable(failure_reasons: list[str]) -> bool:
++    """A SentenceVerification.failure_reasons is repairable if every
++    reason has a prefix in REPAIRABLE_REASON_PREFIXES.
++
++    Mixed-failure sentences (e.g. invalid_token + entailment_failed)
++    are NOT repairable — the invalid_token side won't fix from a
++    rewrite. SKIP per the brief.
++    """
++    if not failure_reasons:
++        return False
++    for reason in failure_reasons:
++        prefix = reason.split(":", 1)[0]
++        if prefix not in REPAIRABLE_REASON_PREFIXES:
++            return False
++    return True
++
++
++def _extract_token_signature(sentence: str) -> tuple[str, ...]:
++    """Return a stable, sorted signature of all [#ev:id:start-end]
++    tokens in the sentence, used for the Codex iter-1 token-set
++    preservation check.
++
++    Order doesn't matter (a repair may rearrange tokens) but the SET
++    must match exactly. Each token's full string form is the unit.
++    """
++    tokens = parse_provenance_tokens(sentence)
++    return tuple(sorted(t.raw for t in tokens))
++
++
++def _build_cited_spans_block(
++    tokens: list[Any],
++    evidence_pool: dict[str, dict[str, Any]],
++) -> str:
++    """Render the cited spans the original sentence pointed to, so the
++    repair model can read the actual text it must entail.
++    """
++    lines = []
++    for tok in tokens:
++        ev = evidence_pool.get(tok.evidence_id)
++        direct = ""
++        if ev is not None:
++            direct = ev.get("direct_quote") or ev.get("statement") or ""
++        span_text = direct[tok.start:tok.end] if tok.end <= len(direct) else direct[tok.start:]
++        lines.append(
++            f"  [#ev:{tok.evidence_id}:{tok.start}-{tok.end}]:\n"
++            f"    {span_text!r}"
++        )
++    return "\n".join(lines)
++
++
++async def repair_sentence(
++    *,
++    dropped: SentenceVerification,
++    evidence_pool: dict[str, dict[str, Any]],
++    model: str = "deepseek/deepseek-v3.2-exp",
++    max_tokens: int = 400,
++    temperature: float = 0.2,
++) -> tuple[str | None, int, int]:
++    """Single repair attempt on one dropped sentence.
++
++    Returns (repaired_text, in_tokens, out_tokens). Returns
++    (None, 0, 0) if the failure_reasons aren't repairable, the
++    LLM call fails, or the model returns NULL_DROP. Returns
++    (text, in_tok, out_tok) with the candidate rewrite otherwise —
++    caller must still re-run verify_sentence_provenance to confirm
++    the candidate now passes (token-set preservation, mechanical
++    checks, entailment).
++    """
++    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++
++    if not is_repairable(dropped.failure_reasons):
++        return None, 0, 0
++
++    cited_block = _build_cited_spans_block(dropped.tokens, evidence_pool)
++    reason_block = "\n".join(f"  - {r}" for r in dropped.failure_reasons)
++
++    prompt = (
++        f"ORIGINAL SENTENCE (was dropped by strict_verify):\n"
++        f"{dropped.sentence}\n\n"
++        f"CITED SPAN(S) FROM THE EVIDENCE:\n"
++        f"{cited_block}\n\n"
++        f"VERIFIER REASON FOR DROPPING:\n"
++        f"{reason_block}\n\n"
++        f"TASK: Rewrite the sentence per the rules. If the claim cannot be "
++        f"made entailed by the cited span, output NULL_DROP."
++    )
++
++    client = OpenRouterClient(model=model)
++    try:
++        response = await client.generate(
++            prompt=prompt,
++            system=REPAIR_SYSTEM_PROMPT,
++            max_tokens=max_tokens,
++            temperature=temperature,
++        )
++        text = (response.content or "").strip()
++        in_tok = response.input_tokens
++        out_tok = response.output_tokens
++    except Exception as exc:
++        logger.warning("[sentence_repair] LLM call failed: %s", exc)
++        return None, 0, 0
++    finally:
++        try:
++            await client.close()
++        except Exception:
++            pass
++
++    # Strip any wrapping quotes the model may have added
++    text = text.strip().strip('"').strip("'").strip()
++
++    if not text or text.upper().startswith(NULL_DROP_SENTINEL):
++        return None, in_tok, out_tok
++
++    return text, in_tok, out_tok
++
++
++# ---------------------------------------------------------------------------
++# Section orchestrator
++# ---------------------------------------------------------------------------
++
++
++@dataclass
++class RepairTelemetry:
++    attempts: int = 0
++    successes: int = 0
++    null_drops: int = 0           # model said NULL_DROP
++    token_set_violations: int = 0  # repaired output changed token set
++    re_verify_failures: int = 0    # repaired output still failed verifier
++    api_failures: int = 0
++    input_tokens: int = 0
++    output_tokens: int = 0
++
++    @property
++    def recovery_rate(self) -> float:
++        return self.successes / self.attempts if self.attempts else 0.0
++
++
++def _repair_loop_enabled() -> bool:
++    raw = os.environ.get("PG_REPAIR_LOOP_ENABLED", "true").lower().strip()
++    return raw in ("true", "1", "yes", "on")
++
++
++def _max_per_section() -> int:
++    raw = os.environ.get(
++        "PG_REPAIR_LOOP_MAX_PER_SECTION", str(MAX_PER_SECTION_DEFAULT),
++    )
++    try:
++        return max(0, int(raw))
++    except ValueError:
++        return MAX_PER_SECTION_DEFAULT
++
++
++async def repair_dropped_section_sentences(
++    *,
++    kept: list[SentenceVerification],
++    dropped: list[SentenceVerification],
++    evidence_pool: dict[str, dict[str, Any]],
++    model: str = "deepseek/deepseek-v3.2-exp",
++    max_tokens: int = 400,
++    temperature: float = 0.2,
++) -> tuple[list[SentenceVerification], list[SentenceVerification], RepairTelemetry]:
++    """Repair-loop orchestrator: walk the dropped list in order, attempt
++    repair on the first MAX_PER_SECTION repairable items, return
++    augmented (kept, dropped) lists + telemetry.
++
++    Per Codex iter-1 brief P0 #2: recovered sentences MOVE from dropped
++    to kept (no double-count). Failed-repair sentences STAY in dropped.
++
++    Per Codex iter-1 brief P0 #3: deterministic order (input list
++    order). MAX_PER_SECTION cap applies to ATTEMPT count, not failure
++    count, so a section with 30 drops and cap 10 attempts the first 10
++    repairable drops in order.
++
++    PT12 safety filter (added after I-bug-108 first-run abort): only
++    attempt repair on dropped sentences whose evidence_ids are ALL
++    already cited by some pre-repair kept sentence. Otherwise the
++    recovered sentence can introduce evidence_ids that the post-section
++    bibliography builder won't include, causing PT12
++    rule_pt12_invalid_citation_marker to fire downstream.
++    """
++    tel = RepairTelemetry()
++
++    if not _repair_loop_enabled():
++        return list(kept), list(dropped), tel
++
++    cap = _max_per_section()
++    new_kept = list(kept)
++    final_dropped: list[SentenceVerification] = []
++    attempted = 0
++
++    # PT12 safety: build set of evidence_ids cited by the original
++    # kept sentences. Repaired sentences must reference only these.
++    kept_ev_ids: set[str] = set()
++    for sv in kept:
++        for tok in sv.tokens:
++            kept_ev_ids.add(tok.evidence_id)
++
++    # Codex iter-1 P0: original-order iteration
++    for sv in dropped:
++        if attempted >= cap or not is_repairable(sv.failure_reasons):
++            final_dropped.append(sv)
++            continue
++        # PT12 safety: skip if dropped sentence cites evidence the
++        # original kept set doesn't reference.
++        sv_ev_ids = {tok.evidence_id for tok in sv.tokens}
++        if not sv_ev_ids.issubset(kept_ev_ids):
++            final_dropped.append(sv)
++            continue
++
++        attempted += 1
++        tel.attempts += 1
++
++        original_tokens = _extract_token_signature(sv.sentence)
++        if not original_tokens:
++            # No tokens to preserve → cannot meaningfully repair
++            final_dropped.append(sv)
++            continue
++
++        repaired_text, in_tok, out_tok = await repair_sentence(
++            dropped=sv,
++            evidence_pool=evidence_pool,
++            model=model,
++            max_tokens=max_tokens,
++            temperature=temperature,
++        )
++        tel.input_tokens += in_tok
++        tel.output_tokens += out_tok
++
++        if repaired_text is None:
++            # NULL_DROP or API failure
++            if in_tok == 0 and out_tok == 0:
++                tel.api_failures += 1
++            else:
++                tel.null_drops += 1
++            final_dropped.append(sv)
++            continue
++
++        # Token-set preservation check (Codex iter-1 P0 #1)
++        repaired_tokens = _extract_token_signature(repaired_text)
++        if repaired_tokens != original_tokens:
++            tel.token_set_violations += 1
++            logger.warning(
++                "[sentence_repair] repaired output changed token set "
++                "(orig=%s, repaired=%s) — keeping original drop",
++                original_tokens, repaired_tokens,
++            )
++            final_dropped.append(sv)
++            continue
++
++        # Re-run the FULL verification chain (mechanical checks +
++        # entailment if env-enabled). Codex iter-1 P0: yes.
++        re_verify = verify_sentence_provenance(
++            repaired_text, evidence_pool,
++        )
++        if re_verify.is_verified:
++            tel.successes += 1
++            new_kept.append(re_verify)
++            # Recovered: do NOT add to final_dropped
++        else:
++            tel.re_verify_failures += 1
++            final_dropped.append(sv)
++
++    return new_kept, final_dropped, tel
+diff --git a/tests/polaris_graph/test_analyst_synthesis.py b/tests/polaris_graph/test_analyst_synthesis.py
+index 5fdde7a0..96cc2b01 100644
+--- a/tests/polaris_graph/test_analyst_synthesis.py
++++ b/tests/polaris_graph/test_analyst_synthesis.py
+@@ -19,9 +19,64 @@ from src.polaris_graph.generator.analyst_synthesis import (
+     _format_bibliography_for_prompt,
+     _format_evidence_pool_for_prompt,
+     _scrub_ev_tokens,
++    _scrub_invalid_n_markers,
+ )
+ 
+ 
++# ---------- Invalid [N] marker scrub (I-bug-108 P0) ----------
++
++def test_scrub_invalid_n_markers_drops_out_of_range():
++    text = "Result A [1]. Result B [3]. Result C [19]. Result D [2]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 1
++    assert "[19]" not in cleaned
++    assert "[1]" in cleaned
++    assert "[2]" in cleaned
++    assert "[3]" in cleaned
++
++
++def test_scrub_invalid_n_markers_preserves_in_range():
++    text = "Result [1] and [2] and [5]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    assert n == 0
++    assert cleaned == text
++
++
++def test_scrub_invalid_n_markers_drops_zero_and_negative():
++    """Markers like [0] are also invalid — bibliography indices start at 1."""
++    text = "Result [0] [1] [-1]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=5)
++    # [0] dropped; [-1] not matched by \d+ regex (just "1" gets matched);
++    # actual scrub depends on regex. Just verify [0] gone.
++    assert "[0]" not in cleaned
++
++
++def test_scrub_invalid_n_markers_logs_warning(caplog):
++    text = "Result [99]."
++    with caplog.at_level("WARNING"):
++        _scrub_invalid_n_markers(text, biblio_size=5)
++    assert any("invalid [N]" in r.message for r in caplog.records)
++
++
++def test_scrub_invalid_n_markers_no_warning_on_clean(caplog):
++    text = "Result [1] [2]."
++    with caplog.at_level("WARNING"):
++        _scrub_invalid_n_markers(text, biblio_size=5)
++    assert not any("invalid [N]" in r.message for r in caplog.records)
++
++
++def test_scrub_invalid_n_markers_handles_mass_hallucination():
++    """Real-world failure mode: synthesis LLM emitted [18] [19] when
++    biblio had 17 entries. Scrub fixes both.
++    """
++    text = "Result [18] and [19] and [3]."
++    cleaned, n = _scrub_invalid_n_markers(text, biblio_size=17)
++    assert n == 2
++    assert "[18]" not in cleaned
++    assert "[19]" not in cleaned
++    assert "[3]" in cleaned
++
++
+ # ---------- Scrub guardrail (Codex iter-1 P0) ----------
+ 
+ def test_scrub_removes_single_ev_token():
+diff --git a/tests/polaris_graph/test_sentence_repair.py b/tests/polaris_graph/test_sentence_repair.py
+new file mode 100644
+index 00000000..1cedfd5e
+--- /dev/null
++++ b/tests/polaris_graph/test_sentence_repair.py
+@@ -0,0 +1,465 @@
++"""I-bug-108 — verifier-driven sentence repair loop tests.
++
++Codex iter-1 brief verdict required:
++  1. Token-set preservation check on repaired output
++  2. Drop accounting honest (recovered moved to kept, failed stay dropped)
++  3. Deterministic repair order (input list order)
++
++These tests pin those invariants + the standard wiring tests.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator import sentence_repair as sr
++from src.polaris_graph.generator.provenance_generator import (
++    SentenceVerification,
++    parse_provenance_tokens,
++)
++
++
++@pytest.fixture(autouse=True)
++def _enable_repair_loop(monkeypatch):
++    """Most tests want the loop enabled; override per-test for off-mode test."""
++    monkeypatch.setenv("PG_REPAIR_LOOP_ENABLED", "true")
++    monkeypatch.setenv("PG_REPAIR_LOOP_MAX_PER_SECTION", "10")
++
++
++# ---------- Repairable-reason classifier ----------
++
++def test_is_repairable_entailment_failed():
++    assert sr.is_repairable(["entailment_failed:ev_x:verdict=NEUTRAL:reason=foo"])
++
++
++def test_is_repairable_number_mismatch():
++    assert sr.is_repairable(["number_not_in_any_cited_span:ev_x:missing=['1.5']"])
++
++
++def test_is_repairable_trial_name_mismatch():
++    assert sr.is_repairable([
++        "trial_name_mismatch:ev_x:sentence_trials=['SURPASS-1']:evidence_trials=[]"
++    ])
++
++
++def test_is_repairable_no_provenance_token_returns_false():
++    """no_provenance_token has no anchor — repair won't help."""
++    assert not sr.is_repairable(["no_provenance_token"])
++
++
++def test_is_repairable_invalid_token_returns_false():
++    assert not sr.is_repairable(["evidence_not_in_pool:ev_unknown"])
++
++
++def test_is_repairable_span_out_of_bounds_returns_false():
++    assert not sr.is_repairable(["span_out_of_bounds:ev_x:50>40"])
++
++
++def test_is_repairable_mixed_failures_returns_false():
++    """Mixed-failure sentences (one fixable + one not) are NOT repaired."""
++    assert not sr.is_repairable([
++        "entailment_failed:ev_x",
++        "evidence_not_in_pool:ev_y",
++    ])
++
++
++def test_is_repairable_empty_returns_false():
++    assert not sr.is_repairable([])
++
++
++# ---------- Token signature extraction ----------
++
++def test_token_signature_single_token():
++    sig = sr._extract_token_signature(
++        "Drug worked [#ev:ev_a:0-50]."
++    )
++    assert sig == ("[#ev:ev_a:0-50]",)
++
++
++def test_token_signature_multiple_tokens_sorted():
++    """Signature is sorted so order changes don't trigger violation."""
++    sig1 = sr._extract_token_signature(
++        "First [#ev:ev_a:0-10] then [#ev:ev_b:5-20]."
++    )
++    sig2 = sr._extract_token_signature(
++        "Drug [#ev:ev_b:5-20] worked [#ev:ev_a:0-10]."
++    )
++    assert sig1 == sig2
++
++
++def test_token_signature_change_detected():
++    """If repair changes evidence_id, signature differs."""
++    sig_orig = sr._extract_token_signature("Drug [#ev:ev_a:0-10].")
++    sig_changed = sr._extract_token_signature("Drug [#ev:ev_b:0-10].")
++    assert sig_orig != sig_changed
++
++
++def test_token_signature_byte_range_change_detected():
++    sig_orig = sr._extract_token_signature("Drug [#ev:ev_a:0-10].")
++    sig_changed = sr._extract_token_signature("Drug [#ev:ev_a:0-20].")
++    assert sig_orig != sig_changed
++
++
++# ---------- Repair loop orchestrator (off-mode) ----------
++
++@pytest.mark.asyncio
++async def test_repair_loop_disabled_by_env_skips_calls(monkeypatch):
++    """ENV=false → loop returns inputs unchanged, no LLM call."""
++    monkeypatch.setenv("PG_REPAIR_LOOP_ENABLED", "false")
++
++    kept = [_mk_sv("kept", verified=True)]
++    dropped = [_mk_sv(
++        "drop [#ev:ev_x:0-10].",
++        verified=False,
++        reasons=["entailment_failed:ev_x:verdict=NEUTRAL"],
++    )]
++
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=dropped, evidence_pool={},
++    )
++    assert new_kept == kept
++    assert new_dropped == dropped
++    assert tel.attempts == 0
++
++
++# ---------- Repair loop orchestrator (on-mode with fakes) ----------
++
++class _FakeRepairLLM:
++    """Returns canned repaired text per call. Drives the verify
++    re-run via the patched verify_sentence_provenance.
++    """
++
++    def __init__(self, responses: list[str | None]):
++        self.responses = list(responses)
++        self.calls: list[SentenceVerification] = []
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_skips_unrepairable_reasons(monkeypatch):
++    """Sentences with no_provenance_token / invalid_token → not attempted."""
++    kept: list[SentenceVerification] = []
++    dropped = [
++        _mk_sv("no anchor", verified=False, reasons=["no_provenance_token"]),
++        _mk_sv(
++            "bad ev [#ev:ev_z:0-10].",
++            verified=False,
++            reasons=["evidence_not_in_pool:ev_z"],
++        ),
++    ]
++
++    # Patch repair_sentence to assert it's never called
++    called = []
++    async def _fake_repair(**kwargs):
++        called.append(kwargs)
++        return None, 0, 0
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=dropped, evidence_pool={},
++    )
++    assert new_kept == kept
++    assert new_dropped == dropped
++    assert tel.attempts == 0
++    assert called == []
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_recovery_path(monkeypatch):
++    """Repair returns text → re-verify passes → sentence MOVES from
++    dropped to kept (Codex iter-1 P0 #2 drop accounting).
++    """
++    full_text = "Drug reduced HbA1c by 1.5% in adults with diabetes."
++    pool = {
++        "ev_a": {"evidence_id": "ev_a", "direct_quote": full_text},
++    }
++    # PT12 safety filter: dropped sentence must cite ev_id that IS in kept
++    kept: list[SentenceVerification] = [
++        _mk_sv("Existing kept [#ev:ev_a:0-50].", verified=True),
++    ]
++    dropped = [
++        _mk_sv(
++            "Drug reduced HbA1c by 9.9% [#ev:ev_a:0-50].",
++            verified=False,
++            reasons=["number_not_in_any_cited_span:ev_a:missing=['9.9']"],
++        ),
++    ]
++
++    repaired = "Drug reduced HbA1c [#ev:ev_a:0-50]."
++    async def _fake_repair(**kwargs):
++        return repaired, 100, 50
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    # Use real verify_sentence_provenance (the repaired text should
++    # pass — number_not_in_any_cited_span no longer triggers since the
++    # rewrite has no number).
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert tel.attempts == 1
++    assert tel.successes == 1
++    # kept[0] is the pre-existing seed; kept[1] is the recovered
++    assert len(new_kept) == 2
++    assert "9.9" not in new_kept[1].sentence
++    assert new_dropped == []  # No double-counting
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_null_drop_keeps_original(monkeypatch):
++    """Repair returns None (NULL_DROP/error) → original drop preserved."""
++    pool = {"ev_a": {"evidence_id": "ev_a", "direct_quote": "Drug data."}}
++    dropped_sv = _mk_sv(
++        "Drug worked perfectly [#ev:ev_a:0-10].",
++        verified=False,
++        reasons=["entailment_failed:ev_a:verdict=NEUTRAL"],
++    )
++
++    async def _fake_repair(**kwargs):
++        return None, 100, 5  # NULL_DROP path
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    # PT12 safety: seed kept with same ev_id so dropped is eligible for repair
++    seed_kept = [_mk_sv(
++        "Pre-existing seed [#ev:ev_a:0-10].", verified=True,
++    )]
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=seed_kept, dropped=[dropped_sv], evidence_pool=pool,
++    )
++    assert tel.attempts == 1
++    assert tel.successes == 0
++    assert tel.null_drops == 1
++    assert len(new_dropped) == 1
++    assert new_dropped[0] == dropped_sv  # Original preserved
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_token_set_violation_detected(monkeypatch):
++    """Repaired output that ADDS a new [#ev:...] marker → repair fails
++    (Codex iter-1 P0 #1 token-set preservation).
++    """
++    pool = {
++        "ev_a": {"evidence_id": "ev_a", "direct_quote": "Drug A worked."},
++        "ev_b": {"evidence_id": "ev_b", "direct_quote": "Drug B worked."},
++    }
++    dropped_sv = _mk_sv(
++        "Drug A worked [#ev:ev_a:0-10].",
++        verified=False,
++        reasons=["entailment_failed:ev_a:verdict=NEUTRAL"],
++    )
++
++    # Repair adds a NEW marker [#ev:ev_b:...] not in the original
++    async def _fake_repair(**kwargs):
++        return "Drug A worked [#ev:ev_a:0-10][#ev:ev_b:0-10].", 100, 50
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    # PT12 safety: seed kept with same ev_id so dropped is eligible for repair
++    seed_kept = [_mk_sv(
++        "Pre-existing seed [#ev:ev_a:0-10].", verified=True,
++    )]
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=seed_kept, dropped=[dropped_sv], evidence_pool=pool,
++    )
++    assert tel.attempts == 1
++    assert tel.successes == 0
++    assert tel.token_set_violations == 1
++    assert new_dropped == [dropped_sv]
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_max_per_section_caps_attempts(monkeypatch):
++    """MAX_PER_SECTION=2 → only first 2 repairable drops attempted."""
++    monkeypatch.setenv("PG_REPAIR_LOOP_MAX_PER_SECTION", "2")
++    pool = {"ev_a": {"evidence_id": "ev_a", "direct_quote": "data"}}
++
++    dropped = [
++        _mk_sv(
++            f"Drop {i} [#ev:ev_a:0-4].",
++            verified=False,
++            reasons=["entailment_failed:ev_a:verdict=NEUTRAL"],
++        )
++        for i in range(5)
++    ]
++
++    async def _fake_repair(**kwargs):
++        return None, 100, 5  # always NULL_DROP
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    seed_kept = [_mk_sv(
++        "Pre-existing [#ev:ev_a:0-4].", verified=True,
++    )]
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=seed_kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert tel.attempts == 2
++    assert len(new_dropped) == 5  # all stay dropped
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_processes_in_order(monkeypatch):
++    """Codex iter-1 P0 #3: deterministic order. First N items repaired
++    in input-list order, not random.
++    """
++    monkeypatch.setenv("PG_REPAIR_LOOP_MAX_PER_SECTION", "3")
++    pool = {"ev_a": {"evidence_id": "ev_a", "direct_quote": "data"}}
++
++    dropped = [
++        _mk_sv(
++            f"Sentence_{i} [#ev:ev_a:0-4].",
++            verified=False,
++            reasons=["entailment_failed:ev_a:verdict=NEUTRAL"],
++        )
++        for i in range(5)
++    ]
++
++    seen_order = []
++    async def _fake_repair(**kwargs):
++        seen_order.append(kwargs["dropped"].sentence)
++        return None, 50, 10
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    # PT12 safety: seed kept with same ev_id so all dropped are eligible
++    seed_kept = [_mk_sv(
++        "Pre-existing [#ev:ev_a:0-4].", verified=True,
++    )]
++    await sr.repair_dropped_section_sentences(
++        kept=seed_kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert seen_order == [
++        "Sentence_0 [#ev:ev_a:0-4].",
++        "Sentence_1 [#ev:ev_a:0-4].",
++        "Sentence_2 [#ev:ev_a:0-4].",
++    ]
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_telemetry_records_all_outcomes(monkeypatch):
++    """Mixed run: 1 success + 1 null_drop + 1 token_violation + 1 not-attempted."""
++    pool = {
++        "ev_a": {"evidence_id": "ev_a", "direct_quote": "Drug A data."},
++    }
++    dropped = [
++        _mk_sv(
++            "Drug claim 1 [#ev:ev_a:0-10].",
++            verified=False,
++            reasons=["entailment_failed:ev_a"],
++        ),
++        _mk_sv(
++            "Drug claim 2 [#ev:ev_a:0-10].",
++            verified=False,
++            reasons=["entailment_failed:ev_a"],
++        ),
++        _mk_sv(
++            "Drug claim 3 [#ev:ev_a:0-10].",
++            verified=False,
++            reasons=["entailment_failed:ev_a"],
++        ),
++        _mk_sv(
++            "no anchor",
++            verified=False,
++            reasons=["no_provenance_token"],
++        ),
++    ]
++
++    # Drug claim 1 → recovered (real verify will pass with simple text)
++    # Drug claim 2 → null_drop
++    # Drug claim 3 → token violation (adds new marker)
++    responses = iter([
++        ("Drug A data [#ev:ev_a:0-10].", 100, 50),  # real verify will pass
++        (None, 50, 10),                                 # null drop
++        ("Drug claim 3 [#ev:ev_a:0-10][#ev:ev_b:0-5].", 100, 50),  # adds marker
++    ])
++    async def _fake_repair(**kwargs):
++        return next(responses)
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    seed_kept = [_mk_sv(
++        "Pre-existing [#ev:ev_a:0-4].", verified=True,
++    )]
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=seed_kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert tel.attempts == 3  # last item not_repairable, skipped
++    assert tel.null_drops == 1
++    assert tel.token_set_violations == 1
++    assert tel.input_tokens > 0
++    assert tel.output_tokens > 0
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_pt12_safety_skips_unkept_evidence_id(monkeypatch):
++    """PT12 safety: a dropped sentence whose evidence_id is NOT cited
++    by any kept sentence MUST NOT be attempted (would otherwise expand
++    the bibliography and trigger rule_pt12_invalid_citation_marker).
++    """
++    pool = {
++        "ev_a": {"evidence_id": "ev_a", "direct_quote": "Drug A worked."},
++        "ev_b": {"evidence_id": "ev_b", "direct_quote": "Drug B worked."},
++    }
++    # Kept sentence cites ev_a only
++    kept = [_mk_sv("Kept sentence [#ev:ev_a:0-10].", verified=True)]
++    # Dropped sentence cites ev_b which is NOT in kept's citations
++    dropped = [
++        _mk_sv(
++            "Drug B claim [#ev:ev_b:0-10].",
++            verified=False,
++            reasons=["entailment_failed:ev_b:verdict=NEUTRAL"],
++        ),
++    ]
++
++    called = []
++    async def _fake_repair(**kwargs):
++        called.append(kwargs)
++        return None, 0, 0
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert tel.attempts == 0, "PT12 safety: ev_b not in kept set, must skip"
++    assert called == []
++    assert new_dropped == dropped
++
++
++@pytest.mark.asyncio
++async def test_repair_loop_pt12_safety_allows_kept_evidence_id(monkeypatch):
++    """The flip side: if the dropped sentence cites only ev_ids that
++    ARE in the kept set, it IS eligible for repair.
++    """
++    pool = {
++        "ev_a": {"evidence_id": "ev_a", "direct_quote": "Drug A worked."},
++    }
++    kept = [_mk_sv("Kept [#ev:ev_a:0-10].", verified=True)]
++    dropped = [
++        _mk_sv(
++            "Drug A also caused things [#ev:ev_a:0-10].",
++            verified=False,
++            reasons=["entailment_failed:ev_a:verdict=NEUTRAL"],
++        ),
++    ]
++
++    called = []
++    async def _fake_repair(**kwargs):
++        called.append(kwargs)
++        return None, 50, 10  # null_drop
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    new_kept, new_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=dropped, evidence_pool=pool,
++    )
++    assert tel.attempts == 1, "ev_a IS in kept set, should attempt"
++    assert len(called) == 1
++
++
++# ---------- Helpers ----------
++
++def _mk_sv(
++    sentence: str,
++    *,
++    verified: bool = False,
++    reasons: list[str] | None = None,
++) -> SentenceVerification:
++    return SentenceVerification(
++        sentence=sentence,
++        tokens=parse_provenance_tokens(sentence),
++        is_verified=verified,
++        failure_reasons=reasons or [],
++    )
+
+
+# canonical-diff-sha256: 9b0d3c9c73342716d55303c6c68ac8dc0a36957e075c3abb5fbefaeebac2ae11
+
+```
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0:
+  - "P0: PT12 root-cause fix is incomplete. `_scrub_invalid_n_markers` only removes numeric markers where `N > biblio_size`, but the production failure described was `max_marker=19, biblio_size=17` while the added real-world test uses `biblio_size=17` and text containing `[18] [19]`; that passes. The remaining risk is not out-of-range positives, but that the scrub can silently leave malformed citation-looking markers such as `[-1]` because `_N_MARKER_RE` only matches `\\[(\\d+)\\]`. The test acknowledges this but does not assert it. If PT12 or downstream citation parsing treats negative/malformed bracket citations as invalid, this still aborts."
+p1:
+  - "P1: `api_failures` telemetry is misclassified. `repair_sentence` returns `(None, 0, 0)` for LLM exceptions, but also returns `(None, 0, 0)` for any repairable sentence where the call produced no token accounting. The orchestrator uses token counts to distinguish API failure from `NULL_DROP`, so telemetry can report API failures for valid model `NULL_DROP` responses with zero/unknown token counts. This does not corrupt kept/dropped behavior, but it makes the verifier-driven repair manifest unreliable."
+p2:
+  - "Consider splitting the PT12 synthesis scrub into I-bug-109 unless this PR is explicitly scoped as the release unblocker. It is logically separate from sentence repair and has its own evaluator contract."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Strengthen `_scrub_invalid_n_markers` against the actual PT12 parser semantics, especially malformed/negative bracket citations if those are invalid downstream."
+  - "Make repair outcome explicit instead of inferring API failure vs NULL_DROP from token counts."
+```
+
+Bundle vs split: acceptable to bundle only if this PR is the production release unblock and the PT12 scrub is required for `release_allowed=TRUE`. Otherwise split it; it is a separate I-bug-105/I-bug-109 root cause.
+
+Recovery variance: accept as stochastic. Both reported sweeps are above the approved `0.30` floor, so I would not require a third sweep for merge.
+tokens used
+13,848
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0:
+  - "P0: PT12 root-cause fix is incomplete. `_scrub_invalid_n_markers` only removes numeric markers where `N > biblio_size`, but the production failure described was `max_marker=19, biblio_size=17` while the added real-world test uses `biblio_size=17` and text containing `[18] [19]`; that passes. The remaining risk is not out-of-range positives, but that the scrub can silently leave malformed citation-looking markers such as `[-1]` because `_N_MARKER_RE` only matches `\\[(\\d+)\\]`. The test acknowledges this but does not assert it. If PT12 or downstream citation parsing treats negative/malformed bracket citations as invalid, this still aborts."
+p1:
+  - "P1: `api_failures` telemetry is misclassified. `repair_sentence` returns `(None, 0, 0)` for LLM exceptions, but also returns `(None, 0, 0)` for any repairable sentence where the call produced no token accounting. The orchestrator uses token counts to distinguish API failure from `NULL_DROP`, so telemetry can report API failures for valid model `NULL_DROP` responses with zero/unknown token counts. This does not corrupt kept/dropped behavior, but it makes the verifier-driven repair manifest unreliable."
+p2:
+  - "Consider splitting the PT12 synthesis scrub into I-bug-109 unless this PR is explicitly scoped as the release unblocker. It is logically separate from sentence repair and has its own evaluator contract."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Strengthen `_scrub_invalid_n_markers` against the actual PT12 parser semantics, especially malformed/negative bracket citations if those are invalid downstream."
+  - "Make repair outcome explicit instead of inferring API failure vs NULL_DROP from token counts."
+```
+
+Bundle vs split: acceptable to bundle only if this PR is the production release unblock and the PT12 scrub is required for `release_allowed=TRUE`. Otherwise split it; it is a separate I-bug-105/I-bug-109 root cause.
+
+Recovery variance: accept as stochastic. Both reported sweeps are above the approved `0.30` floor, so I would not require a third sweep for merge.

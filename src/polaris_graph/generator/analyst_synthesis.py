@@ -102,6 +102,62 @@ preamble, no sign-off, no [#ev:...] tokens anywhere."""
 
 
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# I-bug-108 iter-2 P0 fix: extend regex to catch malformed markers
+# (negative numbers, leading zeros, whitespace) that pass through the
+# original positive-integer-only pattern. Downstream PT12 parser may
+# treat any of these as invalid; scrub them all to be safe.
+_N_MARKER_RE = re.compile(r"\[(-?\d+)\]")
+_MALFORMED_MARKER_RE = re.compile(r"\[\s*(-?\d+)\s*\]")
+
+
+def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
+    """Remove [N] bibliography markers where N is invalid.
+
+    Invalid means:
+      - N > biblio_size (out-of-range hallucination)
+      - N < 1 (zero, negative — bibliography indices start at 1)
+      - whitespace-padded forms like [ 5 ] (parser-fragile)
+
+    I-bug-108 P0 fix: the synthesis LLM occasionally hallucinates [N]
+    indices beyond the bibliography. The downstream evaluator rule
+    PT12 (rule_pt12_invalid_citation_marker) aborts the report when
+    max_marker > evidence_pool size. Scrub them runtime so production
+    runs don't abort. Returns (cleaned_text, num_scrubbed).
+
+    Iter-2 P0 hardening per Codex review: also catch [-N], [ N ],
+    [01], etc. — anything that looks like a citation marker but isn't
+    a valid 1..biblio_size index.
+    """
+    scrubbed = 0
+
+    def _replace(match: re.Match) -> str:
+        nonlocal scrubbed
+        try:
+            n = int(match.group(1))
+        except (ValueError, TypeError):
+            scrubbed += 1
+            return ""
+        if n < 1 or n > biblio_size:
+            scrubbed += 1
+            return ""  # drop the invalid marker entirely
+        # Also drop if the original raw form had padding/leading zero
+        # (bibliography emits "[1]" not "[ 1 ]" or "[01]")
+        raw = match.group(0)
+        canonical = f"[{n}]"
+        if raw != canonical:
+            scrubbed += 1
+            return ""
+        return raw
+
+    cleaned = _MALFORMED_MARKER_RE.sub(_replace, text)
+    if scrubbed > 0:
+        logger.warning(
+            "[analyst_synthesis] scrubbed %d invalid [N] marker(s) "
+            "(out-of-range OR malformed; biblio_size=%d) — "
+            "synthesis LLM hallucinated indices",
+            scrubbed, biblio_size,
+        )
+    return cleaned, scrubbed
 
 
 def _scrub_ev_tokens(text: str) -> str:
@@ -221,4 +277,9 @@ async def generate_analyst_synthesis(
 
     # Codex iter-1 P0 guardrail: scrub [#ev:...] tokens from synthesis.
     cleaned = _scrub_ev_tokens(text)
+    # I-bug-108 P0: scrub [N] markers exceeding bibliography size
+    # to prevent rule_pt12_invalid_citation_marker from aborting the
+    # report. Synthesis LLM occasionally hallucinates indices; scrub
+    # them runtime so production runs don't abort.
+    cleaned, _ = _scrub_invalid_n_markers(cleaned, biblio_size=len(bibliography))
     return cleaned, in_tok, out_tok

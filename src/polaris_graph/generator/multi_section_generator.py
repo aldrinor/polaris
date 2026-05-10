@@ -1114,6 +1114,65 @@ async def _run_section(
     # Strict verify against full evidence_pool (not subset — the model
     # might cite an ev from outside the assigned subset; still valid).
     report = strict_verify(rewritten, evidence_pool)
+
+    # I-bug-108: verifier-driven sentence repair loop. Per Codex
+    # strategic-review iter 1 path B (recommended after PR #350 D).
+    # When strict_verify drops sentences for "drift" reasons (entailment
+    # failed, number/trial-name mismatches, content overlap), feed the
+    # dropped sentence + cited spans + failure reason back to the
+    # generator and ask for one rewrite that the cited span entails.
+    # Repaired sentences re-run the FULL verification chain before
+    # entering kept[]; failures stay dropped (no double-counting).
+    # Per Codex iter-1 brief verdict: 1 retry per sentence, MAX 10
+    # repairs per section, deterministic order, token-set preservation
+    # check. Telemetry (attempts/successes/failures) accumulates on
+    # the SectionResult so the manifest can report recovery rate.
+    section_repair_telemetry = None
+    try:
+        from src.polaris_graph.generator.sentence_repair import (
+            repair_dropped_section_sentences,
+        )
+        repaired_kept, repaired_dropped, section_repair_telemetry = (
+            await repair_dropped_section_sentences(
+                kept=report.kept_sentences,
+                dropped=report.dropped_sentences,
+                evidence_pool=evidence_pool,
+                model=model,
+                max_tokens=400,
+                temperature=0.2,
+            )
+        )
+        if section_repair_telemetry.attempts > 0:
+            logger.info(
+                "[multi_section] %s repair_loop: attempts=%d "
+                "successes=%d (rate=%.2f) null_drops=%d "
+                "token_set_violations=%d re_verify_fail=%d "
+                "api_fail=%d",
+                section.title,
+                section_repair_telemetry.attempts,
+                section_repair_telemetry.successes,
+                section_repair_telemetry.recovery_rate,
+                section_repair_telemetry.null_drops,
+                section_repair_telemetry.token_set_violations,
+                section_repair_telemetry.re_verify_failures,
+                section_repair_telemetry.api_failures,
+            )
+            total_in_tok += section_repair_telemetry.input_tokens
+            total_out_tok += section_repair_telemetry.output_tokens
+        # Codex iter-1 P0 #2: drop accounting honest — recovered
+        # sentences are removed from dropped (already done in repair
+        # orchestrator) and added to kept. Replace the report's lists
+        # in-place so downstream M-41c filter sees the augmented kept.
+        report.kept_sentences = repaired_kept
+        report.dropped_sentences = repaired_dropped
+        report.total_kept = len(repaired_kept)
+        report.total_dropped = len(repaired_dropped)
+    except Exception as exc:
+        logger.warning(
+            "[multi_section] %s repair_loop failed (non-fatal): %s",
+            section.title, exc,
+        )
+
     total = max(1, report.total_in)
     kept_fraction = report.total_kept / total
 
