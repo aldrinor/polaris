@@ -95,10 +95,13 @@ question + verified prose):
   - "Open questions and future directions"
   - (or others appropriate to the domain)
 
-Use ## subheadings for each sub-section. Total length: 1500-3000 words.
+Use ### subheadings for each sub-section (NOT ## — those are reserved
+for the parent section header that wraps the synthesis block). Total
+length: 1500-3000 words.
 
-OUTPUT: plain prose with [N] citation markers and ## subheadings. No
-preamble, no sign-off, no [#ev:...] tokens anywhere."""
+OUTPUT: plain prose with [N] citation markers and ### subheadings. No
+preamble, no sign-off, no [#ev:...] tokens anywhere. Do NOT emit ##
+headers — the renderer wraps this prose under a single ## heading."""
 
 
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
@@ -248,7 +251,7 @@ async def generate_analyst_synthesis(
         f"=== TASK ===\n\n"
         f"Write the Analyst Synthesis section now, following the rules. "
         f"Hedge interpretive claims; cite by [N] only; no [#ev:...] tokens; "
-        f"4-6 sub-sections with ## subheadings; 1500-3000 words total."
+        f"4-6 sub-sections with ### subheadings; 1500-3000 words total."
     )
 
     client = OpenRouterClient(model=model)
