@@ -97,3 +97,4 @@ index 988a9708..f9284870 100644
  })
  
  DEFAULT_DOMAIN = "clinical"
+# canonical-diff-sha256: 8a6299817d30ba5a9a70fe98fc4eb0cf58bcc25400da77fe73c917532aa9e1a5
