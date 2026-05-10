@@ -232,3 +232,4 @@ index 00000000..a44b9171
 +This tracker is the SINGLE source of truth for blocked-on-user-action
 +state. When state changes, update this file rather than scattering
 +status across 11 individual issue threads.
+# canonical-diff-sha256: deaff9375ed47fde7aa1ecb70f7cec5d58e441d0bcad074830e493ecc0448923
