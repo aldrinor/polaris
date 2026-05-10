@@ -1,0 +1,2819 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e10e7-5a88-7792-bc65-902964d76893
+--------
+user
+## §0 — HARD ITERATION CAP (per CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §1 — Diff under review
+
+GH#353 — I-bug-099. Brief APPROVE'd iter 2 (0 P0/P1, 2 P2 cosmetic, `accept_remaining`).
+
+Diff: `.codex/I-bug-099/codex_diff.patch` (2 files, +243 insertions, -178 deletions).
+
+| File | Δ | Notes |
+|---|---|---|
+| `src/polaris_graph/llm/entailment_judge.py` | NEW (+207) | Canonical home for: `_DEFAULT_ENTAILMENT_MODEL`, `_ENTAILMENT_TIMEOUT_S`, `_ENTAILMENT_PROMPT`, `_EntailmentJudge` class, `_JUDGE_SINGLETON`, `_get_judge()`, `_JUDGE_TELEMETRY`, `get_judge_telemetry()`, `reset_judge_telemetry()`, `_record_judge_outcome()`. |
+| `src/polaris_graph/generator2/strict_verify.py` | -178, +36 | Remove inline definitions; replace with `from polaris_graph.llm.entailment_judge import (…)` re-export block. KEEP `_DEFAULT_MODE`, `_UNKNOWN_MODE_WARNED`, `_entailment_mode()` (per iter-2 brief: tests rebind `strict_verify._UNKNOWN_MODE_WARNED` and the mode resolver must read the rebind via this module's globals). Comment block documents WHY `_JUDGE_SINGLETON` is NOT re-exported (resolver lives in entailment_judge.py and updates `global _JUDGE_SINGLETON` there; tests' incidental `monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", ...)` creates a harmless vestigial attribute, but the same tests also patch `_get_judge` which IS re-exported and propagates correctly). |
+| `src/polaris_graph/generator/provenance_generator.py` | UNCHANGED | Per iter-2 P1 fix: production verifier still lazy-imports from strict_verify. The "single import path" goal is achieved at the canonical-definition level, not at the import-site level. |
+
+**Net: +243 / -178 lines; clean canonical relocation. Below §3.0 200-LOC cap on the LOGICAL change (the two large blocks are mostly relocation, not new code).**
+
+## §2 — Test verification (already run on actual diff)
+
+`pytest tests/polaris_graph/generator2/test_strict_verify_entailment.py tests/polaris_graph/generator2/test_strict_verify_telemetry.py tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py tests/polaris_graph/test_provenance_generator_entailment.py tests/crown_jewels/test_cj_008_entailment_correctness.py -x -q`:
+
+```
+============================= 66 passed in 4.31s ==============================
+```
+
+**66/66 pass on the post-refactor diff.** Confirms the iter-2 approach (re-export judge symbols from strict_verify, keep mode resolver + WARNED set in strict_verify) preserves the existing monkeypatch test pattern without modifying any test file.
+
+## §3 — Brief-iter-2 P2 findings — disposition
+
+| Brief iter-2 P2 | Disposition |
+|---|---|
+| `polaris_graph/llm/__init__.py` not empty; importing entailment_judge will execute __init__.py and eagerly import openrouter_client, changing strict_verify cold-import/off-mode behavior. | **Acknowledged, not blocking.** Empirically: 66/66 tests pass including off-mode tests (`test_off_mode_skips_entailment`, etc.). The eager OpenRouterClient import does NOT trigger a network call (only class-definition imports). off-mode behavior is preserved at the `_entailment_mode() == "off"` early-return level inside `verify_sentence`. Cold-import cost is ~negligible (pure Python class import). Hardening `llm/__init__.py` to lazy-load is a separate I-bug-102 concern (already filed: GH#356 — "Off-mode should skip generator2 import"). |
+| Re-exporting assignment-backed globals like `_JUDGE_SINGLETON` is not a true alias. | **Documented in code comment.** The new strict_verify.py block lines 138-147 explicitly documents that `_JUDGE_SINGLETON` is NOT re-exported and that test `_get_judge` rebinds carry the test patch surface. Test pass rate (66/66) confirms the pattern works. |
+
+## §4 — Files I have ALSO checked and they're clean
+
+- `src/polaris_graph/generator2/generator.py:43` — imports `verify_sentence` etc. from `strict_verify` (unchanged). Does NOT touch entailment helpers. ✓
+- `src/polaris_graph/generator/provenance_generator.py:755` — lazy-imports `_entailment_mode, _get_judge, _record_judge_outcome` from `strict_verify` (unchanged). All three names are re-exported by strict_verify after the refactor. ✓
+- `src/polaris_graph/llm/__init__.py` — unchanged (still eagerly imports OpenRouterClient). See §3 P2-1 above.
+- `src/polaris_graph/llm/openrouter_client.py` — unchanged. The new entailment_judge.py module lazy-imports `check_family_segregation` from this file inside `_EntailmentJudge.__init__()` (preserving the §9.1.1 family-segregation invariant). Lazy import keeps off-mode unaffected. ✓
+- `tests/polaris_graph/generator2/test_strict_verify_entailment.py` — unchanged. Tests patch `strict_verify._JUDGE_SINGLETON` (vestigial after refactor — see §3 P2-2) AND `strict_verify._get_judge` (which IS re-exported). 24/24 tests pass. ✓
+- `tests/polaris_graph/generator2/test_strict_verify_telemetry.py` — unchanged. 11/11 pass. ✓
+- `tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py` — unchanged. Tests rebind `strict_verify._UNKNOWN_MODE_WARNED` (kept in strict_verify per iter-2 brief). 9/9 pass. ✓
+- `tests/polaris_graph/test_provenance_generator_entailment.py` — unchanged. Tests `monkeypatch.setattr(_gen2, "_get_judge", lambda: fake)` where `_gen2 = strict_verify`. Provenance verifier's lazy import picks up the patched lambda. 10/10 pass. ✓
+- `tests/crown_jewels/test_cj_008_entailment_correctness.py` — unchanged. End-to-end Crown Jewel test. 10/10 pass. ✓
+- `.github/workflows/codex-required.yml` — unchanged.
+- `state/active_issue.json`, `state/polaris_restart/charter_sha_pin.txt` — untouched.
+- `docs/canonical_pin.txt` — untouched (none of the modified files are canonical-pinned).
+
+## §5 — Output Schema Bound (per CLAUDE.md §8.3.9)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## §6 — Convergence Hint
+
+Brief APPROVE'd iter 2. Diff implements exactly what brief described:
+- 207-line canonical entailment_judge.py module created.
+- 178 lines removed from strict_verify.py; 36 lines added (re-exports + comment block).
+- Mode resolver kept in strict_verify per iter-2 P2 fix.
+- Provenance verifier UNCHANGED per iter-2 P1 fix.
+- 66/66 entailment tests pass on actual post-refactor code.
+
+Expected APPROVE on iter 1 of diff review.
+diff --git a/src/polaris_graph/generator2/strict_verify.py b/src/polaris_graph/generator2/strict_verify.py
+index 2b877c1e..f8e37de7 100644
+--- a/src/polaris_graph/generator2/strict_verify.py
++++ b/src/polaris_graph/generator2/strict_verify.py
+@@ -113,124 +113,38 @@ def _decimals(text: str) -> set[str]:
+ # Entailment judge (I-bug-092 — provenance correctness)
+ # ---------------------------------------------------------------------------
+ #
+-# After mechanical checks (a)-(e) pass, the entailment judge asks an LLM
+-# whether the cited span semantically ENTAILS the sentence's specific
+-# claims. This catches the residual fabrication patterns the audit on
+-# 2026-05-09 surfaced:
+-#   - mechanistic granularity insertion (M2: span says "adipocyte
+-#     metabolism", sentence adds "lipid metabolism, energy storage")
+-#   - specificity inflation (C2: span says "GLP-1 RAs", sentence
+-#     upgrades to "semaglutide at the highest studied doses")
+-#   - numbers nearby but not entailed (C1: span has 27/46/19 elsewhere,
+-#     sentence claims 69-80% reach <=6.5% which is not in the span)
+-#
+-# The judge is the two-family evaluator (Gemma 4 31B by default), which
+-# matches the §9.1.1 invariant — a different lineage than the generator
+-# (DeepSeek). Calls go through OpenRouter using the existing project
+-# auth substrate.
+-
+-_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+-_ENTAILMENT_TIMEOUT_S = 30.0
+-_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+-
+-Rules:
+-- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+-- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
+-- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
+-
+-Return STRICT JSON only, no prose:
+-{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
+-
+-SPAN:
+-{span}
+-
+-SENTENCE:
+-{sentence}
+-
+-JSON:"""
+-
+-
+-class _EntailmentJudge:
+-    """Synchronous httpx wrapper around an OpenRouter entailment call.
+-
+-    Lazy-initialized via _get_judge() so import-time cost is zero when
+-    PG_STRICT_VERIFY_ENTAILMENT=off (the default).
+-    """
+-
+-    def __init__(self) -> None:
+-        import httpx  # local import: avoid forcing the dep when off
+-
+-        # Lazy-import the family-segregation check so the off-mode path
+-        # never touches openrouter_client. The judge is acting as a
+-        # content evaluator (Layer-2), so it MUST differ from the
+-        # generator family per CLAUDE.md §9.1.1 — fail at construction
+-        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+-        from polaris_graph.llm.openrouter_client import check_family_segregation
+-
+-        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+-        if not api_key:
+-            raise RuntimeError(
+-                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
+-            )
+-        self._api_key = api_key
+-        self._model = os.environ.get(
+-            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+-        )
+-        # Two-family invariant per §9.1.1: raises RuntimeError if the
+-        # entailment judge ends up in the same family as the generator
+-        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
+-        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
+-        # default model (google/gemma-4-31b-it) is in a different
+-        # family from DeepSeek by construction.
+-        check_family_segregation(evaluator_model=self._model)
+-        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
+-
+-    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+-        """Return (verdict, reason).
+-
+-        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+-        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
+-        fail-open so a transient OpenRouter outage does not nuke a run.
+-        """
+-        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+-        try:
+-            response = self._client.post(
+-                "https://openrouter.ai/api/v1/chat/completions",
+-                headers={
+-                    "Authorization": f"Bearer {self._api_key}",
+-                    "Content-Type": "application/json",
+-                },
+-                json={
+-                    "model": self._model,
+-                    "messages": [{"role": "user", "content": prompt}],
+-                    "temperature": 0.0,
+-                    "max_tokens": 100,
+-                    "response_format": {"type": "json_object"},
+-                },
+-            )
+-            response.raise_for_status()
+-            data = response.json()
+-            content = data["choices"][0]["message"]["content"]
+-            parsed = json.loads(content)
+-            verdict = str(parsed.get("verdict", "")).upper().strip()
+-            reason = str(parsed.get("reason", ""))
+-            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+-                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+-            return verdict, reason
+-        except Exception as exc:  # noqa: BLE001 — fail-open by design
+-            logger.warning("entailment judge error: %s", exc)
+-            return "ENTAILED", f"judge_error: {type(exc).__name__}"
+-
+-
+-_JUDGE_SINGLETON: _EntailmentJudge | None = None
+-
++# Definitions extracted to `polaris_graph.llm.entailment_judge` per
++# I-bug-099 so future call sites have a single canonical home for the
++# judge class + lazy singleton + telemetry counters. Re-exported here
++# for backwards compatibility with the existing test pattern that
++# monkey-patches `strict_verify._get_judge`, `strict_verify._JUDGE_TELEMETRY`,
++# etc. via `monkeypatch.setattr(strict_verify, ...)`. Both `verify_sentence`
++# (in this module) and `provenance_generator.verify_sentence_provenance`
++# (which lazy-imports `_get_judge` from this module) read the re-exported
++# names — a single rebind on `strict_verify` propagates to both.
++
++from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
++    _DEFAULT_ENTAILMENT_MODEL,
++    _ENTAILMENT_PROMPT,
++    _ENTAILMENT_TIMEOUT_S,
++    _EntailmentJudge,
++    _JUDGE_TELEMETRY,
++    _get_judge,
++    _record_judge_outcome,
++    get_judge_telemetry,
++    reset_judge_telemetry,
++)
+ 
+-def _get_judge() -> _EntailmentJudge:
+-    """Lazy singleton so off-mode pays zero import/connection cost."""
+-    global _JUDGE_SINGLETON
+-    if _JUDGE_SINGLETON is None:
+-        _JUDGE_SINGLETON = _EntailmentJudge()
+-    return _JUDGE_SINGLETON
++# Note: `_JUDGE_SINGLETON` is NOT re-exported here. The resolver state
++# lives in `polaris_graph.llm.entailment_judge` and is updated via
++# that module's `global _JUDGE_SINGLETON` declaration in `_get_judge()`.
++# Tests that do `monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON",
++# fake, raising=False)` create a vestigial attribute that the resolver
++# never reads — but the same tests also patch `_get_judge`, which IS
++# re-exported and DOES propagate (provenance_generator lazy-imports
++# `_get_judge` from this module at call time, so it picks up the patched
++# value). Test patch surface is preserved by the `_get_judge` rebind;
++# the `_JUDGE_SINGLETON` rebind is incidental.
+ 
+ 
+ # I-bug-097: dedup unknown-mode warnings so a long-running process logs
+@@ -238,68 +152,12 @@ def _get_judge() -> _EntailmentJudge:
+ # PG_STRICT_VERIFY_ENTAILMENT=ENFORCE (already lowercased fine) or
+ # =enforced (verb form, falls through to off). Without a warning, the
+ # typo silently disables the gate.
+-_UNKNOWN_MODE_WARNED: set[str] = set()
+-
+-
+-# I-bug-096: process-lifetime telemetry counters for the entailment gate.
+-# Per Codex review of I-bug-092: in enforce mode the judge fail-open
+-# path returns ("ENTAILED", "judge_error: ...") on transient API errors.
+-# A persistent OpenRouter outage or model-format change could make the
+-# 6th check silently inert — every sentence falls through as ENTAILED
+-# while WARNING lines accumulate. These counters give an operator a
+-# concise "the gate ran N times, M of those errored" signal.
+ #
+-# Counters are strict_verify-side (not judge-side) per Codex's iter-1
+-# brief verdict: gate behavior is what we want to measure, not a
+-# specific judge implementation. Tests with FakeJudge tick these too,
+-# and a future swapped judge cannot bypass the judge_error counter.
+-_JUDGE_TELEMETRY: dict[str, int] = {
+-    "calls": 0,
+-    "entailed": 0,
+-    "neutral": 0,
+-    "contradicted": 0,
+-    "judge_error": 0,
+-}
+-
+-
+-def get_judge_telemetry() -> dict[str, int]:
+-    """Snapshot of process-lifetime entailment-judge counters.
+-
+-    Read once before a job to compute deltas if needed. Operators
+-    concerned that the gate has gone silently inert can poll this from
+-    a health endpoint or scripts/observability tooling and alert on
+-    judge_error rate.
+-    """
+-    return dict(_JUDGE_TELEMETRY)
+-
+-
+-def reset_judge_telemetry() -> None:
+-    """Zero all judge telemetry counters in-place.
+-
+-    Public so operators can deliberately reset between jobs / runs.
+-    Tests use this for isolation; production callers can use it to
+-    bound the counter arithmetic to a single run window.
+-    """
+-    for key in _JUDGE_TELEMETRY:
+-        _JUDGE_TELEMETRY[key] = 0
+-
+-
+-def _record_judge_outcome(verdict: str, reason: str) -> None:
+-    """Tick the appropriate counter based on judge return values.
+-
+-    Normalizes the existing judge fail-open contract: when reason
+-    starts with 'judge_error:', the call errored and was returned as
+-    ENTAILED to keep the run alive. We tick judge_error in that case
+-    instead of entailed so an operator can distinguish "gate accepted
+-    the sentence" from "gate failed open."
+-    """
+-    _JUDGE_TELEMETRY["calls"] += 1
+-    if reason.startswith("judge_error:"):
+-        _JUDGE_TELEMETRY["judge_error"] += 1
+-        return
+-    key = verdict.lower()
+-    if key in _JUDGE_TELEMETRY:
+-        _JUDGE_TELEMETRY[key] += 1
++# KEPT here (not moved to entailment_judge.py per I-bug-099 iter-2
++# brief): tests rebind via `monkeypatch.setattr(strict_verify,
++# "_UNKNOWN_MODE_WARNED", set(), raising=False)` and `_entailment_mode()`
++# reads it from this module's globals — preserving the rebind contract.
++_UNKNOWN_MODE_WARNED: set[str] = set()
+ 
+ 
+ # I-bug-095: production default flipped from "off" to "enforce" per
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+new file mode 100644
+index 00000000..bc34bf63
+--- /dev/null
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -0,0 +1,207 @@
++"""Entailment judge — LLM-as-judge for strict_verify check (f).
++
++Originally inlined in `polaris_graph.generator2.strict_verify`. Extracted
++per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
++I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
++a single canonical location.
++
++The judge asks an LLM whether a cited SPAN semantically ENTAILS a
++SENTENCE's specific claims. It runs AFTER mechanical checks (a)-(e) and
++catches residual fabrication patterns the audit on 2026-05-09 surfaced:
++  - mechanistic granularity insertion (M2)
++  - specificity inflation (C2)
++  - numbers nearby but not entailed (C1)
++
++The judge model is the two-family evaluator (Gemma 4 31B by default),
++matching the §9.1.1 invariant — different lineage from the generator
++(DeepSeek). Calls go through OpenRouter using the existing project
++auth substrate. Family segregation is enforced at construction.
++
++Public surface (re-exported via `polaris_graph.generator2.strict_verify`
++for backwards compat with monkeypatch test pattern):
++  - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
++  - _get_judge(): lazy singleton accessor
++  - _JUDGE_TELEMETRY: process-lifetime gate counters
++  - get_judge_telemetry(): read-only snapshot
++  - reset_judge_telemetry(): zero in-place
++  - _record_judge_outcome(): tick counters from judge result
++
++NOT moved here (still in strict_verify.py because tests rebind via
++monkeypatch.setattr on strict_verify):
++  - _DEFAULT_MODE
++  - _UNKNOWN_MODE_WARNED
++  - _entailment_mode()
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++
++logger = logging.getLogger(__name__)
++
++
++_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
++_ENTAILMENT_TIMEOUT_S = 30.0
++_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
++
++Rules:
++- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
++- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
++- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
++
++Return STRICT JSON only, no prose:
++{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
++
++SPAN:
++{span}
++
++SENTENCE:
++{sentence}
++
++JSON:"""
++
++
++class _EntailmentJudge:
++    """Synchronous httpx wrapper around an OpenRouter entailment call.
++
++    Lazy-initialized via _get_judge() so import-time cost is zero when
++    PG_STRICT_VERIFY_ENTAILMENT=off (the default before I-bug-095).
++    """
++
++    def __init__(self) -> None:
++        import httpx  # local import: avoid forcing the dep when off
++
++        # Lazy-import the family-segregation check so the off-mode path
++        # never touches openrouter_client. The judge is acting as a
++        # content evaluator (Layer-2), so it MUST differ from the
++        # generator family per CLAUDE.md §9.1.1 — fail at construction
++        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
++        from polaris_graph.llm.openrouter_client import check_family_segregation
++
++        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++        if not api_key:
++            raise RuntimeError(
++                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
++            )
++        self._api_key = api_key
++        self._model = os.environ.get(
++            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
++        )
++        # Two-family invariant per §9.1.1: raises RuntimeError if the
++        # entailment judge ends up in the same family as the generator
++        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
++        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
++        # default model (google/gemma-4-31b-it) is in a different
++        # family from DeepSeek by construction.
++        check_family_segregation(evaluator_model=self._model)
++        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
++
++    def judge(self, sentence: str, span: str) -> tuple[str, str]:
++        """Return (verdict, reason).
++
++        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
++        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
++        fail-open so a transient OpenRouter outage does not nuke a run.
++        """
++        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
++        try:
++            response = self._client.post(
++                "https://openrouter.ai/api/v1/chat/completions",
++                headers={
++                    "Authorization": f"Bearer {self._api_key}",
++                    "Content-Type": "application/json",
++                },
++                json={
++                    "model": self._model,
++                    "messages": [{"role": "user", "content": prompt}],
++                    "temperature": 0.0,
++                    "max_tokens": 100,
++                    "response_format": {"type": "json_object"},
++                },
++            )
++            response.raise_for_status()
++            data = response.json()
++            content = data["choices"][0]["message"]["content"]
++            parsed = json.loads(content)
++            verdict = str(parsed.get("verdict", "")).upper().strip()
++            reason = str(parsed.get("reason", ""))
++            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
++                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
++            return verdict, reason
++        except Exception as exc:  # noqa: BLE001 — fail-open by design
++            logger.warning("entailment judge error: %s", exc)
++            return "ENTAILED", f"judge_error: {type(exc).__name__}"
++
++
++_JUDGE_SINGLETON: _EntailmentJudge | None = None
++
++
++def _get_judge() -> _EntailmentJudge:
++    """Lazy singleton so off-mode pays zero import/connection cost."""
++    global _JUDGE_SINGLETON
++    if _JUDGE_SINGLETON is None:
++        _JUDGE_SINGLETON = _EntailmentJudge()
++    return _JUDGE_SINGLETON
++
++
++# I-bug-096: process-lifetime telemetry counters for the entailment gate.
++# In enforce mode the judge fail-open path returns ("ENTAILED",
++# "judge_error: ...") on transient API errors. A persistent OpenRouter
++# outage or model-format change could make the 6th check silently inert
++# — every sentence falls through as ENTAILED while WARNING lines
++# accumulate. These counters give an operator a concise "the gate ran N
++# times, M of those errored" signal.
++#
++# Counters are gate-side (not judge-side) per the original I-bug-092
++# brief verdict: gate behavior is what we want to measure, not a
++# specific judge implementation. Tests with FakeJudge tick these too,
++# and a future swapped judge cannot bypass the judge_error counter.
++_JUDGE_TELEMETRY: dict[str, int] = {
++    "calls": 0,
++    "entailed": 0,
++    "neutral": 0,
++    "contradicted": 0,
++    "judge_error": 0,
++}
++
++
++def get_judge_telemetry() -> dict[str, int]:
++    """Snapshot of process-lifetime entailment-judge counters.
++
++    Read once before a job to compute deltas if needed. Operators
++    concerned that the gate has gone silently inert can poll this from
++    a health endpoint or scripts/observability tooling and alert on
++    judge_error rate.
++    """
++    return dict(_JUDGE_TELEMETRY)
++
++
++def reset_judge_telemetry() -> None:
++    """Zero all judge telemetry counters in-place.
++
++    Public so operators can deliberately reset between jobs / runs.
++    Tests use this for isolation; production callers can use it to
++    bound the counter arithmetic to a single run window.
++    """
++    for key in _JUDGE_TELEMETRY:
++        _JUDGE_TELEMETRY[key] = 0
++
++
++def _record_judge_outcome(verdict: str, reason: str) -> None:
++    """Tick the appropriate counter based on judge return values.
++
++    Normalizes the existing judge fail-open contract: when reason
++    starts with 'judge_error:', the call errored and was returned as
++    ENTAILED to keep the run alive. We tick judge_error in that case
++    instead of entailed so an operator can distinguish "gate accepted
++    the sentence" from "gate failed open."
++    """
++    _JUDGE_TELEMETRY["calls"] += 1
++    if reason.startswith("judge_error:"):
++        _JUDGE_TELEMETRY["judge_error"] += 1
++        return
++    key = verdict.lower()
++    if key in _JUDGE_TELEMETRY:
++        _JUDGE_TELEMETRY[key] += 1
+
+codex
+I’ll review the actual workspace diff against the stated patch and focus on execution blockers: import behavior, monkeypatch surfaces, telemetry aliasing, and production call paths.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_graph/generator2/strict_verify.py src/polaris_graph/llm/entailment_judge.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator2/strict_verify.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/llm/entailment_judge.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "_get_judge|_record_judge_outcome|get_judge_telemetry|reset_judge_telemetry|_JUDGE_TELEMETRY|_JUDGE_SINGLETON|_entailment_mode" -n src tests' in C:\POLARIS
+ succeeded in 1793ms:
+ succeeded in 2305ms:
+"""Entailment judge — LLM-as-judge for strict_verify check (f).
+
+Originally inlined in `polaris_graph.generator2.strict_verify`. Extracted
+per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
+I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
+a single canonical location.
+
+The judge asks an LLM whether a cited SPAN semantically ENTAILS a
+SENTENCE's specific claims. It runs AFTER mechanical checks (a)-(e) and
+catches residual fabrication patterns the audit on 2026-05-09 surfaced:
+  - mechanistic granularity insertion (M2)
+  - specificity inflation (C2)
+  - numbers nearby but not entailed (C1)
+
+The judge model is the two-family evaluator (Gemma 4 31B by default),
+matching the §9.1.1 invariant — different lineage from the generator
+(DeepSeek). Calls go through OpenRouter using the existing project
+auth substrate. Family segregation is enforced at construction.
+
+Public surface (re-exported via `polaris_graph.generator2.strict_verify`
+for backwards compat with monkeypatch test pattern):
+  - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
+  - _get_judge(): lazy singleton accessor
+  - _JUDGE_TELEMETRY: process-lifetime gate counters
+  - get_judge_telemetry(): read-only snapshot
+  - reset_judge_telemetry(): zero in-place
+  - _record_judge_outcome(): tick counters from judge result
+
+NOT moved here (still in strict_verify.py because tests rebind via
+monkeypatch.setattr on strict_verify):
+  - _DEFAULT_MODE
+  - _UNKNOWN_MODE_WARNED
+  - _entailment_mode()
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+
+_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+_ENTAILMENT_TIMEOUT_S = 30.0
+_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+
+Rules:
+- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
+- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
+
+Return STRICT JSON only, no prose:
+{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
+
+SPAN:
+{span}
+
+SENTENCE:
+{sentence}
+
+JSON:"""
+
+
+class _EntailmentJudge:
+    """Synchronous httpx wrapper around an OpenRouter entailment call.
+
+    Lazy-initialized via _get_judge() so import-time cost is zero when
+    PG_STRICT_VERIFY_ENTAILMENT=off (the default before I-bug-095).
+    """
+
+    def __init__(self) -> None:
+        import httpx  # local import: avoid forcing the dep when off
+
+        # Lazy-import the family-segregation check so the off-mode path
+        # never touches openrouter_client. The judge is acting as a
+        # content evaluator (Layer-2), so it MUST differ from the
+        # generator family per CLAUDE.md §9.1.1 — fail at construction
+        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+        from polaris_graph.llm.openrouter_client import check_family_segregation
+
+        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
+            )
+        self._api_key = api_key
+        self._model = os.environ.get(
+            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+        )
+        # Two-family invariant per §9.1.1: raises RuntimeError if the
+        # entailment judge ends up in the same family as the generator
+        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
+        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
+        # default model (google/gemma-4-31b-it) is in a different
+        # family from DeepSeek by construction.
+        check_family_segregation(evaluator_model=self._model)
+        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
+
+    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+        """Return (verdict, reason).
+
+        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
+        fail-open so a transient OpenRouter outage does not nuke a run.
+        """
+        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+        try:
+            response = self._client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 100,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            verdict = str(parsed.get("verdict", "")).upper().strip()
+            reason = str(parsed.get("reason", ""))
+            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+            return verdict, reason
+        except Exception as exc:  # noqa: BLE001 — fail-open by design
+            logger.warning("entailment judge error: %s", exc)
+            return "ENTAILED", f"judge_error: {type(exc).__name__}"
+
+
+_JUDGE_SINGLETON: _EntailmentJudge | None = None
+
+
+def _get_judge() -> _EntailmentJudge:
+    """Lazy singleton so off-mode pays zero import/connection cost."""
+    global _JUDGE_SINGLETON
+    if _JUDGE_SINGLETON is None:
+        _JUDGE_SINGLETON = _EntailmentJudge()
+    return _JUDGE_SINGLETON
+
+
+# I-bug-096: process-lifetime telemetry counters for the entailment gate.
+# In enforce mode the judge fail-open path returns ("ENTAILED",
+# "judge_error: ...") on transient API errors. A persistent OpenRouter
+# outage or model-format change could make the 6th check silently inert
+# — every sentence falls through as ENTAILED while WARNING lines
+# accumulate. These counters give an operator a concise "the gate ran N
+# times, M of those errored" signal.
+#
+# Counters are gate-side (not judge-side) per the original I-bug-092
+# brief verdict: gate behavior is what we want to measure, not a
+# specific judge implementation. Tests with FakeJudge tick these too,
+# and a future swapped judge cannot bypass the judge_error counter.
+_JUDGE_TELEMETRY: dict[str, int] = {
+    "calls": 0,
+    "entailed": 0,
+    "neutral": 0,
+    "contradicted": 0,
+    "judge_error": 0,
+}
+
+
+def get_judge_telemetry() -> dict[str, int]:
+    """Snapshot of process-lifetime entailment-judge counters.
+
+    Read once before a job to compute deltas if needed. Operators
+    concerned that the gate has gone silently inert can poll this from
+    a health endpoint or scripts/observability tooling and alert on
+    judge_error rate.
+    """
+    return dict(_JUDGE_TELEMETRY)
+
+
+def reset_judge_telemetry() -> None:
+    """Zero all judge telemetry counters in-place.
+
+    Public so operators can deliberately reset between jobs / runs.
+    Tests use this for isolation; production callers can use it to
+    bound the counter arithmetic to a single run window.
+    """
+    for key in _JUDGE_TELEMETRY:
+        _JUDGE_TELEMETRY[key] = 0
+
+
+def _record_judge_outcome(verdict: str, reason: str) -> None:
+    """Tick the appropriate counter based on judge return values.
+
+    Normalizes the existing judge fail-open contract: when reason
+    starts with 'judge_error:', the call errored and was returned as
+    ENTAILED to keep the run alive. We tick judge_error in that case
+    instead of entailed so an operator can distinguish "gate accepted
+    the sentence" from "gate failed open."
+    """
+    _JUDGE_TELEMETRY["calls"] += 1
+    if reason.startswith("judge_error:"):
+        _JUDGE_TELEMETRY["judge_error"] += 1
+        return
+    key = verdict.lower()
+    if key in _JUDGE_TELEMETRY:
+        _JUDGE_TELEMETRY[key] += 1
+
+ succeeded in 3070ms:
+tests\polaris_graph\test_provenance_generator_entailment.py:39:    """Replace both the judge singleton and the _get_judge factory so
+tests\polaris_graph\test_provenance_generator_entailment.py:42:    monkeypatch.setattr(_gen2, "_JUDGE_SINGLETON", fake, raising=False)
+tests\polaris_graph\test_provenance_generator_entailment.py:43:    monkeypatch.setattr(_gen2, "_get_judge", lambda: fake)
+tests\polaris_graph\test_provenance_generator_entailment.py:49:    _gen2.reset_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py:205:    invokes the judge. A single get_judge_telemetry() snapshot must
+tests\polaris_graph\test_provenance_generator_entailment.py:220:    before = _gen2.get_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py:225:    after = _gen2.get_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py:249:    snap = _gen2.get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:4:not in the valid set), `_entailment_mode()` falls back to 'off', and
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:40:        m1 = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:41:        m2 = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:42:        m3 = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:55:        strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:70:        strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:71:        strict_verify._entailment_mode()  # repeat - should not re-warn
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:73:        strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:74:        strict_verify._entailment_mode()  # repeat - should not re-warn
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:86:        result = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:100:        result = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:112:        result = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:121:    The .lower() normalization in _entailment_mode is what saves
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py:127:        result = strict_verify._entailment_mode()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:7:get_judge_telemetry() and alert on judge_error rate.
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:22:    get_judge_telemetry,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:23:    reset_judge_telemetry,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:37:    reset_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:85:    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:86:    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:102:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:120:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:131:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:142:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:151:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:170:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:193:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:211:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:218:def test_get_judge_telemetry_returns_snapshot_not_live(monkeypatch) -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:219:    """Mutating the return value of get_judge_telemetry() MUST NOT
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:226:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:229:    fresh = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:234:# ---------- reset_judge_telemetry ----------
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:236:def test_reset_judge_telemetry_zeroes_all(monkeypatch) -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:240:    assert get_judge_telemetry()["calls"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:241:    reset_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:242:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:246:def test_reset_judge_telemetry_is_public_callable() -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:247:    """Sanity: reset_judge_telemetry is exported as a public name from
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:251:    assert hasattr(strict_verify, "reset_judge_telemetry")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:252:    assert not strict_verify.reset_judge_telemetry.__name__.startswith("_")
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:97:    # Reset singleton + install replacement so _get_judge() returns the fake.
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:98:    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:99:    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:363:def test_entailment_mode_env_parsing(monkeypatch, env_value, expected):
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:365:    assert strict_verify._entailment_mode() == expected
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:368:def test_entailment_mode_unset_defaults_enforce(monkeypatch):
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:373:    assert strict_verify._entailment_mode() == "enforce"
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:393:    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", None, raising=False)
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:405:    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", None, raising=False)
+src\polaris_graph\llm\entailment_judge.py:23:  - _get_judge(): lazy singleton accessor
+src\polaris_graph\llm\entailment_judge.py:24:  - _JUDGE_TELEMETRY: process-lifetime gate counters
+src\polaris_graph\llm\entailment_judge.py:25:  - get_judge_telemetry(): read-only snapshot
+src\polaris_graph\llm\entailment_judge.py:26:  - reset_judge_telemetry(): zero in-place
+src\polaris_graph\llm\entailment_judge.py:27:  - _record_judge_outcome(): tick counters from judge result
+src\polaris_graph\llm\entailment_judge.py:33:  - _entailment_mode()
+src\polaris_graph\llm\entailment_judge.py:69:    Lazy-initialized via _get_judge() so import-time cost is zero when
+src\polaris_graph\llm\entailment_judge.py:138:_JUDGE_SINGLETON: _EntailmentJudge | None = None
+src\polaris_graph\llm\entailment_judge.py:141:def _get_judge() -> _EntailmentJudge:
+src\polaris_graph\llm\entailment_judge.py:143:    global _JUDGE_SINGLETON
+src\polaris_graph\llm\entailment_judge.py:144:    if _JUDGE_SINGLETON is None:
+src\polaris_graph\llm\entailment_judge.py:145:        _JUDGE_SINGLETON = _EntailmentJudge()
+src\polaris_graph\llm\entailment_judge.py:146:    return _JUDGE_SINGLETON
+src\polaris_graph\llm\entailment_judge.py:161:_JUDGE_TELEMETRY: dict[str, int] = {
+src\polaris_graph\llm\entailment_judge.py:170:def get_judge_telemetry() -> dict[str, int]:
+src\polaris_graph\llm\entailment_judge.py:178:    return dict(_JUDGE_TELEMETRY)
+src\polaris_graph\llm\entailment_judge.py:181:def reset_judge_telemetry() -> None:
+src\polaris_graph\llm\entailment_judge.py:188:    for key in _JUDGE_TELEMETRY:
+src\polaris_graph\llm\entailment_judge.py:189:        _JUDGE_TELEMETRY[key] = 0
+src\polaris_graph\llm\entailment_judge.py:192:def _record_judge_outcome(verdict: str, reason: str) -> None:
+src\polaris_graph\llm\entailment_judge.py:201:    _JUDGE_TELEMETRY["calls"] += 1
+src\polaris_graph\llm\entailment_judge.py:203:        _JUDGE_TELEMETRY["judge_error"] += 1
+src\polaris_graph\llm\entailment_judge.py:206:    if key in _JUDGE_TELEMETRY:
+src\polaris_graph\llm\entailment_judge.py:207:        _JUDGE_TELEMETRY[key] += 1
+src\polaris_graph\generator2\strict_verify.py:120:# monkey-patches `strict_verify._get_judge`, `strict_verify._JUDGE_TELEMETRY`,
+src\polaris_graph\generator2\strict_verify.py:123:# (which lazy-imports `_get_judge` from this module) read the re-exported
+src\polaris_graph\generator2\strict_verify.py:131:    _JUDGE_TELEMETRY,
+src\polaris_graph\generator2\strict_verify.py:132:    _get_judge,
+src\polaris_graph\generator2\strict_verify.py:133:    _record_judge_outcome,
+src\polaris_graph\generator2\strict_verify.py:134:    get_judge_telemetry,
+src\polaris_graph\generator2\strict_verify.py:135:    reset_judge_telemetry,
+src\polaris_graph\generator2\strict_verify.py:138:# Note: `_JUDGE_SINGLETON` is NOT re-exported here. The resolver state
+src\polaris_graph\generator2\strict_verify.py:140:# that module's `global _JUDGE_SINGLETON` declaration in `_get_judge()`.
+src\polaris_graph\generator2\strict_verify.py:141:# Tests that do `monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON",
+src\polaris_graph\generator2\strict_verify.py:143:# never reads — but the same tests also patch `_get_judge`, which IS
+src\polaris_graph\generator2\strict_verify.py:145:# `_get_judge` from this module at call time, so it picks up the patched
+src\polaris_graph\generator2\strict_verify.py:146:# value). Test patch surface is preserved by the `_get_judge` rebind;
+src\polaris_graph\generator2\strict_verify.py:147:# the `_JUDGE_SINGLETON` rebind is incidental.
+src\polaris_graph\generator2\strict_verify.py:158:# "_UNKNOWN_MODE_WARNED", set(), raising=False)` and `_entailment_mode()`
+src\polaris_graph\generator2\strict_verify.py:176:def _entailment_mode() -> str:
+src\polaris_graph\generator2\strict_verify.py:279:    mode = _entailment_mode()
+src\polaris_graph\generator2\strict_verify.py:281:        verdict, reason = _get_judge().judge(sentence_clean, combined_span)
+src\polaris_graph\generator2\strict_verify.py:282:        _record_judge_outcome(verdict, reason)
+tests\crown_jewels\test_cj_008_entailment_correctness.py:122:    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
+tests\crown_jewels\test_cj_008_entailment_correctness.py:123:    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
+src\polaris_graph\generator\provenance_generator.py:756:                _entailment_mode,
+src\polaris_graph\generator\provenance_generator.py:757:                _get_judge,
+src\polaris_graph\generator\provenance_generator.py:758:                _record_judge_outcome,
+src\polaris_graph\generator\provenance_generator.py:761:            mode = _entailment_mode()
+src\polaris_graph\generator\provenance_generator.py:765:                verdict, reason = _get_judge().judge(
+src\polaris_graph\generator\provenance_generator.py:768:                _record_judge_outcome(verdict, reason)
+
+ succeeded in 3725ms:
+"""Strict verifier per CLAUDE.md §9.1 invariant 3.
+
+Per-sentence check enforcing:
+  (a) at least one provenance token present
+  (b) every token references an evidence_id in the pool
+  (c) span bounds are valid (0 <= start <= end <= len(text))
+  (d) every decimal in the sentence appears in the cited spans
+  (e) sentence and span share >= MIN_CONTENT_OVERLAP content words
+  (f) I-bug-092: span semantically ENTAILS the sentence's specific claims
+      (gated behind PG_STRICT_VERIFY_ENTAILMENT, defaults off)
+
+Checks (a)-(e) are mechanical "provenance hygiene" — they bound a claim to
+the same TOPIC as its span. Check (f) is "provenance correctness" — it
+verifies the span actually entails the sentence's specific facts. The
+audit on 2026-05-09 found that a capable generator can pass (a)-(e) by
+producing topically-overlapping prose that introduces unsourced specifics
+(e.g. inserting "pancreatic β-cells", "lipid metabolism", "energy storage"
+into a span that says only "synergistic actions on insulin secretion,
+glucagon suppression, appetite regulation, and adipocyte metabolism").
+
+Returns a (verifier_pass: bool, drop_reason: str | None) pair, or directly
+constructs a VerifiedSentence for use by the generator orchestrator.
+
+Tunables (read at call time so tests can override):
+  PG_PROVENANCE_MIN_CONTENT_OVERLAP — minimum shared content words (default 2)
+  PG_STRICT_VERIFY_ENTAILMENT       — "off" | "warn" | "enforce" (default)
+                                       off:     skip check (f), pre-I-bug-092 behavior
+                                                — operator override; production runs
+                                                  ship without provenance-correctness
+                                                  enforcement
+                                       warn:    run check (f), log violations,
+                                                do NOT drop (collect telemetry)
+                                       enforce: run check (f), drop on
+                                                NEUTRAL or CONTRADICTED verdict
+                                                (default per I-bug-095, validated
+                                                empirically by I-bug-094 live test)
+  PG_ENTAILMENT_MODEL               — entailment judge model
+                                       (default: google/gemma-4-31b-it,
+                                        the two-family evaluator)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+
+from polaris_graph.generator2.provenance import (
+    ProvenanceToken,
+    extract_tokens,
+    get_span_text,
+    strip_tokens,
+    validate_token_against_pool,
+)
+from polaris_graph.generator2.verified_report import (
+    DropReason,
+    VerifiedSentence,
+)
+from polaris_graph.retrieval2.evidence_pool import EvidencePool
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Tunables
+# ---------------------------------------------------------------------------
+
+DEFAULT_MIN_CONTENT_OVERLAP = 2
+
+# Minimal English stopword list. Strict-verify's content-word overlap should
+# count substantive vocabulary, not function words. This is intentionally
+# small — the rule is conservative ("at least 2 shared content words")
+# so even a short stoplist yields the right behavior.
+_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at",
+    "to", "for", "with", "as", "by", "from", "into", "through", "during",
+    "before", "after", "above", "below", "between", "is", "are", "was",
+    "were", "be", "been", "being", "have", "has", "had", "having", "do",
+    "does", "did", "doing", "will", "would", "should", "could", "may",
+    "might", "must", "can", "this", "that", "these", "those", "it",
+    "its", "their", "there", "they", "them", "we", "us", "our", "you",
+    "your", "i", "me", "my", "he", "she", "his", "her",
+})
+
+_DECIMAL_RE = re.compile(r"\d+(?:\.\d+)?")
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
+
+
+def _min_overlap_threshold() -> int:
+    raw = os.environ.get("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_MIN_CONTENT_OVERLAP
+
+
+def _content_words(text: str) -> set[str]:
+    """Lowercase content words (>=3 chars, not stopwords) from `text`."""
+    return {
+        m.group(0).lower()
+        for m in _WORD_RE.finditer(text)
+        if len(m.group(0)) >= 3 and m.group(0).lower() not in _STOPWORDS
+    }
+
+
+def _decimals(text: str) -> set[str]:
+    """Numeric tokens (integers + decimals) from `text`."""
+    return {m.group(0) for m in _DECIMAL_RE.finditer(text)}
+
+
+# ---------------------------------------------------------------------------
+# Entailment judge (I-bug-092 — provenance correctness)
+# ---------------------------------------------------------------------------
+#
+# Definitions extracted to `polaris_graph.llm.entailment_judge` per
+# I-bug-099 so future call sites have a single canonical home for the
+# judge class + lazy singleton + telemetry counters. Re-exported here
+# for backwards compatibility with the existing test pattern that
+# monkey-patches `strict_verify._get_judge`, `strict_verify._JUDGE_TELEMETRY`,
+# etc. via `monkeypatch.setattr(strict_verify, ...)`. Both `verify_sentence`
+# (in this module) and `provenance_generator.verify_sentence_provenance`
+# (which lazy-imports `_get_judge` from this module) read the re-exported
+# names — a single rebind on `strict_verify` propagates to both.
+
+from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
+    _DEFAULT_ENTAILMENT_MODEL,
+    _ENTAILMENT_PROMPT,
+    _ENTAILMENT_TIMEOUT_S,
+    _EntailmentJudge,
+    _JUDGE_TELEMETRY,
+    _get_judge,
+    _record_judge_outcome,
+    get_judge_telemetry,
+    reset_judge_telemetry,
+)
+
+# Note: `_JUDGE_SINGLETON` is NOT re-exported here. The resolver state
+# lives in `polaris_graph.llm.entailment_judge` and is updated via
+# that module's `global _JUDGE_SINGLETON` declaration in `_get_judge()`.
+# Tests that do `monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON",
+# fake, raising=False)` create a vestigial attribute that the resolver
+# never reads — but the same tests also patch `_get_judge`, which IS
+# re-exported and DOES propagate (provenance_generator lazy-imports
+# `_get_judge` from this module at call time, so it picks up the patched
+# value). Test patch surface is preserved by the `_get_judge` rebind;
+# the `_JUDGE_SINGLETON` rebind is incidental.
+
+
+# I-bug-097: dedup unknown-mode warnings so a long-running process logs
+# at most ONE WARNING per typo string. Operators sometimes set
+# PG_STRICT_VERIFY_ENTAILMENT=ENFORCE (already lowercased fine) or
+# =enforced (verb form, falls through to off). Without a warning, the
+# typo silently disables the gate.
+#
+# KEPT here (not moved to entailment_judge.py per I-bug-099 iter-2
+# brief): tests rebind via `monkeypatch.setattr(strict_verify,
+# "_UNKNOWN_MODE_WARNED", set(), raising=False)` and `_entailment_mode()`
+# reads it from this module's globals — preserving the rebind contract.
+_UNKNOWN_MODE_WARNED: set[str] = set()
+
+
+# I-bug-095: production default flipped from "off" to "enforce" per
+# Codex APPROVE iter 1. Empirical evidence: I-bug-094 live test ran
+# 4/4 audit-derived cases (M2/C2/C1 + positive control) against real
+# OpenRouter Gemma 4 31B and got correct verdicts. The cage is
+# structurally complete with I-bug-092..097 + I-cj-008; flipping the
+# default closes the loop on the 2026-05-09 audit-revealed gap.
+#
+# Operator escape hatch: `PG_STRICT_VERIFY_ENTAILMENT=off` continues
+# to disable the check explicitly. Documented per Codex iter-1 brief
+# verdict.
+_DEFAULT_MODE = "enforce"
+
+
+def _entailment_mode() -> str:
+    """Return one of 'off', 'warn', 'enforce'. Unknown values map to default.
+
+    I-bug-097: emit a single WARNING per process per unrecognized typo
+    string. Empty / unset env returns the default mode silently —
+    that is the intended default, not a misconfiguration.
+
+    I-bug-095: default mode is 'enforce' (was 'off' before this Issue).
+    Operators who need the pre-graduation behavior can set
+    PG_STRICT_VERIFY_ENTAILMENT=off explicitly.
+    """
+    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", _DEFAULT_MODE).lower().strip()
+    if raw and raw not in ("off", "warn", "enforce"):
+        if raw not in _UNKNOWN_MODE_WARNED:
+            _UNKNOWN_MODE_WARNED.add(raw)
+            logger.warning(
+                "PG_STRICT_VERIFY_ENTAILMENT=%r unrecognized; "
+                "treating as %r (default). Valid: off, warn, enforce.",
+                raw, _DEFAULT_MODE,
+            )
+        return _DEFAULT_MODE
+    return raw or _DEFAULT_MODE
+
+
+# ---------------------------------------------------------------------------
+# Per-sentence verifier
+# ---------------------------------------------------------------------------
+
+def verify_sentence(
+    sentence_text: str,
+    pool: EvidencePool,
+    min_content_overlap: int | None = None,
+    is_synthesis_claim: bool = False,
+) -> tuple[bool, DropReason | None]:
+    """Return (verifier_pass, drop_reason) for `sentence_text` against `pool`.
+
+    Pass: returns (True, None).
+    Fail: returns (False, drop_reason) with reason from DropReason literal.
+
+    Implements CLAUDE.md §9.1 invariant 3 in order:
+      1. at least one well-formed token        → no_provenance_token
+      2. every token references known source_id → invalid_token
+      3. spans within source bounds            → span_out_of_range
+      4. every decimal in sentence in spans    → numeric_mismatch
+      5. >=N shared content words              → overlap_too_low
+      6. (I-bug-092) span entails sentence     → entailment_failed
+         (gated by PG_STRICT_VERIFY_ENTAILMENT, off by default)
+
+    If `is_synthesis_claim=True` AND the sentence has no tokens, return
+    (True, None) — synthesis claims pass without provenance by definition
+    (I-f5-006). If a synthesis claim DOES carry tokens, that's a generator
+    bug; we still run token checks so the underlying invariant holds.
+    """
+    threshold = (
+        min_content_overlap
+        if min_content_overlap is not None
+        else _min_overlap_threshold()
+    )
+
+    tokens = extract_tokens(sentence_text)
+    if not tokens:
+        if is_synthesis_claim:
+            return True, None
+        return False, "no_provenance_token"
+
+    # Validate each token against the pool. Collect span texts for
+    # later numeric + overlap checks.
+    span_texts: list[str] = []
+    for token in tokens:
+        reason = validate_token_against_pool(token, pool)
+        if reason == "invalid_token":
+            return False, "invalid_token"
+        if reason == "span_out_of_range":
+            return False, "span_out_of_range"
+        # Token valid — fetch its span text
+        span = get_span_text(token, pool)
+        if span is None:
+            # Belt-and-suspenders: token validated but get_span_text said no.
+            return False, "span_out_of_range"
+        span_texts.append(span)
+
+    sentence_clean = strip_tokens(sentence_text)
+    combined_span = " ".join(span_texts)
+
+    # Decimal match: every decimal in sentence must appear in the combined
+    # span text. Permits the spans to contain MORE decimals than the
+    # sentence cites — that's fine; the constraint is one-way.
+    sentence_decimals = _decimals(sentence_clean)
+    span_decimals = _decimals(combined_span)
+    if not sentence_decimals.issubset(span_decimals):
+        return False, "numeric_mismatch"
+
+    # Content-word overlap
+    sentence_words = _content_words(sentence_clean)
+    span_words = _content_words(combined_span)
+    overlap = len(sentence_words & span_words)
+    if overlap < threshold:
+        return False, "overlap_too_low"
+
+    # Check (f) — entailment judge (I-bug-092). Synthesis claims with no
+    # tokens already short-circuited above; if a synthesis claim DOES
+    # carry tokens it must clear the same content-correctness bar as
+    # any other cited sentence.
+    mode = _entailment_mode()
+    if mode in ("warn", "enforce"):
+        verdict, reason = _get_judge().judge(sentence_clean, combined_span)
+        _record_judge_outcome(verdict, reason)
+        if verdict in ("NEUTRAL", "CONTRADICTED"):
+            logger.warning(
+                "entailment %s (mode=%s): sentence=%r reason=%r",
+                verdict, mode, sentence_clean, reason,
+            )
+            if mode == "enforce":
+                return False, "entailment_failed"
+
+    return True, None
+
+
+def verify_sentence_to_record(
+    sentence_text: str,
+    section_id: str,
+    pool: EvidencePool,
+    min_content_overlap: int | None = None,
+    is_synthesis_claim: bool = False,
+) -> VerifiedSentence:
+    """Convenience: wrap verify_sentence into a VerifiedSentence record.
+
+    Used by the generator orchestrator to build Section.verified_sentences.
+    """
+    passed, reason = verify_sentence(
+        sentence_text,
+        pool,
+        min_content_overlap=min_content_overlap,
+        is_synthesis_claim=is_synthesis_claim,
+    )
+    tokens = [t.raw for t in extract_tokens(sentence_text)]
+    return VerifiedSentence(
+        section_id=section_id,
+        sentence_text=sentence_text,
+        provenance_tokens=tokens,
+        verifier_pass=passed,
+        drop_reason=reason,
+        evaluator_agrees=passed,
+        is_synthesis_claim=is_synthesis_claim,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section-level rollup
+# ---------------------------------------------------------------------------
+
+def section_pass_rate(sentences: list[VerifiedSentence]) -> float:
+    """Fraction of sentences that passed verify, in [0.0, 1.0].
+
+    Empty list returns 0.0 (vacuously below any threshold).
+    """
+    if not sentences:
+        return 0.0
+    passed = sum(1 for s in sentences if s.verifier_pass)
+    return passed / len(sentences)
+
+codex
+The first pass shows the relocation itself is present, with `strict_verify` importing function objects from the new module. I’m checking whether any callers rely on rebinding module globals rather than mutating the shared dict, because that is the main place a relocation can silently change behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "_JUDGE_TELEMETRY|_record_judge_outcome|get_judge_telemetry|reset_judge_telemetry" -n tests src --context 3' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/llm/__init__.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/provenance_generator.py | Select-Object -Skip 720 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1578ms:
+src\polaris_graph\llm\entailment_judge.py-21-for backwards compat with monkeypatch test pattern):
+src\polaris_graph\llm\entailment_judge.py-22-  - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
+src\polaris_graph\llm\entailment_judge.py-23-  - _get_judge(): lazy singleton accessor
+src\polaris_graph\llm\entailment_judge.py:24:  - _JUDGE_TELEMETRY: process-lifetime gate counters
+src\polaris_graph\llm\entailment_judge.py:25:  - get_judge_telemetry(): read-only snapshot
+src\polaris_graph\llm\entailment_judge.py:26:  - reset_judge_telemetry(): zero in-place
+src\polaris_graph\llm\entailment_judge.py:27:  - _record_judge_outcome(): tick counters from judge result
+src\polaris_graph\llm\entailment_judge.py-28-
+src\polaris_graph\llm\entailment_judge.py-29-NOT moved here (still in strict_verify.py because tests rebind via
+src\polaris_graph\llm\entailment_judge.py-30-monkeypatch.setattr on strict_verify):
+--
+src\polaris_graph\llm\entailment_judge.py-158-# brief verdict: gate behavior is what we want to measure, not a
+src\polaris_graph\llm\entailment_judge.py-159-# specific judge implementation. Tests with FakeJudge tick these too,
+src\polaris_graph\llm\entailment_judge.py-160-# and a future swapped judge cannot bypass the judge_error counter.
+src\polaris_graph\llm\entailment_judge.py:161:_JUDGE_TELEMETRY: dict[str, int] = {
+src\polaris_graph\llm\entailment_judge.py-162-    "calls": 0,
+src\polaris_graph\llm\entailment_judge.py-163-    "entailed": 0,
+src\polaris_graph\llm\entailment_judge.py-164-    "neutral": 0,
+--
+src\polaris_graph\llm\entailment_judge.py-167-}
+src\polaris_graph\llm\entailment_judge.py-168-
+src\polaris_graph\llm\entailment_judge.py-169-
+src\polaris_graph\llm\entailment_judge.py:170:def get_judge_telemetry() -> dict[str, int]:
+src\polaris_graph\llm\entailment_judge.py-171-    """Snapshot of process-lifetime entailment-judge counters.
+src\polaris_graph\llm\entailment_judge.py-172-
+src\polaris_graph\llm\entailment_judge.py-173-    Read once before a job to compute deltas if needed. Operators
+--
+src\polaris_graph\llm\entailment_judge.py-175-    a health endpoint or scripts/observability tooling and alert on
+src\polaris_graph\llm\entailment_judge.py-176-    judge_error rate.
+src\polaris_graph\llm\entailment_judge.py-177-    """
+src\polaris_graph\llm\entailment_judge.py:178:    return dict(_JUDGE_TELEMETRY)
+src\polaris_graph\llm\entailment_judge.py-179-
+src\polaris_graph\llm\entailment_judge.py-180-
+src\polaris_graph\llm\entailment_judge.py:181:def reset_judge_telemetry() -> None:
+src\polaris_graph\llm\entailment_judge.py-182-    """Zero all judge telemetry counters in-place.
+src\polaris_graph\llm\entailment_judge.py-183-
+src\polaris_graph\llm\entailment_judge.py-184-    Public so operators can deliberately reset between jobs / runs.
+src\polaris_graph\llm\entailment_judge.py-185-    Tests use this for isolation; production callers can use it to
+src\polaris_graph\llm\entailment_judge.py-186-    bound the counter arithmetic to a single run window.
+src\polaris_graph\llm\entailment_judge.py-187-    """
+src\polaris_graph\llm\entailment_judge.py:188:    for key in _JUDGE_TELEMETRY:
+src\polaris_graph\llm\entailment_judge.py:189:        _JUDGE_TELEMETRY[key] = 0
+src\polaris_graph\llm\entailment_judge.py-190-
+src\polaris_graph\llm\entailment_judge.py-191-
+src\polaris_graph\llm\entailment_judge.py:192:def _record_judge_outcome(verdict: str, reason: str) -> None:
+src\polaris_graph\llm\entailment_judge.py-193-    """Tick the appropriate counter based on judge return values.
+src\polaris_graph\llm\entailment_judge.py-194-
+src\polaris_graph\llm\entailment_judge.py-195-    Normalizes the existing judge fail-open contract: when reason
+--
+src\polaris_graph\llm\entailment_judge.py-198-    instead of entailed so an operator can distinguish "gate accepted
+src\polaris_graph\llm\entailment_judge.py-199-    the sentence" from "gate failed open."
+src\polaris_graph\llm\entailment_judge.py-200-    """
+src\polaris_graph\llm\entailment_judge.py:201:    _JUDGE_TELEMETRY["calls"] += 1
+src\polaris_graph\llm\entailment_judge.py-202-    if reason.startswith("judge_error:"):
+src\polaris_graph\llm\entailment_judge.py:203:        _JUDGE_TELEMETRY["judge_error"] += 1
+src\polaris_graph\llm\entailment_judge.py-204-        return
+src\polaris_graph\llm\entailment_judge.py-205-    key = verdict.lower()
+src\polaris_graph\llm\entailment_judge.py:206:    if key in _JUDGE_TELEMETRY:
+src\polaris_graph\llm\entailment_judge.py:207:        _JUDGE_TELEMETRY[key] += 1
+--
+src\polaris_graph\generator\provenance_generator.py-755-            from polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
+src\polaris_graph\generator\provenance_generator.py-756-                _entailment_mode,
+src\polaris_graph\generator\provenance_generator.py-757-                _get_judge,
+src\polaris_graph\generator\provenance_generator.py:758:                _record_judge_outcome,
+src\polaris_graph\generator\provenance_generator.py-759-            )
+src\polaris_graph\generator\provenance_generator.py-760-
+src\polaris_graph\generator\provenance_generator.py-761-            mode = _entailment_mode()
+--
+src\polaris_graph\generator\provenance_generator.py-765-                verdict, reason = _get_judge().judge(
+src\polaris_graph\generator\provenance_generator.py-766-                    sentence_clean, combined_span,
+src\polaris_graph\generator\provenance_generator.py-767-                )
+src\polaris_graph\generator\provenance_generator.py:768:                _record_judge_outcome(verdict, reason)
+src\polaris_graph\generator\provenance_generator.py-769-                if verdict in ("NEUTRAL", "CONTRADICTED"):
+src\polaris_graph\generator\provenance_generator.py-770-                    if mode == "enforce":
+src\polaris_graph\generator\provenance_generator.py-771-                        ev_ids = ",".join(
+--
+src\polaris_graph\generator2\strict_verify.py-117-# I-bug-099 so future call sites have a single canonical home for the
+src\polaris_graph\generator2\strict_verify.py-118-# judge class + lazy singleton + telemetry counters. Re-exported here
+src\polaris_graph\generator2\strict_verify.py-119-# for backwards compatibility with the existing test pattern that
+src\polaris_graph\generator2\strict_verify.py:120:# monkey-patches `strict_verify._get_judge`, `strict_verify._JUDGE_TELEMETRY`,
+src\polaris_graph\generator2\strict_verify.py-121-# etc. via `monkeypatch.setattr(strict_verify, ...)`. Both `verify_sentence`
+src\polaris_graph\generator2\strict_verify.py-122-# (in this module) and `provenance_generator.verify_sentence_provenance`
+src\polaris_graph\generator2\strict_verify.py-123-# (which lazy-imports `_get_judge` from this module) read the re-exported
+--
+src\polaris_graph\generator2\strict_verify.py-128-    _ENTAILMENT_PROMPT,
+src\polaris_graph\generator2\strict_verify.py-129-    _ENTAILMENT_TIMEOUT_S,
+src\polaris_graph\generator2\strict_verify.py-130-    _EntailmentJudge,
+src\polaris_graph\generator2\strict_verify.py:131:    _JUDGE_TELEMETRY,
+src\polaris_graph\generator2\strict_verify.py-132-    _get_judge,
+src\polaris_graph\generator2\strict_verify.py:133:    _record_judge_outcome,
+src\polaris_graph\generator2\strict_verify.py:134:    get_judge_telemetry,
+src\polaris_graph\generator2\strict_verify.py:135:    reset_judge_telemetry,
+src\polaris_graph\generator2\strict_verify.py-136-)
+src\polaris_graph\generator2\strict_verify.py-137-
+src\polaris_graph\generator2\strict_verify.py-138-# Note: `_JUDGE_SINGLETON` is NOT re-exported here. The resolver state
+--
+src\polaris_graph\generator2\strict_verify.py-279-    mode = _entailment_mode()
+src\polaris_graph\generator2\strict_verify.py-280-    if mode in ("warn", "enforce"):
+src\polaris_graph\generator2\strict_verify.py-281-        verdict, reason = _get_judge().judge(sentence_clean, combined_span)
+src\polaris_graph\generator2\strict_verify.py:282:        _record_judge_outcome(verdict, reason)
+src\polaris_graph\generator2\strict_verify.py-283-        if verdict in ("NEUTRAL", "CONTRADICTED"):
+src\polaris_graph\generator2\strict_verify.py-284-            logger.warning(
+src\polaris_graph\generator2\strict_verify.py-285-                "entailment %s (mode=%s): sentence=%r reason=%r",
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-4-returns ("ENTAILED", "judge_error: ...") on transient OpenRouter
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-5-errors. A persistent outage could make the gate silently inert. These
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-6-tests pin the counter behavior so an operator can poll
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:7:get_judge_telemetry() and alert on judge_error rate.
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-8-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-9-Counter ownership: strict_verify-side per Codex iter-1 brief verdict.
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-10-Tests use FakeJudge to drive verdicts; counters tick from inside
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-19-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-20-from polaris_graph.generator2 import strict_verify
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-21-from polaris_graph.generator2.strict_verify import (
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:22:    get_judge_telemetry,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:23:    reset_judge_telemetry,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-24-    verify_sentence,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-25-)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-26-from polaris_graph.retrieval2.evidence_pool import (
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-34-@pytest.fixture(autouse=True)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-35-def _reset_counters() -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-36-    """Each test starts with zero counters."""
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:37:    reset_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-38-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-39-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-40-# ---------- Fixtures ----------
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-99-# ---------- Counter starts at zero ----------
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-100-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-101-def test_telemetry_starts_at_zero() -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:102:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-103-    assert snap == {
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-104-        "calls": 0,
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-105-        "entailed": 0,
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-117-    pool = _pool(_FULL_TEXT)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-118-    for _ in range(5):
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-119-        verify_sentence(_SENTENCE, pool)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:120:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-121-    assert snap["calls"] == 5
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-122-    assert snap["entailed"] == 5
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-123-
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-128-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-129-    _install(monkeypatch, _FakeJudge("ENTAILED"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-130-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:131:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-132-    assert snap["entailed"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-133-    assert snap["neutral"] == 0
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-134-    assert snap["contradicted"] == 0
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-139-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-140-    _install(monkeypatch, _FakeJudge("NEUTRAL"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-141-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:142:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-143-    assert snap["neutral"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-144-    assert snap["entailed"] == 0
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-145-
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-148-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-149-    _install(monkeypatch, _FakeJudge("CONTRADICTED"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-150-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:151:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-152-    assert snap["contradicted"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-153-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-154-
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-167-        _FakeJudge("ENTAILED", "judge_error: TimeoutError"),
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-168-    )
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-169-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:170:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-171-    assert snap["judge_error"] == 1, "fail-open MUST count as judge_error"
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-172-    assert snap["entailed"] == 0, "fail-open MUST NOT count as entailed"
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-173-    assert snap["calls"] == 1
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-190-    _install(monkeypatch, _FakeJudge("NEUTRAL"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-191-    verify_sentence(_SENTENCE, pool)
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-192-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:193:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-194-    assert snap["calls"] == 4
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-195-    assert snap["entailed"] == 2
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-196-    assert snap["neutral"] == 1
+--
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-208-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-209-    _install(monkeypatch, _FakeJudge("NEUTRAL"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-210-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:211:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-212-    assert snap["calls"] == 0
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-213-    assert snap["neutral"] == 0
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-214-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-215-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-216-# ---------- Snapshot vs live reference ----------
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-217-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:218:def test_get_judge_telemetry_returns_snapshot_not_live(monkeypatch) -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:219:    """Mutating the return value of get_judge_telemetry() MUST NOT
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-220-    mutate the underlying counters — operators reading the snapshot
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-221-    should not be able to corrupt the source.
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-222-    """
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-223-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-224-    _install(monkeypatch, _FakeJudge("ENTAILED"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-225-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:226:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-227-    snap["calls"] = 999
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-228-    snap["entailed"] = 999
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:229:    fresh = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-230-    assert fresh["calls"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-231-    assert fresh["entailed"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-232-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-233-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:234:# ---------- reset_judge_telemetry ----------
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-235-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:236:def test_reset_judge_telemetry_zeroes_all(monkeypatch) -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-237-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-238-    _install(monkeypatch, _FakeJudge("ENTAILED"))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-239-    verify_sentence(_SENTENCE, _pool(_FULL_TEXT))
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:240:    assert get_judge_telemetry()["calls"] == 1
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:241:    reset_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:242:    snap = get_judge_telemetry()
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-243-    assert all(v == 0 for v in snap.values())
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-244-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-245-
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:246:def test_reset_judge_telemetry_is_public_callable() -> None:
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:247:    """Sanity: reset_judge_telemetry is exported as a public name from
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-248-    the module, not behind an underscore. Operators can deliberately
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-249-    call this between job windows.
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py-250-    """
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:251:    assert hasattr(strict_verify, "reset_judge_telemetry")
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py:252:    assert not strict_verify.reset_judge_telemetry.__name__.startswith("_")
+--
+tests\polaris_graph\test_provenance_generator_entailment.py-46-@pytest.fixture(autouse=True)
+tests\polaris_graph\test_provenance_generator_entailment.py-47-def _reset_telemetry():
+tests\polaris_graph\test_provenance_generator_entailment.py-48-    """Ensure each test starts with zero counters."""
+tests\polaris_graph\test_provenance_generator_entailment.py:49:    _gen2.reset_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py-50-
+tests\polaris_graph\test_provenance_generator_entailment.py-51-
+tests\polaris_graph\test_provenance_generator_entailment.py-52-# ---------- Helpers — build evidence pool dicts the production way ----------
+--
+tests\polaris_graph\test_provenance_generator_entailment.py-202-def test_telemetry_counters_tick_on_production_path(monkeypatch):
+tests\polaris_graph\test_provenance_generator_entailment.py-203-    """Critical I-bug-098 invariant: judge_telemetry counters from
+tests\polaris_graph\test_provenance_generator_entailment.py-204-    generator2.strict_verify ALSO tick when the production verifier
+tests\polaris_graph\test_provenance_generator_entailment.py:205:    invokes the judge. A single get_judge_telemetry() snapshot must
+tests\polaris_graph\test_provenance_generator_entailment.py-206-    cover both code paths (per Codex iter-1 brief acceptance proof).
+tests\polaris_graph\test_provenance_generator_entailment.py-207-    """
+tests\polaris_graph\test_provenance_generator_entailment.py-208-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+--
+tests\polaris_graph\test_provenance_generator_entailment.py-217-        f"[#ev:ev_t:0-{len(full)}]."
+tests\polaris_graph\test_provenance_generator_entailment.py-218-    )
+tests\polaris_graph\test_provenance_generator_entailment.py-219-    # Snapshot before
+tests\polaris_graph\test_provenance_generator_entailment.py:220:    before = _gen2.get_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py-221-    assert before["calls"] == 0
+tests\polaris_graph\test_provenance_generator_entailment.py-222-    # Invoke
+tests\polaris_graph\test_provenance_generator_entailment.py-223-    verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py-224-    # Snapshot after
+tests\polaris_graph\test_provenance_generator_entailment.py:225:    after = _gen2.get_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py-226-    assert after["calls"] == 1, (
+tests\polaris_graph\test_provenance_generator_entailment.py-227-        "production-path call MUST tick the shared counter"
+tests\polaris_graph\test_provenance_generator_entailment.py-228-    )
+--
+tests\polaris_graph\test_provenance_generator_entailment.py-246-        f"[#ev:ev_e:0-{len(full)}]."
+tests\polaris_graph\test_provenance_generator_entailment.py-247-    )
+tests\polaris_graph\test_provenance_generator_entailment.py-248-    verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:249:    snap = _gen2.get_judge_telemetry()
+tests\polaris_graph\test_provenance_generator_entailment.py-250-    assert snap["judge_error"] == 1, "fail-open MUST count as judge_error"
+tests\polaris_graph\test_provenance_generator_entailment.py-251-    assert snap["entailed"] == 0, "fail-open MUST NOT count as entailed"
+tests\polaris_graph\test_provenance_generator_entailment.py-252-
+
+ succeeded in 2235ms:
+"""LLM client for polaris graph — OpenRouter gateway to Qwen 3.5 Plus."""
+
+from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+__all__ = ["OpenRouterClient"]
+
+ succeeded in 2858ms:
+M  src/polaris_graph/generator2/strict_verify.py
+A  src/polaris_graph/llm/entailment_judge.py
+?? .claude/hooks/__pycache__/
+?? .codex/I-bug-085/
+?? .codex/I-bug-099/
+?? .codex/I-bug-103/
+?? .codex/audit_v32_baseline/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/faithfulness_gap/
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/next_issue_pick/
+?? .codex/next_issue_pick_2/
+?? .codex/next_issue_pick_3/
+?? .codex/next_pick_post_cj/
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/strategic_review_high_quality/
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .codex_tmp/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-1cimqsu9/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/pytest-cache-files-4jy7q_j2/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_i_bug_085_pytest/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 3452ms:
+
+        # M-25a: trial-name match. If the sentence names a specific
+        # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least
+        # one cited evidence row must mention that trial. Prevents the
+        # DR pass-4 FABRICATED-#20 defect (SURMOUNT-1 claim bound to
+        # SURMOUNT-3 paper).
+        sentence_trials = extract_trial_names(sentence_for_numbers)
+        if sentence_trials:
+            evidence_trials: set[str] = set()
+            for tok in tokens:
+                ev = evidence_pool.get(tok.evidence_id)
+                evidence_trials |= _trial_names_in_evidence(ev or {})
+            matched = sentence_trials & evidence_trials
+            if not matched:
+                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+                failures.append(
+                    f"trial_name_mismatch:{ev_ids}:"
+                    f"sentence_trials={sorted(sentence_trials)}:"
+                    f"evidence_trials={sorted(evidence_trials)}"
+                )
+
+        # I-bug-098: entailment judge as the 6th check, runs LAST after
+        # all mechanical checks pass. Closes the production audit gap
+        # the I-bug-092..097 generator2/ wiring did NOT close (the
+        # production sweep at scripts/run_honest_sweep_r3.py uses THIS
+        # verifier, not generator2/strict_verify). Same env gate
+        # PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce} (default
+        # enforce per I-bug-095). Reuses the judge + telemetry from
+        # generator2.strict_verify so a single counter snapshot covers
+        # both code paths. Lazy import keeps this module's cold-import
+        # cost zero in off-mode and avoids circular import (the
+        # generator2.strict_verify module does NOT import from
+        # polaris_graph.generator).
+        if not failures:
+            from polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
+                _entailment_mode,
+                _get_judge,
+                _record_judge_outcome,
+            )
+
+            mode = _entailment_mode()
+            if mode in ("warn", "enforce"):
+                sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+                combined_span = " ".join(aggregated_span_text)
+                verdict, reason = _get_judge().judge(
+                    sentence_clean, combined_span,
+                )
+                _record_judge_outcome(verdict, reason)
+                if verdict in ("NEUTRAL", "CONTRADICTED"):
+                    if mode == "enforce":
+                        ev_ids = ",".join(
+                            sorted({t.evidence_id for t in tokens})
+                        )
+                        failures.append(
+                            f"entailment_failed:{ev_ids}:"
+                            f"verdict={verdict}:reason={reason[:80]}"
+                        )
+
+    # Gap-2 soft check: detect unhedged superlatives. This does NOT
+    # drop the sentence — it emits a warning that the evaluator (PT13)
+    # can surface to the user.
+    soft_warnings: list[str] = []
+    unhedged = _detect_unhedged_superlative(sentence)
+    if unhedged:
+        soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
+
+    is_verified = len(failures) == 0
+    return SentenceVerification(
+        sentence=sentence,
+        tokens=tokens,
+        is_verified=is_verified,
+        failure_reasons=failures,
+        soft_warnings=soft_warnings,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Strict mode: drop un-verified sentences
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/generator2/strict_verify.py src/polaris_graph/llm/entailment_judge.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator2/strict_verify.py -Pattern "from polaris_graph.llm.entailment_judge|def _entailment_mode|verdict, reason|_record_judge_outcome|_JUDGE_SINGLETON|_JUDGE_TELEMETRY"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/llm/entailment_judge.py -Pattern "class _EntailmentJudge|def _get_judge|_JUDGE_SINGLETON|_JUDGE_TELEMETRY|def get_judge_telemetry|def reset_judge_telemetry|def _record_judge_outcome|from polaris_graph.llm.openrouter_client"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/provenance_generator.py -Pattern "from polaris_graph.generator2.strict_verify|_entailment_mode|_get_judge|_record_judge_outcome"' in C:\POLARIS
+ succeeded in 1547ms:
+
+src\polaris_graph\generator2\strict_verify.py:120:# monkey-patches `strict_verify._get_judge`, 
+`strict_verify.[7m_JUDGE_TELEMETRY[0m`,[0m
+src\polaris_graph\generator2\strict_verify.py:126:[7mfrom [0m[7mpolaris_graph.llm.entailment_judge [0m[7m[0mimport [0m[7m[0m( [0m[7m [0m[7m[0m# [0m[7m[0mnoqa: [0m[7m[0mE402 [0m[7m [0m[7m[0m-- [0m
+[7m[0mre-export[0m
+src\polaris_graph\generator2\strict_verify.py:131:    [7m_JUDGE_TELEMETRY[0m,
+src\polaris_graph\generator2\strict_verify.py:133:    [7m_record_judge_outcome[0m,
+src\polaris_graph\generator2\strict_verify.py:134:    get[7m_judge_telemetry[0m,
+src\polaris_graph\generator2\strict_verify.py:135:    reset[7m_judge_telemetry[0m,
+src\polaris_graph\generator2\strict_verify.py:138:# Note: `[7m_JUDGE_SINGLETON[0m` [0m[7m[0mis [0m[7m[0mNOT [0m[7m[0mre-exported [0m[7m[0mhere. [0m[7m[0mThe [0m[7m[0mresolver [0m
+[7m[0mstate[0m
+src\polaris_graph\generator2\strict_verify.py:140:# that module's `global [7m_JUDGE_SINGLETON[0m` [0m[7m[0mdeclaration [0m[7m[0min [0m
+[7m[0m`_get_judge()`.[0m
+src\polaris_graph\generator2\strict_verify.py:141:# Tests that do `monkeypatch.setattr(strict_verify, 
+"[7m_JUDGE_SINGLETON[0m",[0m
+src\polaris_graph\generator2\strict_verify.py:147:# the `[7m_JUDGE_SINGLETON[0m` rebind is incidental.
+src\polaris_graph\generator2\strict_verify.py:176:[7mdef _entailment_mode[0m() -> str:
+src\polaris_graph\generator2\strict_verify.py:281:        [7mverdict, [0m[7mreason [0m[7m[0m= [0m[7m[0m_get_judge().judge(sentence_clean, [0m
+[7m[0mcombined_span)[0m
+src\polaris_graph\generator2\strict_verify.py:282:        [7m_record_judge_outcome[0m(verdict, reason)
+
+
+ succeeded in 2144ms:
+diff --git a/src/polaris_graph/generator2/strict_verify.py b/src/polaris_graph/generator2/strict_verify.py
+index 2b877c1e..f8e37de7 100644
+--- a/src/polaris_graph/generator2/strict_verify.py
++++ b/src/polaris_graph/generator2/strict_verify.py
+@@ -113,124 +113,38 @@ def _decimals(text: str) -> set[str]:
+ # Entailment judge (I-bug-092 — provenance correctness)
+ # ---------------------------------------------------------------------------
+ #
+-# After mechanical checks (a)-(e) pass, the entailment judge asks an LLM
+-# whether the cited span semantically ENTAILS the sentence's specific
+-# claims. This catches the residual fabrication patterns the audit on
+-# 2026-05-09 surfaced:
+-#   - mechanistic granularity insertion (M2: span says "adipocyte
+-#     metabolism", sentence adds "lipid metabolism, energy storage")
+-#   - specificity inflation (C2: span says "GLP-1 RAs", sentence
+-#     upgrades to "semaglutide at the highest studied doses")
+-#   - numbers nearby but not entailed (C1: span has 27/46/19 elsewhere,
+-#     sentence claims 69-80% reach <=6.5% which is not in the span)
+-#
+-# The judge is the two-family evaluator (Gemma 4 31B by default), which
+-# matches the §9.1.1 invariant — a different lineage than the generator
+-# (DeepSeek). Calls go through OpenRouter using the existing project
+-# auth substrate.
+-
+-_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+-_ENTAILMENT_TIMEOUT_S = 30.0
+-_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+-
+-Rules:
+-- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+-- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
+-- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
+-
+-Return STRICT JSON only, no prose:
+-{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
+-
+-SPAN:
+-{span}
+-
+-SENTENCE:
+-{sentence}
+-
+-JSON:"""
+-
+-
+-class _EntailmentJudge:
+-    """Synchronous httpx wrapper around an OpenRouter entailment call.
+-
+-    Lazy-initialized via _get_judge() so import-time cost is zero when
+-    PG_STRICT_VERIFY_ENTAILMENT=off (the default).
+-    """
+-
+-    def __init__(self) -> None:
+-        import httpx  # local import: avoid forcing the dep when off
+-
+-        # Lazy-import the family-segregation check so the off-mode path
+-        # never touches openrouter_client. The judge is acting as a
+-        # content evaluator (Layer-2), so it MUST differ from the
+-        # generator family per CLAUDE.md §9.1.1 — fail at construction
+-        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+-        from polaris_graph.llm.openrouter_client import check_family_segregation
+-
+-        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+-        if not api_key:
+-            raise RuntimeError(
+-                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
+-            )
+-        self._api_key = api_key
+-        self._model = os.environ.get(
+-            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+-        )
+-        # Two-family invariant per §9.1.1: raises RuntimeError if the
+-        # entailment judge ends up in the same family as the generator
+-        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
+-        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
+-        # default model (google/gemma-4-31b-it) is in a different
+-        # family from DeepSeek by construction.
+-        check_family_segregation(evaluator_model=self._model)
+-        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
+-
+-    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+-        """Return (verdict, reason).
+-
+-        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+-        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
+-        fail-open so a transient OpenRouter outage does not nuke a run.
+-        """
+-        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+-        try:
+-            response = self._client.post(
+-                "https://openrouter.ai/api/v1/chat/completions",
+-                headers={
+-                    "Authorization": f"Bearer {self._api_key}",
+-                    "Content-Type": "application/json",
+-                },
+-                json={
+-                    "model": self._model,
+-                    "messages": [{"role": "user", "content": prompt}],
+-                    "temperature": 0.0,
+-                    "max_tokens": 100,
+-                    "response_format": {"type": "json_object"},
+-                },
+-            )
+-            response.raise_for_status()
+-            data = response.json()
+-            content = data["choices"][0]["message"]["content"]
+-            parsed = json.loads(content)
+-            verdict = str(parsed.get("verdict", "")).upper().strip()
+-            reason = str(parsed.get("reason", ""))
+-            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+-                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+-            return verdict, reason
+-        except Exception as exc:  # noqa: BLE001 — fail-open by design
+-            logger.warning("entailment judge error: %s", exc)
+-            return "ENTAILED", f"judge_error: {type(exc).__name__}"
+-
+-
+-_JUDGE_SINGLETON: _EntailmentJudge | None = None
+-
++# Definitions extracted to `polaris_graph.llm.entailment_judge` per
++# I-bug-099 so future call sites have a single canonical home for the
++# judge class + lazy singleton + telemetry counters. Re-exported here
++# for backwards compatibility with the existing test pattern that
++# monkey-patches `strict_verify._get_judge`, `strict_verify._JUDGE_TELEMETRY`,
++# etc. via `monkeypatch.setattr(strict_verify, ...)`. Both `verify_sentence`
++# (in this module) and `provenance_generator.verify_sentence_provenance`
++# (which lazy-imports `_get_judge` from this module) read the re-exported
++# names — a single rebind on `strict_verify` propagates to both.
++
++from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
++    _DEFAULT_ENTAILMENT_MODEL,
++    _ENTAILMENT_PROMPT,
++    _ENTAILMENT_TIMEOUT_S,
++    _EntailmentJudge,
++    _JUDGE_TELEMETRY,
++    _get_judge,
++    _record_judge_outcome,
++    get_judge_telemetry,
++    reset_judge_telemetry,
++)
+ 
+-def _get_judge() -> _EntailmentJudge:
+-    """Lazy singleton so off-mode pays zero import/connection cost."""
+-    global _JUDGE_SINGLETON
+-    if _JUDGE_SINGLETON is None:
+-        _JUDGE_SINGLETON = _EntailmentJudge()
+-    return _JUDGE_SINGLETON
++# Note: `_JUDGE_SINGLETON` is NOT re-exported here. The resolver state
++# lives in `polaris_graph.llm.entailment_judge` and is updated via
++# that module's `global _JUDGE_SINGLETON` declaration in `_get_judge()`.
++# Tests that do `monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON",
++# fake, raising=False)` create a vestigial attribute that the resolver
++# never reads — but the same tests also patch `_get_judge`, which IS
++# re-exported and DOES propagate (provenance_generator lazy-imports
++# `_get_judge` from this module at call time, so it picks up the patched
++# value). Test patch surface is preserved by the `_get_judge` rebind;
++# the `_JUDGE_SINGLETON` rebind is incidental.
+ 
+ 
+ # I-bug-097: dedup unknown-mode warnings so a long-running process logs
+@@ -238,68 +152,12 @@ def _get_judge() -> _EntailmentJudge:
+ # PG_STRICT_VERIFY_ENTAILMENT=ENFORCE (already lowercased fine) or
+ # =enforced (verb form, falls through to off). Without a warning, the
+ # typo silently disables the gate.
+-_UNKNOWN_MODE_WARNED: set[str] = set()
+-
+-
+-# I-bug-096: process-lifetime telemetry counters for the entailment gate.
+-# Per Codex review of I-bug-092: in enforce mode the judge fail-open
+-# path returns ("ENTAILED", "judge_error: ...") on transient API errors.
+-# A persistent OpenRouter outage or model-format change could make the
+-# 6th check silently inert — every sentence falls through as ENTAILED
+-# while WARNING lines accumulate. These counters give an operator a
+-# concise "the gate ran N times, M of those errored" signal.
+ #
+-# Counters are strict_verify-side (not judge-side) per Codex's iter-1
+-# brief verdict: gate behavior is what we want to measure, not a
+-# specific judge implementation. Tests with FakeJudge tick these too,
+-# and a future swapped judge cannot bypass the judge_error counter.
+-_JUDGE_TELEMETRY: dict[str, int] = {
+-    "calls": 0,
+-    "entailed": 0,
+-    "neutral": 0,
+-    "contradicted": 0,
+-    "judge_error": 0,
+-}
+-
+-
+-def get_judge_telemetry() -> dict[str, int]:
+-    """Snapshot of process-lifetime entailment-judge counters.
+-
+-    Read once before a job to compute deltas if needed. Operators
+-    concerned that the gate has gone silently inert can poll this from
+-    a health endpoint or scripts/observability tooling and alert on
+-    judge_error rate.
+-    """
+-    return dict(_JUDGE_TELEMETRY)
+-
+-
+-def reset_judge_telemetry() -> None:
+-    """Zero all judge telemetry counters in-place.
+-
+-    Public so operators can deliberately reset between jobs / runs.
+-    Tests use this for isolation; production callers can use it to
+-    bound the counter arithmetic to a single run window.
+-    """
+-    for key in _JUDGE_TELEMETRY:
+-        _JUDGE_TELEMETRY[key] = 0
+-
+-
+-def _record_judge_outcome(verdict: str, reason: str) -> None:
+-    """Tick the appropriate counter based on judge return values.
+-
+-    Normalizes the existing judge fail-open contract: when reason
+-    starts with 'judge_error:', the call errored and was returned as
+-    ENTAILED to keep the run alive. We tick judge_error in that case
+-    instead of entailed so an operator can distinguish "gate accepted
+-    the sentence" from "gate failed open."
+-    """
+-    _JUDGE_TELEMETRY["calls"] += 1
+-    if reason.startswith("judge_error:"):
+-        _JUDGE_TELEMETRY["judge_error"] += 1
+-        return
+-    key = verdict.lower()
+-    if key in _JUDGE_TELEMETRY:
+-        _JUDGE_TELEMETRY[key] += 1
++# KEPT here (not moved to entailment_judge.py per I-bug-099 iter-2
++# brief): tests rebind via `monkeypatch.setattr(strict_verify,
++# "_UNKNOWN_MODE_WARNED", set(), raising=False)` and `_entailment_mode()`
++# reads it from this module's globals — preserving the rebind contract.
++_UNKNOWN_MODE_WARNED: set[str] = set()
+ 
+ 
+ # I-bug-095: production default flipped from "off" to "enforce" per
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+new file mode 100644
+index 00000000..bc34bf63
+--- /dev/null
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -0,0 +1,207 @@
++"""Entailment judge — LLM-as-judge for strict_verify check (f).
++
++Originally inlined in `polaris_graph.generator2.strict_verify`. Extracted
++per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
++I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
++a single canonical location.
++
++The judge asks an LLM whether a cited SPAN semantically ENTAILS a
++SENTENCE's specific claims. It runs AFTER mechanical checks (a)-(e) and
++catches residual fabrication patterns the audit on 2026-05-09 surfaced:
++  - mechanistic granularity insertion (M2)
++  - specificity inflation (C2)
++  - numbers nearby but not entailed (C1)
++
++The judge model is the two-family evaluator (Gemma 4 31B by default),
++matching the §9.1.1 invariant — different lineage from the generator
++(DeepSeek). Calls go through OpenRouter using the existing project
++auth substrate. Family segregation is enforced at construction.
++
++Public surface (re-exported via `polaris_graph.generator2.strict_verify`
++for backwards compat with monkeypatch test pattern):
++  - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
++  - _get_judge(): lazy singleton accessor
++  - _JUDGE_TELEMETRY: process-lifetime gate counters
++  - get_judge_telemetry(): read-only snapshot
++  - reset_judge_telemetry(): zero in-place
++  - _record_judge_outcome(): tick counters from judge result
++
++NOT moved here (still in strict_verify.py because tests rebind via
++monkeypatch.setattr on strict_verify):
++  - _DEFAULT_MODE
++  - _UNKNOWN_MODE_WARNED
++  - _entailment_mode()
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++
++logger = logging.getLogger(__name__)
++
++
++_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
++_ENTAILMENT_TIMEOUT_S = 30.0
++_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
++
++Rules:
++- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
++- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
++- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
++
++Return STRICT JSON only, no prose:
++{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
++
++SPAN:
++{span}
++
++SENTENCE:
++{sentence}
++
++JSON:"""
++
++
++class _EntailmentJudge:
++    """Synchronous httpx wrapper around an OpenRouter entailment call.
++
++    Lazy-initialized via _get_judge() so import-time cost is zero when
++    PG_STRICT_VERIFY_ENTAILMENT=off (the default before I-bug-095).
++    """
++
++    def __init__(self) -> None:
++        import httpx  # local import: avoid forcing the dep when off
++
++        # Lazy-import the family-segregation check so the off-mode path
++        # never touches openrouter_client. The judge is acting as a
++        # content evaluator (Layer-2), so it MUST differ from the
++        # generator family per CLAUDE.md §9.1.1 — fail at construction
++        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
++        from polaris_graph.llm.openrouter_client import check_family_segregation
++
++        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++        if not api_key:
++            raise RuntimeError(
++                "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
++            )
++        self._api_key = api_key
++        self._model = os.environ.get(
++            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
++        )
++        # Two-family invariant per §9.1.1: raises RuntimeError if the
++        # entailment judge ends up in the same family as the generator
++        # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek
++        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
++        # default model (google/gemma-4-31b-it) is in a different
++        # family from DeepSeek by construction.
++        check_family_segregation(evaluator_model=self._model)
++        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
++
++    def judge(self, sentence: str, span: str) -> tuple[str, str]:
++        """Return (verdict, reason).
++
++        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
++        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
++        fail-open so a transient OpenRouter outage does not nuke a run.
++        """
++        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
++        try:
++            response = self._client.post(
++                "https://openrouter.ai/api/v1/chat/completions",
++                headers={
++                    "Authorization": f"Bearer {self._api_key}",
++                    "Content-Type": "application/json",
++                },
++                json={
++                    "model": self._model,
++                    "messages": [{"role": "user", "content": prompt}],
++                    "temperature": 0.0,
++                    "max_tokens": 100,
++                    "response_format": {"type": "json_object"},
++                },
++            )
++            response.raise_for_status()
++            data = response.json()
++            content = data["choices"][0]["message"]["content"]
++            parsed = json.loads(content)
++            verdict = str(parsed.get("verdict", "")).upper().strip()
++            reason = str(parsed.get("reason", ""))
++            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
++                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
++            return verdict, reason
++        except Exception as exc:  # noqa: BLE001 — fail-open by design
++            logger.warning("entailment judge error: %s", exc)
++            return "ENTAILED", f"judge_error: {type(exc).__name__}"
++
++
++_JUDGE_SINGLETON: _EntailmentJudge | None = None
++
++
++def _get_judge() -> _EntailmentJudge:
++    """Lazy singleton so off-mode pays zero import/connection cost."""
++    global _JUDGE_SINGLETON
++    if _JUDGE_SINGLETON is None:
++        _JUDGE_SINGLETON = _EntailmentJudge()
++    return _JUDGE_SINGLETON
++
++
++# I-bug-096: process-lifetime telemetry counters for the entailment gate.
++# In enforce mode the judge fail-open path returns ("ENTAILED",
++# "judge_error: ...") on transient API errors. A persistent OpenRouter
++# outage or model-format change could make the 6th check silently inert
++# — every sentence falls through as ENTAILED while WARNING lines
++# accumulate. These counters give an operator a concise "the gate ran N
++# times, M of those errored" signal.
++#
++# Counters are gate-side (not judge-side) per the original I-bug-092
++# brief verdict: gate behavior is what we want to measure, not a
++# specific judge implementation. Tests with FakeJudge tick these too,
++# and a future swapped judge cannot bypass the judge_error counter.
++_JUDGE_TELEMETRY: dict[str, int] = {
++    "calls": 0,
++    "entailed": 0,
++    "neutral": 0,
++    "contradicted": 0,
++    "judge_error": 0,
++}
++
++
++def get_judge_telemetry() -> dict[str, int]:
++    """Snapshot of process-lifetime entailment-judge counters.
++
++    Read once before a job to compute deltas if needed. Operators
++    concerned that the gate has gone silently inert can poll this from
++    a health endpoint or scripts/observability tooling and alert on
++    judge_error rate.
++    """
++    return dict(_JUDGE_TELEMETRY)
++
++
++def reset_judge_telemetry() -> None:
++    """Zero all judge telemetry counters in-place.
++
++    Public so operators can deliberately reset between jobs / runs.
++    Tests use this for isolation; production callers can use it to
++    bound the counter arithmetic to a single run window.
++    """
++    for key in _JUDGE_TELEMETRY:
++        _JUDGE_TELEMETRY[key] = 0
++
++
++def _record_judge_outcome(verdict: str, reason: str) -> None:
++    """Tick the appropriate counter based on judge return values.
++
++    Normalizes the existing judge fail-open contract: when reason
++    starts with 'judge_error:', the call errored and was returned as
++    ENTAILED to keep the run alive. We tick judge_error in that case
++    instead of entailed so an operator can distinguish "gate accepted
++    the sentence" from "gate failed open."
++    """
++    _JUDGE_TELEMETRY["calls"] += 1
++    if reason.startswith("judge_error:"):
++        _JUDGE_TELEMETRY["judge_error"] += 1
++        return
++    key = verdict.lower()
++    if key in _JUDGE_TELEMETRY:
++        _JUDGE_TELEMETRY[key] += 1
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2781ms:
+
+src\polaris_graph\llm\entailment_judge.py:24:  - [7m_JUDGE_TELEMETRY[0m: process-lifetime gate counters
+src\polaris_graph\llm\entailment_judge.py:25:  - get[7m_judge_telemetry[0m(): read-only snapshot
+src\polaris_graph\llm\entailment_judge.py:26:  - reset[7m_judge_telemetry[0m(): zero in-place
+src\polaris_graph\llm\entailment_judge.py:66:[7mclass _EntailmentJudge[0m:
+src\polaris_graph\llm\entailment_judge.py:81:        [7mfrom [0m[7mpolaris_graph.llm.openrouter_client [0m[7m[0mimport [0m
+[7m[0mcheck_family_segregation[0m
+src\polaris_graph\llm\entailment_judge.py:138:[7m_JUDGE_SINGLETON[0m: _EntailmentJudge | None = None
+src\polaris_graph\llm\entailment_judge.py:141:[7mdef _get_judge[0m() -> _EntailmentJudge:
+src\polaris_graph\llm\entailment_judge.py:143:    global [7m_JUDGE_SINGLETON[0m
+src\polaris_graph\llm\entailment_judge.py:144:    if [7m_JUDGE_SINGLETON[0m is None:
+src\polaris_graph\llm\entailment_judge.py:145:        [7m_JUDGE_SINGLETON[0m = _EntailmentJudge()
+src\polaris_graph\llm\entailment_judge.py:146:    return [7m_JUDGE_SINGLETON[0m
+src\polaris_graph\llm\entailment_judge.py:161:[7m_JUDGE_TELEMETRY[0m: dict[str, int] = {
+src\polaris_graph\llm\entailment_judge.py:170:[7mdef get_judge_telemetry[0m() -> dict[str, int]:
+src\polaris_graph\llm\entailment_judge.py:178:    return dict([7m_JUDGE_TELEMETRY[0m)
+src\polaris_graph\llm\entailment_judge.py:181:[7mdef reset_judge_telemetry[0m() -> None:
+src\polaris_graph\llm\entailment_judge.py:188:    for key in [7m_JUDGE_TELEMETRY[0m:
+src\polaris_graph\llm\entailment_judge.py:189:        [7m_JUDGE_TELEMETRY[0m[key] = 0
+src\polaris_graph\llm\entailment_judge.py:192:[7mdef _record_judge_outcome[0m(verdict: str, reason: str) -> None:
+src\polaris_graph\llm\entailment_judge.py:201:    [7m_JUDGE_TELEMETRY[0m["calls"] += 1
+src\polaris_graph\llm\entailment_judge.py:203:        [7m_JUDGE_TELEMETRY[0m["judge_error"] += 1
+src\polaris_graph\llm\entailment_judge.py:206:    if key in [7m_JUDGE_TELEMETRY[0m:
+src\polaris_graph\llm\entailment_judge.py:207:        [7m_JUDGE_TELEMETRY[0m[key] += 1
+
+
+ succeeded in 3471ms:
+
+src\polaris_graph\generator\provenance_generator.py:755:            [7mfrom [0m[7mpolaris_graph.generator2.strict_verify [0m[7m[0mimport [0m
+[7m[0m( [0m[7m [0m[7m[0m# [0m[7m[0mnoqa: [0m[7m[0mPLC0415[0m
+src\polaris_graph\generator\provenance_generator.py:756:                [7m_entailment_mode[0m,
+src\polaris_graph\generator\provenance_generator.py:757:                [7m_get_judge[0m,
+src\polaris_graph\generator\provenance_generator.py:758:                [7m_record_judge_outcome[0m,
+src\polaris_graph\generator\provenance_generator.py:761:            mode = [7m_entailment_mode[0m()
+src\polaris_graph\generator\provenance_generator.py:765:                verdict, reason = [7m_get_judge[0m().judge(
+src\polaris_graph\generator\provenance_generator.py:768:                [7m_record_judge_outcome[0m(verdict, reason)
+
+
+codex
+So far I don’t see a blocking behavior change: production still imports `_get_judge` lazily through `strict_verify`, and the telemetry API functions now close over the canonical module state. I’m going to run the targeted suite once locally to confirm the staged tree matches the reported result.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/generator2/test_strict_verify_entailment.py tests/polaris_graph/generator2/test_strict_verify_telemetry.py tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py tests/polaris_graph/test_provenance_generator_entailment.py tests/crown_jewels/test_cj_008_entailment_correctness.py -x -q' in C:\POLARIS
+2026-05-10T08:01:50.007779Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.8 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator2/test_strict_verify_entailment.p …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 3830ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator2/test_strict_verify_entailment.p …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m retrying via the active Python interpreter.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/generator2/test_strict_verify_entailment.py tests/polaris_graph/generator2/test_strict_verify_telemetry.py tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py tests/polaris_graph/test_provenance_generator_entailment.py tests/crown_jewels/test_cj_008_entailment_correctness.py -x -q' in C:\POLARIS
+ succeeded in 8453ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 66 items
+
+tests\polaris_graph\generator2\test_strict_verify_entailment.py ........ [ 12%]
+..................                                                       [ 39%]
+tests\polaris_graph\generator2\test_strict_verify_telemetry.py ......... [ 53%]
+..                                                                       [ 56%]
+tests\polaris_graph\generator2\test_strict_verify_unknown_mode_warning.py . [ 57%]
+........                                                                 [ 69%]
+tests\polaris_graph\test_provenance_generator_entailment.py ..........   [ 84%]
+tests\crown_jewels\test_cj_008_entailment_correctness.py ..........      [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 66 passed, 1 warning in 2.99s ========================
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Verified locally with `python -m pytest ... -x -q`: 66 passed.
+tokens used
+51,616
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Verified locally with `python -m pytest ... -x -q`: 66 passed.
