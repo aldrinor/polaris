@@ -162,3 +162,4 @@ index 00000000..4ad57e12
 +    assert ref["synthesis_n_scrub_count"] == 1
 +    reset_synthesis_telemetry()
 +    assert ref["synthesis_n_scrub_count"] == 0  # same dict object zeroed in place
+# canonical-diff-sha256: 678daadc31f7edcab789745db781cd44f339879d5a39c0958e45b2ff03ae1672
