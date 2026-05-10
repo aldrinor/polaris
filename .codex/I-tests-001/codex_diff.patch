@@ -180,3 +180,4 @@ index 00000000..28665fb4
 +3. Document the canonical import convention as `from src.polaris_graph.X import Y` in CLAUDE.md or AGENTS.md so future tests don't regress.
 +
 +Closing as triage-complete; fix deferred to a follow-up issue.
+# canonical-diff-sha256: 9702f764b20a40b8991eb01a416d876cb4c4456946ae83f5c408fdf3dcfeb2df
