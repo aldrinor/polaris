@@ -1,0 +1,76 @@
+# Canada-US relations scope template — Carney delivery (I-tpl-007).
+#
+# Used when the user is researching cross-border policy, trade,
+# defense cooperation, energy integration, immigration, or any
+# Canada-US bilateral question. The corpus should be dominated by
+# primary government documents (T3) from both governments and HTA-
+# style bilateral analysis (T2/T6).
+
+domain: canada_us
+description: >
+  Bilateral Canada-US corpus for trade, defense, energy, immigration,
+  and policy-coordination questions. Welcome government and treaty
+  documents from BOTH countries with explicit jurisdiction labeling.
+
+inclusion_criteria:
+  - "Canadian government documents — Privy Council Office, Department of Finance Canada, Global Affairs Canada, Innovation Science Economic Development Canada, Statistics Canada, Bank of Canada."
+  - "US government documents — White House, USTR, Department of Commerce, Department of State, Treasury, Federal Reserve, BLS, BEA, CBO."
+  - "Treaty / agreement texts — USMCA / CUSMA, NORAD, IPIC bilateral, NAFTA archives where historical context required."
+  - "Joint statements from Canada-US bilateral meetings (Trudeau-Biden, Carney-Trump, etc., timestamped)."
+  - "HTA / policy analyst reports specifically scoped to Canada-US relations (CD Howe, IRPP, Brookings Canada / Brookings, Wilson Center, Council on Foreign Relations Canada-related output)."
+  - "Peer-reviewed Canada-US relations journal articles (International Journal, American Review of Canadian Studies)."
+  - "Statistics from cross-border trade flows (StatCan IMTS, USITC DataWeb)."
+
+exclusion_criteria:
+  - "Op-eds in general-interest media without disclosed Canadian / US affiliation."
+  - "Social media posts presented as policy positions without official-statement corroboration."
+  - "Vendor / industry lobby positions presented as policy analysis."
+  - "Partisan campaign material presented as government position."
+
+expected_tier_distribution:
+  - tier: T3
+    min_fraction: 0.40
+    max_fraction: 0.65
+    rationale: >
+      Government documents from both Canada and US are the primary
+      evidence base. Per-claim citation must show JURISDICTION (CA or
+      US) of the source.
+  - tier: T6
+    min_fraction: 0.10
+    max_fraction: 0.30
+    rationale: >
+      Policy analyst commentary from CD Howe, IRPP, Wilson Center,
+      Brookings — analyst tier, not peer-reviewed.
+  - tier: T2
+    min_fraction: 0.05
+    max_fraction: 0.20
+    rationale: >
+      Systematic reviews of bilateral policy literature.
+  - tier: T1
+    min_fraction: 0.05
+    max_fraction: 0.20
+    rationale: >
+      Peer-reviewed bilateral relations journal articles.
+  - tier: T5
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Industry / vendor positions on Canada-US trade and regulation.
+      Treat with skepticism; cite for technical claims only.
+  - tier: T4
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Narrative reviews of the bilateral relationship.
+
+required_jurisdictions:
+  - CA
+  - US
+
+# Per CLAUDE.md §-1.1: every claim must show JURISDICTION badge
+# (CA or US) so the reader can distinguish whose government / agency
+# / minister / department made the statement.
+audit_emphasis:
+  - per_jurisdiction_citation_required
+  - government_source_pinned_by_url_and_section
+  - jurisdiction_badge_per_sentence
