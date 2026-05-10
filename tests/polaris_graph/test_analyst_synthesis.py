@@ -271,7 +271,23 @@ def test_prompt_requires_hedge_phrasing():
 
 
 def test_prompt_requires_subsections():
-    """Per Codex iter-1: sub_section_structure: yes."""
+    """Per Codex iter-1: sub_section_structure: yes.
+
+    I-bug-106: subheadings must be ### (not ##) so the synthesis
+    renders under a parent ## heading without breaking markdown
+    hierarchy.
+    """
     prompt_lower = ANALYST_SYNTHESIS_SYSTEM_PROMPT.lower()
     assert "sub-section" in prompt_lower or "subsection" in prompt_lower
-    assert "##" in ANALYST_SYNTHESIS_SYSTEM_PROMPT
+    # I-bug-106: prompt MUST request ### (3-hash) subheadings.
+    assert "###" in ANALYST_SYNTHESIS_SYSTEM_PROMPT
+
+
+def test_prompt_forbids_double_hash_subheadings():
+    """I-bug-106: prompt must explicitly forbid ## headers in synthesis
+    output (those are reserved for the parent section that wraps the
+    synthesis block).
+    """
+    prompt_lower = ANALYST_SYNTHESIS_SYSTEM_PROMPT.lower()
+    # The prompt should explicitly mention "not ##" or "do not emit ##"
+    assert "not ##" in prompt_lower or "do not emit ##" in prompt_lower

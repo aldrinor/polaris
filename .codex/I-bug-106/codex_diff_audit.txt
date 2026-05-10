@@ -1,0 +1,122 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e110d-35fb-7623-9c05-af0dcd725ea1
+--------
+user
+## §0 — HARD ITERATION CAP
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §1 — Diff under review
+
+GH#359 I-bug-106. Brief APPROVE iter-1.
+
+Diff: 2 files, +18/-3 lines. Synthesis prompt switches from `## subheadings` to `### subheadings` with explicit forbid `## headers`. New regression test asserts ### present + ## explicitly forbidden.
+
+Tests: 29/29 pass on bot/I-bug-106 HEAD.
+
+## §2 — Convergence
+
+Trivial scope, single-line prompt change. Expected APPROVE iter 1.
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 2dcc625c..07f47cd9 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -95,10 +95,13 @@ question + verified prose):
+   - "Open questions and future directions"
+   - (or others appropriate to the domain)
+ 
+-Use ## subheadings for each sub-section. Total length: 1500-3000 words.
++Use ### subheadings for each sub-section (NOT ## — those are reserved
++for the parent section header that wraps the synthesis block). Total
++length: 1500-3000 words.
+ 
+-OUTPUT: plain prose with [N] citation markers and ## subheadings. No
+-preamble, no sign-off, no [#ev:...] tokens anywhere."""
++OUTPUT: plain prose with [N] citation markers and ### subheadings. No
++preamble, no sign-off, no [#ev:...] tokens anywhere. Do NOT emit ##
++headers — the renderer wraps this prose under a single ## heading."""
+ 
+ 
+ _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+@@ -248,7 +251,7 @@ async def generate_analyst_synthesis(
+         f"=== TASK ===\n\n"
+         f"Write the Analyst Synthesis section now, following the rules. "
+         f"Hedge interpretive claims; cite by [N] only; no [#ev:...] tokens; "
+-        f"4-6 sub-sections with ## subheadings; 1500-3000 words total."
++        f"4-6 sub-sections with ### subheadings; 1500-3000 words total."
+     )
+ 
+     client = OpenRouterClient(model=model)
+diff --git a/tests/polaris_graph/test_analyst_synthesis.py b/tests/polaris_graph/test_analyst_synthesis.py
+index d67888d9..1e1eb8a9 100644
+--- a/tests/polaris_graph/test_analyst_synthesis.py
++++ b/tests/polaris_graph/test_analyst_synthesis.py
+@@ -271,7 +271,23 @@ def test_prompt_requires_hedge_phrasing():
+ 
+ 
+ def test_prompt_requires_subsections():
+-    """Per Codex iter-1: sub_section_structure: yes."""
++    """Per Codex iter-1: sub_section_structure: yes.
++
++    I-bug-106: subheadings must be ### (not ##) so the synthesis
++    renders under a parent ## heading without breaking markdown
++    hierarchy.
++    """
+     prompt_lower = ANALYST_SYNTHESIS_SYSTEM_PROMPT.lower()
+     assert "sub-section" in prompt_lower or "subsection" in prompt_lower
+-    assert "##" in ANALYST_SYNTHESIS_SYSTEM_PROMPT
++    # I-bug-106: prompt MUST request ### (3-hash) subheadings.
++    assert "###" in ANALYST_SYNTHESIS_SYSTEM_PROMPT
++
++
++def test_prompt_forbids_double_hash_subheadings():
++    """I-bug-106: prompt must explicitly forbid ## headers in synthesis
++    output (those are reserved for the parent section that wraps the
++    synthesis block).
++    """
++    prompt_lower = ANALYST_SYNTHESIS_SYSTEM_PROMPT.lower()
++    # The prompt should explicitly mention "not ##" or "do not emit ##"
++    assert "not ##" in prompt_lower or "do not emit ##" in prompt_lower
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+2,020
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
