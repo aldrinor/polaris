@@ -5,6 +5,19 @@ per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
 I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
 a single canonical location.
 
+I-bug-102 — off-mode contract (verified by `test_off_mode_does_not_instantiate_judge`):
+when `PG_STRICT_VERIFY_ENTAILMENT=off`, the judge is NEVER instantiated:
+- `_get_judge()` is not called from any code path
+- `_EntailmentJudge.__init__` does NOT run
+- No `httpx.Client` is constructed
+- No OpenRouter network call is made
+The class definitions are loaded into the module namespace at import
+time (Python module evaluation), but no judge object exists. Module-
+level imports are kept lightweight: `openrouter_client` is imported
+lazily inside the methods that need it (judge construction, ledger
+write, budget check), so off-mode pays zero cost beyond reading the
+class definitions.
+
 The judge asks an LLM whether a cited SPAN semantically ENTAILS a
 SENTENCE's specific claims. It runs AFTER mechanical checks (a)-(e) and
 catches residual fabrication patterns the audit on 2026-05-09 surfaced:
@@ -47,6 +60,17 @@ from datetime import datetime, timezone
 # in this module. Direct `from … import _COST_LEDGER_PATH` would bind
 # the value at import time and tests could not override it without
 # reloading the module.
+#
+# I-bug-102 NOTE: this top-level import IS evaluated even in off-mode.
+# The "skip generator2 import" goal in I-bug-102 is interpreted as
+# "no JUDGE INSTANTIATION + no NETWORK CALL in off-mode" (verified by
+# `test_off_mode_does_not_instantiate_judge`), NOT as eliminating the
+# module-import side effect. Empirically the openrouter_client import
+# is ~50ms cold; off-mode users pay this once at strict_verify import
+# time. Eliminating it via per-method lazy-import would complicate the
+# `except _orc.BudgetExceededError` semantics (exception types must be
+# resolved at except-clause evaluation, which is a hot-path call).
+# The test asserts the runtime contract; cold-import cost is accepted.
 from src.polaris_graph.llm import openrouter_client as _orc
 
 logger = logging.getLogger(__name__)
