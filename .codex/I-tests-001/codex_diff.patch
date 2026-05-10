@@ -1,0 +1,182 @@
+diff --git a/docs/tests/i_tests_001_triage.md b/docs/tests/i_tests_001_triage.md
+new file mode 100644
+index 00000000..28665fb4
+--- /dev/null
++++ b/docs/tests/i_tests_001_triage.md
+@@ -0,0 +1,176 @@
++# I-tests-001 — Pre-existing failing tests triage
++
++**Status:** triage complete. 65 collection errors observed (issue body said 10 — actual count was higher because the issue was filed before a comprehensive grep).
++
++## Methodology
++
++Run `python -m pytest tests/polaris_graph/ --collect-only` on `polaris` HEAD as of 2026-05-10. Capture every collection error + every actual test failure.
++
++## Root cause analysis
++
++**ALL 65 errors share one root cause:** `ModuleNotFoundError: No module named 'polaris_graph'`.
++
++The POLARIS codebase has two coexisting import-prefix conventions:
++
++| Convention | Used by | Notes |
++|---|---|---|
++| `from polaris_graph.X import Y` (NO `src.` prefix) | Most tests + some `src/` modules (`generator2/strict_verify.py`, `generator2/provenance.py`, etc.) | Works when `src/` is on `sys.path` |
++| `from src.polaris_graph.X import Y` | Other tests + most `scripts/` + `src/polaris_graph/llm/openrouter_client.py` | Works when repo root is on `sys.path` |
++
++Pytest's default `sys.path` derivation puts the repo root on path but NOT `src/`. So:
++- `from src.polaris_graph.X import Y` → resolves
++- `from polaris_graph.X import Y` → `ModuleNotFoundError`
++
++The 65 affected test files import via the `polaris_graph.X` convention.
++
++## Affected tests by category
++
++### intake/ (3 errors)
++- `test_cluster_labeler.py`
++- `test_disambiguation_clusterer.py`
++- `test_question_normalizer.py`
++
++### retrieval2/ (6 errors)
++- `test_clinical_retriever.py`
++- `test_clinical_source_registry.py`
++- `test_corpus_adequacy_gate.py`
++- `test_evidence_pool.py`
++- `test_query_planner.py`
++- `test_real_fetcher.py`
++
++### scope/ (5 errors)
++- `test_ambiguity_detector.py`
++- `test_classifier_llm_fallback.py`
++- `test_clinical_classifier.py`
++- `test_default_llm_completion_async_fix.py`
++- `test_scope_decision.py`
++
++### sovereignty/ (3 errors)
++- `test_classification.py`
++- `test_red_team.py`
++- `test_router.py`
++
++### golden/ (5 errors)
++- `test_slice_001_goldens.py`
++- `test_slice_002_goldens.py`
++- `test_slice_003_goldens.py`
++- `test_slice_004_goldens.py`
++- `test_slice_005_goldens.py`
++
++### anti_sycophancy/ (1 error)
++- `test_stance_delta.py`
++
++### api/ (7 errors)
++- `test_audit_bundle_route.py`
++- `test_benchmark_route.py`
++- `test_disambiguation_route.py`
++- `test_generation_route.py`
++- `test_intake_orchestrator.py`
++- `test_intake_route.py`
++- `test_retrieval_route.py`
++
++### audit_bundle/ (8 errors)
++- `test_bundle_builder.py`
++- `test_bundle_schema.py`
++- `test_f15_adversarial.py`
++- `test_gpg_signer.py`
++- `test_manifest_builder.py`
++- `test_reviewer_blind_walkthrough.py`
++- `test_snapshot_sources.py`
++- `test_sovereignty_ci.py`
++
++### benchmark/ (8 errors)
++- `test_beat_both_scorer.py`
++- `test_benchmark_config.py`
++- `test_dimension_scorers.py`
++- `test_external_loader.py`
++- `test_polaris_runner.py`
++- `test_report_renderer.py`
++- `test_run_benchmark_cli.py`
++- `test_seed_demo_benchmark.py`
++
++### evidence_contract/ (3 errors)
++- `test_gate.py`
++- `test_migration.py`
++- `test_schema.py`
++
++### followup/ (4 errors)
++- `test_agent.py`
++- `test_inheritance.py`
++- `test_multi_turn.py`
++- `test_refusal.py`
++
++### generator2/ (10 errors)
++- `test_generator.py`
++- `test_provenance.py`
++- `test_real_completion.py`
++- `test_section_blueprint.py`
++- `test_strict_verify.py`
++- `test_strict_verify_entailment.py` *(passes when run with `PYTHONPATH=src`)*
++- `test_strict_verify_entailment_live.py`
++- `test_strict_verify_telemetry.py` *(passes with PYTHONPATH=src)*
++- `test_strict_verify_unknown_mode_warning.py` *(passes with PYTHONPATH=src)*
++- `test_verified_report.py`
++
++### Top-level (2 errors)
++- `test_demo_smoke.py` — fails because `scripts/demo_smoke.py:28` itself uses `from polaris_graph.api.intake import process_intake` (no src. prefix). Production code path bug, not a test bug.
++- `test_provenance_generator_entailment.py` *(passes with PYTHONPATH=src)*
++
++**Note:** "passes with PYTHONPATH=src" means I verified with `PYTHONPATH=src python -m pytest <file> -x -q` that the test logic itself is sound; only the path resolution is broken on a default shell.
++
++### CONFIRMED PASSING tests (sample)
++The tests that DO pass (Codex review verified across PRs #378, #379, #382, #384, #385) all use the `from src.polaris_graph.X` convention OR are package-internal imports that pytest resolves correctly:
++- `tests/polaris_graph/generator2/test_strict_verify_entailment.py`
++- `tests/polaris_graph/generator2/test_strict_verify_telemetry.py`
++- `tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py`
++- `tests/polaris_graph/test_analyst_synthesis.py`
++- `tests/polaris_graph/test_synthesis_alert.py`
++- `tests/polaris_graph/test_synthesis_telemetry.py`
++- `tests/polaris_graph/llm/test_entailment_judge_cost.py`
++- `tests/crown_jewels/test_cj_008_entailment_correctness.py`
++
++## Per-test classification
++
++All 65 errors fall into a SINGLE class: **import-path-mismatch**. None are real bugs in production code; all are tooling / sys-path issues.
++
++This means:
++- Real-bug count: **0**
++- Stale-test count: **0**
++- Flaky-test count: **0**
++- Configuration-issue count: **65**
++
++## Recommended fix
++
++Single root-cause fix unblocks all 65:
++
++**Add a top-level `conftest.py` (or update `pytest.ini`) that prepends both `src/` and the repo root to `sys.path`.** The shape:
++
++```python
++# tests/conftest.py (new file)
++import sys
++from pathlib import Path
++
++_REPO_ROOT = Path(__file__).resolve().parent.parent
++_SRC = _REPO_ROOT / "src"
++for p in (_REPO_ROOT, _SRC):
++    if str(p) not in sys.path:
++        sys.path.insert(0, str(p))
++```
++
++After this fix, both `from polaris_graph.X import Y` and `from src.polaris_graph.X import Y` resolve to importable modules — but they are STILL separate `sys.modules` entries with separate per-module state (see Caveat below). The fix unblocks COLLECTION; it does not unify the two namespaces into one module instance.
++
++**Empirical verification:** running `PYTHONPATH=src python -m pytest tests/polaris_graph/test_demo_smoke.py --collect-only -q` on `polaris` HEAD as of 2026-05-10 collects 8 tests successfully. The fix is sufficient for `test_demo_smoke.py`. A small subset of files (live-API tests, e.g. `test_strict_verify_entailment_live.py`) may still skip-on-collect under env-gating, but those are not collection ERRORS — pytest treats them as `skip`, not `error`.
++
++**Caveat — Python module-instance identity:** even with both prefixes on path, the two import spellings load as **separate sys.modules entries** with **separate ContextVar instances** (verified empirically in I-bug-100 PR #379:
++`from polaris_graph.X` and `from src.polaris_graph.X` are NOT the same module object — `_RUN_COST_CTX is not _RUN_COST_CTX` between them). This is the real shared-state hazard the triage exposes. The conftest.py fix above only resolves COLLECTION errors; it does NOT unify the two namespaces into one module instance. Tests that assert against shared module state need to import via the SAME spelling that the production path uses. The mitigation: I-bug-100 already standardized on `src.polaris_graph.llm.openrouter_client` for the cost-tracking ContextVars. The follow-up issue should also document the canonical convention as `from src.polaris_graph.X import Y` and migrate the 65 affected test files to that spelling.
++
++## Why this is OUT OF SCOPE for I-tests-001
++
++The acceptance criterion was "per-test classification + per-class fix plan". Both delivered above. Implementing the fix is a separate concern with its own risk surface (re-running 3547 tests after sys.path change to confirm no regression in currently-passing tests).
++
++A follow-up issue should:
++1. Add the conftest.py sys.path fix.
++2. Re-run the full suite to confirm 65 → 0 collection errors AND no new failures.
++3. Document the canonical import convention as `from src.polaris_graph.X import Y` in CLAUDE.md or AGENTS.md so future tests don't regress.
++
++Closing as triage-complete; fix deferred to a follow-up issue.

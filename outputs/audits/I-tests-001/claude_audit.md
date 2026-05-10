@@ -1,0 +1,2 @@
+# I-tests-001 — pre-existing failing tests triage
+GH#364. Brief iter-1 force-APPROVE (full enumeration). Diff iter-1 REQUEST_CHANGES (golden missing slice_001, generator2 count, module-identity contradiction); iter-2 fix lands all three; force-APPROVE on Codex iter-2 P1 (test_demo_smoke.py post-fix collection) per empirical `PYTHONPATH=src python -m pytest --collect-only` succeeding with 8 tests. Pure documentation / triage doc. SHIP.
