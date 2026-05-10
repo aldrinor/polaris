@@ -270,3 +270,4 @@ index 00000000..05463797
 +        _scrub_invalid_n_markers("[99] [98] and [1].", biblio_size=5)
 +    # No single call exceeded threshold
 +    assert synthesis_scrub_alert_state() is False
+# canonical-diff-sha256: dbceaf9ce23eefde8fcffa791dca8a27c214be85087a2fdb123c3806be8d15f5
