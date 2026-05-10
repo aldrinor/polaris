@@ -7,6 +7,53 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
 
 ---
 
+## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+
+**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+
+### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+
+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+4. **Apply industrial benchmarks** appropriate to the domain:
+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+   - Methodology: appropriate risk-of-bias tool for the study type.
+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+
+**STRICTLY BANNED:**
+- Word counts / citation counts / unique-source counts as quality signals
+- Pattern presence ("does the report mention 'tirzepatide'?")
+- Sample-based audits ("we audited 5 of 50 claims")
+- String-presence PASS/FAIL checks (e.g., gate tables)
+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+
+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+
+### §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this exact sequence — no shortcuts:
+
+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+
+**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+
+---
+
 ## §0. Core Identity and Operational Mode
 
 **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.

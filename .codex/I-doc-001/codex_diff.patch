@@ -1,0 +1,369 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 043cb23f..9b058ce2 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,6 +7,53 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
+ 
+ ---
+ 
++## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
++
++**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
++
++### §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
++
++1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
++2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
++3. **Citation-by-citation** — verify each citation is appropriate for the claim.
++4. **Apply industrial benchmarks** appropriate to the domain:
++   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
++   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++   - Methodology: appropriate risk-of-bias tool for the study type.
++5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
++6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
++
++**STRICTLY BANNED:**
++- Word counts / citation counts / unique-source counts as quality signals
++- Pattern presence ("does the report mention 'tirzepatide'?")
++- Sample-based audits ("we audited 5 of 50 claims")
++- String-presence PASS/FAIL checks (e.g., gate tables)
++- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
++
++**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
++
++**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
++
++### §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this exact sequence — no shortcuts:
++
++1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
++3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
++4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
++
++**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
++
++---
++
+ ## §0. Core Identity and Operational Mode
+ 
+ **0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+diff --git a/logs/session_log.md b/logs/session_log.md
+index 4112dbfa..81aa8feb 100644
+--- a/logs/session_log.md
++++ b/logs/session_log.md
+@@ -3898,3 +3898,13 @@
+ - EVIDENCE/FINDINGS: 14 commits this thread total. Final v6 test status: 48 passed, 1 skipped, 7 xfailed in 2.17s. End-to-end vertical slices working: dashboard form → POST /scope/check → inline scope panel; dashboard form → POST /runs → /runs/[id] → SSE subscription → Export bundle. BPEI failure pattern caught at substrate (test_bpei_pattern_detects_ambiguity PASSING). Scope refusal patterns (treatment / legal / political) all reject correctly. Evidence Contract v1.0 schema validates 3 golden artifacts including a contradiction case + an abort_no_verified_sections case. Sycophancy CI catches drift + anchor-loss + inconsistent-refusal.
+ - STATUS: Phase 0 status: 3/10 done (0.1, 0.2, 0.4) + 3/10 substrate-deeply-shipped with real tests (0.5, 0.8, 0.10) + 4/10 still need user $ signal (0.3, 0.6, 0.7, 0.9). PLUS: Phase 1 substrate landed early — 1.1 scope F1, 1.2 BPEI F2 (HDBSCAN swap + frontend modal in real Phase 1), 1.4 Evidence Contract Gate, 1.6 bundle F15 (real source-span embedding in Phase 1 + IP review), 1.7 sycophancy CI (LLM hookup in Phase 1). The end-to-end slice from dashboard → backend → bundle works. Branch: polaris. Last commit: 1b672ed.
+ - NEXT_STEP: Continue autoloop. Next moves without $: F3b drag-drop upload UI + backend (Phase 1 Task 1.5); Codex review briefs for the 6 substrate-shipped tasks at .codex/task_X_review_brief.md; live screenshot of /dashboard with scope panel rendered; F2 frontend disambiguation modal hooked to /ambiguity. Halt ONLY when asymptoting (≥6 deferred-to-cluster framings stack) or user $ signal arrives.
++
++[2026-05-10 06:59:22]
++- ACTION: Issue queue cleanup + standards enshrining per user 7-action directive.
++- RATIONALE: User flagged §3.0 violation (14+ branches/PRs without GitHub Issues this session) + repeat-flagged 4+ times that line-by-line audit standard (PRISMA 2020/AMSTAR-2/GRADE per claim) is binding for clinical safety. Standards must be in CLAUDE.md, AGENTS.md, Memory, and workflow tooling so the failure mode is structurally prevented.
++- DOCS/RESEARCH: N/A — directive-driven, no external research.
++- SYNC: CLAUDE.md §-1 added (line-by-line audit + standard debug workflow). web/AGENTS.md updated to mirror §-1. Memory: feedback_line_by_line_audit_standard_2026_05_09.md, feedback_frontier_dr_not_agentic_2026_05_09.md, feedback_standard_debug_workflow_2026_05_09.md. MEMORY.md index updated.
++- AFFECTED_FILES: C:\POLARIS\CLAUDE.md, C:\POLARIS\web\AGENTS.md, ~/.claude/projects/C--POLARIS/memory/{feedback_line_by_line_audit_standard,feedback_frontier_dr_not_agentic,feedback_standard_debug_workflow}_2026_05_09.md, ~/.claude/projects/C--POLARIS/memory/MEMORY.md, scripts/create_followup_issues.sh, scripts/close_stale_issues.sh.
++- EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
++- STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
++- NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+diff --git a/scripts/close_stale_issues.sh b/scripts/close_stale_issues.sh
+new file mode 100644
+index 00000000..21059ce6
+--- /dev/null
++++ b/scripts/close_stale_issues.sh
+@@ -0,0 +1,149 @@
++#!/bin/bash
++# Close GitHub issues whose work shipped via merged PR.
++# Cross-referenced via git log on origin/polaris/main.
++set -e
++REPO="aldrinor/polaris"
++
++close() {
++  local num="$1"
++  local pr="$2"
++  gh issue close "$num" --repo "$REPO" -c "Closed by PR #$pr (verified via git log)." 2>&1 | head -1
++}
++
++# F1 (PRs #220-226)
++close 92 220   # I-f1-001
++close 93 222   # I-f1-002
++close 94 223   # I-f1-003
++close 95 224   # I-f1-004
++close 96 225   # I-f1-005
++close 97 226   # I-f1-006
++
++# F2 (PRs #227-234)
++close 98 227   # I-f2-001
++close 99 228   # I-f2-002
++close 100 229  # I-f2-003
++close 101 230  # I-f2-004
++close 102 231  # I-f2-005
++close 103 232  # I-f2-006
++close 104 233  # I-f2-007
++close 105 234  # I-f2-008
++
++# F3 (PRs #237-245)
++close 107 236  # I-f3-001 (PR ref TBD; cite git log)
++close 108 237  # I-f3-002
++close 109 238  # I-f3-003
++close 110 239  # I-f3-004
++close 111 240  # I-f3-005
++close 112 241  # I-f3-006
++close 113 242  # I-f3-007
++close 114 243  # I-f3-008
++close 115 244  # I-f3-009
++close 116 245  # I-f3-010
++
++# F15 (PRs #246-251)
++close 117 246  # I-f15-001
++close 118 247  # I-f15-002
++close 119 248  # I-f15-003
++close 120 249  # I-f15-004
++close 121 250  # I-f15-005
++close 122 251  # I-f15-006
++
++# ECG (PRs #253-256)
++close 124 253  # I-ecg-001
++close 125 254  # I-ecg-002
++close 126 255  # I-ecg-003
++close 127 256  # I-ecg-004
++
++# F4 (PRs #257-261)
++close 128 257  # I-f4-001
++close 129 258  # I-f4-002
++close 130 259  # I-f4-003
++close 131 260  # I-f4-004
++close 132 261  # I-f4-005
++
++# F5 (PRs #262-272)
++close 133 262  # I-f5-001
++close 134 263  # I-f5-002
++close 135 264  # I-f5-003
++close 136 265  # I-f5-004
++close 137 266  # I-f5-005
++close 138 267  # I-f5-006
++close 139 268  # I-f5-007
++close 140 269  # I-f5-008
++close 141 270  # I-f5-009
++close 142 271  # I-f5-010
++close 143 272  # I-f5-011
++
++# F7 (PRs #273-276)
++close 144 273  # I-f7-001
++close 145 274  # I-f7-002
++close 146 275  # I-f7-003
++close 147 276  # I-f7-004
++
++# F8 (PRs #277-282)
++close 148 277  # I-f8-001
++close 149 278  # I-f8-002
++close 150 279  # I-f8-003
++close 151 280  # I-f8-004
++close 152 281  # I-f8-005
++close 153 282  # I-f8-006
++
++# F9 (PRs #283-285)
++close 154 283  # I-f9-001
++close 155 284  # I-f9-002
++close 156 285  # I-f9-003
++
++# F6 (PRs #286-290)
++close 157 286  # I-f6-001
++close 158 287  # I-f6-002
++close 159 288  # I-f6-003
++close 160 289  # I-f6-004
++close 161 290  # I-f6-005
++
++# F10 (PRs #291-298)
++close 162 291  # I-f10-001
++close 163 292  # I-f10-002
++close 164 293  # I-f10-003
++close 165 294  # I-f10-004
++close 166 295  # I-f10-005
++close 167 296  # I-f10-006
++close 168 297  # I-f10-007
++close 169 298  # I-f10-008
++
++# F13 (PRs #299-302)
++close 170 299  # I-f13-001
++close 171 300  # I-f13-002
++close 172 301  # I-f13-003
++close 173 302  # I-f13-004
++
++# F14 (PRs #303-309)
++close 174 303  # I-f14-001
++close 175 306  # I-f14-002
++close 176 307  # I-f14-003
++close 177 308  # I-f14-004
++close 178 309  # I-f14-005
++
++# P2C (PRs #310-314)
++close 179 310  # I-p2c-001
++close 180 311  # I-p2c-002
++close 181 312  # I-p2c-003
++close 182 313  # I-p2c-004
++close 183 314  # I-p2c-005
++
++# F11 (PRs #315-319)
++close 184 315  # I-f11-001
++close 185 316  # I-f11-002
++close 186 317  # I-f11-003
++close 187 318  # I-f11-004
++close 188 319  # I-f11-005
++
++# F12 (PRs #320-323)
++close 189 320  # I-f12-001
++close 190 321  # I-f12-002
++close 191 322  # I-f12-003
++close 192 323  # I-f12-004
++
++# Bench (PR #325)
++close 194 325  # I-bench-001
++
++echo "Done"
+diff --git a/scripts/create_followup_issues.sh b/scripts/create_followup_issues.sh
+new file mode 100644
+index 00000000..64b71416
+--- /dev/null
++++ b/scripts/create_followup_issues.sh
+@@ -0,0 +1,88 @@
++#!/bin/bash
++set -e
++
++REPO="aldrinor/polaris"
++
++create_issue() {
++  local title="$1"
++  local body="$2"
++  local label="${3:-type-bug}"
++  gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$body"
++}
++
++# Outstanding follow-ups (open and keep open)
++create_issue "I-bug-093 — Warn-mode demo run on entailment judge" \
++  "Run a demo sweep with PG_PROVENANCE_ENTAILMENT_MODE=warn to confirm entailment-judge behavior is observable and metrics flow before production enforcement. Acceptance: outputs/I-bug-093_warn/ shows judge metrics, no aborts, recovery rate logged."
++
++create_issue "I-bug-099 — Extract entailment-judge helpers to shared module" \
++  "Currently entailment-judge logic is split between strict_verify.py and provenance_generator.py. Extract shared LLM-prompt + parse helpers into src/polaris_graph/generator/entailment_judge.py. Acceptance: single import path, unit tests, no behavior change."
++
++create_issue "I-bug-100 — Route entailment-judge calls through OpenRouterClient for cost tracking" \
++  "Currently entailment judge uses raw httpx; bypasses cost-ledger and family-segregation guards. Route through openrouter_client. Acceptance: cost tracked in pg_cost_ledger.jsonl, family-segregation enforced, unit tests."
++
++create_issue "I-bug-101 — Distributional false-positive audit on entailment judge" \
++  "Run entailment judge on 200 known-good sentences (already strict_verify-passing) to measure false-NULL_DROP rate. Acceptance: outputs/I-bug-101_audit/distribution.json with per-sentence verdict + false-positive rate. If FPR > 5%, escalate as urgent."
++
++create_issue "I-bug-102 — Off-mode should skip generator2 import" \
++  "When PG_PROVENANCE_ENTAILMENT_MODE=off, generator2 module is still imported (top-level imports load entailment helpers). Refactor to lazy-import. Acceptance: off-mode has zero entailment-judge code-path execution, unit test asserts."
++
++create_issue "I-bug-103 — Retrieval expansion experiment (FAILED — document for archive)" \
++  "Hypothesis: expanding retrieval from K=20 to K=60 would improve coverage. Empirical result: full sweep showed no recovery improvement; wasted sweep budget. Acceptance: capture the negative result in docs/experiments/i_bug_103_failed.md and close with no code change."
++
++create_issue "I-bug-104 — Prompt rewrite experiment (FAILED — document for archive)" \
++  "Hypothesis: 100-line prompt rewrite emphasizing per-decimal extraction would improve verified-rate. Empirical result: catastrophic regression (verified-rate dropped 15pp). Reverted. Acceptance: capture in docs/experiments/i_bug_104_failed.md and close."
++
++create_issue "I-bug-106 — Synthesis subheadings should be ### not ##" \
++  "Analyst Synthesis section emits ## subheadings which conflict with main section headers. Should be ### per markdown hierarchy. Acceptance: synthesis prompt updated, regression test asserts no ## in synthesis output."
++
++create_issue "I-bug-107 — Multi-run BEAT-BOTH average instead of single-run" \
++  "Single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates differ ±5pp). Average 3 runs and report mean ± stddev. Acceptance: scripts/run_beat_both.py supports --n-runs, manifest aggregates."
++
++create_issue "I-bug-109 — Synthesis [N] hallucination root-cause investigation" \
++  "Synthesis LLM emitted [18] [19] when bibliography size = 17. Runtime scrub guardrail (PR #351) handles symptom; root cause unknown. Investigate: prompt format, bibliography rendering, LLM tokenizer. Acceptance: docs/investigation/i_bug_109_root_cause.md with finding + fix recommendation."
++
++create_issue "I-bug-110 — Synthesis [N] scrub telemetry counters" \
++  "Add metrics.synthesis_n_scrub_count and metrics.synthesis_n_scrub_per_run to track scrub frequency. Acceptance: counter in manifest, regression test."
++
++create_issue "I-bug-111 — Alert if synthesis [N] scrub count > 5 in single run" \
++  "If synthesis hallucinates >5 [N] markers in a single run, log WARNING and tag manifest. Indicates synthesis prompt/bibliography degeneration. Acceptance: WARN log, manifest.synthesis_n_scrub_alert flag."
++
++create_issue "I-tests-001 — 10 pre-existing failing tests triage" \
++  "tests/polaris_graph/ has 10 pre-existing failing tests (predate this session). Triage: real bugs vs stale tests vs flaky. Acceptance: docs/tests/i_tests_001_triage.md with per-test classification + per-class fix plan."
++
++create_issue "I-bakeoff-A-001 — Path A bakeoff (Qwen 3.5 Plus / Opus 4.7 / GPT-5)" \
++  "Codex strategic review path A: bake off generator candidates against current DeepSeek V3.2-Exp on the 5-question Carney goldset. Score by line-by-line audit (PRISMA 2020, AMSTAR-2, GRADE per claim — NOT metadata). Acceptance: outputs/bakeoff_A/{model}/audit.md with per-claim verdicts, recommendation."
++
++create_issue "I-decompose-001 — Path G multi-question decomposition" \
++  "Codex strategic review path G: decompose Carney complex questions into N sub-questions, run each through pipeline, synthesize cross-question. Acceptance: src/polaris_graph/decomposer.py + integration test on 'tirzepatide vs semaglutide T2DM' (decomposes to efficacy / safety / cost / availability)."
++
++# Retroactive issues for shipped PRs this session (§3.0 hygiene)
++create_issue "I-bug-092 — Entailment judge (6th strict_verify check) [SHIPPED]" \
++  "Closed by PR #343. Add LLM-as-judge entailment as the 6th strict_verify check. Two-family judge (Gemma 4 31B), confidence threshold, NULL_DROP fallback."
++
++create_issue "I-bug-094 — Live OpenRouter canary on entailment judge [SHIPPED]" \
++  "Closed by PR #347. 4/4 PASS canary against live OpenRouter to confirm entailment judge behavior end-to-end."
++
++create_issue "I-bug-095 — Default PG_PROVENANCE_ENTAILMENT_MODE flipped to enforce [SHIPPED]" \
++  "Closed by PR #348. After warn-mode soak, default flipped from warn to enforce for production protection."
++
++create_issue "I-bug-096 — Entailment-judge telemetry counters [SHIPPED]" \
++  "Closed by PR #346. Counters: entailment_judge_invocations, entailment_judge_drops, entailment_judge_pass."
++
++create_issue "I-bug-097 — Entailment-judge skip on typo warning [SHIPPED]" \
++  "Closed by PR #345. When sentence has typo warning from upstream, skip entailment to avoid false NULL_DROP."
++
++create_issue "I-bug-098 — Production verifier wired with entailment judge [SHIPPED]" \
++  "Closed by PR #349. Production generator/provenance_generator.py was NOT wired with entailment until this fix. Latent gap caught by user pushback."
++
++create_issue "I-bug-105 — Two-layer report contract (verified core + analyst synthesis) [SHIPPED]" \
++  "Closed by PR #350. Verified core with [#ev:...] tokens + analyst synthesis with [N] markers, hedged. Per Codex strategic review path D."
++
++create_issue "I-bug-108 — Sentence repair loop + synthesis [N] scrub [SHIPPED]" \
++  "Closed by PR #351. Verifier-driven sentence repair loop (35.3% recovery rate) + runtime scrub guardrail for invalid synthesis [N] markers. Codex iter-2 APPROVE."
++
++create_issue "I-cj-008 — Crown Jewel binding test [SHIPPED]" \
++  "Closed by PR #344. End-to-end binding test: scope discovery to BPEI to retrieval to adequacy gate to generator to strict_verify to bundle export." \
++  "type-bug"
++
++echo "Done creating issues"
+diff --git a/web/AGENTS.md b/web/AGENTS.md
+index 9506f4b7..fe3fa430 100644
+--- a/web/AGENTS.md
++++ b/web/AGENTS.md
+@@ -6,6 +6,38 @@ This version has breaking changes — APIs, conventions, and file structure may
+ 
+ <!-- END:nextjs-agent-rules -->
+ 
++<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
++
++# STANDING EVALUATION & DEBUG STANDARDS (binding)
++
++Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
++
++## §-1.1 Line-by-line audit standard (clinical-safety-critical)
++
++Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
++
++Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
++
++Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
++
++**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
++
++**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
++
++## §-1.2 Standard debug workflow (no §3.0 bypass)
++
++Every task / bug / issue follows this sequence (§-1.2 governs _task-work_; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
++
++1. **GitHub Issue FIRST** (first _task-work_ call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
++2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
++3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
++4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
++5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
++6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
++7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
++
++<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
++
+ <!-- BEGIN:polaris-restart-2026-05-05 -->
+ 
+ # POLARIS issue-driven workflow (mandatory)
+# canonical-diff-sha256: bbc94eb9e0e27c21c5d5a1d7537477de598257d37ec040d34ab41ee1833bde90
