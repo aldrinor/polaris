@@ -1,0 +1,203 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1025-a479-7b90-bb9d-24ab7556e219
+--------
+user
+# Codex Brief — I-bug-108 (verifier-driven sentence repair loop)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings.
+- "Don't pick bone from egg".
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- DO NOT call exec / rg / shell tools. Brief is self-contained.
+```
+
+## Context
+
+Per your strategic-review iter 1: hybrid sequence D + B + A bakeoff + G parallel R&D. Path D shipped as PR #350. This issue is Path B — the second item in your `top_3_load_bearing_actions`:
+
+> "Add verifier-driven sentence repair before final output; measure recovered sentences, not prompt aesthetics."
+
+Your iter-1 framing: "the safest engineering improvement because it directly attacks observed verifier failures instead of hoping the first draft improves."
+
+## Empirical target
+
+Current production baseline (I-bug-098 manifest):
+- 14 verified sentences out of 51 attempts (27% pass rate)
+- 37 dropped: 15 trial_name_mismatch, 8 entailment_failed, 7 number_not_in_any_cited_span, 2 no_provenance_token, etc.
+
+A 50% recovery rate on the 37 drops adds +18 verified sentences → 32 total → ~1700-2000 verified words → ~3000-3500 words total (with synthesis layer from PR #350).
+
+## Architecture
+
+### Where the loop runs
+
+`src/polaris_graph/generator/multi_section_generator.py` per-section drafting flow:
+
+```
+section_draft  → strict_verify  → kept[], dropped[]
+                                   ↓
+                                   I-bug-108 NEW: repair_loop(dropped, evidence_pool)
+                                   ├─ For each dropped sentence (up to MAX_REPAIR_PER_SECTION):
+                                   │   ├─ build repair prompt (sentence + cited spans + failure reason)
+                                   │   ├─ single LLM call to generator (DeepSeek V3.2-Exp)
+                                   │   ├─ verify_sentence_provenance on the repaired output
+                                   │   └─ if verified → kept; if still dropped → record original drop
+                                   └─ return augmented kept[]
+                  ↓
+                  Section result with the larger kept[]
+```
+
+The loop runs AFTER strict_verify, NOT inside it. This keeps the verifier pure and the repair concern isolated. Each repair attempt is exactly one LLM call.
+
+### What the repair prompt looks like
+
+```
+ORIGINAL SENTENCE (was dropped by strict_verify):
+<the dropped sentence with [#ev:...] tokens>
+
+CITED SPAN(S) FROM THE EVIDENCE:
+<the actual text the [#ev:...] tokens point to>
+
+VERIFIER REASON FOR DROPPING:
+<the failure_reasons list, e.g. "entailment_failed: NEUTRAL — sentence
+ introduces specific patient characteristics not in cited span">
+
+TASK: Rewrite the sentence so the cited span actually entails it.
+- Keep the [#ev:...] markers EXACTLY as they appear (same evidence_id, same start-end)
+- Remove the unsupported specifics the verifier flagged
+- If you can't make the claim entailed, output exactly NULL_DROP and we'll keep the original drop.
+- Do NOT introduce numbers, study names, jurisdictions, or specific
+  outcomes that aren't in the cited span.
+
+OUTPUT: just the rewritten sentence (one line) with [#ev:...] markers preserved. No preamble.
+```
+
+### Bounds (cost discipline)
+
+- `PG_REPAIR_LOOP_MAX_RETRIES_PER_SENTENCE = 1` env-gated, default 1 (single retry — Codex can recommend higher if you want)
+- `PG_REPAIR_LOOP_MAX_PER_SECTION = 10` env-gated, default 10 (cap per section to bound runaway cost)
+- `PG_REPAIR_LOOP_ENABLED = "true"` env-gated, default on. Operators can disable.
+- Cost per repair: ~$0.002 per call. With 30 dropped × 1 retry = ~$0.06/run incremental. Within Carney delivery budget.
+
+### Failure modes the loop should NOT trigger on
+
+- `no_provenance_token`: sentence has no [#ev:...] at all. The repair prompt would have nothing to anchor on. SKIP.
+- `invalid_token` / `span_out_of_range`: token references unknown evidence or bad bounds. The generator likely hallucinated the token. Repair won't help. SKIP.
+
+The loop should only fire on the "drift" failures where the sentence has a valid cited span but the prose drifted from it:
+- `entailment_failed` (the prime case)
+- `number_not_in_any_cited_span`
+- `no_integer_overlap_any_cited_span`
+- `trial_name_mismatch`
+- `overlap_too_low`
+- `no_content_word_overlap_any_cited_span`
+
+### Telemetry
+
+Add to manifest:
+- `repair_attempts: int`
+- `repair_successes: int` (verified after repair)
+- `repair_failures: int` (still dropped after repair OR NULL_DROP returned)
+- `repair_cost_usd: float`
+- `recovery_rate: float` (successes / attempts)
+
+## Implementation surface
+
+`src/polaris_graph/generator/sentence_repair.py` — NEW, ~150 LOC
+- `REPAIR_SYSTEM_PROMPT` constant
+- `REPAIRABLE_REASONS = {entailment_failed, number_not_in_any_cited_span, ...}` (skip token-format failures)
+- `async def repair_sentence(dropped_sentence, evidence_pool, model) -> tuple[str | None, in_tok, out_tok]`
+- `async def repair_dropped_section_sentences(dropped, evidence_pool, ...) -> tuple[list[SentenceVerification], dict]` — orchestrator
+
+`src/polaris_graph/generator/multi_section_generator.py` — wire into per-section flow
+- After `strict_verify(...)`, call `repair_dropped_section_sentences(...)` if env enabled
+- Merge repaired-and-now-verified back into kept_sentences
+- Roll up telemetry into MultiSectionResult
+
+`scripts/run_honest_sweep_r3.py` — manifest fields for the new telemetry
+
+## Tests pinned
+
+- `test_repair_loop_disabled_by_env` — ENV=false → bypass entirely, no LLM calls
+- `test_repair_skips_unrepairable_reasons` — no_provenance_token / invalid_token / span_out_of_range NOT attempted
+- `test_repair_recovers_entailment_failed_sentence` — fake judge returns NEUTRAL on first call, ENTAILED on repaired sentence; sentence ends up in kept
+- `test_repair_returns_null_drop_keeps_original_drop` — generator returns "NULL_DROP", original drop preserved
+- `test_repair_max_retries_bound` — sentence still failing after MAX_RETRIES is left dropped
+- `test_repair_telemetry_records_attempts_successes_failures` — manifest fields populate
+- `test_repair_preserves_ev_token_format` — repaired sentence has same [#ev:...] markers as original
+- `test_repair_cost_capped_per_section` — MAX_PER_SECTION enforces ceiling
+
+## Acceptance criteria (your iter-1 brief said: "measure recovered sentences, not prompt aesthetics")
+
+After the validation sweep:
+- `repair_attempts > 10` (proves the loop fires on real drops)
+- `recovery_rate >= 0.30` (at least 30% of attempted drops recovered — Codex iter-1 brief implied 50% target; 30% is the floor)
+- `verified_words` improves vs I-bug-098 baseline (974 → 1300+ aim)
+- BEAT-BOTH narrative_length: 1776 → 2200+ aim (more verified core feeds richer synthesis)
+- 0 regressions in audit-grade properties: 0 [#ev:...] tokens leaked outside verified prose; entailment gate still firing on rejections
+
+## What I want from you
+
+1. **Verdict** APPROVE / REQUEST_CHANGES on the design.
+2. **MAX_RETRIES per sentence**: 1, 2, or 3? My read: 1 (cost discipline; if first repair didn't work, the sentence is probably structurally drifted). Cost scales linearly so 2 doubles the budget. Recommend?
+3. **MAX_PER_SECTION**: 10 is my proposal. If a section drops 30, we'd repair 10 of them per section (~5 sections = 50 repair calls = ~$0.10 per run). Is 10 right or should it be the section's actual drop count without cap?
+4. **Should the repair pass also re-run the entailment judge after the verifier?** verify_sentence_provenance handles the mechanical checks, but the entailment judge is a downstream call. My read: yes, repaired sentences should re-pass through the FULL strict_verify chain including entailment, otherwise we could re-introduce drift.
+5. **Acceptance criterion for the metric "30% recovery rate"** — too low? too high? Should we set 50% per your iter-1 framing?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+max_retries_per_sentence: <integer>
+max_per_section: <integer or "no cap">
+re_run_full_strict_verify_after_repair: yes | no
+recovery_rate_floor: <decimal>
+extra_concerns: [...]
+loc_estimate_ok: yes | no
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+rationale: <2-3 sentences>
+```
+
+codex
+```yaml
+verdict: APPROVE
+max_retries_per_sentence: 1
+max_per_section: 10
+re_run_full_strict_verify_after_repair: yes
+recovery_rate_floor: 0.30
+extra_concerns:
+  - "Require repaired output to preserve exactly the original evidence-token set; if markers are missing, changed, duplicated, or new markers appear, treat as repair failure."
+  - "Final dropped accounting should remove recovered sentences from final drops while retaining failed originals, so telemetry does not double-count repaired successes as still dropped."
+  - "Prioritize repair attempts deterministically, e.g. original section order, so MAX_PER_SECTION does not make runs noisy."
+loc_estimate_ok: yes
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: "APPROVE because the loop is correctly isolated after strict verification, targets the observed drift failures, and keeps the verifier as the source of truth. Use 1 retry and a per-section cap of 10 for cost discipline; repaired sentences must pass the full strict verification chain including entailment before entering kept prose. Set 0.30 as the floor for merge acceptance and keep 0.50 as the aspirational target, because the first production run should prove positive recovery without overfitting the threshold."
+```
+tokens used
+3,197
+```yaml
+verdict: APPROVE
+max_retries_per_sentence: 1
+max_per_section: 10
+re_run_full_strict_verify_after_repair: yes
+recovery_rate_floor: 0.30
+extra_concerns:
+  - "Require repaired output to preserve exactly the original evidence-token set; if markers are missing, changed, duplicated, or new markers appear, treat as repair failure."
+  - "Final dropped accounting should remove recovered sentences from final drops while retaining failed originals, so telemetry does not double-count repaired successes as still dropped."
+  - "Prioritize repair attempts deterministically, e.g. original section order, so MAX_PER_SECTION does not make runs noisy."
+loc_estimate_ok: yes
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: "APPROVE because the loop is correctly isolated after strict verification, targets the observed drift failures, and keeps the verifier as the source of truth. Use 1 retry and a per-section cap of 10 for cost discipline; repaired sentences must pass the full strict verification chain including entailment before entering kept prose. Set 0.30 as the floor for merge acceptance and keep 0.50 as the aspirational target, because the first production run should prove positive recovery without overfitting the threshold."
+```

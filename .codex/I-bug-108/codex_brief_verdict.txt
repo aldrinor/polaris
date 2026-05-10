@@ -1,0 +1,13 @@
+verdict: APPROVE
+max_retries_per_sentence: 1
+max_per_section: 10
+re_run_full_strict_verify_after_repair: yes
+recovery_rate_floor: 0.30
+extra_concerns:
+  - "Require repaired output to preserve exactly the original evidence-token set; if markers are missing, changed, duplicated, or new markers appear, treat as repair failure."
+  - "Final dropped accounting should remove recovered sentences from final drops while retaining failed originals, so telemetry does not double-count repaired successes as still dropped."
+  - "Prioritize repair attempts deterministically, e.g. original section order, so MAX_PER_SECTION does not make runs noisy."
+loc_estimate_ok: yes
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: "APPROVE because the loop is correctly isolated after strict verification, targets the observed drift failures, and keeps the verifier as the source of truth. Use 1 retry and a per-section cap of 10 for cost discipline; repaired sentences must pass the full strict verification chain including entailment before entering kept prose. Set 0.30 as the floor for merge acceptance and keep 0.50 as the aspirational target, because the first production run should prove positive recovery without overfitting the threshold."
