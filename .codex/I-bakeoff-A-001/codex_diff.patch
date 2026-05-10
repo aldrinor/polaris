@@ -798,3 +798,4 @@ index 00000000..0c3b7b7f
 +    s = f"{long_sentence}[#ev:a:0-{len(span)}]."
 +    r = audit_sentence(s, pool)
 +    assert len(r["sentence"]) <= 200
+# canonical-diff-sha256: cbaf373350b48778d137caa6f3adcf57af7da8ea82c98136e6aba97f6d0ea905
