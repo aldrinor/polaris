@@ -270,3 +270,4 @@ index 00000000..a9c9dac5
 +    assert "a" not in aspects
 +    assert "x" not in aspects
 +    assert "efficacy" in aspects
+# canonical-diff-sha256: d8034b83a9922982bb7aa648e8262c1aa76df78b35496286f542d89c32ed2e74
