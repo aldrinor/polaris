@@ -26,9 +26,9 @@ Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNRE
 
 ## §-1.2 Standard debug workflow (no §3.0 bypass)
 
-Every task / bug / issue follows this sequence (§-1.2 governs *task-work*; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
+Every task / bug / issue follows this sequence (§-1.2 governs _task-work_; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
 
-1. **GitHub Issue FIRST** (first *task-work* call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+1. **GitHub Issue FIRST** (first _task-work_ call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
 2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
 3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
 4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
