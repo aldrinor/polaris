@@ -1,0 +1,28 @@
+verdict: APPROVE
+disclosure_wording: >
+  Suggested rewrite: "This section is analyst synthesis: interpretive commentary
+  based on the verified findings above and the cited evidence. Unlike the
+  Verified Findings section, these sentences are not individually span-verified;
+  use them as hedged context, not as audit-grade claims."
+synthesis_generator_recommendation: deepseek_v32
+sub_section_structure: yes
+cost_budget_recommendation: "$0.02 per report hard cap, with max_tokens bounded"
+acceptance_criteria_target: >
+  Success means narrative_length reaches roughly 2000-3000 words, verified-core
+  audit guarantees remain unchanged, jurisdictional_precision stays stable or
+  improves, synthesis contains zero [#ev:...] tokens, manifest records synthesis
+  words/tokens, and BEAT-BOTH shows 0 BEHIND-BOTH dimensions with at most 2
+  borderline regressions requiring follow-up.
+extra_concerns:
+  - "Add an output scrub/guardrail that removes or rejects [#ev:...] tokens from synthesis, not just a test."
+  - "Omit the entire Analyst Synthesis section when synthesis is empty; do not render an empty disclosure block."
+  - "Prompt should require bibliography-style [N] citations where concrete evidence is discussed."
+  - "Manifest should distinguish verified_words from analyst_synthesis_words so total length cannot be mistaken for audited length."
+loc_estimate_ok: yes
+convergence_call: continue
+remaining_blockers_for_execution: []
+rationale: >
+  The design preserves POLARIS's faithfulness wedge because the verified core
+  remains the only audit-grade layer, while the new synthesis is clearly labeled
+  as interpretive. DeepSeek is the right writer; Gemma should remain part of the
+  judge/evaluator family rather than being repurposed for narrative generation.

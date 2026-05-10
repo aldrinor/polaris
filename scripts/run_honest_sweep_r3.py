@@ -2133,6 +2133,18 @@ async def run_one_query(
         if m50_entries:
             trials = ", ".join(e.get("trial", "") for e in m50_entries)
             _log(f"[m50]         per-trial subsections: {len(m50_entries)} [{trials}]")
+        # I-bug-105: two-layer report. Insert Analyst Synthesis between
+        # the Verified Findings (above) and the Limitations (below).
+        # Disclosure preamble per Codex iter-1 brief verdict.
+        if getattr(multi, "analyst_synthesis_text", ""):
+            from src.polaris_graph.generator.analyst_synthesis import (
+                ANALYST_SYNTHESIS_DISCLOSURE,
+            )
+            sections_concat += (
+                f"\n\n## Analyst Synthesis\n\n"
+                f"*{ANALYST_SYNTHESIS_DISCLOSURE}*\n\n"
+                f"{multi.analyst_synthesis_text}"
+            )
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 
@@ -2532,6 +2544,23 @@ async def run_one_query(
                 "sections_kept": sum(1 for s in multi.sections
                                      if not s.dropped_due_to_failure),
                 "words": multi.total_words,
+                # I-bug-105 two-layer reporting: distinguish verified
+                # word count from analyst-synthesis word count so
+                # downstream consumers cannot mistake total length for
+                # audited length (per Codex iter-1 brief P0).
+                "verified_words": (
+                    multi.total_words
+                    - getattr(multi, "analyst_synthesis_words", 0)
+                ),
+                "analyst_synthesis_words": getattr(
+                    multi, "analyst_synthesis_words", 0
+                ),
+                "analyst_synthesis_input_tokens": getattr(
+                    multi, "analyst_synthesis_input_tokens", 0
+                ),
+                "analyst_synthesis_output_tokens": getattr(
+                    multi, "analyst_synthesis_output_tokens", 0
+                ),
                 "sentences_verified": multi.total_sentences_verified,
                 "sentences_dropped": multi.total_sentences_dropped,
                 "limitations_words": len(multi.limitations_text.split()),
