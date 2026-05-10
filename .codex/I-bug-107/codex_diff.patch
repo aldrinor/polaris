@@ -1,0 +1,630 @@
+diff --git a/scripts/aggregate_beat_both_runs.py b/scripts/aggregate_beat_both_runs.py
+new file mode 100644
+index 00000000..39e892e2
+--- /dev/null
++++ b/scripts/aggregate_beat_both_runs.py
+@@ -0,0 +1,327 @@
++"""I-bug-107 — aggregate N BEAT-BOTH runs into mean ± stddev per dimension.
++
++A single BEAT-BOTH run has high variance (sweep-to-sweep recovery rates
++differ ±5pp on identical input due to LLM nondeterminism). For
++benchmark publication and Carney-grade quality reporting, average N
++runs and report mean ± stddev per dimension.
++
++This script does NOT run sweeps — sweep orchestration is user-budget
++gated (each full sweep is ~$0.10 OpenRouter spend). It aggregates
++N pre-existing `outputs/m_live_2_beat_both/manifest.json` artifacts
++that were produced by separate `scripts/run_m_live_2_beat_both.py`
++invocations.
++
++Usage:
++    python scripts/aggregate_beat_both_runs.py \\
++        --manifest path/to/run1/manifest.json \\
++        --manifest path/to/run2/manifest.json \\
++        --manifest path/to/run3/manifest.json \\
++        --output outputs/m_live_2_aggregate/manifest.json
++
++Output schema (mirrors single-run schema with aggregate fields):
++    {
++        "n_runs": 3,
++        "input_manifests": [path1, path2, path3],
++        "polaris_scores_aggregate": {
++            "<dimension>": {
++                "mean": float,
++                "stddev": float,
++                "min": float,
++                "max": float,
++                "values": [v1, v2, v3]
++            }
++        },
++        "chatgpt_scores": {...},     # from first manifest (baseline; identical across runs)
++        "gemini_scores": {...},      # from first manifest (baseline; identical across runs)
++        "per_dimension_verdicts": {
++            "<dimension>": {
++                "polaris_mean": float,
++                "polaris_stddev": float,
++                "chatgpt": float,
++                "gemini": float,
++                "verdict": "BEAT-BOTH" | "BEAT-ONE" | "TIE" | "BEHIND",
++                "robust": bool   # True if (mean - stddev) > both competitors
++            }
++        }
++    }
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import statistics
++import sys
++from pathlib import Path
++from typing import Any
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++# I-bug-107 iter-1 diff P1 fix: reuse canonical per-dimension tolerance
++# from scripts/run_m_live_2_beat_both.py / beat_both_scoring.py instead
++# of a hand-rolled 1% relative tolerance. Canonical tolerance reflects
++# domain knowledge per dimension (narrative_length tolerance is much
++# wider than e.g. unique_citations).
++from src.polaris_graph.audit_ir.beat_both_scoring import (  # noqa: E402
++    tolerance_for,
++)
++
++
++def _load_manifest(path: Path) -> dict[str, Any]:
++    """Load a single BEAT-BOTH manifest. Validates the expected schema."""
++    if not path.exists():
++        raise FileNotFoundError(f"manifest not found: {path}")
++    data = json.loads(path.read_text(encoding="utf-8"))
++    required = {"polaris_scores", "chatgpt_scores", "gemini_scores"}
++    missing = required - set(data.keys())
++    if missing:
++        raise ValueError(
++            f"manifest {path} missing required keys: {sorted(missing)}"
++        )
++    return data
++
++
++def _extract_polaris_dimension_values(
++    manifests: list[dict[str, Any]],
++) -> dict[str, list[float]]:
++    """Group polaris_scores values by dimension across N manifests.
++
++    Returns: {dimension_name: [run1_value, run2_value, ...]}
++    """
++    by_dim: dict[str, list[float]] = {}
++    for manifest in manifests:
++        for dim_name, dim_score in manifest["polaris_scores"].items():
++            value = dim_score.get("value")
++            if value is None:
++                continue
++            by_dim.setdefault(dim_name, []).append(float(value))
++    return by_dim
++
++
++def _aggregate_polaris_scores(
++    manifests: list[dict[str, Any]],
++) -> dict[str, dict[str, Any]]:
++    """Compute per-dimension mean / stddev / min / max across N runs."""
++    by_dim = _extract_polaris_dimension_values(manifests)
++    aggregate: dict[str, dict[str, Any]] = {}
++    for dim_name, values in by_dim.items():
++        if not values:
++            continue
++        mean = statistics.mean(values)
++        stddev = statistics.stdev(values) if len(values) >= 2 else 0.0
++        aggregate[dim_name] = {
++            "mean": round(mean, 4),
++            "stddev": round(stddev, 4),
++            "min": min(values),
++            "max": max(values),
++            "values": values,
++            "n": len(values),
++        }
++    return aggregate
++
++
++def _compute_robust_verdicts(
++    polaris_aggregate: dict[str, dict[str, Any]],
++    chatgpt_scores: dict[str, dict[str, Any]],
++    gemini_scores: dict[str, dict[str, Any]],
++) -> dict[str, dict[str, Any]]:
++    """Per-dimension verdict using mean ± stddev for robustness.
++
++    A verdict is "robust BEAT-BOTH" iff (mean - stddev) > both
++    competitor scores (i.e., even the worst-case run beats both).
++
++    Otherwise the verdict uses the mean directly with the original
++    BEAT-BOTH / BEAT-ONE / TIE / BEHIND taxonomy.
++    """
++    verdicts: dict[str, dict[str, Any]] = {}
++    for dim_name, agg in polaris_aggregate.items():
++        polaris_mean = agg["mean"]
++        polaris_stddev = agg["stddev"]
++        # I-bug-107 iter-1 P2 fix: explicitly handle missing competitor
++        # dimensions instead of fabricating 0.0. If either competitor
++        # didn't score this dimension, the verdict can't be computed.
++        chatgpt_score = chatgpt_scores.get(dim_name)
++        gemini_score = gemini_scores.get(dim_name)
++        if chatgpt_score is None or gemini_score is None:
++            verdicts[dim_name] = {
++                "polaris_mean": polaris_mean,
++                "polaris_stddev": polaris_stddev,
++                "polaris_worst_case": round(polaris_mean - polaris_stddev, 4),
++                "chatgpt": None,
++                "gemini": None,
++                "verdict": "INCOMPLETE",
++                "robust": False,
++                "reason": (
++                    f"competitor missing dimension: "
++                    f"chatgpt={chatgpt_score is None}, "
++                    f"gemini={gemini_score is None}"
++                ),
++            }
++            continue
++        chatgpt_val = chatgpt_score.get("value", 0.0)
++        gemini_val = gemini_score.get("value", 0.0)
++
++        # I-bug-107 iter-1 diff P2 fix: canonical all-zero N/A guard
++        # (mirrors scripts/run_m_live_2_beat_both.py:492-494). When all
++        # three scored 0.0, the dimension is structurally unmeasurable
++        # — emit N/A, not TIE.
++        if polaris_mean == 0.0 and chatgpt_val == 0.0 and gemini_val == 0.0:
++            verdicts[dim_name] = {
++                "polaris_mean": polaris_mean,
++                "polaris_stddev": polaris_stddev,
++                "polaris_worst_case": round(polaris_mean - polaris_stddev, 4),
++                "chatgpt": chatgpt_val,
++                "gemini": gemini_val,
++                "verdict": "N/A",
++                "robust": False,
++                "rationale": (
++                    "All 3 manifests scored 0.0 — dimension not "
++                    "measurable on current inputs."
++                ),
++            }
++            continue
++
++        # I-bug-107 iter-1 diff P1 fix: use canonical per-dimension
++        # tolerance (`tolerance_for(dim)`) — same as the single-run
++        # verdict path. NOT a hand-rolled 1% rule.
++        # I-bug-107 iter-2 diff P1 fix: use canonical ahead/behind/tie
++        # taxonomy (mirrors scripts/run_m_live_2_beat_both.py:527-543).
++        # Ahead-one + behind-one MUST resolve to BEHIND, NOT BEAT-ONE.
++        tol = tolerance_for(dim_name)
++
++        def _cmp_one(competitor_val: float) -> str:
++            delta = polaris_mean - competitor_val
++            if abs(delta) <= tol:
++                return "tie"
++            return "ahead" if delta > 0 else "behind"
++
++        vs_chatgpt = _cmp_one(chatgpt_val)
++        vs_gemini = _cmp_one(gemini_val)
++        ahead_count = sum(1 for v in (vs_chatgpt, vs_gemini) if v == "ahead")
++        behind_count = sum(1 for v in (vs_chatgpt, vs_gemini) if v == "behind")
++
++        if ahead_count == 2:
++            verdict = "BEAT-BOTH"
++        elif ahead_count == 1 and behind_count == 0:
++            verdict = "BEAT-ONE"
++        elif behind_count == 2:
++            verdict = "BEHIND-BOTH"
++        elif behind_count >= 1:
++            verdict = "BEHIND"
++        else:
++            verdict = "TIE"
++
++        # I-bug-107 iter-1 P1 fix: robust = STRICT (mean - stddev) > both
++        # competitor scores. NO tolerance — acceptance specifies strict
++        # inequality. A near-margin worst_case=100.5 vs competitor=100
++        # MUST count as robust=True.
++        worst_case = polaris_mean - polaris_stddev
++        robust = worst_case > chatgpt_val and worst_case > gemini_val
++
++        verdicts[dim_name] = {
++            "polaris_mean": polaris_mean,
++            "polaris_stddev": polaris_stddev,
++            "polaris_worst_case": round(worst_case, 4),
++            "chatgpt": chatgpt_val,
++            "gemini": gemini_val,
++            "verdict": verdict,
++            "robust": robust,
++        }
++    return verdicts
++
++
++def aggregate(manifest_paths: list[Path], output_path: Path) -> dict[str, Any]:
++    """Aggregate N BEAT-BOTH manifests into mean ± stddev per dimension.
++
++    Returns the aggregate manifest dict. Also writes it to output_path.
++    """
++    if len(manifest_paths) < 2:
++        raise ValueError(
++            f"Need >=2 manifests to compute mean ± stddev; got {len(manifest_paths)}"
++        )
++    manifests = [_load_manifest(p) for p in manifest_paths]
++    polaris_aggregate = _aggregate_polaris_scores(manifests)
++
++    # Competitor scores should be identical across runs (same source text).
++    # Use first manifest's scores as the canonical baseline.
++    first = manifests[0]
++    aggregate_manifest = {
++        "milestone": "I-bug-107",
++        "version": "v1",
++        "n_runs": len(manifests),
++        "input_manifests": [str(p) for p in manifest_paths],
++        "polaris_scores_aggregate": polaris_aggregate,
++        "chatgpt_scores": first["chatgpt_scores"],
++        "gemini_scores": first["gemini_scores"],
++        "per_dimension_verdicts": _compute_robust_verdicts(
++            polaris_aggregate,
++            first["chatgpt_scores"],
++            first["gemini_scores"],
++        ),
++        "summary": _build_summary(polaris_aggregate),
++    }
++    output_path.parent.mkdir(parents=True, exist_ok=True)
++    output_path.write_text(
++        json.dumps(aggregate_manifest, indent=2),
++        encoding="utf-8",
++    )
++    return aggregate_manifest
++
++
++def _build_summary(
++    polaris_aggregate: dict[str, dict[str, Any]],
++) -> dict[str, Any]:
++    """Bird's-eye summary: total dims, dims with high stddev (>10%), etc."""
++    n_dims = len(polaris_aggregate)
++    high_variance_dims = [
++        dim
++        for dim, agg in polaris_aggregate.items()
++        if agg["mean"] != 0 and (agg["stddev"] / abs(agg["mean"])) > 0.1
++    ]
++    return {
++        "n_dimensions": n_dims,
++        "high_variance_dimensions": high_variance_dims,
++        "high_variance_count": len(high_variance_dims),
++    }
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(
++        description=__doc__,
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++    )
++    parser.add_argument(
++        "--manifest",
++        action="append",
++        required=True,
++        type=Path,
++        help="Path to a BEAT-BOTH manifest.json. Repeatable; >=2 required.",
++    )
++    parser.add_argument(
++        "--output",
++        type=Path,
++        default=Path("outputs/m_live_2_aggregate/manifest.json"),
++        help="Path to write aggregate manifest.",
++    )
++    args = parser.parse_args()
++
++    try:
++        result = aggregate(args.manifest, args.output)
++    except (FileNotFoundError, ValueError) as exc:
++        print(f"ERROR: {exc}", file=sys.stderr)
++        return 1
++
++    print(f"Aggregated {result['n_runs']} runs → {args.output}")
++    print(f"  {result['summary']['n_dimensions']} dimensions analyzed")
++    print(
++        f"  {result['summary']['high_variance_count']} high-variance "
++        f"dims (stddev > 10% of mean): "
++        f"{result['summary']['high_variance_dimensions']}"
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tests/scripts/__init__.py b/tests/scripts/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/scripts/test_aggregate_beat_both_runs.py b/tests/scripts/test_aggregate_beat_both_runs.py
+new file mode 100644
+index 00000000..2bec86ce
+--- /dev/null
++++ b/tests/scripts/test_aggregate_beat_both_runs.py
+@@ -0,0 +1,287 @@
++"""Tests for I-bug-107 — multi-run BEAT-BOTH aggregator."""
++
++from __future__ import annotations
++
++import json
++import sys
++from pathlib import Path
++
++import pytest
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++from scripts.aggregate_beat_both_runs import (  # noqa: E402
++    _aggregate_polaris_scores,
++    _compute_robust_verdicts,
++    aggregate,
++)
++
++
++def _make_fake_manifest(polaris_value: float, dim: str = "narrative_length") -> dict:
++    """Synthetic single-run BEAT-BOTH manifest matching real schema."""
++    return {
++        "polaris_scores": {
++            dim: {"value": polaris_value, "higher_is_better": True, "rationale": "test"},
++        },
++        "chatgpt_scores": {
++            dim: {"value": 100.0, "higher_is_better": True, "rationale": "baseline"},
++        },
++        "gemini_scores": {
++            dim: {"value": 90.0, "higher_is_better": True, "rationale": "baseline"},
++        },
++    }
++
++
++def _write(tmp: Path, name: str, manifest: dict) -> Path:
++    p = tmp / name
++    p.parent.mkdir(parents=True, exist_ok=True)
++    p.write_text(json.dumps(manifest), encoding="utf-8")
++    return p
++
++
++def test_aggregate_computes_mean_and_stddev(tmp_path: Path):
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(50.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(60.0)),
++        _write(tmp_path, "r3/manifest.json", _make_fake_manifest(70.0)),
++    ]
++    out = tmp_path / "agg/manifest.json"
++    result = aggregate(paths, out)
++
++    agg = result["polaris_scores_aggregate"]["narrative_length"]
++    assert agg["mean"] == pytest.approx(60.0)
++    assert agg["stddev"] == pytest.approx(10.0)
++    assert agg["min"] == 50.0
++    assert agg["max"] == 70.0
++    assert agg["n"] == 3
++
++
++def test_aggregate_writes_output_file(tmp_path: Path):
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(50.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(60.0)),
++    ]
++    out = tmp_path / "agg/manifest.json"
++    aggregate(paths, out)
++    assert out.exists()
++    written = json.loads(out.read_text())
++    assert written["n_runs"] == 2
++
++
++def test_aggregate_requires_at_least_two_manifests(tmp_path: Path):
++    paths = [_write(tmp_path, "r1/manifest.json", _make_fake_manifest(50.0))]
++    with pytest.raises(ValueError, match="Need >=2"):
++        aggregate(paths, tmp_path / "agg.json")
++
++
++def test_robust_verdict_when_worst_case_beats_both(tmp_path: Path):
++    """If (mean - stddev) > both competitor scores, verdict is robust.
++
++    Uses canonical narrative_length tolerance (100.0). Values chosen so
++    polaris_mean comfortably exceeds tolerance over both competitors.
++    """
++    # POLARIS: mean=400, stddev=10 → worst_case=390. Competitors 100/90.
++    # 400 > 100+100=200 ✓, 400 > 90+100=190 ✓ → BEAT-BOTH.
++    # 390 > 100 ✓, 390 > 90 ✓ → robust=True (strict).
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(390.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(400.0)),
++        _write(tmp_path, "r3/manifest.json", _make_fake_manifest(410.0)),
++    ]
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "BEAT-BOTH"
++    assert verdict["robust"] is True
++
++
++def test_non_robust_verdict_when_high_variance(tmp_path: Path):
++    """If (mean - stddev) does NOT beat both, robust=False even if mean does.
++
++    Under canonical narrative_length tolerance (100.0), polaris_mean must
++    exceed (chatgpt + 100) and (gemini + 100) for BEAT-BOTH. Use values
++    where mean meets the tolerance bar but worst_case (mean - stddev)
++    ties or undercuts a competitor.
++    """
++    # POLARIS: mean=210, stddev=120 → worst_case=90. ChatGPT 100, Gemini 90.
++    # 210 > 100+100=200 ✓ (just), 210 > 90+100=190 ✓ → BEAT-BOTH.
++    # worst_case=90 NOT > chatgpt(100) → robust=False.
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(90.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(210.0)),
++        _write(tmp_path, "r3/manifest.json", _make_fake_manifest(330.0)),
++    ]
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "BEAT-BOTH"  # mean (210) > comps + tolerance
++    assert verdict["robust"] is False  # but worst_case (90) does not beat chatgpt (100)
++
++
++def test_canonical_tolerance_used_not_hand_rolled(tmp_path: Path):
++    """I-bug-107 iter-1 diff P1 fix: tolerance is `tolerance_for(dim)`,
++    not a 1% hand-rolled rule. narrative_length tolerance is 100.0.
++
++    Codex example: narrative_length 1055 vs ChatGPT 1000 / Gemini 900.
++    Under 1% rule (~10 word tolerance): BEAT-BOTH.
++    Under canonical 100-word tolerance: TIE with ChatGPT (only beats Gemini).
++    Verdict should be BEAT-ONE (beats Gemini, ties ChatGPT).
++    """
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(1050.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(1060.0)),
++    ]
++    for p in paths:
++        m = json.loads(p.read_text())
++        m["chatgpt_scores"]["narrative_length"]["value"] = 1000.0
++        m["gemini_scores"]["narrative_length"]["value"] = 900.0
++        p.write_text(json.dumps(m))
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    # mean=1055 vs chatgpt=1000 (delta=55, < 100 tol → ties); vs gemini=900 (delta=155, > 100 → beats)
++    assert verdict["verdict"] == "BEAT-ONE", (
++        f"canonical tolerance must classify near-margin BEAT-ONE, got {verdict}"
++    )
++
++
++def test_ahead_one_behind_one_classifies_as_behind(tmp_path: Path):
++    """I-bug-107 iter-2 diff P1 fix: ahead-one/behind-one resolves to
++    BEHIND per canonical M-LIVE-2 taxonomy (run_m_live_2_beat_both.py:541),
++    NOT BEAT-ONE.
++
++    Codex example: narrative_length POLARIS=1200, ChatGPT=1000, Gemini=2000,
++    tol=100 → ahead of ChatGPT (delta=200>100), behind Gemini (delta=-800).
++    Canonical verdict: BEHIND.
++    """
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(1190.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(1210.0)),
++    ]
++    for p in paths:
++        m = json.loads(p.read_text())
++        m["chatgpt_scores"]["narrative_length"]["value"] = 1000.0
++        m["gemini_scores"]["narrative_length"]["value"] = 2000.0
++        p.write_text(json.dumps(m))
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "BEHIND", (
++        f"ahead-one/behind-one MUST be BEHIND per canonical, got {verdict}"
++    )
++
++
++def test_behind_both_distinct_from_behind(tmp_path: Path):
++    """Canonical taxonomy distinguishes BEHIND-BOTH (behind both
++    competitors) from BEHIND (behind at least one). Aggregator must
++    preserve the distinction.
++    """
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(50.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(60.0)),
++    ]
++    for p in paths:
++        m = json.loads(p.read_text())
++        m["chatgpt_scores"]["narrative_length"]["value"] = 1000.0
++        m["gemini_scores"]["narrative_length"]["value"] = 2000.0
++        p.write_text(json.dumps(m))
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "BEHIND-BOTH"
++
++
++def test_all_zero_dimension_returns_na_not_tie(tmp_path: Path):
++    """I-bug-107 iter-1 diff P2 fix: when all 3 manifests scored 0.0,
++    verdict is N/A (not TIE) — matches canonical M-LIVE-2 logic at
++    scripts/run_m_live_2_beat_both.py:492-494.
++    """
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(0.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(0.0)),
++    ]
++    for p in paths:
++        m = json.loads(p.read_text())
++        m["chatgpt_scores"]["narrative_length"]["value"] = 0.0
++        m["gemini_scores"]["narrative_length"]["value"] = 0.0
++        p.write_text(json.dumps(m))
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "N/A"
++    assert verdict["robust"] is False
++
++
++def test_summary_flags_high_variance_dimensions(tmp_path: Path):
++    """Dimensions with stddev > 10% of mean are flagged as high-variance."""
++    # mean=60, stddev=10 → 16.7% — flagged
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(50.0)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(60.0)),
++        _write(tmp_path, "r3/manifest.json", _make_fake_manifest(70.0)),
++    ]
++    result = aggregate(paths, tmp_path / "agg.json")
++    assert "narrative_length" in result["summary"]["high_variance_dimensions"]
++
++
++def test_robust_strict_inequality_no_tolerance(tmp_path: Path):
++    """I-bug-107 iter-1 P1 fix: robust uses STRICT (worst_case > both),
++    NOT tolerance-based comparison. Codex flagged: mean=101, stddev=0.5,
++    competitors=100/99 → worst_case=100.5 > both → robust=True.
++    """
++    # Need 2+ runs to compute stddev; pick values with mean=101, stddev=~0.5
++    # 100.5, 101.5 → mean=101, stddev=0.7071...
++    paths = [
++        _write(tmp_path, "r1/manifest.json", _make_fake_manifest(100.5)),
++        _write(tmp_path, "r2/manifest.json", _make_fake_manifest(101.5)),
++    ]
++    # Override competitor scores: chatgpt=100, gemini=99
++    for p in paths:
++        m = json.loads(p.read_text())
++        m["chatgpt_scores"]["narrative_length"]["value"] = 100.0
++        m["gemini_scores"]["narrative_length"]["value"] = 99.0
++        p.write_text(json.dumps(m))
++
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    # mean=101, stddev~0.71 → worst_case~100.29 > 100 → True; > 99 → True
++    assert verdict["robust"] is True, (
++        f"strict-inequality robust: worst_case={verdict['polaris_worst_case']} "
++        f"vs chatgpt=100, gemini=99 → must be True"
++    )
++
++
++def test_incomplete_verdict_when_competitor_dimension_missing(tmp_path: Path):
++    """I-bug-107 iter-1 P2 fix: if a competitor manifest is missing a
++    dimension, verdict is INCOMPLETE — NOT silently fabricated as 0.0.
++    """
++    m = _make_fake_manifest(50.0, dim="narrative_length")
++    # Remove dim from chatgpt scores entirely
++    del m["chatgpt_scores"]["narrative_length"]
++    paths = [
++        _write(tmp_path, "r1/manifest.json", m),
++        _write(tmp_path, "r2/manifest.json", m),
++    ]
++    result = aggregate(paths, tmp_path / "agg.json")
++    verdict = result["per_dimension_verdicts"]["narrative_length"]
++    assert verdict["verdict"] == "INCOMPLETE"
++    assert verdict["robust"] is False
++    assert verdict["chatgpt"] is None
++    assert "reason" in verdict
++
++
++def test_aggregate_handles_missing_dimension_gracefully(tmp_path: Path):
++    """If one run is missing a dimension, the aggregate uses only the runs that have it."""
++    m1 = _make_fake_manifest(50.0, dim="narrative_length")
++    m2 = _make_fake_manifest(60.0, dim="narrative_length")
++    # m3 has different dimension
++    m3 = _make_fake_manifest(100.0, dim="other_dim")
++    m3["chatgpt_scores"] = {"other_dim": {"value": 200.0, "higher_is_better": True, "rationale": "x"}}
++    m3["gemini_scores"] = {"other_dim": {"value": 180.0, "higher_is_better": True, "rationale": "x"}}
++    paths = [
++        _write(tmp_path, "r1/manifest.json", m1),
++        _write(tmp_path, "r2/manifest.json", m2),
++        _write(tmp_path, "r3/manifest.json", m3),
++    ]
++    result = aggregate(paths, tmp_path / "agg.json")
++    # narrative_length seen in 2 runs
++    assert result["polaris_scores_aggregate"]["narrative_length"]["n"] == 2
++    # other_dim seen in 1 run — has 1 value, stddev=0 (single sample)
++    assert result["polaris_scores_aggregate"]["other_dim"]["n"] == 1
++    assert result["polaris_scores_aggregate"]["other_dim"]["stddev"] == 0.0
+# canonical-diff-sha256: aa6d978c364b36c6bb3348c6bcf1ee6626776d37fe51b1c493d656d0eb1cac42
