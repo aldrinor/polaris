@@ -1,0 +1,47 @@
+diff --git a/docs/experiments/i_bug_103_failed.md b/docs/experiments/i_bug_103_failed.md
+new file mode 100644
+index 00000000..e23cad4b
+--- /dev/null
++++ b/docs/experiments/i_bug_103_failed.md
+@@ -0,0 +1,40 @@
++# I-bug-103 — Retrieval expansion experiment (FAILED)
++
++**Status:** FAILED (no code change shipped). Negative result archived for future reference.
++
++## Hypothesis (2026-05-09)
++
++Expanding retrieval breadth from K=20 to K=60 candidates per query would improve evidence-pool coverage and reduce strict_verify drop rates downstream.
++
++**Reasoning:** the 2026-05-09 audit surfaced cases where strict_verify dropped sentences for `overlap_too_low` because the cited span (although topical) didn't share enough content words with the asserted claim. A wider retrieval net might surface a span that DID share the words.
++
++## Setup
++
++- Branch: `bot/I-bug-103-experiment` (subsequently abandoned, never PR'd)
++- Modified: `src/polaris_graph/retrieval/live_retriever.py` — bumped per-query K from 20 to 60.
++- Goldset: `tirzepatide vs semaglutide T2DM` + 4 other Carney-track questions.
++- Run: full sweep against live OpenRouter (DeepSeek V3.2-Exp generator + Gemma 4 31B evaluator).
++
++## Result
++
++**No measurable improvement** in verified-rate or coverage:
++
++| Metric | Baseline (K=20) | Experiment (K=60) | Δ |
++|---|---|---|---|
++| Verified-sentence rate | ~28% | ~28% | 0% |
++| Drop reasons (overlap_too_low) | dominant | still dominant | unchanged |
++| Sweep wall-clock | ~9 min | ~17 min | +89% |
++| OpenRouter spend | ~$0.06 | ~$0.14 | +133% |
++
++The failure mode (`overlap_too_low`) was driven by **retrieval ranking**, not retrieval breadth. The top-20 candidates already contained the spans that would have shared content words; adding 40 more candidates added noise without unblocking the gating sentences.
++
++## Why archived (not closed silent)
++
++Per CLAUDE.md §-1.2 and `feedback_substrate_is_not_product.md`: capturing failed experiments prevents future engineers (or future-me) from re-running the same idea. The cost was real (full sweep budget burnt) and the negative result is itself signal: **retrieval ranking is the bottleneck, not breadth**.
++
++## Follow-up direction (different issues)
++
++- **I-bug-101 (FPR audit):** distinguishes "judge dropped legit sentence" (FPR) from "ranking returned no usable span" (real coverage gap).
++- **I-decompose-001 (Path G):** decomposing complex questions into sub-questions may allow more targeted retrieval per sub-claim, addressing ranking quality at the question level rather than at the search-engine breadth level.
++
++Closing as superseded by these forward-looking follow-ups, with no code shipped from this experiment.
+# canonical-diff-sha256: b55f1c7285c4c61d2b888a671700f9d6558e35f6f709782e1d5fe31e0b1a929f
