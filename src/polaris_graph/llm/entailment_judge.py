@@ -38,6 +38,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from datetime import datetime, timezone
+
+# I-bug-100: import openrouter_client as a MODULE reference (not by-value)
+# so monkeypatch.setattr on its globals (`PG_MAX_COST_PER_RUN`,
+# `_COST_LEDGER_PATH`, etc.) propagates to the cost-accounting code paths
+# in this module. Direct `from … import _COST_LEDGER_PATH` would bind
+# the value at import time and tests could not override it without
+# reloading the module.
+from src.polaris_graph.llm import openrouter_client as _orc
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +88,7 @@ class _EntailmentJudge:
         # content evaluator (Layer-2), so it MUST differ from the
         # generator family per CLAUDE.md §9.1.1 — fail at construction
         # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
-        from polaris_graph.llm.openrouter_client import check_family_segregation
+        from src.polaris_graph.llm.openrouter_client import check_family_segregation
 
         api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
         if not api_key:
@@ -104,8 +114,18 @@ class _EntailmentJudge:
         verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
         On API/parse failure returns ("ENTAILED", "judge_error: ...") —
         fail-open so a transient OpenRouter outage does not nuke a run.
+
+        I-bug-100: after each successful httpx call this method records
+        the call cost via openrouter_client's module-level helpers
+        (`_add_run_cost`, `check_run_budget`, `_COST_LEDGER_PATH`) so
+        judge spend is visible to the per-run budget cap and the cost
+        ledger. `BudgetExceededError` is explicitly re-raised before
+        the broad `except Exception` fail-open handler so a cap breach
+        aborts the sweep cleanly instead of being masked as a transient
+        judge error.
         """
         prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+        started = time.monotonic()
         try:
             response = self._client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -123,6 +143,40 @@ class _EntailmentJudge:
             )
             response.raise_for_status()
             data = response.json()
+
+            # I-bug-100: cost recording. Reads + records BEFORE verdict
+            # parse so a cap breach aborts the sweep regardless of
+            # downstream parse outcome.
+            usage = data.get("usage", {}) or {}
+            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            output_tokens = int(usage.get("completion_tokens", 0) or 0)
+            api_cost = float(usage.get("cost", 0) or 0)
+            actual_cost = api_cost or _orc._impute_cost_from_tokens(
+                self._model, input_tokens, output_tokens, 0,
+            )
+            # I-bug-100 iter-1 diff P2 fix: when the entire usage block
+            # is absent, both api_cost and the imputed value are 0, which
+            # silently bypasses the budget guard. Fall back to a
+            # conservative estimate based on typical judge-call shape
+            # (~500 prompt + ~100 completion tokens) priced at Opus-tier
+            # so the budget cap is preserved on degraded responses.
+            if actual_cost == 0 and not usage:
+                actual_cost = _orc._impute_cost_from_tokens(
+                    self._model, 500, 100, 0,
+                )
+            _orc._add_run_cost(actual_cost)
+            duration_ms = (time.monotonic() - started) * 1000.0
+            try:
+                _append_judge_ledger_entry(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    duration_ms=duration_ms,
+                    actual_cost=actual_cost,
+                )
+            except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+                logger.warning("entailment ledger write failed: %s", exc)
+            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+
             content = data["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             verdict = str(parsed.get("verdict", "")).upper().strip()
@@ -130,9 +184,47 @@ class _EntailmentJudge:
             if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
                 return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
             return verdict, reason
+        except _orc.BudgetExceededError:
+            # I-bug-100: do NOT fail-open on cap breach. Propagate so
+            # the sweep aborts with a clear cause.
+            raise
         except Exception as exc:  # noqa: BLE001 — fail-open by design
             logger.warning("entailment judge error: %s", exc)
             return "ENTAILED", f"judge_error: {type(exc).__name__}"
+
+
+def _append_judge_ledger_entry(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    duration_ms: float,
+    actual_cost: float,
+) -> None:
+    """Append a single entailment-judge call to the cost ledger.
+
+    Schema mirrors `openrouter_client.OpenRouterClient._append_ledger`
+    (line ~481-491) so per-run filters that key on `session_id` /
+    `call_type` (e.g., scripts/run_honest_sweep_r3.py) include judge
+    calls without code changes downstream.
+
+    All `_orc.<attr>` accesses go through the module reference so
+    test monkeypatch.setattr on `openrouter_client._COST_LEDGER_PATH`
+    propagates correctly.
+    """
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": _orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
+        "call_type": "entailment_judge",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "reasoning_tokens": 0,
+        "duration_ms": round(duration_ms, 1),
+        "cost_usd": round(actual_cost, 6),
+        "cumulative_cost_usd": round(_orc.current_run_cost(), 4),
+    }
+    _orc._COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_orc._COST_LEDGER_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 _JUDGE_SINGLETON: _EntailmentJudge | None = None

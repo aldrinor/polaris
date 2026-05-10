@@ -1,0 +1,388 @@
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index bc34bf63..2f0ba288 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -38,6 +38,16 @@ from __future__ import annotations
+ import json
+ import logging
+ import os
++import time
++from datetime import datetime, timezone
++
++# I-bug-100: import openrouter_client as a MODULE reference (not by-value)
++# so monkeypatch.setattr on its globals (`PG_MAX_COST_PER_RUN`,
++# `_COST_LEDGER_PATH`, etc.) propagates to the cost-accounting code paths
++# in this module. Direct `from … import _COST_LEDGER_PATH` would bind
++# the value at import time and tests could not override it without
++# reloading the module.
++from src.polaris_graph.llm import openrouter_client as _orc
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -78,7 +88,7 @@ class _EntailmentJudge:
+         # content evaluator (Layer-2), so it MUST differ from the
+         # generator family per CLAUDE.md §9.1.1 — fail at construction
+         # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+-        from polaris_graph.llm.openrouter_client import check_family_segregation
++        from src.polaris_graph.llm.openrouter_client import check_family_segregation
+ 
+         api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+         if not api_key:
+@@ -104,8 +114,18 @@ class _EntailmentJudge:
+         verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+         On API/parse failure returns ("ENTAILED", "judge_error: ...") —
+         fail-open so a transient OpenRouter outage does not nuke a run.
++
++        I-bug-100: after each successful httpx call this method records
++        the call cost via openrouter_client's module-level helpers
++        (`_add_run_cost`, `check_run_budget`, `_COST_LEDGER_PATH`) so
++        judge spend is visible to the per-run budget cap and the cost
++        ledger. `BudgetExceededError` is explicitly re-raised before
++        the broad `except Exception` fail-open handler so a cap breach
++        aborts the sweep cleanly instead of being masked as a transient
++        judge error.
+         """
+         prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
++        started = time.monotonic()
+         try:
+             response = self._client.post(
+                 "https://openrouter.ai/api/v1/chat/completions",
+@@ -123,6 +143,40 @@ class _EntailmentJudge:
+             )
+             response.raise_for_status()
+             data = response.json()
++
++            # I-bug-100: cost recording. Reads + records BEFORE verdict
++            # parse so a cap breach aborts the sweep regardless of
++            # downstream parse outcome.
++            usage = data.get("usage", {}) or {}
++            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
++            output_tokens = int(usage.get("completion_tokens", 0) or 0)
++            api_cost = float(usage.get("cost", 0) or 0)
++            actual_cost = api_cost or _orc._impute_cost_from_tokens(
++                self._model, input_tokens, output_tokens, 0,
++            )
++            # I-bug-100 iter-1 diff P2 fix: when the entire usage block
++            # is absent, both api_cost and the imputed value are 0, which
++            # silently bypasses the budget guard. Fall back to a
++            # conservative estimate based on typical judge-call shape
++            # (~500 prompt + ~100 completion tokens) priced at Opus-tier
++            # so the budget cap is preserved on degraded responses.
++            if actual_cost == 0 and not usage:
++                actual_cost = _orc._impute_cost_from_tokens(
++                    self._model, 500, 100, 0,
++                )
++            _orc._add_run_cost(actual_cost)
++            duration_ms = (time.monotonic() - started) * 1000.0
++            try:
++                _append_judge_ledger_entry(
++                    input_tokens=input_tokens,
++                    output_tokens=output_tokens,
++                    duration_ms=duration_ms,
++                    actual_cost=actual_cost,
++                )
++            except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
++                logger.warning("entailment ledger write failed: %s", exc)
++            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
++
+             content = data["choices"][0]["message"]["content"]
+             parsed = json.loads(content)
+             verdict = str(parsed.get("verdict", "")).upper().strip()
+@@ -130,11 +184,49 @@ class _EntailmentJudge:
+             if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+                 return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+             return verdict, reason
++        except _orc.BudgetExceededError:
++            # I-bug-100: do NOT fail-open on cap breach. Propagate so
++            # the sweep aborts with a clear cause.
++            raise
+         except Exception as exc:  # noqa: BLE001 — fail-open by design
+             logger.warning("entailment judge error: %s", exc)
+             return "ENTAILED", f"judge_error: {type(exc).__name__}"
+ 
+ 
++def _append_judge_ledger_entry(
++    *,
++    input_tokens: int,
++    output_tokens: int,
++    duration_ms: float,
++    actual_cost: float,
++) -> None:
++    """Append a single entailment-judge call to the cost ledger.
++
++    Schema mirrors `openrouter_client.OpenRouterClient._append_ledger`
++    (line ~481-491) so per-run filters that key on `session_id` /
++    `call_type` (e.g., scripts/run_honest_sweep_r3.py) include judge
++    calls without code changes downstream.
++
++    All `_orc.<attr>` accesses go through the module reference so
++    test monkeypatch.setattr on `openrouter_client._COST_LEDGER_PATH`
++    propagates correctly.
++    """
++    entry = {
++        "timestamp": datetime.now(timezone.utc).isoformat(),
++        "session_id": _orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
++        "call_type": "entailment_judge",
++        "input_tokens": input_tokens,
++        "output_tokens": output_tokens,
++        "reasoning_tokens": 0,
++        "duration_ms": round(duration_ms, 1),
++        "cost_usd": round(actual_cost, 6),
++        "cumulative_cost_usd": round(_orc.current_run_cost(), 4),
++    }
++    _orc._COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
++    with open(_orc._COST_LEDGER_PATH, "a", encoding="utf-8") as f:
++        f.write(json.dumps(entry) + "\n")
++
++
+ _JUDGE_SINGLETON: _EntailmentJudge | None = None
+ 
+ 
+diff --git a/tests/polaris_graph/llm/__init__.py b/tests/polaris_graph/llm/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/polaris_graph/llm/test_entailment_judge_cost.py b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+new file mode 100644
+index 00000000..e10194af
+--- /dev/null
++++ b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+@@ -0,0 +1,238 @@
++"""Tests for I-bug-100 — entailment-judge cost recording.
++
++After every successful entailment judge call, the cost is recorded:
++1. `_add_run_cost(cost_usd)` increments the per-run accumulator.
++2. An entry is appended to `pg_cost_ledger.jsonl` matching the
++   OpenRouterClient schema (`session_id` / `call_type` /
++   `input_tokens` / `output_tokens` / `reasoning_tokens` /
++   `duration_ms` / `cost_usd` / `cumulative_cost_usd`).
++3. `check_run_budget(0)` raises `BudgetExceededError` if the call
++   pushed cumulative cost past `PG_MAX_COST_PER_RUN`.
++
++`BudgetExceededError` MUST escape the fail-open broad-except handler
++so a cap breach aborts the sweep instead of being masked as a
++transient judge error.
++
++Test isolation pattern:
++- Patch `openrouter_client._COST_LEDGER_PATH` to a tmp file via
++  `monkeypatch.setattr` (NOT setenv: the path is bound at import).
++- Patch `openrouter_client.PG_MAX_COST_PER_RUN` similarly for the
++  cap-breach test.
++- Reset `_RUN_COST_CTX` per test via `reset_run_cost()`.
++- entailment_judge accesses these via `_orc.<attr>` so monkeypatch
++  propagates without module reload.
++"""
++
++from __future__ import annotations
++
++import json
++from typing import Any
++from unittest.mock import MagicMock
++
++import pytest
++
++from src.polaris_graph.llm import entailment_judge, openrouter_client
++
++
++@pytest.fixture(autouse=True)
++def _reset_run_cost():
++    openrouter_client.reset_run_cost()
++    yield
++    openrouter_client.reset_run_cost()
++
++
++@pytest.fixture(autouse=True)
++def _reset_judge_singleton():
++    # Force a fresh judge per test so the httpx.Client mock applies.
++    entailment_judge._JUDGE_SINGLETON = None
++    yield
++    entailment_judge._JUDGE_SINGLETON = None
++
++
++def _make_judge_with_mock_response(monkeypatch, response_payload: dict) -> entailment_judge._EntailmentJudge:
++    """Build a real `_EntailmentJudge` instance with a mocked httpx.Client.
++
++    The judge's `__init__` sets up family-segregation against
++    `PG_GENERATOR_MODEL`; we set both env vars so segregation passes.
++    """
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-4-31b-it")
++
++    judge = entailment_judge._EntailmentJudge()
++
++    mock_response = MagicMock()
++    mock_response.raise_for_status = MagicMock()
++    mock_response.json = MagicMock(return_value=response_payload)
++    judge._client = MagicMock()
++    judge._client.post = MagicMock(return_value=mock_response)
++    return judge
++
++
++def test_judge_records_api_cost_when_present(monkeypatch, tmp_path):
++    """When OpenRouter response includes `usage.cost`, that value is
++    recorded verbatim (not imputed) in both the run-cost accumulator
++    and the cost ledger.
++    """
++    ledger_path = tmp_path / "ledger.jsonl"
++    monkeypatch.setattr(openrouter_client, "_COST_LEDGER_PATH", ledger_path)
++    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
++
++    payload: dict[str, Any] = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "ENTAILED", "reason": "supported",
++        })}}],
++        "usage": {
++            "prompt_tokens": 500,
++            "completion_tokens": 50,
++            "cost": 0.001234,
++        },
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++
++    verdict, reason = judge.judge("sentence", "span")
++    assert verdict == "ENTAILED"
++
++    # Run-cost accumulator picked up the API-reported cost
++    assert openrouter_client.current_run_cost() == pytest.approx(0.001234)
++
++    # Ledger entry has correct schema
++    lines = ledger_path.read_text(encoding="utf-8").strip().splitlines()
++    assert len(lines) == 1
++    entry = json.loads(lines[0])
++    assert entry["call_type"] == "entailment_judge"
++    assert entry["input_tokens"] == 500
++    assert entry["output_tokens"] == 50
++    assert entry["reasoning_tokens"] == 0
++    assert entry["cost_usd"] == pytest.approx(0.001234)
++    assert "session_id" in entry
++    assert "timestamp" in entry
++    assert "duration_ms" in entry
++
++
++def test_judge_imputes_cost_when_api_cost_absent(monkeypatch, tmp_path):
++    """When `usage.cost` is missing, cost is imputed via
++    `_impute_cost_from_tokens(model, input, output, 0)` from the
++    published price table.
++    """
++    ledger_path = tmp_path / "ledger.jsonl"
++    monkeypatch.setattr(openrouter_client, "_COST_LEDGER_PATH", ledger_path)
++    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
++
++    payload = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "NEUTRAL", "reason": "specificity inflation",
++        })}}],
++        "usage": {
++            "prompt_tokens": 1_000_000,  # 1M for easy-to-verify rate
++            "completion_tokens": 1_000_000,
++            # no "cost" key
++        },
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++
++    verdict, _ = judge.judge("sentence", "span")
++    assert verdict == "NEUTRAL"
++
++    # Per _PRICE_TABLE_USD_PER_M[google/gemma-4-31b-it] = (0.13, 0.38)
++    # 1M input @ $0.13/M = $0.13; 1M output @ $0.38/M = $0.38.
++    # Total = $0.51.
++    expected = (1_000_000 / 1_000_000) * 0.13 + (1_000_000 / 1_000_000) * 0.38
++    assert openrouter_client.current_run_cost() == pytest.approx(expected, rel=1e-6)
++
++    entry = json.loads(ledger_path.read_text(encoding="utf-8").strip())
++    assert entry["cost_usd"] == pytest.approx(expected, rel=1e-6)
++
++
++def test_judge_shares_state_with_canonical_src_module(monkeypatch, tmp_path):
++    """I-bug-100 Codex iter-1 diff P1 fix: entailment_judge must use the
++    SAME module instance as the production sweep (which imports
++    `src.polaris_graph.llm.openrouter_client`). Two import spellings —
++    `polaris_graph.llm.X` and `src.polaris_graph.llm.X` — load as
++    SEPARATE module objects with separate ContextVar state. This test
++    asserts the judge's cost-recording uses the canonical `src.*`
++    spelling so per-run cost is visible to the sweep.
++    """
++    # Import via the SRC namespace (matches scripts/run_honest_sweep_r3.py)
++    from src.polaris_graph.llm import openrouter_client as src_orc
++
++    ledger_path = tmp_path / "ledger.jsonl"
++    monkeypatch.setattr(src_orc, "_COST_LEDGER_PATH", ledger_path)
++    monkeypatch.setattr(src_orc, "PG_MAX_COST_PER_RUN", 1.0)
++    src_orc.reset_run_cost()
++
++    payload = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "ENTAILED", "reason": "ok",
++        })}}],
++        "usage": {
++            "prompt_tokens": 100,
++            "completion_tokens": 50,
++            "cost": 0.000567,
++        },
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++    judge.judge("sentence", "span")
++
++    # Critical assertion: cost shows up via the SRC namespace
++    assert src_orc.current_run_cost() == pytest.approx(0.000567)
++
++    # Ledger entry written via src module attribute (proves shared state)
++    entry = json.loads(ledger_path.read_text(encoding="utf-8").strip())
++    assert entry["call_type"] == "entailment_judge"
++    assert entry["cost_usd"] == pytest.approx(0.000567)
++
++
++def test_judge_falls_back_to_estimate_when_usage_block_absent(monkeypatch, tmp_path):
++    """I-bug-100 Codex iter-1 diff P2 fix: when OpenRouter response has
++    no `usage` block at all, both api_cost and the imputed value would
++    be 0 (because impute on (0,0,0) returns 0), silently bypassing the
++    budget guard. The fallback estimate uses (500, 100) tokens at the
++    judge's model rate to keep the cap honest.
++    """
++    ledger_path = tmp_path / "ledger.jsonl"
++    monkeypatch.setattr(openrouter_client, "_COST_LEDGER_PATH", ledger_path)
++    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
++
++    payload = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "ENTAILED", "reason": "ok",
++        })}}],
++        # NO usage block at all
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++    judge.judge("sentence", "span")
++
++    # Should NOT be 0 — fallback estimate kicks in
++    cost = openrouter_client.current_run_cost()
++    assert cost > 0, "fallback estimate must produce non-zero cost when usage absent"
++
++    # Per (500, 100) at gemma-4-31b-it rate (0.13, 0.38)
++    expected = (500 / 1_000_000) * 0.13 + (100 / 1_000_000) * 0.38
++    assert cost == pytest.approx(expected, rel=1e-6)
++
++
++def test_judge_raises_budget_exceeded_when_cap_breached(monkeypatch, tmp_path):
++    """When the judge call would push cumulative run cost past
++    `PG_MAX_COST_PER_RUN`, `BudgetExceededError` is raised — NOT
++    silently fail-opened as a `judge_error`.
++    """
++    ledger_path = tmp_path / "ledger.jsonl"
++    monkeypatch.setattr(openrouter_client, "_COST_LEDGER_PATH", ledger_path)
++    # Cap of $0.0001 means even a tiny call breaches.
++    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.0001)
++
++    payload = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "ENTAILED", "reason": "ok",
++        })}}],
++        "usage": {
++            "prompt_tokens": 100,
++            "completion_tokens": 50,
++            "cost": 0.001,  # 10x the cap
++        },
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++
++    with pytest.raises(openrouter_client.BudgetExceededError):
++        judge.judge("sentence", "span")
+# canonical-diff-sha256: e945a41ec2c02fc48620bd9c2ac4b4794f79c7ade1cc3f9b8e4bf41d2e3ae242
