@@ -113,6 +113,42 @@ _N_MARKER_RE = re.compile(r"\[(-?\d+)\]")
 _MALFORMED_MARKER_RE = re.compile(r"\[\s*(-?\d+)\s*\]")
 
 
+# I-bug-110: process-lifetime telemetry for synthesis [N] scrub.
+# When the synthesis LLM hallucinates [N] markers beyond the
+# bibliography size, _scrub_invalid_n_markers strips them at runtime.
+# An operator monitoring synthesis quality wants two signals:
+#   - synthesis_n_scrub_count: total markers scrubbed across this
+#     process's lifetime (cumulative).
+#   - synthesis_n_scrub_runs: number of synthesis calls that needed
+#     ANY scrub (i.e., at least one invalid marker present).
+# These mirror the entailment-judge telemetry pattern at
+# polaris_graph.llm.entailment_judge._JUDGE_TELEMETRY.
+_SYNTHESIS_TELEMETRY: dict[str, int] = {
+    "synthesis_n_scrub_count": 0,
+    "synthesis_n_scrub_runs": 0,
+}
+
+
+def get_synthesis_telemetry() -> dict[str, int]:
+    """Snapshot of process-lifetime synthesis-scrub counters.
+
+    Operator-facing: the existence of any scrub on a production run
+    is a signal the synthesis prompt or bibliography rendering may
+    be drifting. Aggregated trends should be tracked.
+    """
+    return dict(_SYNTHESIS_TELEMETRY)
+
+
+def reset_synthesis_telemetry() -> None:
+    """Zero all synthesis-telemetry counters in-place.
+
+    Public so callers (sweep orchestrators, tests) can deliberately
+    bound the counter window to a single run.
+    """
+    for key in _SYNTHESIS_TELEMETRY:
+        _SYNTHESIS_TELEMETRY[key] = 0
+
+
 def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
     """Remove [N] bibliography markers where N is invalid.
 
@@ -160,6 +196,11 @@ def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
             "synthesis LLM hallucinated indices",
             scrubbed, biblio_size,
         )
+        # I-bug-110: increment process-lifetime telemetry counters.
+        # synthesis_n_scrub_count is total marker count; synthesis_n_scrub_runs
+        # is the number of synthesis calls that needed any scrub.
+        _SYNTHESIS_TELEMETRY["synthesis_n_scrub_count"] += scrubbed
+        _SYNTHESIS_TELEMETRY["synthesis_n_scrub_runs"] += 1
     return cleaned, scrubbed
 
 
