@@ -50,3 +50,4 @@ index 00000000..1a2182bb
 +- **Path A bakeoff (I-bakeoff-A-001):** if a different generator (Qwen 3.5 Plus, Opus 4.7, GPT-5) handles per-decimal discipline natively without prompt over-engineering, the right move is a model swap, not a prompt rewrite.
 +
 +Closing as superseded by these forward-looking follow-ups, with no code shipped from this experiment.
+# canonical-diff-sha256: 691b51f4f4e444b8f3b6642e840a1b6ed1f91f929057a632f3b0dc07d590efaf
