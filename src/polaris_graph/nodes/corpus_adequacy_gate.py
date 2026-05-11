@@ -40,6 +40,7 @@ class AdequacyThresholds:
     min_t1_count: int = 2            # at least 2 peer-reviewed primary
     min_t1_plus_t2: int = 3          # or 3 combined T1+T2+T3
     min_t1_plus_t2_plus_t3: int = 3
+    min_t3_plus_t4_plus_t6: int = 0  # GH#405: emerging-policy quality floor
     min_evidence_rows: int = 5       # after content-starved filter
     max_t5_plus_t6_fraction: float = 0.70   # too much industry/commentary = abort
     max_t7_fraction: float = 0.50           # too many stubs = abort
@@ -76,8 +77,13 @@ _DEFAULT_DOMAIN_THRESHOLDS: dict[str, AdequacyThresholds] = {
         max_t7_fraction=0.40,
     ),
     "policy": AdequacyThresholds(
-        min_total_sources=8, min_t1_count=1,
-        min_t1_plus_t2=2, min_t1_plus_t2_plus_t3=5,  # T3 regulatory dominates
+        # GH#405: emerging-policy topics (housing 2026, etc.) lack T1
+        # by definition. Relaxed from clinical-shaped thresholds; the
+        # real quality signal is min_t3_plus_t4_plus_t6 (regulatory +
+        # think-tank + advocacy density).
+        min_total_sources=8, min_t1_count=0,
+        min_t1_plus_t2=0, min_t1_plus_t2_plus_t3=0,
+        min_t3_plus_t4_plus_t6=5,
         min_evidence_rows=5,
         max_t5_plus_t6_fraction=0.60,
         max_t7_fraction=0.40,
@@ -94,6 +100,37 @@ _DEFAULT_DOMAIN_THRESHOLDS: dict[str, AdequacyThresholds] = {
         min_t1_plus_t2=2, min_t1_plus_t2_plus_t3=3,
         min_evidence_rows=5,
         max_t5_plus_t6_fraction=0.70,
+        max_t7_fraction=0.40,
+    ),
+    # GH#405: emerging-policy domains. T1 peer-reviewed clinical trials
+    # do not exist for these topics by definition; the real quality
+    # signal is min_t3_plus_t4_plus_t6 (gov + think-tank + advocacy).
+    "ai_sovereignty": AdequacyThresholds(
+        min_total_sources=8, min_t1_count=0,
+        min_t1_plus_t2=0, min_t1_plus_t2_plus_t3=0,
+        min_t3_plus_t4_plus_t6=4,
+        min_evidence_rows=5,
+        max_t5_plus_t6_fraction=0.80,
+        max_t7_fraction=0.40,
+    ),
+    "canada_us": AdequacyThresholds(
+        min_total_sources=8, min_t1_count=0,
+        min_t1_plus_t2=0, min_t1_plus_t2_plus_t3=0,
+        min_t3_plus_t4_plus_t6=4,
+        min_evidence_rows=5,
+        max_t5_plus_t6_fraction=0.80,
+        max_t7_fraction=0.40,
+    ),
+    "workforce": AdequacyThresholds(
+        # Workforce evidence base is dominated by T4 think-tank reports
+        # (StatsCan, OECD, McKinsey); gov-stats agencies surface as T4
+        # rather than T3 in the current tier classifier (follow-up
+        # GH#406 calibration risk).
+        min_total_sources=6, min_t1_count=0,
+        min_t1_plus_t2=0, min_t1_plus_t2_plus_t3=0,
+        min_t3_plus_t4_plus_t6=4,
+        min_evidence_rows=5,
+        max_t5_plus_t6_fraction=0.85,
         max_t7_fraction=0.40,
     ),
 }
@@ -118,6 +155,7 @@ def _get_thresholds(
                 min_t1_count=int(ca.get("min_t1_count", base.min_t1_count)),
                 min_t1_plus_t2=int(ca.get("min_t1_plus_t2", base.min_t1_plus_t2)),
                 min_t1_plus_t2_plus_t3=int(ca.get("min_t1_plus_t2_plus_t3", base.min_t1_plus_t2_plus_t3)),
+                min_t3_plus_t4_plus_t6=int(ca.get("min_t3_plus_t4_plus_t6", base.min_t3_plus_t4_plus_t6)),
                 min_evidence_rows=int(ca.get("min_evidence_rows", base.min_evidence_rows)),
                 max_t5_plus_t6_fraction=float(ca.get("max_t5_plus_t6_fraction", base.max_t5_plus_t6_fraction)),
                 max_t7_fraction=float(ca.get("max_t7_fraction", base.max_t7_fraction)),
@@ -150,6 +188,7 @@ def assess_corpus_adequacy(
     t1 = tier_counts.get("T1", 0)
     t2 = tier_counts.get("T2", 0)
     t3 = tier_counts.get("T3", 0)
+    t4 = tier_counts.get("T4", 0)
     t5 = tier_counts.get("T5", 0)
     t6 = tier_counts.get("T6", 0)
     t7 = tier_counts.get("T7", 0)
@@ -184,6 +223,9 @@ def assess_corpus_adequacy(
     _record("t1_plus_t2", t1 + t2, thr.min_t1_plus_t2, "min")
     _record("t1_plus_t2_plus_t3", t1 + t2 + t3,
             thr.min_t1_plus_t2_plus_t3, "min")
+    # GH#405: real quality signal for emerging-policy domains.
+    _record("t3_plus_t4_plus_t6", t3 + t4 + t6,
+            thr.min_t3_plus_t4_plus_t6, "min")
     _record("evidence_rows", evidence_row_count,
             thr.min_evidence_rows, "min")
 
