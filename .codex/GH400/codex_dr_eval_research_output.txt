@@ -1,0 +1,792 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e17d9-a69a-7b61-ac0c-24e0d917b073
+--------
+user
+Research task. Output structured findings only.
+
+# Task
+
+POLARIS is a Deep Research (DR) system being delivered to the Canadian PM as a gift in September 2026. We need to audit/evaluate its outputs against the highest current industrial standards. The user has rejected sample-based audits and FAB-only metrics as insufficient; the audit must be (1) line-by-line every claim/citation/reasoning step, (2) applying highest latest industrial standards, (3) parallel-independent Claude+Codex with reconciliation.
+
+**Question:** What is the LATEST (2025-2026) best practice for evaluating Deep Research / long-form retrieval-augmented generation / agentic-research-agent outputs? Specifically:
+
+1. **Academic benchmarks** (2025-2026 papers): BrowseComp, DeepResearchBench, FACTSCORE follow-ons, MiniCheck, OAK, ClaimDecomp, etc.
+2. **Industry rubrics** that OpenAI / Anthropic / Google / Perplexity actually use internally or publish for DR systems.
+3. **Faithfulness metrics**: RAGAS, TruLens, HHEM 2.1, REFCHECKER, ALCE-WebGPT, FactScore-Bio, MED-FCT, etc.
+4. **Clinical/regulatory-specific frameworks** that should be layered on top: PRISMA-AI 2024/2025, AMSTAR-AI, GRADE-AI, MedHELM, OncQA, ClinicianBench, ICMJE AI-COI extensions.
+5. **GitHub evaluation harnesses** popular by recent stars/activity (2025-2026): ragas, deepeval, langfuse-eval, opik, etc.
+6. **X/Twitter / blog discussions** by credible researchers (Karpathy, Yao Fu, Jason Wei, Sebastian Raschka, Aleksa Gordić, etc.) on current DR eval gaps, multi-claim decomposition, citation-graph audit.
+7. **What does the §-1.1 standard (PRISMA 2020 + AMSTAR-2 + GRADE per claim + ICMJE + Cochrane RoB 2 + ROBINS-I + QUADAS-2 + jurisdiction-specific FDA/EMA/HC) miss that the 2026 frontier has added?**
+
+Use web search liberally. Cite sources (URL, paper title, year). Prefer 2025-2026 sources; flag 2024-and-older as "baseline."
+
+# Output format
+
+```yaml
+research_summary: "2-3 sentence top-line of findings"
+key_benchmarks_2025_2026:
+  - name: ...
+    purpose: ...
+    url: ...
+    year: ...
+    why_it_matters: ...
+key_metrics_2025_2026:
+  - name: ...
+    what_it_measures: ...
+    paper_or_repo: ...
+industry_rubrics:
+  - source: OpenAI | Anthropic | Google | Perplexity | other
+    rubric: ...
+    citation: ...
+clinical_regulatory_specific:
+  - name: ...
+    purpose: ...
+    citation: ...
+github_eval_harnesses:
+  - repo: ...
+    stars: ...
+    activity_2026: ...
+    notable_features: ...
+notable_researcher_takes:
+  - person: ...
+    platform: X | blog | paper
+    take: ...
+    url: ...
+gap_vs_section_minus_1_1:
+  - dimension_missing: ...
+    why_it_matters: ...
+    where_2026_frontier_has_it: ...
+recommended_polaris_upgrade:
+  must_add:
+    - ...
+  nice_to_have:
+    - ...
+  rationale: ...
+```
+
+Output the YAML directly. No commentary outside the YAML.
+
+web search: 
+web search: 2025 Deep Research benchmark BrowseComp DeepResearchBench paper RAG long-form agentic research evaluation
+web search: 
+web search: 2025 MiniCheck factuality citation faithfulness benchmark paper long-form claim verification
+web search: 
+web search: MiniCheck factuality evaluation paper 2024 2025 claim support hallucination detection
+web search: 
+web search: MiniCheck paper factuality evaluation LLM 2024 Minicheck-grounding hallucination detection
+web search: 
+web search: "OAK" factuality benchmark long-form factuality LLM atomic claims
+web search: 
+web search: "OAK" "long-form" "factuality"
+web search: 
+web search: OpenAI deep research system card evaluation rubric citations 2025
+web search: 
+web search: Anthropic Claude research mode evaluation citation reliability deep research 2025
+web search: 
+web search: Google Deep Research evaluation benchmark DeepSearchQA 2025 rubric
+web search: 
+web search: site:ai.google.dev/gemini-api/docs/deep-research Gemini Deep Research citations evaluation
+web search: 
+web search: Perplexity Deep Research evaluation benchmark 2025 citations sources accuracy
+web search: 
+web search: 
+web search: 
+web search: RAGAS faithfulness metrics RAG evaluation 2025 GitHub
+web search: 
+web search: REFCHECKER: Reference-based Fine-grained Hallucination Checker 2024 2025 paper GitHub
+web search: 
+web search: ALCE benchmark attributed language model citation evaluation paper WebGPT 2023 2024
+web search: 
+web search: FactScore-Bio benchmark long-form factuality biographies 2025
+web search: 
+web search: PRISMA-AI 2024 2025 reporting guideline systematic reviews artificial intelligence citation
+web search: 
+web search: GitHub ragas stars 2026 explodinggradients ragas
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$repos = @('"'comet-ml/opik','explodinggradients/ragas','confident-ai/deepeval','langfuse/langfuse','Arize-ai/phoenix','promptfoo/promptfoo','openai/evals'); foreach ("'$r in $repos) { try { $x = Invoke-RestMethod -Uri "https://api.github.com/repos/$r" -Headers @{ '"'User-Agent'='codex' } -TimeoutSec 10; [PSCustomObject]@{ repo="'$r; stars=$x.stargazers_count; forks=$x.forks_count; open_issues=$x.open_issues_count; pushed_at=$x.pushed_at; updated_at=$x.updated_at } } catch { [PSCustomObject]@{ repo=$r; error=$_.Exception.Message } } } | ConvertTo-Json -Depth 3' in C:\POLARIS
+2026-05-11T16:25:04.643024Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m . PSCustomObject]@{ repo=$r; error=$_.Exception.Message } } } [36;1m|[0m Convert .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                               ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn empty pipe element is not allowed.[0m
+
+ exited 1 in 877ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m . PSCustomObject]@{ repo=$r; error=$_.Exception.Message } } } [36;1m|[0m Convert .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                               ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn empty pipe element is not allowed.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$repos = @('"'comet-ml/opik','explodinggradients/ragas','confident-ai/deepeval','langfuse/langfuse','Arize-ai/phoenix','promptfoo/promptfoo','openai/evals')
+"'$results = foreach ($r in $repos) {
+  try {
+    $x = Invoke-RestMethod -Uri "https://api.github.com/repos/$r" -Headers @{ '"'User-Agent'='codex' } -TimeoutSec 10
+    [PSCustomObject]@{ repo="'$r; stars=$x.stargazers_count; forks=$x.forks_count; open_issues=$x.open_issues_count; pushed_at=$x.pushed_at; updated_at=$x.updated_at }
+  } catch {
+    [PSCustomObject]@{ repo=$r; error=$_.Exception.Message }
+  }
+}
+$results | ConvertTo-Json -Depth 3' in C:\POLARIS
+ succeeded in 1407ms:
+[
+  {
+    "repo": "comet-ml/opik",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "explodinggradients/ragas",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "confident-ai/deepeval",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "langfuse/langfuse",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "Arize-ai/phoenix",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "promptfoo/promptfoo",
+    "error": "The SSL connection could not be established, see inner exception."
+  },
+  {
+    "repo": "openai/evals",
+    "error": "The SSL connection could not be established, see inner exception."
+  }
+]
+
+web search: 
+web search: GitHub comet-ml opik stars updated 2026
+web search: 
+web search: GitHub promptfoo promptfoo stars releases May 2026 LLM eval
+web search: 
+web search: Karpathy deep research evaluation citations claims audit 2025 X blog
+web search: 
+web search: site:x.com/karpathy deep research citations evaluation
+web search: 
+web search: Yao Fu Deep Research benchmark evaluation long-form answer citations 2025 blog
+web search: 
+web search: "AMSTAR-AI" systematic review artificial intelligence 2025
+web search: 
+web search: OncQA benchmark oncology LLM 2025 paper
+web search: 
+web search: FDA AI-enabled medical devices guidance generative AI predetermined change control plan 2025
+web search: 
+web search: DRBench realistic benchmark enterprise deep research 2025 arxiv
+web search: 
+web search: MED-FCT medical factual consistency benchmark LLM 2025
+web search: 
+web search: ragas PyPI release 2026 latest version
+web search: 
+web search: "The Medium is the Message" "Non-Clinical Information" "LLMs" OncQA
+web search: 
+web search: ClinicianBench benchmark clinical reasoning LLM 2026
+codex
+research_summary: "Best practice in 2025-2026 is a layered audit: decompose every output into atomic claims, verify each claim against cited and independent sources, score citation support and omissions, audit the agent's retrieval/search trajectory, then reconcile independent human/LLM judges using expert-written rubrics. The frontier has moved beyond FAB-only scoring toward evidence matrices, citation graphs, source-quality scoring, completeness/recall, uncertainty calibration, contamination control, and domain-specific clinical/regulatory checks."
+
+key_benchmarks_2025_2026:
+  - name: "BrowseComp"
+    purpose: "Tests persistent web browsing for hard-to-find, entangled facts with short verifiable answers."
+    url: "https://openai.com/index/browsecomp/"
+    year: 2025
+    why_it_matters: "Shows that browsing plus reasoning and test-time compute matter; useful but incomplete for long reports because it avoids open-ended synthesis."
+  - name: "BrowseComp-Plus"
+    purpose: "Controlled-corpus extension of BrowseComp with human-verified positives and hard negatives."
+    url: "https://huggingface.co/papers/2508.06600"
+    year: 2025
+    why_it_matters: "Fixes live-web opacity and reproducibility problems; helps isolate retrieval versus reasoning failures."
+  - name: "DeepResearch Bench"
+    purpose: "100 PhD-level tasks across 22 fields with report-quality and citation-accuracy evaluation."
+    url: "https://huggingface.co/papers/2506.11763"
+    year: 2025
+    why_it_matters: "Introduces report-quality and citation-trust frameworks for deep research agents."
+  - name: "DeepResearch Bench II"
+    purpose: "Expert-report-derived fine-grained rubrics for deep research systems."
+    url: "https://www.researchgate.net/publication/399755315_DeepResearch_Bench_II_Diagnosing_Deep_Research_Agents_via_Rubrics_from_Expert_Report"
+    year: 2026
+    why_it_matters: "Moves from coarse LLM-written rubrics to content-bearing expert rubrics that reject plausible but unsupported answers."
+  - name: "ReportBench"
+    purpose: "Academic-survey-task benchmark for deep research reports, cited literature quality, and statement faithfulness."
+    url: "https://huggingface.co/papers/2508.15804"
+    year: 2025
+    why_it_matters: "Directly targets long-form research reports rather than short-answer QA."
+  - name: "ResearchRubrics"
+    purpose: "Scale AI benchmark pairing realistic prompts with 2,500+ expert-written fine-grained rubrics."
+    url: "https://labs.scale.com/papers/researchrubrics"
+    year: 2025
+    why_it_matters: "Industrializes rubric-based DR evaluation across factual grounding, reasoning soundness, and clarity."
+  - name: "DRACO"
+    purpose: "Perplexity benchmark from anonymized real deep-research use, scoring accuracy, completeness, objectivity, and citation quality."
+    url: "https://research.perplexity.ai/articles/evaluating-deep-research-performance-in-the-wild-with-the-draco-benchmark"
+    year: 2026
+    why_it_matters: "Strong signal for real-user task distribution rather than purely synthetic tasks."
+  - name: "DeepSearchQA"
+    purpose: "Google DeepMind 900-prompt benchmark for exhaustive multi-step web information seeking."
+    url: "https://deepmind.google/research/evals/"
+    year: 2026
+    why_it_matters: "Adds recall, de-duplication, entity resolution, and stopping-criteria assessment."
+  - name: "DRBench"
+    purpose: "Enterprise deep research benchmark over public web plus private-like enterprise files."
+    url: "https://openreview.net/forum?id=IGYQ4c92e2"
+    year: 2026
+    why_it_matters: "Tests realistic analyst work across emails, files, chat logs, PDFs, spreadsheets, and web evidence."
+  - name: "FACTS Benchmark Suite"
+    purpose: "Google factuality suite covering grounding, search, parametric knowledge, and multimodal factuality."
+    url: "https://deepmind.google/blog/facts-benchmark-suite-systematically-evaluating-the-factuality-of-large-language-models/"
+    year: 2025
+    why_it_matters: "Industry-grade factuality benchmark with public/private held-out sets and search-grounding slices."
+  - name: "DeepTRACE"
+    purpose: "Audits deep research systems with statement-level decomposition, confidence scoring, citation/factual-support matrices."
+    url: "https://www.microsoft.com/en-us/research/publication/deeptrace-auditing-deep-research-ai-systems-for-tracking-reliability-across-citations-and-evidence/"
+    year: 2025
+    why_it_matters: "Closest published match to line-by-line citation-graph audit; reports citation accuracy often only 40-80%."
+  - name: "FACTORY"
+    purpose: "Human-verified prompt set for challenging long-form factuality."
+    url: "https://huggingface.co/papers/2508.00109"
+    year: 2025
+    why_it_matters: "Finds roughly 40% non-factual claims in SOTA long-form outputs on harder prompts."
+  - name: "ClaimDecomp"
+    purpose: "Baseline dataset for decomposing complex claims into literal and implied subquestions."
+    url: "https://huggingface.co/papers/2205.06938"
+    year: 2022
+    why_it_matters: "Baseline for claim decomposition; older but still relevant for line-by-line audit design."
+  - name: "OAK"
+    purpose: "Open Artificial Knowledge synthetic dataset."
+    url: "https://huggingface.co/papers/2407.14371"
+    year: 2024
+    why_it_matters: "Baseline only; not a DR audit benchmark and should not substitute for factual/citation verification."
+
+key_metrics_2025_2026:
+  - name: "Atomic claim support rate"
+    what_it_measures: "Percent of atomic claims supported by trusted evidence; must include precision and recall of decomposition."
+    paper_or_repo: "FActScore baseline: https://ai.meta.com/research/publications/factscore-fine-grained-atomic-evaluation-of-factual-precision-in-long-form-text-generation/"
+  - name: "Core"
+    what_it_measures: "Filters FActScore-style subclaims for uniqueness and informativeness to prevent score inflation."
+    paper_or_repo: "https://aclanthology.org/2025.findings-acl.1018/"
+  - name: "RAGAS Faithfulness"
+    what_it_measures: "Claim support against retrieved context: supported claims divided by total claims."
+    paper_or_repo: "https://docs.ragas.io/en/v0.3.3/concepts/metrics/available_metrics/faithfulness/"
+  - name: "TruLens RAG Triad"
+    what_it_measures: "Context relevance, groundedness, and answer relevance."
+    paper_or_repo: "https://www.trulens.org/getting_started/core_concepts/rag_triad/"
+  - name: "HHEM 2.1 Open / HHEM 2.3"
+    what_it_measures: "Evidence-hypothesis factual consistency for RAG summaries; 2.3 is Vectara commercial multilingual version."
+    paper_or_repo: "https://huggingface.co/vectara/hallucination_evaluation_model"
+  - name: "RefChecker"
+    what_it_measures: "Fine-grained hallucination detection using claim-triplets checked against references."
+    paper_or_repo: "https://github.com/amazon-science/RefChecker"
+  - name: "ALCE citation quality"
+    what_it_measures: "Fluency, correctness, citation precision/recall, and citation support for attributed generation."
+    paper_or_repo: "https://aclanthology.org/2023.emnlp-main.398/"
+  - name: "MiniCheck / LLM-AggreFact"
+    what_it_measures: "Efficient grounding verification against source documents at much lower cost than GPT-4-style checks."
+    paper_or_repo: "https://aclanthology.org/2024.emnlp-main.499/"
+  - name: "VeriFact / FactRBench"
+    what_it_measures: "Improves fact extraction for relational and missing facts; evaluates both factual precision and recall."
+    paper_or_repo: "https://huggingface.co/papers/2505.09701"
+  - name: "VeriFastScore"
+    what_it_measures: "Fast long-form factuality via joint claim extraction and verification."
+    paper_or_repo: "https://aclanthology.org/2025.findings-emnlp.491/"
+  - name: "DecMetrics"
+    what_it_measures: "Claim-decomposition quality: completeness, correctness, and semantic entropy."
+    paper_or_repo: "https://www.researchgate.net/publication/395339580_DecMetrics_Structured_Claim_Decomposition_Scoring_for_Factually_Consistent_LLM_Outputs"
+  - name: "MedScore"
+    what_it_measures: "Medical-domain claim decomposition and verification for free-form medical answers."
+    paper_or_repo: "https://tldr.takara.ai/p/2505.18452"
+  - name: "DeepTRACE matrices"
+    what_it_measures: "Statement-by-source support, citation thoroughness, citation accuracy, overconfidence, one-sidedness."
+    paper_or_repo: "https://huggingface.co/papers/2509.04499"
+
+industry_rubrics:
+  - source: "OpenAI"
+    rubric: "Uses ground-truth answers and open-ended rubrics graded by reasoning models; evaluates DR on HLE, GAIA, BrowseComp, hallucination, prompt injection, privacy, code use, bias, and preparedness risks."
+    citation: "https://deploymentsafety.openai.com/deep-research"
+  - source: "OpenAI"
+    rubric: "Published limitation standard: outputs can hallucinate, infer incorrectly, struggle with rumors versus authoritative sources, and show weak confidence calibration."
+    citation: "https://openai.com/index/introducing-deep-research/"
+  - source: "Anthropic"
+    rubric: "Published eval guidance emphasizes specific measurable success criteria, multidimensional evaluation, citation accuracy where critical, and production-relevant criteria."
+    citation: "https://docs.anthropic.com/en/docs/test-and-evaluate/define-success"
+  - source: "Anthropic"
+    rubric: "Claude Research uses multiple parallel agents and citations; Anthropic highlights coordination, evaluation, and reliability challenges for multi-agent systems."
+    citation: "https://www.anthropic.com/engineering/multi-agent-research-system"
+  - source: "Anthropic"
+    rubric: "Citations API grounds responses in exact source passages for verification."
+    citation: "https://www.anthropic.com/news/introducing-citations-api"
+  - source: "Google"
+    rubric: "FACTS Suite measures factuality across grounding, search, parametric, and multimodal settings with public/private held-out sets."
+    citation: "https://deepmind.google/research/evals/"
+  - source: "Google"
+    rubric: "Gemini Deep Research docs define the workflow as plan, search, read, iterate, output cited reports; safety guidance flags prompt injection, web-content risk, exfiltration, and citation review."
+    citation: "https://ai.google.dev/gemini-api/docs/deep-research"
+  - source: "Perplexity"
+    rubric: "DRACO grades real-world DR tasks on factual accuracy, breadth/depth/completeness, presentation/objectivity, and citation quality."
+    citation: "https://huggingface.co/papers/2602.11685"
+  - source: "Scale AI"
+    rubric: "ResearchRubrics uses expert-written fine-grained rubrics for factual grounding, reasoning soundness, and clarity."
+    citation: "https://labs.scale.com/papers/researchrubrics"
+  - source: "Microsoft Research"
+    rubric: "DeepTRACE converts user-reported failure modes into eight measurable dimensions across answer text, sources, and citations."
+    citation: "https://www.microsoft.com/en-us/research/publication/deeptrace-auditing-deep-research-ai-systems-for-tracking-reliability-across-citations-and-evidence/"
+
+clinical_regulatory_specific:
+  - name: "PRISMA-AI"
+    purpose: "Baseline reporting extension for systematic reviews/meta-analyses on AI in healthcare."
+    citation: "https://www.nature.com/articles/s41591-022-02139-w"
+  - name: "PRISMA-trAIce"
+    purpose: "2025 extension for transparent reporting when AI is used as a tool in systematic literature reviews."
+    citation: "https://ai.jmir.org/2025/1/e80247/"
+  - name: "AMSTAR-2 for AI systematic reviews"
+    purpose: "Critical appraisal layer for systematic-review rigor; no mature universal AMSTAR-AI replacement was found."
+    citation: "https://www.sciencedirect.com/science/article/pii/S096758682400465X/pdf"
+  - name: "GRADE per claim with AI modifiers"
+    purpose: "Use GRADE certainty per medical claim, then add AI-specific modifiers: retrieval freshness, citation support, model drift, external validation, and hallucination risk."
+    citation: "Baseline GRADE plus 2025 guideline-gap evidence: https://www.sciencedirect.com/science/article/pii/S0895435625002367"
+  - name: "MedHELM"
+    purpose: "Clinically grounded medical LLM benchmark taxonomy covering 121 tasks, 37 evaluations, and clinician-defined criteria."
+    citation: "https://medhelm.org/"
+  - name: "HealthBench"
+    purpose: "Physician-grounded, rubric-based benchmark for 5,000 multi-turn clinical dialogues."
+    citation: "https://openai.com/index/healthbench/"
+  - name: "LLMEval-Med"
+    purpose: "Real-world clinical benchmark with physician validation, expert checklists, and LLM-as-judge agreement analysis."
+    citation: "https://aclanthology.org/2025.findings-emnlp.263/"
+  - name: "OncQA robustness / non-clinical perturbation audit"
+    purpose: "Tests whether irrelevant wording, gender cues, typos, tone, capitalization, or uncertainty change clinical recommendations."
+    citation: "https://doi.org/10.1145/3715275.3732121"
+  - name: "Oncology agent validation"
+    purpose: "Evaluates multimodal oncology agent tool use, clinical conclusions, and guideline citation accuracy."
+    citation: "https://www.nature.com/articles/s43018-025-00991-6"
+  - name: "MedHallu / Med-HALT / MedScore"
+    purpose: "Medical hallucination, false-confidence, and domain-adapted factuality checks."
+    citation: "https://huggingface.co/papers/2502.14302"
+  - name: "ICMJE AI and COI rules"
+    purpose: "Require AI-use disclosure, human accountability, no AI authorship, no AI as primary source, confidentiality safeguards."
+    citation: "https://www.icmje.org/recommendations/browse/artificial-intelligence/"
+  - name: "FDA / Health Canada / MHRA GMLP and PCCP"
+    purpose: "Regulatory layer for ML-enabled medical devices: risk-based, evidence-based, transparent, lifecycle monitoring and change control."
+    citation: "https://www.fda.gov/medical-devices/software-medical-device-samd/predetermined-change-control-plans-machine-learning-enabled-medical-devices-guiding-principles"
+  - name: "Health Canada 2026 MLMD pre-market guidance"
+    purpose: "Canadian pre-market guidance for ML-enabled medical devices including testing, clinical validation, transparency, and post-market monitoring."
+    citation: "https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/pre-market-guidance-machine-learning-enabled-medical-devices.html"
+  - name: "EMA AI lifecycle reflection paper"
+    purpose: "EU medicines lifecycle considerations for AI/ML in development, authorization, and post-authorization."
+    citation: "https://www.ema.europa.eu/en/use-artificial-intelligence-ai-medicinal-product-lifecycle-scientific-guideline"
+
+github_eval_harnesses:
+  - repo: "langfuse/langfuse"
+    stars: "26.8k"
+    activity_2026: "Latest visible release v3.172.1 on May 1, 2026; GitHub updated May 7, 2026."
+    notable_features: "Observability, traces, datasets, LLM-as-judge, manual labels, custom eval pipelines."
+  - repo: "promptfoo/promptfoo"
+    stars: "21k"
+    activity_2026: "Latest visible release 0.121.10 on May 7, 2026."
+    notable_features: "Prompt/RAG/agent evals, CI/CD, assertions, red-team plugins, vulnerability scanning; now part of OpenAI."
+  - repo: "comet-ml/opik"
+    stars: "19.2k"
+    activity_2026: "PyPI 2.0.24 on May 7, 2026; GitHub crawled May 2026."
+    notable_features: "Tracing, automated evals, LLM-as-judge, production dashboards, agent/prompt optimizer, guardrails."
+  - repo: "confident-ai/deepeval"
+    stars: "15.2k"
+    activity_2026: "2026 changelog through v3.9.9; active tracing, OTel, agent eval, and model support work."
+    notable_features: "Pytest-style evals, 50+ metrics, RAG/agent/tool-use/multiturn/safety metrics, synthetic datasets."
+  - repo: "explodinggradients/ragas"
+    stars: "11.4k+"
+    activity_2026: "PyPI 0.4.3 released Jan 13, 2026."
+    notable_features: "Faithfulness, context precision/recall, response relevancy, HHEM integration, testset generation, agent metrics."
+  - repo: "Arize-ai/phoenix"
+    stars: "9.6k"
+    activity_2026: "Latest visible release v15.4.0 on May 5, 2026."
+    notable_features: "OpenTelemetry tracing, retrieval/response evals, datasets, experiments, prompt playground."
+  - repo: "Giskard-AI/giskard-oss"
+    stars: "5.3k"
+    activity_2026: "Latest visible release Apr 29, 2026."
+    notable_features: "LLM agent testing, RAG evaluation, AI red teaming, fairness/security checks."
+
+notable_researcher_takes:
+  - person: "Jason Wei / OpenAI BrowseComp team"
+    platform: "paper"
+    take: "Short-answer browsing benchmarks are incomplete but useful; DR evaluation must test persistence, creative search, reasoning over factual web content, and calibration under test-time compute."
+    url: "https://openai.com/index/browsecomp/"
+  - person: "Sebastian Raschka"
+    platform: "blog"
+    take: "2025 progress came heavily from inference-time scaling, tooling, and agents; evaluation remains hard, benchmarks are imperfect, and transparency is needed."
+    url: "https://sebastianraschka.com/blog/2025/state-of-llms-2025.html"
+  - person: "Andrej Karpathy"
+    platform: "X"
+    take: "Agentic research/self-improvement needs repeated objective validation; even mundane document/PDF processing remains brittle and should be evaluated as a skill."
+    url: "https://x.com/karpathy/status/2031135152349524125"
+  - person: "Anthropic Research engineering team"
+    platform: "blog"
+    take: "Multi-agent research improves breadth through parallel search agents, but adds coordination, evaluation, and reliability challenges."
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+  - person: "Pranav Venkit, Philippe Laban, Yilun Zhou, et al."
+    platform: "paper"
+    take: "DR systems still show overconfidence, one-sidedness, unsupported statements, and citation failures; audit should use statement-level citation-support matrices."
+    url: "https://huggingface.co/papers/2509.04499"
+  - person: "Scale AI ResearchRubrics team"
+    platform: "paper"
+    take: "Open-ended DR outputs require expert-written, fine-grained rubrics because outputs are long, diverse, and depend on dynamic sources."
+    url: "https://labs.scale.com/papers/researchrubrics"
+
+gap_vs_section_minus_1_1:
+  - dimension_missing: "Agent search-trajectory audit"
+    why_it_matters: "PRISMA/AMSTAR/GRADE assess evidence synthesis, not whether the agent searched enough, deduplicated entities, handled hard negatives, or stopped prematurely."
+    where_2026_frontier_has_it: "DeepSearchQA, DRBench, BrowseComp-Plus, OpenAI/Anthropic/Google DR docs."
+  - dimension_missing: "Claim-to-citation support matrix"
+    why_it_matters: "A correct bibliography does not prove each sentence is supported by the cited source."
+    where_2026_frontier_has_it: "DeepTRACE, RefChecker, RAGAS, TruLens, ALCE."
+  - dimension_missing: "Completeness and omission recall"
+    why_it_matters: "FAB-style metrics and many factuality scores overemphasize precision; a report can be accurate but omit decisive contrary evidence."
+    where_2026_frontier_has_it: "DRACO, ResearchRubrics, DeepSearchQA, DRBench."
+  - dimension_missing: "Citation quality beyond existence"
+    why_it_matters: "Need source authority, primary-versus-secondary status, quoted span support, date freshness, source-source contradiction, and citation granularity."
+    where_2026_frontier_has_it: "DeepTRACE, ALCE, Anthropic Citations API, Google/Perplexity cited report rubrics."
+  - dimension_missing: "Decomposition quality scoring"
+    why_it_matters: "Line-by-line audits depend on decomposition; bad decompositions can hide compound, conditional, numerical, or relational errors."
+    where_2026_frontier_has_it: "DecMetrics, Core, VeriFact, ClaimDecomp follow-ons."
+  - dimension_missing: "Uncertainty calibration and overconfidence"
+    why_it_matters: "Clinical and policy outputs require explicit confidence, unknowns, and abstention; DR systems often overstate weak evidence."
+    where_2026_frontier_has_it: "OpenAI DR limitations, BrowseComp calibration, DeepTRACE overconfidence dimensions, HealthBench."
+  - dimension_missing: "Dynamic-web reproducibility and contamination control"
+    why_it_matters: "Live search changes, leaked benchmark answers, and stale sources can invalidate audits."
+    where_2026_frontier_has_it: "BrowseComp-Plus controlled corpus, FACTS private held-out sets, LiveMedBench contamination-free medical evaluation."
+  - dimension_missing: "Prompt-injection and exfiltration testing"
+    why_it_matters: "DR agents browse hostile pages and private files; evidence synthesis standards do not test instruction hierarchy or data leakage."
+    where_2026_frontier_has_it: "OpenAI Deep Research System Card, Gemini Deep Research safety docs, promptfoo, Giskard."
+  - dimension_missing: "Clinical workflow realism"
+    why_it_matters: "Medical QA or guideline-review correctness does not prove safe performance in real patient-context, EHR, triage, or treatment workflows."
+    where_2026_frontier_has_it: "MedHELM, HealthBench, PhysicianBench, LLMEval-Med, OncQA perturbation audits."
+  - dimension_missing: "Independent multi-model reconciliation"
+    why_it_matters: "Single-model judges have bias and blind spots; high-stakes DR needs blinded, parallel Claude/Codex/human adjudication and disagreement resolution."
+    where_2026_frontier_has_it: "MedHELM LLM-jury, Perplexity DRACO judge-alignment study, OpenAI rubric graders, Anthropic-OpenAI cross-evals."
+
+recommended_polaris_upgrade:
+  must_add:
+    - "Full line-by-line atomic-claim ledger: claim text, claim type, cited source, independent source, support verdict, contradiction verdict, uncertainty, GRADE certainty, and auditor notes."
+    - "Citation graph audit: every citation mapped to exact supporting span; flag unsupported, weakly supported, misattributed, stale, secondary-only, or fabricated references."
+    - "Dual independent audit lanes: Claude and Codex independently decompose, verify, and score; reconcile with a third adjudicator on all disagreements."
+    - "Search-trajectory audit: preserve queries, pages visited, documents opened, excluded evidence, retrieval misses, hard negatives, and stopping rationale."
+    - "Expert-written rubrics per task, not generic FAB-only metrics; include factual accuracy, completeness, objectivity, reasoning validity, citation quality, and uncertainty calibration."
+    - "Clinical/regulatory overlay: PRISMA-AI or PRISMA-trAIce, AMSTAR-2, GRADE per claim, RoB 2, ROBINS-I, QUADAS-2, ICMJE AI disclosure, FDA/EMA/Health Canada lifecycle rules."
+    - "Adversarial robustness tests: prompt injection in sources, stale/contradictory sources, citation swaps, numerical perturbations, omitted contrary evidence, and clinical non-content perturbations."
+    - "Continuous eval harness with regression gates using RAGAS, DeepEval, Langfuse or Opik, promptfoo/Giskard red-team tests, and a frozen benchmark corpus."
+  nice_to_have:
+    - "Benchmark POLARIS against BrowseComp, BrowseComp-Plus, DeepResearchBench, ResearchRubrics, DeepSearchQA, DRACO, DeepTRACE, and domain-specific medical benchmarks."
+    - "Use HHEM 2.1/2.3, MiniCheck, RefChecker, Core, VeriFact, and MedScore as secondary automated checks, never as sole arbiters."
+    - "Maintain a source-quality registry ranking primary guidelines, regulators, trials, systematic reviews, preprints, news, and vendor material."
+    - "Publish a reproducible audit packet with source snapshots, exact prompts, model versions, tool logs, rubrics, and reconciliation decisions."
+  rationale: "For a September 2026 PM-level gift, the audit standard should match frontier DR evaluation: exhaustive claim verification, citation-support matrices, retrieval-process transparency, expert rubrics, clinical/regulatory evidence appraisal, adversarial safety tests, and independent parallel reconciliation. Sample audits and FAB-only scoring are now below the 2026 frontier standard."
+tokens used
+318,138
+research_summary: "Best practice in 2025-2026 is a layered audit: decompose every output into atomic claims, verify each claim against cited and independent sources, score citation support and omissions, audit the agent's retrieval/search trajectory, then reconcile independent human/LLM judges using expert-written rubrics. The frontier has moved beyond FAB-only scoring toward evidence matrices, citation graphs, source-quality scoring, completeness/recall, uncertainty calibration, contamination control, and domain-specific clinical/regulatory checks."
+
+key_benchmarks_2025_2026:
+  - name: "BrowseComp"
+    purpose: "Tests persistent web browsing for hard-to-find, entangled facts with short verifiable answers."
+    url: "https://openai.com/index/browsecomp/"
+    year: 2025
+    why_it_matters: "Shows that browsing plus reasoning and test-time compute matter; useful but incomplete for long reports because it avoids open-ended synthesis."
+  - name: "BrowseComp-Plus"
+    purpose: "Controlled-corpus extension of BrowseComp with human-verified positives and hard negatives."
+    url: "https://huggingface.co/papers/2508.06600"
+    year: 2025
+    why_it_matters: "Fixes live-web opacity and reproducibility problems; helps isolate retrieval versus reasoning failures."
+  - name: "DeepResearch Bench"
+    purpose: "100 PhD-level tasks across 22 fields with report-quality and citation-accuracy evaluation."
+    url: "https://huggingface.co/papers/2506.11763"
+    year: 2025
+    why_it_matters: "Introduces report-quality and citation-trust frameworks for deep research agents."
+  - name: "DeepResearch Bench II"
+    purpose: "Expert-report-derived fine-grained rubrics for deep research systems."
+    url: "https://www.researchgate.net/publication/399755315_DeepResearch_Bench_II_Diagnosing_Deep_Research_Agents_via_Rubrics_from_Expert_Report"
+    year: 2026
+    why_it_matters: "Moves from coarse LLM-written rubrics to content-bearing expert rubrics that reject plausible but unsupported answers."
+  - name: "ReportBench"
+    purpose: "Academic-survey-task benchmark for deep research reports, cited literature quality, and statement faithfulness."
+    url: "https://huggingface.co/papers/2508.15804"
+    year: 2025
+    why_it_matters: "Directly targets long-form research reports rather than short-answer QA."
+  - name: "ResearchRubrics"
+    purpose: "Scale AI benchmark pairing realistic prompts with 2,500+ expert-written fine-grained rubrics."
+    url: "https://labs.scale.com/papers/researchrubrics"
+    year: 2025
+    why_it_matters: "Industrializes rubric-based DR evaluation across factual grounding, reasoning soundness, and clarity."
+  - name: "DRACO"
+    purpose: "Perplexity benchmark from anonymized real deep-research use, scoring accuracy, completeness, objectivity, and citation quality."
+    url: "https://research.perplexity.ai/articles/evaluating-deep-research-performance-in-the-wild-with-the-draco-benchmark"
+    year: 2026
+    why_it_matters: "Strong signal for real-user task distribution rather than purely synthetic tasks."
+  - name: "DeepSearchQA"
+    purpose: "Google DeepMind 900-prompt benchmark for exhaustive multi-step web information seeking."
+    url: "https://deepmind.google/research/evals/"
+    year: 2026
+    why_it_matters: "Adds recall, de-duplication, entity resolution, and stopping-criteria assessment."
+  - name: "DRBench"
+    purpose: "Enterprise deep research benchmark over public web plus private-like enterprise files."
+    url: "https://openreview.net/forum?id=IGYQ4c92e2"
+    year: 2026
+    why_it_matters: "Tests realistic analyst work across emails, files, chat logs, PDFs, spreadsheets, and web evidence."
+  - name: "FACTS Benchmark Suite"
+    purpose: "Google factuality suite covering grounding, search, parametric knowledge, and multimodal factuality."
+    url: "https://deepmind.google/blog/facts-benchmark-suite-systematically-evaluating-the-factuality-of-large-language-models/"
+    year: 2025
+    why_it_matters: "Industry-grade factuality benchmark with public/private held-out sets and search-grounding slices."
+  - name: "DeepTRACE"
+    purpose: "Audits deep research systems with statement-level decomposition, confidence scoring, citation/factual-support matrices."
+    url: "https://www.microsoft.com/en-us/research/publication/deeptrace-auditing-deep-research-ai-systems-for-tracking-reliability-across-citations-and-evidence/"
+    year: 2025
+    why_it_matters: "Closest published match to line-by-line citation-graph audit; reports citation accuracy often only 40-80%."
+  - name: "FACTORY"
+    purpose: "Human-verified prompt set for challenging long-form factuality."
+    url: "https://huggingface.co/papers/2508.00109"
+    year: 2025
+    why_it_matters: "Finds roughly 40% non-factual claims in SOTA long-form outputs on harder prompts."
+  - name: "ClaimDecomp"
+    purpose: "Baseline dataset for decomposing complex claims into literal and implied subquestions."
+    url: "https://huggingface.co/papers/2205.06938"
+    year: 2022
+    why_it_matters: "Baseline for claim decomposition; older but still relevant for line-by-line audit design."
+  - name: "OAK"
+    purpose: "Open Artificial Knowledge synthetic dataset."
+    url: "https://huggingface.co/papers/2407.14371"
+    year: 2024
+    why_it_matters: "Baseline only; not a DR audit benchmark and should not substitute for factual/citation verification."
+
+key_metrics_2025_2026:
+  - name: "Atomic claim support rate"
+    what_it_measures: "Percent of atomic claims supported by trusted evidence; must include precision and recall of decomposition."
+    paper_or_repo: "FActScore baseline: https://ai.meta.com/research/publications/factscore-fine-grained-atomic-evaluation-of-factual-precision-in-long-form-text-generation/"
+  - name: "Core"
+    what_it_measures: "Filters FActScore-style subclaims for uniqueness and informativeness to prevent score inflation."
+    paper_or_repo: "https://aclanthology.org/2025.findings-acl.1018/"
+  - name: "RAGAS Faithfulness"
+    what_it_measures: "Claim support against retrieved context: supported claims divided by total claims."
+    paper_or_repo: "https://docs.ragas.io/en/v0.3.3/concepts/metrics/available_metrics/faithfulness/"
+  - name: "TruLens RAG Triad"
+    what_it_measures: "Context relevance, groundedness, and answer relevance."
+    paper_or_repo: "https://www.trulens.org/getting_started/core_concepts/rag_triad/"
+  - name: "HHEM 2.1 Open / HHEM 2.3"
+    what_it_measures: "Evidence-hypothesis factual consistency for RAG summaries; 2.3 is Vectara commercial multilingual version."
+    paper_or_repo: "https://huggingface.co/vectara/hallucination_evaluation_model"
+  - name: "RefChecker"
+    what_it_measures: "Fine-grained hallucination detection using claim-triplets checked against references."
+    paper_or_repo: "https://github.com/amazon-science/RefChecker"
+  - name: "ALCE citation quality"
+    what_it_measures: "Fluency, correctness, citation precision/recall, and citation support for attributed generation."
+    paper_or_repo: "https://aclanthology.org/2023.emnlp-main.398/"
+  - name: "MiniCheck / LLM-AggreFact"
+    what_it_measures: "Efficient grounding verification against source documents at much lower cost than GPT-4-style checks."
+    paper_or_repo: "https://aclanthology.org/2024.emnlp-main.499/"
+  - name: "VeriFact / FactRBench"
+    what_it_measures: "Improves fact extraction for relational and missing facts; evaluates both factual precision and recall."
+    paper_or_repo: "https://huggingface.co/papers/2505.09701"
+  - name: "VeriFastScore"
+    what_it_measures: "Fast long-form factuality via joint claim extraction and verification."
+    paper_or_repo: "https://aclanthology.org/2025.findings-emnlp.491/"
+  - name: "DecMetrics"
+    what_it_measures: "Claim-decomposition quality: completeness, correctness, and semantic entropy."
+    paper_or_repo: "https://www.researchgate.net/publication/395339580_DecMetrics_Structured_Claim_Decomposition_Scoring_for_Factually_Consistent_LLM_Outputs"
+  - name: "MedScore"
+    what_it_measures: "Medical-domain claim decomposition and verification for free-form medical answers."
+    paper_or_repo: "https://tldr.takara.ai/p/2505.18452"
+  - name: "DeepTRACE matrices"
+    what_it_measures: "Statement-by-source support, citation thoroughness, citation accuracy, overconfidence, one-sidedness."
+    paper_or_repo: "https://huggingface.co/papers/2509.04499"
+
+industry_rubrics:
+  - source: "OpenAI"
+    rubric: "Uses ground-truth answers and open-ended rubrics graded by reasoning models; evaluates DR on HLE, GAIA, BrowseComp, hallucination, prompt injection, privacy, code use, bias, and preparedness risks."
+    citation: "https://deploymentsafety.openai.com/deep-research"
+  - source: "OpenAI"
+    rubric: "Published limitation standard: outputs can hallucinate, infer incorrectly, struggle with rumors versus authoritative sources, and show weak confidence calibration."
+    citation: "https://openai.com/index/introducing-deep-research/"
+  - source: "Anthropic"
+    rubric: "Published eval guidance emphasizes specific measurable success criteria, multidimensional evaluation, citation accuracy where critical, and production-relevant criteria."
+    citation: "https://docs.anthropic.com/en/docs/test-and-evaluate/define-success"
+  - source: "Anthropic"
+    rubric: "Claude Research uses multiple parallel agents and citations; Anthropic highlights coordination, evaluation, and reliability challenges for multi-agent systems."
+    citation: "https://www.anthropic.com/engineering/multi-agent-research-system"
+  - source: "Anthropic"
+    rubric: "Citations API grounds responses in exact source passages for verification."
+    citation: "https://www.anthropic.com/news/introducing-citations-api"
+  - source: "Google"
+    rubric: "FACTS Suite measures factuality across grounding, search, parametric, and multimodal settings with public/private held-out sets."
+    citation: "https://deepmind.google/research/evals/"
+  - source: "Google"
+    rubric: "Gemini Deep Research docs define the workflow as plan, search, read, iterate, output cited reports; safety guidance flags prompt injection, web-content risk, exfiltration, and citation review."
+    citation: "https://ai.google.dev/gemini-api/docs/deep-research"
+  - source: "Perplexity"
+    rubric: "DRACO grades real-world DR tasks on factual accuracy, breadth/depth/completeness, presentation/objectivity, and citation quality."
+    citation: "https://huggingface.co/papers/2602.11685"
+  - source: "Scale AI"
+    rubric: "ResearchRubrics uses expert-written fine-grained rubrics for factual grounding, reasoning soundness, and clarity."
+    citation: "https://labs.scale.com/papers/researchrubrics"
+  - source: "Microsoft Research"
+    rubric: "DeepTRACE converts user-reported failure modes into eight measurable dimensions across answer text, sources, and citations."
+    citation: "https://www.microsoft.com/en-us/research/publication/deeptrace-auditing-deep-research-ai-systems-for-tracking-reliability-across-citations-and-evidence/"
+
+clinical_regulatory_specific:
+  - name: "PRISMA-AI"
+    purpose: "Baseline reporting extension for systematic reviews/meta-analyses on AI in healthcare."
+    citation: "https://www.nature.com/articles/s41591-022-02139-w"
+  - name: "PRISMA-trAIce"
+    purpose: "2025 extension for transparent reporting when AI is used as a tool in systematic literature reviews."
+    citation: "https://ai.jmir.org/2025/1/e80247/"
+  - name: "AMSTAR-2 for AI systematic reviews"
+    purpose: "Critical appraisal layer for systematic-review rigor; no mature universal AMSTAR-AI replacement was found."
+    citation: "https://www.sciencedirect.com/science/article/pii/S096758682400465X/pdf"
+  - name: "GRADE per claim with AI modifiers"
+    purpose: "Use GRADE certainty per medical claim, then add AI-specific modifiers: retrieval freshness, citation support, model drift, external validation, and hallucination risk."
+    citation: "Baseline GRADE plus 2025 guideline-gap evidence: https://www.sciencedirect.com/science/article/pii/S0895435625002367"
+  - name: "MedHELM"
+    purpose: "Clinically grounded medical LLM benchmark taxonomy covering 121 tasks, 37 evaluations, and clinician-defined criteria."
+    citation: "https://medhelm.org/"
+  - name: "HealthBench"
+    purpose: "Physician-grounded, rubric-based benchmark for 5,000 multi-turn clinical dialogues."
+    citation: "https://openai.com/index/healthbench/"
+  - name: "LLMEval-Med"
+    purpose: "Real-world clinical benchmark with physician validation, expert checklists, and LLM-as-judge agreement analysis."
+    citation: "https://aclanthology.org/2025.findings-emnlp.263/"
+  - name: "OncQA robustness / non-clinical perturbation audit"
+    purpose: "Tests whether irrelevant wording, gender cues, typos, tone, capitalization, or uncertainty change clinical recommendations."
+    citation: "https://doi.org/10.1145/3715275.3732121"
+  - name: "Oncology agent validation"
+    purpose: "Evaluates multimodal oncology agent tool use, clinical conclusions, and guideline citation accuracy."
+    citation: "https://www.nature.com/articles/s43018-025-00991-6"
+  - name: "MedHallu / Med-HALT / MedScore"
+    purpose: "Medical hallucination, false-confidence, and domain-adapted factuality checks."
+    citation: "https://huggingface.co/papers/2502.14302"
+  - name: "ICMJE AI and COI rules"
+    purpose: "Require AI-use disclosure, human accountability, no AI authorship, no AI as primary source, confidentiality safeguards."
+    citation: "https://www.icmje.org/recommendations/browse/artificial-intelligence/"
+  - name: "FDA / Health Canada / MHRA GMLP and PCCP"
+    purpose: "Regulatory layer for ML-enabled medical devices: risk-based, evidence-based, transparent, lifecycle monitoring and change control."
+    citation: "https://www.fda.gov/medical-devices/software-medical-device-samd/predetermined-change-control-plans-machine-learning-enabled-medical-devices-guiding-principles"
+  - name: "Health Canada 2026 MLMD pre-market guidance"
+    purpose: "Canadian pre-market guidance for ML-enabled medical devices including testing, clinical validation, transparency, and post-market monitoring."
+    citation: "https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/pre-market-guidance-machine-learning-enabled-medical-devices.html"
+  - name: "EMA AI lifecycle reflection paper"
+    purpose: "EU medicines lifecycle considerations for AI/ML in development, authorization, and post-authorization."
+    citation: "https://www.ema.europa.eu/en/use-artificial-intelligence-ai-medicinal-product-lifecycle-scientific-guideline"
+
+github_eval_harnesses:
+  - repo: "langfuse/langfuse"
+    stars: "26.8k"
+    activity_2026: "Latest visible release v3.172.1 on May 1, 2026; GitHub updated May 7, 2026."
+    notable_features: "Observability, traces, datasets, LLM-as-judge, manual labels, custom eval pipelines."
+  - repo: "promptfoo/promptfoo"
+    stars: "21k"
+    activity_2026: "Latest visible release 0.121.10 on May 7, 2026."
+    notable_features: "Prompt/RAG/agent evals, CI/CD, assertions, red-team plugins, vulnerability scanning; now part of OpenAI."
+  - repo: "comet-ml/opik"
+    stars: "19.2k"
+    activity_2026: "PyPI 2.0.24 on May 7, 2026; GitHub crawled May 2026."
+    notable_features: "Tracing, automated evals, LLM-as-judge, production dashboards, agent/prompt optimizer, guardrails."
+  - repo: "confident-ai/deepeval"
+    stars: "15.2k"
+    activity_2026: "2026 changelog through v3.9.9; active tracing, OTel, agent eval, and model support work."
+    notable_features: "Pytest-style evals, 50+ metrics, RAG/agent/tool-use/multiturn/safety metrics, synthetic datasets."
+  - repo: "explodinggradients/ragas"
+    stars: "11.4k+"
+    activity_2026: "PyPI 0.4.3 released Jan 13, 2026."
+    notable_features: "Faithfulness, context precision/recall, response relevancy, HHEM integration, testset generation, agent metrics."
+  - repo: "Arize-ai/phoenix"
+    stars: "9.6k"
+    activity_2026: "Latest visible release v15.4.0 on May 5, 2026."
+    notable_features: "OpenTelemetry tracing, retrieval/response evals, datasets, experiments, prompt playground."
+  - repo: "Giskard-AI/giskard-oss"
+    stars: "5.3k"
+    activity_2026: "Latest visible release Apr 29, 2026."
+    notable_features: "LLM agent testing, RAG evaluation, AI red teaming, fairness/security checks."
+
+notable_researcher_takes:
+  - person: "Jason Wei / OpenAI BrowseComp team"
+    platform: "paper"
+    take: "Short-answer browsing benchmarks are incomplete but useful; DR evaluation must test persistence, creative search, reasoning over factual web content, and calibration under test-time compute."
+    url: "https://openai.com/index/browsecomp/"
+  - person: "Sebastian Raschka"
+    platform: "blog"
+    take: "2025 progress came heavily from inference-time scaling, tooling, and agents; evaluation remains hard, benchmarks are imperfect, and transparency is needed."
+    url: "https://sebastianraschka.com/blog/2025/state-of-llms-2025.html"
+  - person: "Andrej Karpathy"
+    platform: "X"
+    take: "Agentic research/self-improvement needs repeated objective validation; even mundane document/PDF processing remains brittle and should be evaluated as a skill."
+    url: "https://x.com/karpathy/status/2031135152349524125"
+  - person: "Anthropic Research engineering team"
+    platform: "blog"
+    take: "Multi-agent research improves breadth through parallel search agents, but adds coordination, evaluation, and reliability challenges."
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+  - person: "Pranav Venkit, Philippe Laban, Yilun Zhou, et al."
+    platform: "paper"
+    take: "DR systems still show overconfidence, one-sidedness, unsupported statements, and citation failures; audit should use statement-level citation-support matrices."
+    url: "https://huggingface.co/papers/2509.04499"
+  - person: "Scale AI ResearchRubrics team"
+    platform: "paper"
+    take: "Open-ended DR outputs require expert-written, fine-grained rubrics because outputs are long, diverse, and depend on dynamic sources."
+    url: "https://labs.scale.com/papers/researchrubrics"
+
+gap_vs_section_minus_1_1:
+  - dimension_missing: "Agent search-trajectory audit"
+    why_it_matters: "PRISMA/AMSTAR/GRADE assess evidence synthesis, not whether the agent searched enough, deduplicated entities, handled hard negatives, or stopped prematurely."
+    where_2026_frontier_has_it: "DeepSearchQA, DRBench, BrowseComp-Plus, OpenAI/Anthropic/Google DR docs."
+  - dimension_missing: "Claim-to-citation support matrix"
+    why_it_matters: "A correct bibliography does not prove each sentence is supported by the cited source."
+    where_2026_frontier_has_it: "DeepTRACE, RefChecker, RAGAS, TruLens, ALCE."
+  - dimension_missing: "Completeness and omission recall"
+    why_it_matters: "FAB-style metrics and many factuality scores overemphasize precision; a report can be accurate but omit decisive contrary evidence."
+    where_2026_frontier_has_it: "DRACO, ResearchRubrics, DeepSearchQA, DRBench."
+  - dimension_missing: "Citation quality beyond existence"
+    why_it_matters: "Need source authority, primary-versus-secondary status, quoted span support, date freshness, source-source contradiction, and citation granularity."
+    where_2026_frontier_has_it: "DeepTRACE, ALCE, Anthropic Citations API, Google/Perplexity cited report rubrics."
+  - dimension_missing: "Decomposition quality scoring"
+    why_it_matters: "Line-by-line audits depend on decomposition; bad decompositions can hide compound, conditional, numerical, or relational errors."
+    where_2026_frontier_has_it: "DecMetrics, Core, VeriFact, ClaimDecomp follow-ons."
+  - dimension_missing: "Uncertainty calibration and overconfidence"
+    why_it_matters: "Clinical and policy outputs require explicit confidence, unknowns, and abstention; DR systems often overstate weak evidence."
+    where_2026_frontier_has_it: "OpenAI DR limitations, BrowseComp calibration, DeepTRACE overconfidence dimensions, HealthBench."
+  - dimension_missing: "Dynamic-web reproducibility and contamination control"
+    why_it_matters: "Live search changes, leaked benchmark answers, and stale sources can invalidate audits."
+    where_2026_frontier_has_it: "BrowseComp-Plus controlled corpus, FACTS private held-out sets, LiveMedBench contamination-free medical evaluation."
+  - dimension_missing: "Prompt-injection and exfiltration testing"
+    why_it_matters: "DR agents browse hostile pages and private files; evidence synthesis standards do not test instruction hierarchy or data leakage."
+    where_2026_frontier_has_it: "OpenAI Deep Research System Card, Gemini Deep Research safety docs, promptfoo, Giskard."
+  - dimension_missing: "Clinical workflow realism"
+    why_it_matters: "Medical QA or guideline-review correctness does not prove safe performance in real patient-context, EHR, triage, or treatment workflows."
+    where_2026_frontier_has_it: "MedHELM, HealthBench, PhysicianBench, LLMEval-Med, OncQA perturbation audits."
+  - dimension_missing: "Independent multi-model reconciliation"
+    why_it_matters: "Single-model judges have bias and blind spots; high-stakes DR needs blinded, parallel Claude/Codex/human adjudication and disagreement resolution."
+    where_2026_frontier_has_it: "MedHELM LLM-jury, Perplexity DRACO judge-alignment study, OpenAI rubric graders, Anthropic-OpenAI cross-evals."
+
+recommended_polaris_upgrade:
+  must_add:
+    - "Full line-by-line atomic-claim ledger: claim text, claim type, cited source, independent source, support verdict, contradiction verdict, uncertainty, GRADE certainty, and auditor notes."
+    - "Citation graph audit: every citation mapped to exact supporting span; flag unsupported, weakly supported, misattributed, stale, secondary-only, or fabricated references."
+    - "Dual independent audit lanes: Claude and Codex independently decompose, verify, and score; reconcile with a third adjudicator on all disagreements."
+    - "Search-trajectory audit: preserve queries, pages visited, documents opened, excluded evidence, retrieval misses, hard negatives, and stopping rationale."
+    - "Expert-written rubrics per task, not generic FAB-only metrics; include factual accuracy, completeness, objectivity, reasoning validity, citation quality, and uncertainty calibration."
+    - "Clinical/regulatory overlay: PRISMA-AI or PRISMA-trAIce, AMSTAR-2, GRADE per claim, RoB 2, ROBINS-I, QUADAS-2, ICMJE AI disclosure, FDA/EMA/Health Canada lifecycle rules."
+    - "Adversarial robustness tests: prompt injection in sources, stale/contradictory sources, citation swaps, numerical perturbations, omitted contrary evidence, and clinical non-content perturbations."
+    - "Continuous eval harness with regression gates using RAGAS, DeepEval, Langfuse or Opik, promptfoo/Giskard red-team tests, and a frozen benchmark corpus."
+  nice_to_have:
+    - "Benchmark POLARIS against BrowseComp, BrowseComp-Plus, DeepResearchBench, ResearchRubrics, DeepSearchQA, DRACO, DeepTRACE, and domain-specific medical benchmarks."
+    - "Use HHEM 2.1/2.3, MiniCheck, RefChecker, Core, VeriFact, and MedScore as secondary automated checks, never as sole arbiters."
+    - "Maintain a source-quality registry ranking primary guidelines, regulators, trials, systematic reviews, preprints, news, and vendor material."
+    - "Publish a reproducible audit packet with source snapshots, exact prompts, model versions, tool logs, rubrics, and reconciliation decisions."
+  rationale: "For a September 2026 PM-level gift, the audit standard should match frontier DR evaluation: exhaustive claim verification, citation-support matrices, retrieval-process transparency, expert rubrics, clinical/regulatory evidence appraisal, adversarial safety tests, and independent parallel reconciliation. Sample audits and FAB-only scoring are now below the 2026 frontier standard."

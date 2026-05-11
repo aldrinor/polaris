@@ -1,0 +1,777 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e17dc-1096-77c2-a7f7-d2354e286352
+--------
+user
+Independent review of Claude's DR-eval-state-of-art synthesis. Output YAML only.
+
+# Task
+
+Claude has produced a research synthesis on 2025-2026 DR-evaluation best practices (below). Your job is to **independently audit** this synthesis: missed sources, inaccuracies, weak claims, and counter-recommendations. Treat this as you would a peer review of a survey paper. Use web search liberally — don't rely on Claude's framing alone.
+
+# Claude's synthesis (verbatim)
+
+```
+# DR Evaluation: State of the Art — 2025-2026 (Claude's synthesis, pre-Codex-review)
+
+## Top-line
+
+Best practice for evaluating Deep Research outputs in 2025-2026 has converged on **three layers**: (1) atomic-claim decomposition + per-claim verification against retrieved evidence, (2) citation-quality scoring (recall + precision + context-match), (3) expert-rubric multi-dimensional scoring with complexity-tagged tasks. The §-1.1 standard (clinical evidence-appraisal: PRISMA 2020 / AMSTAR-2 / GRADE / Cochrane RoB 2 / ROBINS-I / QUADAS-2 / ICMJE / jurisdictional) sits underneath as the **domain-specific quality floor** for clinical/regulatory claims, but the 2026 DR-frontier adds rubric breadth and atomic verification that §-1.1 alone does not specify.
+
+## Layer 1 — Atomic-claim factuality (2025-2026 SOTA)
+
+| Method | What it does | Key 2025-2026 finding |
+|---|---|---|
+| **FactScore** (2023, baseline) | GPT-4 decomposes long-form text into atomic claims, verifies each against retrieved knowledge | Sensitive to decomposer choice — sub-claim atomicity varies |
+| **VeriScore** (2024) | Verifiable-claims focus: only verify claims that can be objectively checked; ignore opinions | Avoids penalizing legitimate opinion text |
+| **VeriFastScore** (EMNLP 2025) | Fine-tuned Llama 3.1 8B does claims+verify in ONE pass | r=0.80 example-level / r=0.94 system-level correlation with VeriScore; **6.6× speedup** |
+| **MiniCheck-FT5** (2024) | Trained fact-checker on grounding documents | **400× cheaper than GPT-4**, comparable accuracy |
+| **RefChecker** (2024) | Knowledge-triplet decomposition (subject-predicate-object), 3-context settings | Outperforms prior across all contexts |
+| **C2-Cite** (2026) | Contextual citation alignment with router function | **+5.8% citation quality / +17.4% correctness** over ALCE |
+
+**Key 2025 finding (Decomposition Dilemmas, NAACL 2025):** Claim decomposition is NOT universally beneficial. With AlignScore verifier → positive impact. With MiniCheck verifier → LOWER performance than no-decomposition. **Verifier choice matters as much as decomposition method.**
+
+## Layer 2 — Citation quality (ALCE-lineage)
+
+ALCE (Princeton, EMNLP 2023) established the baseline:
+- **Citation Recall**: does the cited span support the claim (NLI-based)
+- **Citation Precision**: are non-supportive citations removed
+- **Citation-F1**: harmonic mean
+- Plus fluency + correctness on the answer itself
+
+Extensions in 2025:
+- **CiteLab** (ACL 2025 demo): citation development+diagnosis framework
+- **PFCG** (NAACL 2025): positional fine-grained — does the citation point to the RIGHT span, not just the right URL
+- **C2-Cite** (2026): contextual-aware citation generation, transforms markers into "active knowledge pointers"
+
+## Layer 3 — Expert-rubric DR benchmarks (the new SOTA layer)
+
+| Benchmark | Source | Dimensions | Scale |
+|---|---|---|---|
+| **DeepResearch Bench (DRB)** | Tencent + Tsinghua | RACE (4-dim adaptive criteria) + FACT (citation accuracy + groundedness) | 96K user queries → 100 hard prompts; v2 Feb 2026 |
+| **BrowseComp** | OpenAI | Hard-to-find entangled info; persistence + creativity | 1,266 problems |
+| **DRACO** | Perplexity | Factual accuracy + breadth/depth + presentation + citation | 100 tasks, 10 domains, 40 countries |
+| **ResearchRubrics** | Scale AI (ICLR 2026) | 2,500+ expert criteria per-prompt; complexity tagged (breadth × nesting × exploration) | 101 prompts × 20-43 criteria each |
+| **ResearcherBench** | SII-GAIR | Frontier research questions, systematic | research-focused |
+| **DeepSearchQA** | DeepMind 2026 | Comprehensiveness gap measurement | new comprehensiveness metric |
+
+**Common rubric structure across all 4:** factual accuracy / completeness / citation quality / clarity (presentation) / reasoning coherence. ResearchRubrics adds **complexity stratification** (3-axis) and **2,800 hours of expert labor** producing **fine-grained 2,500+ criteria** — gold-standard for clinical/policy DR.
+
+## Layer 4 — Clinical/regulatory-specific (PRISMA-AI, 2024-2025)
+
+- **PRISMA-trAIce** (JMIR AI 2025): NEW checklist extension to PRISMA 2020 for "Transparent Reporting of Artificial Intelligence in Comprehensive Evidence-synthesis" — requires disclosure when AI is a methodological tool in SR/MA.
+- **PRISMA-AI** (in development at EQUATOR Network): broader AI-in-research reporting guideline.
+- **LLM-as-quality-appraiser** finding (medRxiv 2024-04): individual LLM accuracy 63-70% on PRISMA appraisal; 53-74% on AMSTAR. **Human-AI collaboration → 89-96% on PRISMA, 91-95% on AMSTAR** (with 25-35% deferral rates). Implication: LLM-only quality appraisal is insufficient; need human-in-loop.
+
+This means for POLARIS's audit: when applying PRISMA / AMSTAR / GRADE / RoB scores to claims, the audit MUST involve a deferral path (claims where evaluator is uncertain → escalate to human or stricter reviewer), not auto-decide.
+
+## Layer 5 — Open-source eval harnesses (2025-2026 production)
+
+| Repo | Specialty | Notable |
+|---|---|---|
+| **RAGAS** | Reference-free RAG eval | Faithfulness + answer-relevancy + context-relevance + context-recall metrics |
+| **DeepEval** (Confident AI) | Pytest-style LLM unit tests | 14+ metrics; faithfulness metric is reference-free |
+| **Opik** (Comet) | Tracing + eval + dataset | Self-hostable, full lifecycle |
+| **Langfuse** | Production observability | LLM-as-judge + dataset synthesis |
+| **HHEM 2.1 + FaithJudge** (Vectara) | Hallucination evaluation | Public leaderboard since 2023 |
+| **REFCHECKER** | Fine-grained hallucination | Knowledge-triplet-based |
+| **VeriFastScore** | Long-form factuality | 6.6× speedup |
+
+## Gap analysis: §-1.1 vs 2026 DR-frontier
+
+What §-1.1 already covers (clinical evidence-appraisal):
+✓ PRISMA 2020 (SR reporting)
+✓ AMSTAR-2 (SR quality)
+✓ GRADE per claim (certainty)
+✓ Cochrane RoB 2 / ROBINS-I / QUADAS-2 (bias scoring)
+✓ ICMJE (authorship/COI)
+✓ Jurisdictional regulatory (FDA/EMA/HC)
+✓ 5-verdict claim rubric (VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE)
+
+What §-1.1 does NOT explicitly include but 2026 DR-frontier requires:
+✗ **Atomic-claim decomposition** before verdict (each claim → set of atoms, each atom verified)
+✗ **Citation Recall + Precision + F1** as numeric scores
+✗ **Citation-context-match at span level** (cited URL vs cited span text vs claim text)
+✗ **Reasoning-step support** (does inference X→Y follow from cited evidence?)
+✗ **Multi-source agreement** (claim supported by ≥2 independent sources)
+✗ **Recency/staleness flag** per citation (source year vs claim's currency)
+✗ **Complexity stratification of the question itself** (DRB 3-axis: breadth/nesting/exploration)
+✗ **Deferral path** for uncertain claims (human-AI collaboration finding)
+✗ **Sponsor/COI flag** as a structured field per cited source
+✗ **PRISMA-trAIce disclosure** when AI is used in evidence-synthesis (POLARIS uses LLM for synthesis → must self-disclose)
+
+## Recommended POLARIS audit-schema upgrade
+
+For each claim emitted in a POLARIS report, the upgraded cross-review record should contain:
+
+```yaml
+claim_id: ...
+claim_text: "verbatim from report"
+section: Efficacy | Safety | Comparative | ...
+atomic_units: [list of atomic sub-claims]
+per_atom:
+  - atom: "..."
+    verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+    grade_certainty: high | moderate | low | very_low
+    cited_source: [url, span_text, span_offset]
+    citation_recall: 0.0-1.0
+    citation_precision: 0.0-1.0
+    context_match: yes | partial | no
+    rob_score: low | some_concerns | high  # if RCT
+    robins_i_score: low | moderate | serious | critical  # if observational
+    quadas_2_score: low | unclear | high  # if diagnostic
+    prisma_2020_conform: yes | partial | no  # if SR/MA cited
+    amstar_2_score: high | moderate | low | critically_low  # if SR/MA cited
+    icmje_coi_flag: disclosed | undisclosed | sponsor_stated
+    recency_flag: current | stale_lt_2y | stale_gt_2y
+    multi_source_corroboration: 1 | 2 | 3+  # count of independent sources supporting
+    jurisdiction_alignment: fda | ema | health_canada | nice | mhra | tga | pmda | nmpa | none_applicable
+reasoning_chain_step_by_step:
+  - step: "..."
+    follows_from_evidence: yes | partial | no | overreach
+codex_verdict_independent: { same fields, populated by Codex }
+reconciled_verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE  # stricter rule
+deferred_to_human: yes | no
+```
+
+Aggregate metrics per report:
+- VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE distribution (5-verdict)
+- GRADE distribution (high / moderate / low / very_low)
+- Citation-F1 (system-level)
+- Multi-source corroboration rate
+- Deferral rate (% claims escalated to human)
+- COI-undisclosed rate
+- Stale-citation rate
+
+## Sources cited
+
+- DeepResearch Bench: https://deepresearch-bench.github.io/ + arXiv https://github.com/Ayanami0730/deep_research_bench
+- BrowseComp: https://openai.com/index/browsecomp/
+- DRACO: https://research.perplexity.ai/articles/evaluating-deep-research-performance-in-the-wild-with-the-draco-benchmark
+- ResearchRubrics: https://arxiv.org/abs/2511.07685 + https://github.com/scaleapi/researchrubrics
+- ResearcherBench: https://arxiv.org/pdf/2507.16280
+- VeriFastScore: https://arxiv.org/abs/2505.16973
+- MiniCheck: https://arxiv.org/abs/2404.10774
+- RefChecker: https://arxiv.org/html/2405.14486v1
+- Decomposition Dilemmas (NAACL 2025): https://arxiv.org/html/2411.02400
+- ALCE (Princeton): https://github.com/princeton-nlp/ALCE
+- CiteLab (ACL 2025): https://aclanthology.org/2025.acl-demo.47.pdf
+- C2-Cite: https://arxiv.org/html/2602.00004
+- PRISMA-trAIce: https://ai.jmir.org/2025/1/e80247
+- LLM PRISMA/AMSTAR appraisal benchmark: https://www.medrxiv.org/content/medrxiv/early/2024/04/22/2024.04.21.24306137.full.pdf
+- Vectara HHEM leaderboard + FaithJudge: https://arxiv.org/html/2505.04847v2
+- RAGAS/DeepEval/Opik/Langfuse comparison: https://atlan.com/know/llm-evaluation-frameworks-compared/
+
+## Status
+
+Claude synthesis complete. **Pending Codex independent review** of this dossier for completeness, accuracy, missed sources, and counter-recommendations. Cross-reconciled output → feeds into POLARIS audit-schema v2 spec.
+
+```
+
+[SYNTHESIS DOCUMENT IS AT C:\POLARIS\.codex\GH400\dr_eval_state_of_art_2026.md — read it before reviewing.]
+
+# Critical review questions
+
+1. **Coverage gaps:** What 2025-2026 papers / tools / rubrics did Claude MISS that should be in a complete survey?
+2. **Mis-characterizations:** Where does Claude OVER- or UNDER-claim about a method's properties? (e.g., "VeriFastScore 6.6× speedup" — is the figure right; is the correlation strong enough for clinical use?)
+3. **Schema critique:** Is the recommended POLARIS audit-schema v2 too heavy, too light, or wrong-axis? What would you add/remove?
+4. **Clinical-safety lens:** §-1.1 standard's clinical-evidence frameworks are domain-specific. Does the 2026 DR-frontier ACTUALLY translate to clinical/regulatory context, or are DR benchmarks more general/lay?
+5. **Operational feasibility:** For POLARIS's ~85 deep claims per report × 5 reports × 2 reviewers, is the proposed schema realistic in the 4-month Carney delivery window?
+6. **Counter-recommendations:** What approach would you propose instead — same, partial, or substantially different?
+
+# Output format
+
+```yaml
+verdict: ENDORSE | ENDORSE_WITH_AMENDMENTS | DISPUTE
+overall_assessment: "2-3 sentences"
+coverage_gaps:
+  - paper_or_tool: ...
+    why_missing_matters: ...
+    citation: ...
+mischaracterizations:
+  - claude_claim: "..."
+    codex_correction: "..."
+    citation: ...
+schema_critique:
+  too_heavy: [...]
+  too_light: [...]
+  wrong_axis: [...]
+  add_instead: [...]
+clinical_translation:
+  - dr_frontier_concept: ...
+    translates_to_clinical: yes | partial | no
+    reason: ...
+operational_feasibility:
+  realistic: yes | partial | no
+  budget_constraint: ...
+  recommended_compromise: ...
+counter_recommendations:
+  - rec: ...
+    rationale: ...
+final_recommendation_for_polaris_audit_schema_v2:
+  must_have:
+    - ...
+  defer_to_v3:
+    - ...
+  reject:
+    - ...
+```
+
+Output YAML only. No commentary outside.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path 'C:\\POLARIS\\.codex\\GH400\\dr_eval_state_of_art_2026.md' -Raw" in C:\POLARIS
+ succeeded in 799ms:
+# DR Evaluation: State of the Art — 2025-2026 (Claude's synthesis, pre-Codex-review)
+
+## Top-line
+
+Best practice for evaluating Deep Research outputs in 2025-2026 has converged on **three layers**: (1) atomic-claim decomposition + per-claim verification against retrieved evidence, (2) citation-quality scoring (recall + precision + context-match), (3) expert-rubric multi-dimensional scoring with complexity-tagged tasks. The §-1.1 standard (clinical evidence-appraisal: PRISMA 2020 / AMSTAR-2 / GRADE / Cochrane RoB 2 / ROBINS-I / QUADAS-2 / ICMJE / jurisdictional) sits underneath as the **domain-specific quality floor** for clinical/regulatory claims, but the 2026 DR-frontier adds rubric breadth and atomic verification that §-1.1 alone does not specify.
+
+## Layer 1 — Atomic-claim factuality (2025-2026 SOTA)
+
+| Method | What it does | Key 2025-2026 finding |
+|---|---|---|
+| **FactScore** (2023, baseline) | GPT-4 decomposes long-form text into atomic claims, verifies each against retrieved knowledge | Sensitive to decomposer choice — sub-claim atomicity varies |
+| **VeriScore** (2024) | Verifiable-claims focus: only verify claims that can be objectively checked; ignore opinions | Avoids penalizing legitimate opinion text |
+| **VeriFastScore** (EMNLP 2025) | Fine-tuned Llama 3.1 8B does claims+verify in ONE pass | r=0.80 example-level / r=0.94 system-level correlation with VeriScore; **6.6× speedup** |
+| **MiniCheck-FT5** (2024) | Trained fact-checker on grounding documents | **400× cheaper than GPT-4**, comparable accuracy |
+| **RefChecker** (2024) | Knowledge-triplet decomposition (subject-predicate-object), 3-context settings | Outperforms prior across all contexts |
+| **C2-Cite** (2026) | Contextual citation alignment with router function | **+5.8% citation quality / +17.4% correctness** over ALCE |
+
+**Key 2025 finding (Decomposition Dilemmas, NAACL 2025):** Claim decomposition is NOT universally beneficial. With AlignScore verifier → positive impact. With MiniCheck verifier → LOWER performance than no-decomposition. **Verifier choice matters as much as decomposition method.**
+
+## Layer 2 — Citation quality (ALCE-lineage)
+
+ALCE (Princeton, EMNLP 2023) established the baseline:
+- **Citation Recall**: does the cited span support the claim (NLI-based)
+- **Citation Precision**: are non-supportive citations removed
+- **Citation-F1**: harmonic mean
+- Plus fluency + correctness on the answer itself
+
+Extensions in 2025:
+- **CiteLab** (ACL 2025 demo): citation development+diagnosis framework
+- **PFCG** (NAACL 2025): positional fine-grained — does the citation point to the RIGHT span, not just the right URL
+- **C2-Cite** (2026): contextual-aware citation generation, transforms markers into "active knowledge pointers"
+
+## Layer 3 — Expert-rubric DR benchmarks (the new SOTA layer)
+
+| Benchmark | Source | Dimensions | Scale |
+|---|---|---|---|
+| **DeepResearch Bench (DRB)** | Tencent + Tsinghua | RACE (4-dim adaptive criteria) + FACT (citation accuracy + groundedness) | 96K user queries → 100 hard prompts; v2 Feb 2026 |
+| **BrowseComp** | OpenAI | Hard-to-find entangled info; persistence + creativity | 1,266 problems |
+| **DRACO** | Perplexity | Factual accuracy + breadth/depth + presentation + citation | 100 tasks, 10 domains, 40 countries |
+| **ResearchRubrics** | Scale AI (ICLR 2026) | 2,500+ expert criteria per-prompt; complexity tagged (breadth × nesting × exploration) | 101 prompts × 20-43 criteria each |
+| **ResearcherBench** | SII-GAIR | Frontier research questions, systematic | research-focused |
+| **DeepSearchQA** | DeepMind 2026 | Comprehensiveness gap measurement | new comprehensiveness metric |
+
+**Common rubric structure across all 4:** factual accuracy / completeness / citation quality / clarity (presentation) / reasoning coherence. ResearchRubrics adds **complexity stratification** (3-axis) and **2,800 hours of expert labor** producing **fine-grained 2,500+ criteria** — gold-standard for clinical/policy DR.
+
+## Layer 4 — Clinical/regulatory-specific (PRISMA-AI, 2024-2025)
+
+- **PRISMA-trAIce** (JMIR AI 2025): NEW checklist extension to PRISMA 2020 for "Transparent Reporting of Artificial Intelligence in Comprehensive Evidence-synthesis" — requires disclosure when AI is a methodological tool in SR/MA.
+- **PRISMA-AI** (in development at EQUATOR Network): broader AI-in-research reporting guideline.
+- **LLM-as-quality-appraiser** finding (medRxiv 2024-04): individual LLM accuracy 63-70% on PRISMA appraisal; 53-74% on AMSTAR. **Human-AI collaboration → 89-96% on PRISMA, 91-95% on AMSTAR** (with 25-35% deferral rates). Implication: LLM-only quality appraisal is insufficient; need human-in-loop.
+
+This means for POLARIS's audit: when applying PRISMA / AMSTAR / GRADE / RoB scores to claims, the audit MUST involve a deferral path (claims where evaluator is uncertain → escalate to human or stricter reviewer), not auto-decide.
+
+## Layer 5 — Open-source eval harnesses (2025-2026 production)
+
+| Repo | Specialty | Notable |
+|---|---|---|
+| **RAGAS** | Reference-free RAG eval | Faithfulness + answer-relevancy + context-relevance + context-recall metrics |
+| **DeepEval** (Confident AI) | Pytest-style LLM unit tests | 14+ metrics; faithfulness metric is reference-free |
+| **Opik** (Comet) | Tracing + eval + dataset | Self-hostable, full lifecycle |
+| **Langfuse** | Production observability | LLM-as-judge + dataset synthesis |
+| **HHEM 2.1 + FaithJudge** (Vectara) | Hallucination evaluation | Public leaderboard since 2023 |
+| **REFCHECKER** | Fine-grained hallucination | Knowledge-triplet-based |
+| **VeriFastScore** | Long-form factuality | 6.6× speedup |
+
+## Gap analysis: §-1.1 vs 2026 DR-frontier
+
+What §-1.1 already covers (clinical evidence-appraisal):
+✓ PRISMA 2020 (SR reporting)
+✓ AMSTAR-2 (SR quality)
+✓ GRADE per claim (certainty)
+✓ Cochrane RoB 2 / ROBINS-I / QUADAS-2 (bias scoring)
+✓ ICMJE (authorship/COI)
+✓ Jurisdictional regulatory (FDA/EMA/HC)
+✓ 5-verdict claim rubric (VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE)
+
+What §-1.1 does NOT explicitly include but 2026 DR-frontier requires:
+✗ **Atomic-claim decomposition** before verdict (each claim → set of atoms, each atom verified)
+✗ **Citation Recall + Precision + F1** as numeric scores
+✗ **Citation-context-match at span level** (cited URL vs cited span text vs claim text)
+✗ **Reasoning-step support** (does inference X→Y follow from cited evidence?)
+✗ **Multi-source agreement** (claim supported by ≥2 independent sources)
+✗ **Recency/staleness flag** per citation (source year vs claim's currency)
+✗ **Complexity stratification of the question itself** (DRB 3-axis: breadth/nesting/exploration)
+✗ **Deferral path** for uncertain claims (human-AI collaboration finding)
+✗ **Sponsor/COI flag** as a structured field per cited source
+✗ **PRISMA-trAIce disclosure** when AI is used in evidence-synthesis (POLARIS uses LLM for synthesis → must self-disclose)
+
+## Recommended POLARIS audit-schema upgrade
+
+For each claim emitted in a POLARIS report, the upgraded cross-review record should contain:
+
+```yaml
+claim_id: ...
+claim_text: "verbatim from report"
+section: Efficacy | Safety | Comparative | ...
+atomic_units: [list of atomic sub-claims]
+per_atom:
+  - atom: "..."
+    verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+    grade_certainty: high | moderate | low | very_low
+    cited_source: [url, span_text, span_offset]
+    citation_recall: 0.0-1.0
+    citation_precision: 0.0-1.0
+    context_match: yes | partial | no
+    rob_score: low | some_concerns | high  # if RCT
+    robins_i_score: low | moderate | serious | critical  # if observational
+    quadas_2_score: low | unclear | high  # if diagnostic
+    prisma_2020_conform: yes | partial | no  # if SR/MA cited
+    amstar_2_score: high | moderate | low | critically_low  # if SR/MA cited
+    icmje_coi_flag: disclosed | undisclosed | sponsor_stated
+    recency_flag: current | stale_lt_2y | stale_gt_2y
+    multi_source_corroboration: 1 | 2 | 3+  # count of independent sources supporting
+    jurisdiction_alignment: fda | ema | health_canada | nice | mhra | tga | pmda | nmpa | none_applicable
+reasoning_chain_step_by_step:
+  - step: "..."
+    follows_from_evidence: yes | partial | no | overreach
+codex_verdict_independent: { same fields, populated by Codex }
+reconciled_verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE  # stricter rule
+deferred_to_human: yes | no
+```
+
+Aggregate metrics per report:
+- VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE distribution (5-verdict)
+- GRADE distribution (high / moderate / low / very_low)
+- Citation-F1 (system-level)
+- Multi-source corroboration rate
+- Deferral rate (% claims escalated to human)
+- COI-undisclosed rate
+- Stale-citation rate
+
+## Sources cited
+
+- DeepResearch Bench: https://deepresearch-bench.github.io/ + arXiv https://github.com/Ayanami0730/deep_research_bench
+- BrowseComp: https://openai.com/index/browsecomp/
+- DRACO: https://research.perplexity.ai/articles/evaluating-deep-research-performance-in-the-wild-with-the-draco-benchmark
+- ResearchRubrics: https://arxiv.org/abs/2511.07685 + https://github.com/scaleapi/researchrubrics
+- ResearcherBench: https://arxiv.org/pdf/2507.16280
+- VeriFastScore: https://arxiv.org/abs/2505.16973
+- MiniCheck: https://arxiv.org/abs/2404.10774
+- RefChecker: https://arxiv.org/html/2405.14486v1
+- Decomposition Dilemmas (NAACL 2025): https://arxiv.org/html/2411.02400
+- ALCE (Princeton): https://github.com/princeton-nlp/ALCE
+- CiteLab (ACL 2025): https://aclanthology.org/2025.acl-demo.47.pdf
+- C2-Cite: https://arxiv.org/html/2602.00004
+- PRISMA-trAIce: https://ai.jmir.org/2025/1/e80247
+- LLM PRISMA/AMSTAR appraisal benchmark: https://www.medrxiv.org/content/medrxiv/early/2024/04/22/2024.04.21.24306137.full.pdf
+- Vectara HHEM leaderboard + FaithJudge: https://arxiv.org/html/2505.04847v2
+- RAGAS/DeepEval/Opik/Langfuse comparison: https://atlan.com/know/llm-evaluation-frameworks-compared/
+
+## Status
+
+Claude synthesis complete. **Pending Codex independent review** of this dossier for completeness, accuracy, missed sources, and counter-recommendations. Cross-reconciled output → feeds into POLARIS audit-schema v2 spec.
+
+
+web search: 
+web search: 2025 2026 deep research evaluation benchmark long-form answer citation factuality benchmark Deep Research agents evaluation
+web search: 
+web search: https://www.microsoft.com/en-us/research/publication/characterizing-deep-research-a-benchmark-and-formal-definition/?lang=fr-ca
+web search: 
+web search: DeepSearchQA DeepMind 2026 comprehensiveness metric
+web search: 
+web search: site:arxiv.org deep research agents benchmark evaluation 2025 2026 "Deep Research"
+web search: 
+web search: VeriFastScore arxiv 2505.16973 6.6 speedup r=0.80 0.94
+web search: 
+web search: MiniCheck-FT5 400x cheaper than GPT-4 comparable accuracy arxiv 2404.10774
+web search: 
+web search: FActScore atomic facts biographies GPT-4 decomposition retrieval 2023
+web search: 
+web search: VeriScore verifiable claims factuality evaluation 2024 ignore subjective opinions
+web search: 
+web search: SAFE Search-Augmented Factuality Evaluator long-form factuality 2024 arxiv
+web search: 
+web search: ALCE Automatic Evaluation of Attribution by Large Language Models citation recall precision NLI 2023
+web search: 
+web search: "ALCE" Princeton citation recall precision Gao 2023
+web search: 
+web search: PFCG NAACL 2025 positional fine-grained citation generation right span URL citation
+web search: 
+web search: C2-Cite contextual citation alignment router function +5.8 citation quality +17.4 correctness ALCE 2602.00004
+web search: 
+web search: RefChecker 2024 knowledge triplet decomposition three contexts outperforms prior hallucination detection
+web search: 
+web search: Decomposition Dilemmas NAACL 2025 claim decomposition MiniCheck AlignScore lower performance no-decomposition
+web search: 
+web search: DeepResearch Bench II February 2026 100 hard prompts v2 RACE FACT
+web search: 
+web search: Deep research agents major breakthrough or incremental progress for medical AI March 2026 JMIR clinical evidence synthesis limitations
+codex
+verdict: ENDORSE_WITH_AMENDMENTS
+overall_assessment: "Claude's synthesis captures the broad direction of 2025-2026 DR evaluation, especially claim-level grounding, citation support, and rubric-based report review. It overstates convergence and clinical readiness: most cited DR benchmarks are general/open-web benchmarks, while automated factuality and citation metrics are not validated substitutes for clinical evidence appraisal. POLARIS should adopt the synthesis as a menu of methods, not as a uniform per-atom schema."
+
+coverage_gaps:
+  - paper_or_tool: "SAFE / LongFact"
+    why_missing_matters: "Major 2024 long-form factuality baseline from Google DeepMind using search-augmented fact decomposition and F1@K; Claude cites FActScore/VeriScore but omits this direct predecessor to VeriFastScore-style pipelines."
+    citation: "https://deepmind.google/research/publications/85420/"
+  - paper_or_tool: "FACTS Grounding"
+    why_missing_matters: "A 2025 grounded long-form benchmark with public/private splits and multi-judge scoring; relevant because POLARIS reports are context-grounded rather than open-ended biography-style generations."
+    citation: "https://huggingface.co/papers/2501.03200"
+  - paper_or_tool: "FACTORY"
+    why_missing_matters: "A 2025 human-verified prompt set for long-form factuality showing that existing datasets may understate factual error rates; useful counterweight to over-trusting automated benchmark scores."
+    citation: "https://huggingface.co/papers/2508.00109"
+  - paper_or_tool: "FaStFact"
+    why_missing_matters: "EMNLP 2025 pipeline focused on faster and stronger long-form factuality evaluation using chunk-level claim extraction and document-level evidence; directly relevant to operational feasibility."
+    citation: "https://aclanthology.org/2025.findings-emnlp.1295/"
+  - paper_or_tool: "SAFE-adjacent decomposition optimization"
+    why_missing_matters: "ACL 2025 shows decomposition policies should be verifier-aligned; supports a counter-recommendation against mandatory uniform atomic decomposition."
+    citation: "https://aclanthology.org/2025.acl-long.254/"
+  - paper_or_tool: "ALiiCE"
+    why_missing_matters: "The paper Claude labels as PFCG is actually ALiiCE; it gives positional fine-grained citation recall/precision and citation-position variation, important for citation-span alignment."
+    citation: "https://aclanthology.org/2025.naacl-long.23/"
+  - paper_or_tool: "LongCite"
+    why_missing_matters: "ACL 2025 work on fine-grained citations in long-context QA; relevant for span-level citation support beyond ALCE sentence-level attribution."
+    citation: "https://aclanthology.org/2025.findings-acl.264/"
+  - paper_or_tool: "LiveDRBench"
+    why_missing_matters: "Microsoft ICLR 2026 benchmark defines DR by high fan-out search and intermediate claim representations, challenging Claude's report-output-centric framing."
+    citation: "https://www.microsoft.com/en-us/research/publication/characterizing-deep-research-a-benchmark-and-formal-definition/"
+  - paper_or_tool: "LiveResearchBench"
+    why_missing_matters: "ICLR 2026 benchmark emphasizes live, dynamic, user-centric citation-grounded research and trajectory/report diagnostics; missing from Claude's DR benchmark layer."
+    citation: "https://iclr.cc/virtual/2026/poster/10008128"
+  - paper_or_tool: "DeepSearchQA"
+    why_missing_matters: "Claude mentions it only lightly; it is a 900-prompt Google DeepMind benchmark focused on exhaustive answer-set retrieval, deduplication, and stopping criteria, not generic report scoring."
+    citation: "https://huggingface.co/datasets/google/deepsearchqa"
+  - paper_or_tool: "Dr. Bench"
+    why_missing_matters: "2025 multidimensional DRA benchmark with 214 expert-curated queries and reference bundles; should be considered alongside DRB, DRACO, and ResearchRubrics."
+    citation: "https://huggingface.co/papers/2510.02190"
+  - paper_or_tool: "TRACE / trajectory-aware DRA evaluation"
+    why_missing_matters: "2026 work argues outcome-only metrics create a high-score illusion and misses reasoning-process quality, efficiency, robustness, and latent capability."
+    citation: "https://arxiv.org/abs/2602.21230"
+  - paper_or_tool: "SAGE"
+    why_missing_matters: "2026 benchmark specifically targets retrieval for deep research agents; retrieval quality is a separate failure mode from final report quality."
+    citation: "https://arxiv.org/abs/2602.05975"
+  - paper_or_tool: "Deep Research Agents for Medical AI viewpoint"
+    why_missing_matters: "Directly addresses clinical translation; argues DR agents are assistive tools with unresolved citation fidelity, opacity, bias, and real-world validation gaps."
+    citation: "https://www.jmir.org/2026/1/e88195"
+
+mischaracterizations:
+  - claude_claim: "Best practice has converged on three layers."
+    codex_correction: "The field has not converged. 2025-2026 work is fragmented across factuality, attribution, live-web task success, trajectory quality, stochasticity, retrieval, and expert rubrics. Treat the three layers as useful categories, not consensus SOTA."
+    citation: "https://iclr.cc/virtual/2026/poster/10008128"
+  - claude_claim: "Atomic-claim decomposition before verdict is required."
+    codex_correction: "Decomposition is conditionally useful and can degrade accuracy depending on verifier, granularity, and decomposition policy. POLARIS should use verifier-aligned decomposition for complex/material claims, not mandatory decomposition for every assertion."
+    citation: "https://aclanthology.org/2025.naacl-long.320/"
+  - claude_claim: "VeriFastScore's r=0.80/r=0.94 and 6.6x speedup make it SOTA for factuality."
+    codex_correction: "The numbers are reported correctly, but they are correlations with VeriScore, not clinical-human validity. It is suitable for screening/triage, not final clinical adjudication."
+    citation: "https://huggingface.co/papers/2505.16973"
+  - claude_claim: "MiniCheck-FT5 is 400x cheaper than GPT-4 with comparable accuracy."
+    codex_correction: "Correct within the LLM-AggreFact/document-grounded setup, but it is a binary grounding checker, not an open-web evidence retriever, source-quality assessor, or GRADE/AMSTAR substitute."
+    citation: "https://aclanthology.org/2024.emnlp-main.499/"
+  - claude_claim: "PFCG is a NAACL 2025 positional fine-grained method."
+    codex_correction: "The NAACL 2025 paper is ALiiCE. It evaluates positional fine-grained citations with recall, precision, and coefficient of variation of citation positions; it is not simply URL-vs-span checking."
+    citation: "https://aclanthology.org/2025.naacl-long.23/"
+  - claude_claim: "C2-Cite improves citation quality and correctness over ALCE."
+    codex_correction: "C2-Cite reports gains on the ALCE benchmark for instruction-tuned attributed LLMs. It is a citation-generation method, not a validated evaluator of finished DR reports or clinical citations."
+    citation: "https://arxiv.org/abs/2602.00004"
+  - claude_claim: "ResearchRubrics is gold-standard for clinical/policy DR."
+    codex_correction: "ResearchRubrics is strong for general DR rubric evaluation, but its domains are broad and not designed around clinical evidence standards. It should inform rubric design, not replace PRISMA/AMSTAR/GRADE/RoB workflows."
+    citation: "https://iclr.cc/virtual/2026/poster/10010639"
+  - claude_claim: "Common rubric structure across all major DR benchmarks is factual accuracy, completeness, citation quality, clarity, and reasoning coherence."
+    codex_correction: "This overgeneralizes. BrowseComp and DeepSearchQA are primarily answer/task-success benchmarks; ResearcherBench is frontier AI research focused; DRB/ResearchRubrics are report-rubric oriented."
+    citation: "https://huggingface.co/datasets/google/deepsearchqa"
+  - claude_claim: "PRISMA-trAIce requires disclosure when AI is used in SR/MA."
+    codex_correction: "PRISMA-trAIce is a proposed checklist/development paper that invites consensus building; disclosure is prudent and should be adopted internally, but it is not yet a universally endorsed reporting mandate."
+    citation: "https://ai.jmir.org/2025/1/e80247/"
+  - claude_claim: "Human-AI deferral findings imply a mandatory deferral path for all PRISMA/AMSTAR/GRADE scoring."
+    codex_correction: "A deferral path is the right safety design, but the cited evidence is not a binding clinical standard. Define explicit uncertainty/materiality triggers rather than deferring every low-confidence field."
+    citation: "https://www.medrxiv.org/content/10.1101/2024.04.21.24306137v1"
+
+schema_critique:
+  too_heavy:
+    - "Per-atom RoB 2, ROBINS-I, QUADAS-2, PRISMA, AMSTAR, GRADE, COI, jurisdiction, citation-F1, and reasoning-chain fields for every claim will create thousands of micro-appraisals."
+    - "Span offsets and numeric citation precision/recall at atom level are expensive and often ill-defined outside an ALCE-style controlled corpus."
+    - "Duplicating the entire record for Codex and then reconciling every field is too slow for 850 reviewer-records before atomization."
+    - "Step-by-step reasoning support for every report claim is likely to incentivize verbose rationales instead of targeted evidence adjudication."
+  too_light:
+    - "Missing claim materiality/severity: unsupported administrative background claims should not receive the same review weight as safety, efficacy, dosing, or regulatory claims."
+    - "Missing PICO/PECO elements, outcome type, population, comparator, and effect-direction/effect-size capture for clinical claims."
+    - "Missing source-search provenance: database, query string, timestamp, retrieval date, source inclusion/exclusion, and versioned regulatory page."
+    - "Missing inter-rater reliability, calibration set, adjudicator identity, disagreement reason, and audit trail."
+    - "Missing source hierarchy: guideline, regulator, SR/MA, RCT, observational study, preprint, press release, manufacturer page, news, etc."
+    - "Missing reviewer confidence and deferral reason codes."
+  wrong_axis:
+    - "multi_source_corroboration as a raw count rewards duplication and low-quality sources; clinical audits need independent high-quality evidence, not more links."
+    - "recency_flag with fixed two-year thresholds is domain-inappropriate; some pivotal RCTs remain current for a decade while living guidelines can become stale in months."
+    - "GRADE is usually applied to a body of evidence for an outcome, not to each tiny atomic sentence."
+    - "AMSTAR/PRISMA are review-level instruments, not per-atom properties."
+    - "ICMJE COI should be source/study-level funding and author-disclosure metadata, not a simple atom-level flag."
+    - "jurisdiction_alignment belongs on regulatory/product claims, not every clinical or mechanistic claim."
+  add_instead:
+    - "Use a two-tier schema: lightweight triage for all claims, full clinical appraisal only for material/high-risk claims."
+    - "Add materiality: critical, major, minor, background."
+    - "Add claim_type: efficacy, safety, diagnostic, dosing, regulatory, mechanism, epidemiology, economic, guideline, background."
+    - "Add PICO/PECO and jurisdiction fields only when applicable."
+    - "Add source_provenance with URL/PMID/DOI, retrieval date, database/search query, source type, and cited span."
+    - "Add evidence_quality_applied listing which tool was actually used: RoB2, ROBINS-I, QUADAS-2, AMSTAR-2, PRISMA, GRADE, none_applicable."
+    - "Add reviewer_confidence, deferral_reason, adjudication_status, and inter_rater_disagreement_reason."
+
+clinical_translation:
+  - dr_frontier_concept: "Atomic claim verification"
+    translates_to_clinical: "partial"
+    reason: "Useful for separating unsupported assertions, but clinical claims should be grouped by outcome/body of evidence when applying GRADE or risk-of-bias tools."
+  - dr_frontier_concept: "Citation recall/precision/F1"
+    translates_to_clinical: "partial"
+    reason: "Good for claim-source alignment, but it does not assess study design, bias, applicability, effect size, or certainty."
+  - dr_frontier_concept: "Span-level citation context match"
+    translates_to_clinical: "yes"
+    reason: "Directly useful because misquotation and out-of-context citation are common clinical safety failures."
+  - dr_frontier_concept: "General DR expert rubrics"
+    translates_to_clinical: "partial"
+    reason: "Rubrics help with completeness and presentation, but most are general/open-web and not validated against clinical evidence synthesis standards."
+  - dr_frontier_concept: "DeepSearchQA-style exhaustive retrieval"
+    translates_to_clinical: "partial"
+    reason: "The recall/deduplication/stopping criteria are relevant, but clinical retrieval should prioritize PubMed, trial registries, regulators, and guideline bodies over unconstrained web search."
+  - dr_frontier_concept: "LLM-as-judge factuality scoring"
+    translates_to_clinical: "partial"
+    reason: "Suitable for triage and reviewer assistance only; high-impact clinical verdicts require human adjudication."
+  - dr_frontier_concept: "Complexity stratification"
+    translates_to_clinical: "yes"
+    reason: "Useful for estimating review effort and assigning expert reviewers, but not itself an evidence-quality metric."
+  - dr_frontier_concept: "PRISMA-trAIce disclosure"
+    translates_to_clinical: "yes"
+    reason: "Transparency about AI assistance is appropriate, while noting the checklist is still a proposed framework rather than a mature endorsed standard."
+
+operational_feasibility:
+  realistic: "partial"
+  budget_constraint: "At 85 deep claims x 5 reports x 2 reviewers, POLARIS already has about 850 claim-review records before decomposition. If each claim becomes 2-4 atoms, the proposed schema becomes roughly 1700-3400 atom appraisals, many requiring study-level clinical tools that can take 15-60 minutes each."
+  recommended_compromise: "Triage every claim with citation-span support, materiality, source type, reviewer confidence, and a 5-verdict outcome. Apply full RoB/AMSTAR/GRADE/PRISMA appraisal only to high-materiality clinical/regulatory claims and a sampled set of lower-risk claims; use LLM/verifier outputs only as prefill."
+
+counter_recommendations:
+  - rec: "Adopt a risk-tiered audit rather than a uniform per-atom maximal schema."
+    rationale: "This preserves safety for actionable claims while keeping the 4-month delivery window plausible."
+  - rec: "Separate three evaluations: citation support, evidence quality, and report usefulness."
+    rationale: "A citation can support a sentence while the underlying study is weak or inapplicable; collapsing these axes hides clinical risk."
+  - rec: "Run a one-report pilot before locking schema v2."
+    rationale: "Measure minutes per claim, disagreement rate, deferral rate, and fields most often marked not-applicable."
+  - rec: "Use automated factuality tools as reviewer prefill, not adjudicators."
+    rationale: "VeriFastScore, MiniCheck, RefChecker, SAFE, and ALCE-style metrics are useful triage layers but not validated clinical safety gates."
+  - rec: "Track retrieval provenance and source universe."
+    rationale: "Clinical reproducibility depends on knowing what was searched, when, and why sources were included or excluded."
+  - rec: "Require adjudication only for material disagreements."
+    rationale: "Full dual-review reconciliation of every low-risk atom will consume budget without proportional safety gain."
+
+final_recommendation_for_polaris_audit_schema_v2:
+  must_have:
+    - "claim_id, claim_text, report_section, claim_type, materiality, and applicable jurisdiction/PICO fields"
+    - "cited_source with URL/PMID/DOI, retrieval date, source type, cited span, and citation_context_match"
+    - "5-verdict support label with short rationale and reviewer_confidence"
+    - "source_quality fields applied selectively by source type: RoB2/ROBINS-I/QUADAS-2/AMSTAR-2/PRISMA/GRADE only when applicable"
+    - "effect direction, effect size, population/comparator/outcome for actionable clinical claims"
+    - "funding/sponsor/COI at source or study level"
+    - "deferred_to_human, deferral_reason, adjudication_status, and final reconciled verdict"
+    - "aggregate metrics: high-materiality unsupported rate, citation-context failure rate, deferral rate, inter-rater agreement, stale/withdrawn-source rate, and COI/sponsor-disclosure rate"
+  defer_to_v3:
+    - "full automated citation-F1 computation over all claims"
+    - "exact character span offsets for every atom"
+    - "trajectory-aware DR evaluation and repeated-run stochasticity testing"
+    - "ResearchRubrics-style custom expert rubrics per report"
+    - "automated verifier ensemble calibration against a POLARIS-specific gold set"
+    - "live-web benchmark replication such as LiveResearchBench or DeepSearchQA"
+  reject:
+    - "universal per-atom PRISMA/AMSTAR/RoB/GRADE scoring"
+    - "raw multi-source corroboration count as a quality metric"
+    - "fixed two-year recency thresholds"
+    - "treating DR benchmarks as clinical/regulatory validation"
+    - "treating VeriFastScore, MiniCheck, RefChecker, or LLM-as-judge outputs as final clinical verdicts"
+    - "claiming PRISMA-trAIce is already a mandatory endorsed standard"
+tokens used
+123,203
+verdict: ENDORSE_WITH_AMENDMENTS
+overall_assessment: "Claude's synthesis captures the broad direction of 2025-2026 DR evaluation, especially claim-level grounding, citation support, and rubric-based report review. It overstates convergence and clinical readiness: most cited DR benchmarks are general/open-web benchmarks, while automated factuality and citation metrics are not validated substitutes for clinical evidence appraisal. POLARIS should adopt the synthesis as a menu of methods, not as a uniform per-atom schema."
+
+coverage_gaps:
+  - paper_or_tool: "SAFE / LongFact"
+    why_missing_matters: "Major 2024 long-form factuality baseline from Google DeepMind using search-augmented fact decomposition and F1@K; Claude cites FActScore/VeriScore but omits this direct predecessor to VeriFastScore-style pipelines."
+    citation: "https://deepmind.google/research/publications/85420/"
+  - paper_or_tool: "FACTS Grounding"
+    why_missing_matters: "A 2025 grounded long-form benchmark with public/private splits and multi-judge scoring; relevant because POLARIS reports are context-grounded rather than open-ended biography-style generations."
+    citation: "https://huggingface.co/papers/2501.03200"
+  - paper_or_tool: "FACTORY"
+    why_missing_matters: "A 2025 human-verified prompt set for long-form factuality showing that existing datasets may understate factual error rates; useful counterweight to over-trusting automated benchmark scores."
+    citation: "https://huggingface.co/papers/2508.00109"
+  - paper_or_tool: "FaStFact"
+    why_missing_matters: "EMNLP 2025 pipeline focused on faster and stronger long-form factuality evaluation using chunk-level claim extraction and document-level evidence; directly relevant to operational feasibility."
+    citation: "https://aclanthology.org/2025.findings-emnlp.1295/"
+  - paper_or_tool: "SAFE-adjacent decomposition optimization"
+    why_missing_matters: "ACL 2025 shows decomposition policies should be verifier-aligned; supports a counter-recommendation against mandatory uniform atomic decomposition."
+    citation: "https://aclanthology.org/2025.acl-long.254/"
+  - paper_or_tool: "ALiiCE"
+    why_missing_matters: "The paper Claude labels as PFCG is actually ALiiCE; it gives positional fine-grained citation recall/precision and citation-position variation, important for citation-span alignment."
+    citation: "https://aclanthology.org/2025.naacl-long.23/"
+  - paper_or_tool: "LongCite"
+    why_missing_matters: "ACL 2025 work on fine-grained citations in long-context QA; relevant for span-level citation support beyond ALCE sentence-level attribution."
+    citation: "https://aclanthology.org/2025.findings-acl.264/"
+  - paper_or_tool: "LiveDRBench"
+    why_missing_matters: "Microsoft ICLR 2026 benchmark defines DR by high fan-out search and intermediate claim representations, challenging Claude's report-output-centric framing."
+    citation: "https://www.microsoft.com/en-us/research/publication/characterizing-deep-research-a-benchmark-and-formal-definition/"
+  - paper_or_tool: "LiveResearchBench"
+    why_missing_matters: "ICLR 2026 benchmark emphasizes live, dynamic, user-centric citation-grounded research and trajectory/report diagnostics; missing from Claude's DR benchmark layer."
+    citation: "https://iclr.cc/virtual/2026/poster/10008128"
+  - paper_or_tool: "DeepSearchQA"
+    why_missing_matters: "Claude mentions it only lightly; it is a 900-prompt Google DeepMind benchmark focused on exhaustive answer-set retrieval, deduplication, and stopping criteria, not generic report scoring."
+    citation: "https://huggingface.co/datasets/google/deepsearchqa"
+  - paper_or_tool: "Dr. Bench"
+    why_missing_matters: "2025 multidimensional DRA benchmark with 214 expert-curated queries and reference bundles; should be considered alongside DRB, DRACO, and ResearchRubrics."
+    citation: "https://huggingface.co/papers/2510.02190"
+  - paper_or_tool: "TRACE / trajectory-aware DRA evaluation"
+    why_missing_matters: "2026 work argues outcome-only metrics create a high-score illusion and misses reasoning-process quality, efficiency, robustness, and latent capability."
+    citation: "https://arxiv.org/abs/2602.21230"
+  - paper_or_tool: "SAGE"
+    why_missing_matters: "2026 benchmark specifically targets retrieval for deep research agents; retrieval quality is a separate failure mode from final report quality."
+    citation: "https://arxiv.org/abs/2602.05975"
+  - paper_or_tool: "Deep Research Agents for Medical AI viewpoint"
+    why_missing_matters: "Directly addresses clinical translation; argues DR agents are assistive tools with unresolved citation fidelity, opacity, bias, and real-world validation gaps."
+    citation: "https://www.jmir.org/2026/1/e88195"
+
+mischaracterizations:
+  - claude_claim: "Best practice has converged on three layers."
+    codex_correction: "The field has not converged. 2025-2026 work is fragmented across factuality, attribution, live-web task success, trajectory quality, stochasticity, retrieval, and expert rubrics. Treat the three layers as useful categories, not consensus SOTA."
+    citation: "https://iclr.cc/virtual/2026/poster/10008128"
+  - claude_claim: "Atomic-claim decomposition before verdict is required."
+    codex_correction: "Decomposition is conditionally useful and can degrade accuracy depending on verifier, granularity, and decomposition policy. POLARIS should use verifier-aligned decomposition for complex/material claims, not mandatory decomposition for every assertion."
+    citation: "https://aclanthology.org/2025.naacl-long.320/"
+  - claude_claim: "VeriFastScore's r=0.80/r=0.94 and 6.6x speedup make it SOTA for factuality."
+    codex_correction: "The numbers are reported correctly, but they are correlations with VeriScore, not clinical-human validity. It is suitable for screening/triage, not final clinical adjudication."
+    citation: "https://huggingface.co/papers/2505.16973"
+  - claude_claim: "MiniCheck-FT5 is 400x cheaper than GPT-4 with comparable accuracy."
+    codex_correction: "Correct within the LLM-AggreFact/document-grounded setup, but it is a binary grounding checker, not an open-web evidence retriever, source-quality assessor, or GRADE/AMSTAR substitute."
+    citation: "https://aclanthology.org/2024.emnlp-main.499/"
+  - claude_claim: "PFCG is a NAACL 2025 positional fine-grained method."
+    codex_correction: "The NAACL 2025 paper is ALiiCE. It evaluates positional fine-grained citations with recall, precision, and coefficient of variation of citation positions; it is not simply URL-vs-span checking."
+    citation: "https://aclanthology.org/2025.naacl-long.23/"
+  - claude_claim: "C2-Cite improves citation quality and correctness over ALCE."
+    codex_correction: "C2-Cite reports gains on the ALCE benchmark for instruction-tuned attributed LLMs. It is a citation-generation method, not a validated evaluator of finished DR reports or clinical citations."
+    citation: "https://arxiv.org/abs/2602.00004"
+  - claude_claim: "ResearchRubrics is gold-standard for clinical/policy DR."
+    codex_correction: "ResearchRubrics is strong for general DR rubric evaluation, but its domains are broad and not designed around clinical evidence standards. It should inform rubric design, not replace PRISMA/AMSTAR/GRADE/RoB workflows."
+    citation: "https://iclr.cc/virtual/2026/poster/10010639"
+  - claude_claim: "Common rubric structure across all major DR benchmarks is factual accuracy, completeness, citation quality, clarity, and reasoning coherence."
+    codex_correction: "This overgeneralizes. BrowseComp and DeepSearchQA are primarily answer/task-success benchmarks; ResearcherBench is frontier AI research focused; DRB/ResearchRubrics are report-rubric oriented."
+    citation: "https://huggingface.co/datasets/google/deepsearchqa"
+  - claude_claim: "PRISMA-trAIce requires disclosure when AI is used in SR/MA."
+    codex_correction: "PRISMA-trAIce is a proposed checklist/development paper that invites consensus building; disclosure is prudent and should be adopted internally, but it is not yet a universally endorsed reporting mandate."
+    citation: "https://ai.jmir.org/2025/1/e80247/"
+  - claude_claim: "Human-AI deferral findings imply a mandatory deferral path for all PRISMA/AMSTAR/GRADE scoring."
+    codex_correction: "A deferral path is the right safety design, but the cited evidence is not a binding clinical standard. Define explicit uncertainty/materiality triggers rather than deferring every low-confidence field."
+    citation: "https://www.medrxiv.org/content/10.1101/2024.04.21.24306137v1"
+
+schema_critique:
+  too_heavy:
+    - "Per-atom RoB 2, ROBINS-I, QUADAS-2, PRISMA, AMSTAR, GRADE, COI, jurisdiction, citation-F1, and reasoning-chain fields for every claim will create thousands of micro-appraisals."
+    - "Span offsets and numeric citation precision/recall at atom level are expensive and often ill-defined outside an ALCE-style controlled corpus."
+    - "Duplicating the entire record for Codex and then reconciling every field is too slow for 850 reviewer-records before atomization."
+    - "Step-by-step reasoning support for every report claim is likely to incentivize verbose rationales instead of targeted evidence adjudication."
+  too_light:
+    - "Missing claim materiality/severity: unsupported administrative background claims should not receive the same review weight as safety, efficacy, dosing, or regulatory claims."
+    - "Missing PICO/PECO elements, outcome type, population, comparator, and effect-direction/effect-size capture for clinical claims."
+    - "Missing source-search provenance: database, query string, timestamp, retrieval date, source inclusion/exclusion, and versioned regulatory page."
+    - "Missing inter-rater reliability, calibration set, adjudicator identity, disagreement reason, and audit trail."
+    - "Missing source hierarchy: guideline, regulator, SR/MA, RCT, observational study, preprint, press release, manufacturer page, news, etc."
+    - "Missing reviewer confidence and deferral reason codes."
+  wrong_axis:
+    - "multi_source_corroboration as a raw count rewards duplication and low-quality sources; clinical audits need independent high-quality evidence, not more links."
+    - "recency_flag with fixed two-year thresholds is domain-inappropriate; some pivotal RCTs remain current for a decade while living guidelines can become stale in months."
+    - "GRADE is usually applied to a body of evidence for an outcome, not to each tiny atomic sentence."
+    - "AMSTAR/PRISMA are review-level instruments, not per-atom properties."
+    - "ICMJE COI should be source/study-level funding and author-disclosure metadata, not a simple atom-level flag."
+    - "jurisdiction_alignment belongs on regulatory/product claims, not every clinical or mechanistic claim."
+  add_instead:
+    - "Use a two-tier schema: lightweight triage for all claims, full clinical appraisal only for material/high-risk claims."
+    - "Add materiality: critical, major, minor, background."
+    - "Add claim_type: efficacy, safety, diagnostic, dosing, regulatory, mechanism, epidemiology, economic, guideline, background."
+    - "Add PICO/PECO and jurisdiction fields only when applicable."
+    - "Add source_provenance with URL/PMID/DOI, retrieval date, database/search query, source type, and cited span."
+    - "Add evidence_quality_applied listing which tool was actually used: RoB2, ROBINS-I, QUADAS-2, AMSTAR-2, PRISMA, GRADE, none_applicable."
+    - "Add reviewer_confidence, deferral_reason, adjudication_status, and inter_rater_disagreement_reason."
+
+clinical_translation:
+  - dr_frontier_concept: "Atomic claim verification"
+    translates_to_clinical: "partial"
+    reason: "Useful for separating unsupported assertions, but clinical claims should be grouped by outcome/body of evidence when applying GRADE or risk-of-bias tools."
+  - dr_frontier_concept: "Citation recall/precision/F1"
+    translates_to_clinical: "partial"
+    reason: "Good for claim-source alignment, but it does not assess study design, bias, applicability, effect size, or certainty."
+  - dr_frontier_concept: "Span-level citation context match"
+    translates_to_clinical: "yes"
+    reason: "Directly useful because misquotation and out-of-context citation are common clinical safety failures."
+  - dr_frontier_concept: "General DR expert rubrics"
+    translates_to_clinical: "partial"
+    reason: "Rubrics help with completeness and presentation, but most are general/open-web and not validated against clinical evidence synthesis standards."
+  - dr_frontier_concept: "DeepSearchQA-style exhaustive retrieval"
+    translates_to_clinical: "partial"
+    reason: "The recall/deduplication/stopping criteria are relevant, but clinical retrieval should prioritize PubMed, trial registries, regulators, and guideline bodies over unconstrained web search."
+  - dr_frontier_concept: "LLM-as-judge factuality scoring"
+    translates_to_clinical: "partial"
+    reason: "Suitable for triage and reviewer assistance only; high-impact clinical verdicts require human adjudication."
+  - dr_frontier_concept: "Complexity stratification"
+    translates_to_clinical: "yes"
+    reason: "Useful for estimating review effort and assigning expert reviewers, but not itself an evidence-quality metric."
+  - dr_frontier_concept: "PRISMA-trAIce disclosure"
+    translates_to_clinical: "yes"
+    reason: "Transparency about AI assistance is appropriate, while noting the checklist is still a proposed framework rather than a mature endorsed standard."
+
+operational_feasibility:
+  realistic: "partial"
+  budget_constraint: "At 85 deep claims x 5 reports x 2 reviewers, POLARIS already has about 850 claim-review records before decomposition. If each claim becomes 2-4 atoms, the proposed schema becomes roughly 1700-3400 atom appraisals, many requiring study-level clinical tools that can take 15-60 minutes each."
+  recommended_compromise: "Triage every claim with citation-span support, materiality, source type, reviewer confidence, and a 5-verdict outcome. Apply full RoB/AMSTAR/GRADE/PRISMA appraisal only to high-materiality clinical/regulatory claims and a sampled set of lower-risk claims; use LLM/verifier outputs only as prefill."
+
+counter_recommendations:
+  - rec: "Adopt a risk-tiered audit rather than a uniform per-atom maximal schema."
+    rationale: "This preserves safety for actionable claims while keeping the 4-month delivery window plausible."
+  - rec: "Separate three evaluations: citation support, evidence quality, and report usefulness."
+    rationale: "A citation can support a sentence while the underlying study is weak or inapplicable; collapsing these axes hides clinical risk."
+  - rec: "Run a one-report pilot before locking schema v2."
+    rationale: "Measure minutes per claim, disagreement rate, deferral rate, and fields most often marked not-applicable."
+  - rec: "Use automated factuality tools as reviewer prefill, not adjudicators."
+    rationale: "VeriFastScore, MiniCheck, RefChecker, SAFE, and ALCE-style metrics are useful triage layers but not validated clinical safety gates."
+  - rec: "Track retrieval provenance and source universe."
+    rationale: "Clinical reproducibility depends on knowing what was searched, when, and why sources were included or excluded."
+  - rec: "Require adjudication only for material disagreements."
+    rationale: "Full dual-review reconciliation of every low-risk atom will consume budget without proportional safety gain."
+
+final_recommendation_for_polaris_audit_schema_v2:
+  must_have:
+    - "claim_id, claim_text, report_section, claim_type, materiality, and applicable jurisdiction/PICO fields"
+    - "cited_source with URL/PMID/DOI, retrieval date, source type, cited span, and citation_context_match"
+    - "5-verdict support label with short rationale and reviewer_confidence"
+    - "source_quality fields applied selectively by source type: RoB2/ROBINS-I/QUADAS-2/AMSTAR-2/PRISMA/GRADE only when applicable"
+    - "effect direction, effect size, population/comparator/outcome for actionable clinical claims"
+    - "funding/sponsor/COI at source or study level"
+    - "deferred_to_human, deferral_reason, adjudication_status, and final reconciled verdict"
+    - "aggregate metrics: high-materiality unsupported rate, citation-context failure rate, deferral rate, inter-rater agreement, stale/withdrawn-source rate, and COI/sponsor-disclosure rate"
+  defer_to_v3:
+    - "full automated citation-F1 computation over all claims"
+    - "exact character span offsets for every atom"
+    - "trajectory-aware DR evaluation and repeated-run stochasticity testing"
+    - "ResearchRubrics-style custom expert rubrics per report"
+    - "automated verifier ensemble calibration against a POLARIS-specific gold set"
+    - "live-web benchmark replication such as LiveResearchBench or DeepSearchQA"
+  reject:
+    - "universal per-atom PRISMA/AMSTAR/RoB/GRADE scoring"
+    - "raw multi-source corroboration count as a quality metric"
+    - "fixed two-year recency thresholds"
+    - "treating DR benchmarks as clinical/regulatory validation"
+    - "treating VeriFastScore, MiniCheck, RefChecker, or LLM-as-judge outputs as final clinical verdicts"
+    - "claiming PRISMA-trAIce is already a mandatory endorsed standard"
