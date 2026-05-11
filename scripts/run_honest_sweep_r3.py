@@ -2705,6 +2705,11 @@ async def run_one_query(
             ),
             "cost_usd": run_cost,
             "budget_cap_usd": PG_MAX_COST_PER_RUN,
+            # GH#423 I-gen-002: cross-section fact-dedup telemetry.
+            # Persists fact_dedup pass results (groups, redundants,
+            # rewrites_applied, drops) so observability + auditability
+            # of the dedup behavior survives into manifest.json.
+            "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
 
         # V30 Report Contract Architecture integration (Phase 1 of
