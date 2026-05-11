@@ -1,0 +1,26 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS tirzepatide ### Efficacy):
+"One review describes tirzepatide as achieving 15-20% weight reductions in clinical trials."
+
+CITED [6]: "From needles to pills: oral GLP-1 therapy enters the obesity arena" — https://doi.org/10.1186/s40842-025-00245-5 (T4 narrative review)
+
+PRIMARY-SOURCE CONTEXT:
+- The "15-20% weight reductions" claim is consistent with the published efficacy estimand ranges of SURMOUNT-1 (-15.0% / -19.5% / -20.9%) and SURMOUNT-2 (-13.4% / -15.7%).
+- This is a hedged "one review describes" framing — not a primary trial decimal claim
+- The cited [6] is a T4 narrative review, appropriate for a hedged general-trend claim
+- The range "15-20%" is qualitatively accurate per multiple SURMOUNT trial publications
+
+AUDIT:
+1. Is "15-20% weight reductions" a fair characterization of tirzepatide weight efficacy across SURMOUNT trials?
+2. Is the citation type (T4 review for a hedged general-trend claim) appropriate?
+3. Reasoning soundness: the hedging "one review describes" properly attributes to a review-level claim rather than asserting as definitive.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-C9
+cited_source_tier: T4
+primary_source_verified: yes_via_published_SURMOUNT_data
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
