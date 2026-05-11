@@ -1,0 +1,56 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1637-e226-7652-952a-39955b6581b2
+--------
+user
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q5 Pharmacare Long-term Outcomes):
+"if household- and employer-financed costs in Quebec had grown at the same rate as in the rest of Canada since 1997, Quebec households and employers would be spending $1.7 billion less per year."
+
+CITED [4]: Morgan et al. CMAJ 2017 + similar pharmacare comparative literature.
+
+PRIMARY-SOURCE CONTEXT:
+- Morgan et al. CMAJ 2017 contains analysis of Quebec vs ROC private/employer drug expenditure growth rates
+- The counterfactual "$1.7 billion less per year if Quebec had grown like ROC since 1997" is a documented Morgan 2017 finding
+- This is a specific dollar value that should be directly verifiable
+
+AUDIT: Is the "$1.7 billion less per year" Quebec-vs-ROC counterfactual cost finding from Morgan et al. CMAJ 2017?
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q5-C8
+cited_source_tier: T2_T3
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
+
+web search: 
+web search: Morgan et al. CMAJ 2017 Quebec rest of Canada private employer drug expenditure growth rates $1.7 billion less per year
+web search: 
+web search: https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/
+web search: 
+web search: 
+web search: 
+web search: "Evaluating the effects of Quebec’s private–public drug insurance system" "1.7"
+codex
+claim_id: POLARIS-Q5-C8
+cited_source_tier: T2_T3
+primary_source_verified: partial
+verdict: VERIFIED
+reason: "Morgan et al. CMAJ 2017 directly states the Quebec-vs-rest-of-Canada counterfactual as $1.7 billion less per year in household- and employer-financed prescription drug spending."
+tokens used
+13,298
+claim_id: POLARIS-Q5-C8
+cited_source_tier: T2_T3
+primary_source_verified: partial
+verdict: VERIFIED
+reason: "Morgan et al. CMAJ 2017 directly states the Quebec-vs-rest-of-Canada counterfactual as $1.7 billion less per year in household- and employer-financed prescription drug spending."

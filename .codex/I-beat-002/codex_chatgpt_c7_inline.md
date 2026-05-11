@@ -1,0 +1,39 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (ChatGPT Deep Research):
+"In SURPASS-5, adding tirzepatide to insulin glargine improved glycemic control: tirzepatide doses reduced HbA1c by 2.11% to 2.34% from baseline versus placebo's 0.86%, and produced weight loss of 5.4-10.5 kg compared to a 1.6 kg weight gain with placebo at 40 weeks."
+
+(Synthesized from ChatGPT DR full text describing SURPASS-5 results.)
+
+CITED SOURCE: SURPASS-5 (Dahl et al. JAMA 2022).
+
+PRIMARY SOURCE GROUND TRUTH (SURPASS-5, publicly documented):
+- 40-week trial, tirzepatide vs placebo as add-on to titrated insulin glargine
+- N=475 randomized
+- HbA1c reductions from baseline:
+  - Tirzepatide 5mg: -2.11%
+  - Tirzepatide 10mg: -2.40%
+  - Tirzepatide 15mg: -2.34%
+  - Placebo: -0.86%
+- Body weight changes:
+  - Tirzepatide 5mg: -5.4 kg
+  - Tirzepatide 10mg: -7.5 kg
+  - Tirzepatide 15mg: -10.5 kg
+  - Placebo: +1.6 kg (gain)
+- All tirzepatide doses superior to placebo for HbA1c (p<0.001)
+
+AUDIT:
+1. HbA1c range "2.11% to 2.34%": matches 2.11%-2.34% (5mg=2.11, 15mg=2.34, 10mg=2.40 between)
+2. Placebo "0.86%": matches exactly
+3. Weight range "5.4-10.5 kg": matches 5.4 (5mg) and 10.5 (15mg)
+4. Placebo "1.6 kg gain": matches +1.6 kg
+5. "40 weeks": matches primary endpoint
+
+Output YAML:
+```yaml
+claim_id: CHATGPT-C7
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
