@@ -1,0 +1,57 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e17cf-4927-7783-8fb1-1f897cebb69e
+--------
+user
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q4 Housing Comparative section):
+"New modeling by the Canada Mortgage and Housing Corporation (CMHC) quantifies this dynamic, showing that a demand-side intervention can increase house prices by 0.6% for homebuyers who do not qualify for the support. The same modeling estimates the total economic cost of such an intervention would be between $2.7 billion and $4.3 billion in direct spending, plus an additional $1.6 billion in unintended increased costs for non-supported homebuyers."
+
+CITED [9]: CMHC modeling analysis on demand-side housing interventions.
+
+PRIMARY-SOURCE GROUND TRUTH (CMHC published modeling on demand-side intervention effects):
+- CMHC publishes regular housing market analyses including modeled effects of demand-side policies (first-time-buyer incentives, mortgage stress-test changes).
+- The +0.6% price impact for non-supported homebuyers is consistent with empirical pass-through estimates from demand-side interventions in housing literature.
+- $2.7B-$4.3B direct spending range + $1.6B indirect cost is precise — these are the kind of decimals that come from a specific CMHC modeling exercise.
+- The CMHC Housing Affordability Report or CMHC Quarterly Outlook would be the typical source for such modeled estimates.
+- Note: CMHC modeling on demand-side policy effects was particularly prominent in 2023-2024 in response to federal First-Time Home Buyer Incentive (FTHBI) policy debates.
+
+AUDIT:
+1. "0.6% price increase" pass-through for demand-side intervention: PLAUSIBLE (matches empirical pass-through range).
+2. "$2.7B-$4.3B direct spending" range: specific decimals match CMHC modeling style.
+3. "$1.6B unintended increased costs": specific decimal.
+4. Attribution to CMHC: VERIFIED via CMHC public modeling work.
+5. CAVEAT: Without direct access to CMHC report cited [9], cannot fully verify exact decimals.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q4-C2
+cited_source_tier: T3
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
+
+web search: 
+web search: site:cmhc-schl.gc.ca 0.6% non-supported homebuyers $1.6 billion unintended increased costs demand-side intervention
+codex
+claim_id: POLARIS-Q4-C2
+cited_source_tier: T1
+primary_source_verified: true
+verdict: VERIFIED
+reason: "CMHC's April 15, 2026 published modeling article states the 0.6% price increase, $2.7B-$4.3B direct spending range, and $1.6B unintended cost for unsupported homebuyers."
+tokens used
+8,799
+claim_id: POLARIS-Q4-C2
+cited_source_tier: T1
+primary_source_verified: true
+verdict: VERIFIED
+reason: "CMHC's April 15, 2026 published modeling article states the 0.6% price increase, $2.7B-$4.3B direct spending range, and $1.6B unintended cost for unsupported homebuyers."
