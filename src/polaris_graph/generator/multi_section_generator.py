@@ -91,6 +91,15 @@ class SectionResult:
     input_tokens: int = 0
     output_tokens: int = 0
     error: str = ""
+    # GH#423 I-gen-002: per-section verified sentences (pre-citation-resolution).
+    # Stored to enable cross-section fact_dedup pass after the parallel
+    # section gather completes. Holds the SentenceVerification objects
+    # from strict_verify (NOT bare strings) so the orchestrator can both
+    # (a) extract `.sentence` strings for fact_dedup grouping, AND
+    # (b) pass the SV list back through resolve_provenance_to_citations
+    # which dereferences `.sentence` + `.tokens`. Per Codex iter-2 P1
+    # (the AttributeError fix).
+    kept_sentences_pre_resolve: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -164,6 +173,10 @@ class MultiSectionResult:
     m50_per_trial_subsections_entries: list[dict[str, Any]] = field(default_factory=list)
     m50_per_trial_subsections_input_tokens: int = 0
     m50_per_trial_subsections_output_tokens: int = 0
+    # GH#423 I-gen-002: cross-section fact-dedup telemetry. Empty dict when
+    # dedup pass found no duplicate-fact groups. Schema:
+    # {n_groups, n_redundants, n_rewrites_applied, n_drops}.
+    fact_dedup_telemetry: dict[str, Any] = field(default_factory=dict)
     # M-53 (2026-04-23): V29-c per-anchor custody telemetry.
     # List of dicts, one per configured anchor, with 9 fields per
     # Codex plan pass-1 revision #6 (anchor / found_in_live_corpus /
@@ -1255,6 +1268,12 @@ async def _run_section(
         dropped_due_to_failure=dropped_due_to_failure,
         input_tokens=total_in_tok,
         output_tokens=total_out_tok,
+        # GH#423 I-gen-002: preserve the SentenceVerification objects
+        # (not just strings) so the orchestrator can thread them through
+        # the dedup pass and the post-dedup re-resolve. fact_dedup
+        # extracts .sentence for grouping; resolve_provenance_to_citations
+        # consumes the full SV objects. Per Codex iter-2 P1 review.
+        kept_sentences_pre_resolve=list(report.kept_sentences),
     )
 
 
@@ -3519,6 +3538,140 @@ async def generate_multi_section_report(
             section_results.append(legacy_results[legacy_idx])
             legacy_idx += 1
 
+    # GH#423 I-gen-002: cross-section fact-dedup pass. Runs AFTER all
+    # sections complete (preserves parallel generation per Codex Path A
+    # quality analysis) but BEFORE M-44 regen + final assembly. Identifies
+    # facts emitted across multiple sections (same percentages/dollars/years
+    # appearing in 2+ sections) and rewrites all-but-the-first as
+    # cross-references. Safe-fail: if the rewrite LLM call returns garbage,
+    # falls back to dropping redundant sentences (keeps PRIMARY only).
+    fact_dedup_telemetry: dict[str, Any] = {}
+    try:
+        from .fact_dedup import dedup_pass as _fact_dedup_pass
+        # Build SV-aware structures: fact_dedup needs strings, but
+        # resolve_provenance_to_citations needs full SentenceVerification
+        # objects. Per Codex iter-2 P1 review, we maintain a sentence->SV
+        # lookup so we can reconstruct the SV list post-dedup.
+        sv_by_section_by_sentence: dict[str, dict[str, Any]] = {}
+        sections_for_dedup: dict[str, list[str]] = {}
+        for sr in section_results:
+            if sr.dropped_due_to_failure:
+                continue
+            sv_list = sr.kept_sentences_pre_resolve  # list[SentenceVerification]
+            sv_by_section_by_sentence[sr.title] = {
+                sv.sentence: sv for sv in sv_list
+            }
+            sections_for_dedup[sr.title] = [sv.sentence for sv in sv_list]
+        if sum(len(v) for v in sections_for_dedup.values()) >= 2:
+            from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+            async def _dedup_llm_callable(system: str, prompt: str) -> Any:
+                client = OpenRouterClient(model=gen_model)
+                try:
+                    return await client.generate(
+                        prompt=prompt,
+                        system=system,
+                        max_tokens=2048,
+                        temperature=0.2,
+                    )
+                finally:
+                    if hasattr(client, "close"):
+                        try:
+                            await client.close()
+                        except Exception:
+                            pass
+
+            deduped_sections, fact_dedup_telemetry = await _fact_dedup_pass(
+                sections_for_dedup,
+                _dedup_llm_callable,
+                section_order=[p.title for p in plans],
+            )
+            # GH#423 P1-2 fix (per Codex iter-1 review): rewrites MUST
+            # be re-verified through strict_verify before acceptance.
+            # Otherwise unsupported LLM rewrite text could enter the
+            # Verified Findings prose with a citation marker that no
+            # longer reflects the original content overlap.
+            #
+            # Process: for each section whose sentence list changed,
+            # identify the new (rewrite) sentences vs unchanged originals,
+            # run strict_verify on the new ones, accept only those that
+            # pass, drop those that fail. The original unchanged sentences
+            # were already verified upstream and don't need re-verification.
+            rewrites_re_verified_pass = 0
+            rewrites_re_verified_drop = 0
+            for sr in section_results:
+                if sr.dropped_due_to_failure:
+                    continue
+                new_sentence_strs = deduped_sections.get(sr.title)
+                if new_sentence_strs is None:
+                    continue
+                original_sv_map = sv_by_section_by_sentence.get(sr.title, {})
+                original_strs = list(original_sv_map.keys())
+                if list(new_sentence_strs) == original_strs:
+                    continue
+                # Identify which sentence strings are NEW (rewrites).
+                original_set = set(original_strs)
+                rewrite_candidates = [
+                    s for s in new_sentence_strs if s not in original_set
+                ]
+                # Re-verify rewrites via strict_verify; keep only ones
+                # that pass content-overlap + provenance checks. The
+                # original sentences already passed upstream strict_verify.
+                accepted_rewrite_svs: list[Any] = []
+                if rewrite_candidates:
+                    rewrite_report = strict_verify(
+                        "\n".join(rewrite_candidates), evidence_pool,
+                    )
+                    accepted_rewrite_svs = list(rewrite_report.kept_sentences)
+                    rewrites_re_verified_pass += len(accepted_rewrite_svs)
+                    rewrites_re_verified_drop += (
+                        len(rewrite_candidates) - len(accepted_rewrite_svs)
+                    )
+                # Build final SV list in the ORDER given by new_sentence_strs:
+                #   - if string matches an original, use its SV
+                #   - if it matches an accepted rewrite SV, use that SV
+                #   - else drop (failed strict_verify or unknown)
+                accepted_rewrite_by_str = {sv.sentence: sv for sv in accepted_rewrite_svs}
+                final_svs: list[Any] = []
+                for s in new_sentence_strs:
+                    if s in original_sv_map:
+                        final_svs.append(original_sv_map[s])
+                    elif s in accepted_rewrite_by_str:
+                        final_svs.append(accepted_rewrite_by_str[s])
+                    # else: drop (LLM rewrite failed strict_verify)
+                # Update SectionResult fields with deduped + re-verified content
+                from .provenance_generator import resolve_provenance_to_citations as _resolve
+                new_text, new_biblio = _resolve(final_svs, evidence_pool)
+                sr.verified_text = new_text
+                sr.biblio_slice = new_biblio
+                # Reflect dropped redundants in section telemetry
+                dropped_count = len(original_strs) - len(final_svs)
+                if dropped_count > 0:
+                    sr.sentences_dropped += dropped_count
+                sr.kept_sentences_pre_resolve = list(final_svs)
+                sr.sentences_verified = len(final_svs)
+                if not final_svs:
+                    sr.dropped_due_to_failure = True
+            fact_dedup_telemetry["n_rewrites_strict_verify_pass"] = rewrites_re_verified_pass
+            fact_dedup_telemetry["n_rewrites_strict_verify_drop"] = rewrites_re_verified_drop
+            logger.info(
+                "[multi_section] GH#423 fact_dedup: groups=%d redundants=%d "
+                "rewrites_proposed=%d rewrites_kept=%d rewrites_dropped_by_strict_verify=%d "
+                "redundants_dropped_by_llm_fallback=%d",
+                fact_dedup_telemetry.get("n_groups", 0),
+                fact_dedup_telemetry.get("n_redundants", 0),
+                fact_dedup_telemetry.get("n_rewrites_applied", 0),
+                rewrites_re_verified_pass,
+                rewrites_re_verified_drop,
+                fact_dedup_telemetry.get("n_drops", 0),
+            )
+    except Exception as exc:  # noqa: BLE001 — safe-degrade per Codex review
+        logger.warning(
+            "[multi_section] GH#423 fact_dedup pass failed (%s); "
+            "continuing without dedup", exc,
+        )
+        fact_dedup_telemetry = {"error": str(exc)}
+
     # M-44 (2026-04-22): post-generation same-sentence validator +
     # one-shot regeneration. For each primary-eligible section, scan
     # verified prose for named-trial tokens; each trial mention must
@@ -4126,6 +4279,8 @@ async def generate_multi_section_report(
         # V30 Phase-2 M-63: pass M-58 payloads to sweep integration
         # for real M-59 validation (M-64).
         v30_contract_slot_payloads=contract_slot_payloads,
+        # GH#423 I-gen-002: cross-section fact-dedup telemetry.
+        fact_dedup_telemetry=fact_dedup_telemetry,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,
