@@ -1,0 +1,60 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1656-d6bd-79e0-8225-6fcc4149b6e2
+--------
+user
+Audit 1 claim. Output YAML only.
+
+CLAIM (ChatGPT DR Executive Summary):
+"In SURPASS-6, adding tirzepatide to basal insulin was superior to adding prandial lispro, with a pooled HbA1c difference of −0.98% and a pooled weight difference of −12.2 kg at 52 weeks."
+
+CITED SOURCE: SURPASS-6 (Rosenstock et al., JAMA 2023) — phase 3b, open-label, randomized, 52-week trial of tirzepatide 5/10/15 mg (pooled) vs insulin lispro three-times-daily added to basal insulin glargine in T2D inadequately controlled.
+
+PRIMARY SOURCE GROUND TRUTH (SURPASS-6 JAMA 2023, publicly documented):
+- N=1,428, 52-week open-label randomized phase 3b trial
+- Pooled tirzepatide HbA1c change: −2.11%
+- Lispro 3x daily HbA1c change: −1.13%
+- Pooled estimated treatment difference (ETD) tirzepatide vs lispro: −0.98% (95% CI −1.17 to −0.79; P<0.001) ✓ MATCHES CLAIM EXACTLY
+- Pooled tirzepatide weight change: −9.0 kg
+- Lispro 3x daily weight change: +3.2 kg
+- Pooled weight ETD: −12.2 kg ✓ MATCHES CLAIM EXACTLY (note: this is the BETWEEN-group difference, not the tirzepatide-only absolute change)
+- HbA1c <7% target: 68% tirzepatide vs 36% lispro
+- The −12.2 kg framing is the most clinically interpretable: tirzepatide arm loses ~9 kg while lispro adds ~3 kg, yielding a 12-kg between-group gap.
+
+AUDIT:
+1. SURPASS-6 setting (add-on to basal insulin): VERIFIED
+2. Comparator (prandial lispro 3x daily): VERIFIED
+3. −0.98% HbA1c ETD: VERIFIED EXACT
+4. −12.2 kg weight ETD: VERIFIED EXACT
+5. 52 weeks: VERIFIED
+6. "Superior" claim: VERIFIED (P<0.001 both endpoints)
+
+Output YAML:
+```yaml
+claim_id: CHATGPT-C10
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
+
+codex
+claim_id: CHATGPT-C10
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED
+reason: "SURPASS-6 matches the claim: pooled tirzepatide added to basal insulin was superior to thrice-daily lispro at 52 weeks with HbA1c ETD -0.98% and weight ETD -12.2 kg."
+tokens used
+2,613
+claim_id: CHATGPT-C10
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED
+reason: "SURPASS-6 matches the claim: pooled tirzepatide added to basal insulin was superior to thrice-daily lispro at 52 weeks with HbA1c ETD -0.98% and weight ETD -12.2 kg."
