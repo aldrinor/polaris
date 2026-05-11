@@ -1,0 +1,24 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q5 Pharmacare Population Subgroups):
+"However, this advantage did not extend to older adults, as 6.6% of Quebecers aged 65 and older reported cost-related non-adherence, a rate worse than the 4.1% reported by seniors in the rest of Canada."
+
+CITED [4][5]: Pharmacare comparative analysis (Morgan et al. CMAJ 2017 + similar).
+
+PRIMARY-SOURCE CONTEXT:
+- This is a frequently-cited Canadian Community Health Survey (CCHS) finding contrasting Quebec senior adherence to ROC senior adherence.
+- The directional finding (Quebec seniors WORSE on cost-related non-adherence than ROC seniors) is well-documented in pharmacare literature.
+- Specific decimals 6.6% vs 4.1% should appear in Morgan et al. CMAJ 2017 or similar source.
+
+AUDIT:
+1. Are the specific values 6.6% (Quebec 65+) and 4.1% (ROC seniors) consistent with documented Canadian pharmacare comparative statistics?
+2. Reasoning soundness: the seniors-worse-in-Quebec finding aligns with the regressive premium burden documented for low-income lower-income seniors.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q5-C5
+cited_source_tier: T2_T3
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
