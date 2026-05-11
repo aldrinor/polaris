@@ -1,0 +1,146 @@
+# Q5 Pharmacare claim enumeration — Tier-1 pilot (GH#420 I-eval-002)
+# Total verified-finding claims: 28
+
+schema_version: tier1_v1
+report: outputs/I-beat-001_round_q5_retry/policy/carney_pharmacare_bill_c64_evidence/report.md
+claims:
+  - claim_id: Q5-T1-008
+    section: 'Comparative'
+    sentence: 'However, the financial burden is regressive, as mandatory public premiums can represent over 3% of income for a family earning $40,000, compared to 1.6% for a family earning $80,000 .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5200-5700'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          /PMC5636629/#b8-189e1259) That mandatory public premium represents more than 3% of household income for couple families earning $40 000; it represents 1.6% of income for couple families earning the $80 000 median income of such households; and it represents 0.7% or less of income for the roughly 10% of couple families with incomes higher than $180 000.[18](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b18-189e1259) Premiums for private insurance in Quebec may be even more regressive. This is
+      - evidence_id: ev_002
+        bibliography_num: 2
+        url: 'https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/'
+        tier: T4
+        span: '1300-1800'
+        title: 'A lesson for Canada: Quebec pharmacare system creates winners ...'
+        span_text: |
+          unding cost to Quebecers.” Researchers at UBC, Carleton University, Concordia University and the University of Montreal examined the benefits and costs of Quebec’s system, 20 years after it was implem
+          
+          [...]
+          
+          rtionately expensive for low-income individuals and families compared to households with higher incomes. The premiums under Quebec’s partially-subsidized public drug plan can amount to more than three per cent of a $40,000 household income, but only 1.6 per cent for households with an $80,0
+      - evidence_id: ev_020
+        bibliography_num: 3
+        url: 'https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/'
+        tier: T4
+        span: '1300-1800'
+        title: 'A lesson for Canada: Quebec pharmacare system creates winners ...'
+        span_text: |
+          unding cost to Quebecers.” Researchers at UBC, Carleton University, Concordia University and the University of Montreal examined the benefits and costs of Quebec’s system, 20 years after it was implem
+          
+          [...]
+          
+          rtionately expensive for low-income individuals and families compared to households with higher incomes. The premiums under Quebec’s partially-subsidized public drug plan can amount to more than three per cent of a $40,000 household income, but only 1.6 per cent for households with an $80,0
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-009
+    section: 'Comparative'
+    sentence: 'The system also results in higher out-of-pocket burdens, with 8.7% of Quebec households incurring over $1,000 in annual prescription costs in 2007, compared to 4.8% in the rest of Canada and less than 3% in New Zealand and the UK .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5900-6400'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+           Quebec and the rest of Canada than in comparator countries. In 2007, 8.7% of Quebec households incurred more than $1000 in out-of-pocket costs for prescriptions, compared with 4.8% for the rest of Canada and less than 3% for comparator countries with universal drug coverage that involves limited user charges (New Zealand, the UK, Germany and the Netherlands). ### System costs A final major consideration for prescription drug 
+          
+          [...]
+          
+          nd the rest of Canada until 1997, but then grew faster in Que
+      - evidence_id: ev_019
+        bibliography_num: 5
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5900-6400'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+           Quebec and the rest of Canada than in comparator countries. In 2007, 8.7% of Quebec households incurred more than $1000 in out-of-pocket costs for prescriptions, compared with 4.8% for the rest of Canada and less than 3% for comparator countries with universal drug coverage that involves limited user charges (New Zealand, the UK, Germany and the Netherlands). ### System costs A final major consideration for prescription drug 
+          
+          [...]
+          
+          nd the rest of Canada until 1997, but then grew faster in Que
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-010
+    section: 'Regulatory'
+    sentence: 'The federal Pharmacare Act (Bill C-64), introduced in February 2024, proposes foundational principles for the first phase of a national universal pharmacare program in Canada, with the stated intent to work with provinces and territories to provide universal, single-payer coverage for a number of diabetes medications and contraception .'
+    cited_evidence:
+      - evidence_id: ev_016
+        bibliography_num: 8
+        url: 'https://www.canada.ca/en/health-canada/news/2024/02/government-of-canada-introduces-legislation-for-first-phase-of-national-universal-pharmacar.html'
+        tier: T3
+        span: '200-700'
+        title: 'Government of Canada Introduces Legislation for First Phase of ...'
+        span_text: |
+          2024 | Ottawa, Ontario | Health Canada Today, the Honourable Mark Holland, Minister of Health, introduced Bill C-64, An Act respecting pharmacare (Pharmacare Act), which proposes the foundational principles for first phase of national universal pharmacare in Canada and describes the Government of Canada’s intent to work with provinces and territories (PTs) to provide universal, single-payer coverage for a number of contraception and diabetes medications. The Minister also announced the governmen
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-011
+    section: 'Regulatory'
+    sentence: 'The legislation commits the federal government to establishing a fund to support access to diabetes supplies like syringes and glucose test strips .'
+    cited_evidence:
+      - evidence_id: ev_016
+        bibliography_num: 8
+        url: 'https://www.canada.ca/en/health-canada/news/2024/02/government-of-canada-introduces-legislation-for-first-phase-of-national-universal-pharmacar.html'
+        tier: T3
+        span: '500-1000'
+        title: 'Government of Canada Introduces Legislation for First Phase of ...'
+        span_text: |
+          nada’s intent to work with provinces and territories (PTs) to provide universal, single-payer coverage for a number of contraception and diabetes medications. The Minister also announced the government’s plan to establish a fund to support Canadians’ access to supplies that diabetics require to manage and monitor their condition and administer their medication, such as syringes and glucose test strips. This legislation is an important step forward to improve health equity, affordability, and out
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-012
+    section: 'Regulatory'
+    sentence: 'The legislation passed in October 2024, described by one advocacy group as a historic win .'
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 9
+        url: 'https://canadianlabour.ca/historic-win-for-canadians-as-the-pharmacare-act-passes/'
+        tier: T4
+        span: '0-500'
+        title: 'HISTORIC WIN FOR CANADIANS AS THE PHARMACARE ACT ...'
+        span_text: |
+          Title: HISTORIC WIN FOR CANADIANS AS THE PHARMACARE ACT PASSES URL Source: https://canadianlabour.ca/historic-win-for-canadians-as-the-pharmacare-act-passes/ Published Time: 2024-10-11T12:05:17+00:00 Markdown Content: # HISTORIC WIN FOR CANADIANS AS THE PHARMACARE ACT PASSES | Canadian Labour Congress [Media](https://canadianlabour.ca/media/)[fr](https://congresdutravail.ca/ladoption-de-la-loi-sur-lassurance-medicaments-une-victoire-historique-pour-la-population-canadienne/)[RSS](https://canadia
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-013
+    section: 'Regulatory'
+    sentence: 'The Act outlines four principles for the Minister of Health to consider: improving accessibility, affordability, and appropriate use of pharmaceutical products, and providing universal coverage across Canada .'
+    cited_evidence:
+      - evidence_id: ev_017
+        bibliography_num: 10
+        url: 'https://www.ourcommons.ca/Content/Committee/441/HESA/Brief/BR13153693/br-external/AssociationQuebecoiseDesPharmaciensProprietaires-067240523011-e.pdf'
+        tier: T4
+        span: '5000-5500'
+        title: '[PDF] Brief on Bill C-64: An Act respecting pharmacare - House of Commons'
+        span_text: |
+          ]
+          
+          ove the affordability of pharmaceutical products; 3) Support the appropriate use of pharmaceutical products; and 4) Provide universal coverage across Canada. 20 The AQPP submits that Québec, by means of the RGAM, already fulfils those objectives. ## 2.1. Accessibility of prescription drugs ## An Act Respecting Pharmacare 4. The Minister is to consider the following principles and the Canada Health Act when collaborating with provinces, territories, Indigenous peoples and other partners and st
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-014
+    section: 'Regulatory'
+    sentence: 'After accounting for existing public spending and copayment revenues, the incremental cost to the combined federal and provincial public sector was estimated at $11.2 billion in 2024-25, increasing to $13.4 billion in 2027-28 .'
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 6
+        url: 'https://www.pbo-dpb.ca/en/publications/RP-2324-016-S--cost-estimate-single-payer-universal-drug-plan--estimation-couts-un-regime-assurance-medicaments-universel-payeur-unique'
+        tier: T2
+        span: '1700-2200'
+        title: 'Cost Estimate of a Single-payer Universal Drug Plan'
+        span_text: |
+           estimates total drug expenditures under Pharmacare to be $33.2 billion in 2024-25 (the assumed first full fiscal year of implementation), increasing to $38.9 billion in 2027-28. After accounting for status quo spending on provincial drug plans and direct federal spending, as well as Pharmacare copayment revenues, the incremental cost to the public sector (that is federal and provincial governments combined) is estimated to be $11.2 billion in 2024-25, increasing to $13.4 billion in 2027-28 (Tab
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
