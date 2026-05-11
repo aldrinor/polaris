@@ -4,19 +4,34 @@ Foundation deliverable for Path A bakeoff. Produces a per-claim
 verdict for every sentence in the **verified-sentences artifact**
 (NOT the delivered report.md — see input shape below).
 
-Input shape: this harness audits the PRE-RESOLUTION verified-sentence
-stream that retains `[#ev:id:start-end]` provenance tokens. The
-delivered `report.md` strips these tokens (`resolve_provenance_to_citations`)
-and replaces them with numbered citations, so auditing report.md
-directly would yield all UNSUPPORTED/no_token. Two accepted inputs:
+Input shape: three accepted inputs.
 
   --verified-sentences <jsonl>   Each line is {"sentence": "...with [#ev:...] tokens..."}.
-                                  This is the canonical artifact emitted by
-                                  generator2/strict_verify before resolution.
+                                  This is the canonical PRE-RESOLUTION artifact
+                                  emitted by generator2/strict_verify.
 
   --report <md> --pool <json>    Legacy / direct text path — assumes report
-                                  contains tokens (works for INTERNAL test
-                                  artifacts but NOT for delivered reports).
+                                  contains [#ev:...] tokens (works for
+                                  INTERNAL test artifacts but NOT for
+                                  delivered reports).
+
+  --resolved-report <md> --bibliography <json> --pool <json>
+                                  I-audit-001: delivered post-resolution
+                                  report.md (with [N] citation markers,
+                                  tokens stripped) + bibliography.json
+                                  ({num → evidence_id}) + pool. The loader
+                                  inverts the [N] → evidence_id mapping
+                                  and synthesizes provenance tokens against
+                                  the entire pool entry's normalized text.
+                                  Coarser than token-bearing path (no
+                                  per-sentence span boundaries) but enables
+                                  audit of real production output for
+                                  BEAT-BOTH head-to-head evaluation.
+                                  Synthesis layers (Per-Trial Summaries,
+                                  Analyst Synthesis) are explicitly
+                                  excluded — they have different source-
+                                  text contracts and need a separate
+                                  audit lane.
 
 Per CLAUDE.md §-1.1: BOTH inputs require evidence_pool.json with
 the corresponding source spans. Output: per-claim VERIFIED /
@@ -68,6 +83,30 @@ if str(REPO_ROOT) not in sys.path:
 _DECIMAL_RE = re.compile(r"\d+(?:\.\d+)?")
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
 _PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:([^:]+):(\d+)-(\d+)\]")
+# I-audit-001 resolved-report mode: matches "[N]" citation markers in
+# delivered post-resolution reports (produced by
+# resolve_provenance_to_citations in provenance_generator.py).
+_RESOLVED_CITATION_RE = re.compile(r"\[(\d+)\]")
+_H2_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
+_DEEP_HEADING_RE = re.compile(r"^#{3,}\s")
+_TITLE_HEADING_RE = re.compile(r"^#\s")
+
+# I-audit-001 resolved-mode scope rules (per brief design step 2,
+# iter-3 P1-1 fix). Heading text matched case-insensitively after the
+# "## " prefix.
+_TERMINAL_H2_HEADINGS: frozenset[str] = frozenset({
+    "methods",
+    "contradiction disclosures",
+    "bibliography",
+    "v30 phase-1 retrieval coverage disclosure",
+})
+# Synthesis layers use different source-text contracts
+# (_m42b_refetched_quote etc.) and need a separate audit lane. Excluded
+# from THIS audit's scope; recorded in manifest for visibility.
+_EXCLUDED_SYNTHESIS_H2_HEADINGS: frozenset[str] = frozenset({
+    "per-trial summaries",
+    "analyst synthesis",
+})
 
 _STOPWORDS: frozenset[str] = frozenset({
     "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at",
@@ -359,6 +398,165 @@ def _run_audit_on_sentences(
     }
 
 
+def _load_bibliography(bibliography_path: Path) -> dict[int, str]:
+    """Parse bibliography.json into {num: evidence_id} map.
+
+    Bibliography shape (per
+    `provenance_generator.resolve_provenance_to_citations` at
+    src/polaris_graph/generator/provenance_generator.py:1026-1048):
+    list of `{num, evidence_id, url, tier, statement}` dicts.
+    """
+    raw = json.loads(bibliography_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"bibliography must be a list, got {type(raw).__name__}"
+        )
+    bib: dict[int, str] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        num = entry.get("num")
+        ev_id = entry.get("evidence_id")
+        if isinstance(num, int) and isinstance(ev_id, str):
+            bib[num] = ev_id
+    return bib
+
+
+def _extract_resolved_claim_body(
+    report_text: str,
+) -> tuple[str, dict[str, list[str]]]:
+    """Isolate claim body from a delivered (post-resolution) report.md.
+
+    Per I-audit-001 brief design step 2 (iter-3 P1-1 fix): production
+    reports interleave level-3 claim subsections (`### Efficacy` etc.)
+    with appended level-2 substrate sections (`## Methods`,
+    `## Bibliography`, ...) and synthesis layers (`## Per-Trial
+    Summaries`, `## Analyst Synthesis`) that have different source-text
+    contracts.
+
+    Returns `(cleaned_body, scope_metadata)` where scope_metadata has
+    keys `excluded_synthesis_sections` and `unrecognized_h2_sections`
+    for manifest plumbing (iter-4 P2-1 fix — helper carries metadata).
+    """
+    excluded: list[str] = []
+    unrecognized: list[str] = []
+    body_lines: list[str] = []
+    skipping = False  # inside an excluded synthesis section
+    stopped = False
+    for raw_line in report_text.splitlines():
+        line = raw_line
+        h2 = _H2_HEADING_RE.match(line)
+        if h2:
+            heading_text = h2.group(1).strip().lower()
+            if heading_text in _TERMINAL_H2_HEADINGS:
+                stopped = True
+                break
+            if heading_text in _EXCLUDED_SYNTHESIS_H2_HEADINGS:
+                if heading_text not in excluded:
+                    excluded.append(heading_text)
+                skipping = True
+                continue
+            # Unknown ## heading: keep content but record it for visibility.
+            if heading_text not in unrecognized:
+                unrecognized.append(heading_text)
+            skipping = False
+            continue
+        # Drop level-1 title and level-3+ section labels. Per iter-2
+        # diff P2-2 fix: a level-3 heading (### Limitations etc.)
+        # re-enters body mode because production assembly inserts
+        # `### Limitations` AFTER `## Analyst Synthesis` (per
+        # scripts/run_honest_sweep_r3.py:2157-2163) and that prose IS
+        # body content, not synthesis output.
+        if _TITLE_HEADING_RE.match(line):
+            continue
+        if _DEEP_HEADING_RE.match(line):
+            skipping = False
+            continue
+        if skipping:
+            continue
+        body_lines.append(line)
+    scope_metadata = {
+        "excluded_synthesis_sections": excluded,
+        "unrecognized_h2_sections": unrecognized,
+        "terminal_h2_boundary_hit": stopped,
+    }
+    return "\n".join(body_lines), scope_metadata
+
+
+def _load_sentences_with_resolved_citations(
+    report_path: Path,
+    bibliography_path: Path,
+    pool: dict[str, dict[str, Any]],
+) -> tuple[list[str], dict[str, list[str] | bool]]:
+    """Read a delivered report.md, invert [N]→evidence_id, synthesize
+    `[#ev:...]` tokens so the existing audit_sentence path runs.
+
+    Per I-audit-001 brief: the audited span is the ENTIRE normalized
+    evidence text selected by `_normalize_pool` (`direct_quote` or
+    `full_text` or `snippet`) — no per-sentence boundaries. Coarser
+    than the token-bearing path but enables audit of delivered output
+    where tokens are stripped.
+
+    Returns `(sentences, scope_metadata)` for manifest plumbing.
+    """
+    report_text = report_path.read_text(encoding="utf-8")
+    body_text, scope_metadata = _extract_resolved_claim_body(report_text)
+    bib = _load_bibliography(bibliography_path)
+    sentences = _split_sentences(body_text)
+    synthesized: list[str] = []
+    for sentence in sentences:
+        # Find every [N] marker; sort by position for stable token order.
+        matches = list(_RESOLVED_CITATION_RE.finditer(sentence))
+        if not matches:
+            # No citation → existing audit_sentence returns UNSUPPORTED
+            # ("no_provenance_token"). Keep the sentence so the verdict
+            # is visible in the per-sentence dump.
+            synthesized.append(sentence)
+            continue
+        # Strip the [N] markers; append synthesized [#ev:...] tokens.
+        stripped = _RESOLVED_CITATION_RE.sub("", sentence).strip()
+        tokens: list[str] = []
+        for m in matches:
+            n = int(m.group(1))
+            if n not in bib:
+                # Unresolved citation number — synthesize a token whose
+                # evidence_id is guaranteed missing from the pool so
+                # audit_sentence returns UNREACHABLE with
+                # reason="unknown_evidence_id:__unresolved_<N>__"
+                # (acceptance criterion 4 in the brief).
+                tokens.append(f"[#ev:__unresolved_{n}__:0-0]")
+                continue
+            ev_id = bib[n]
+            if ev_id not in pool:
+                # I-audit-001 diff iter-2 P2-1 fix: preserve the
+                # canonical `unknown_evidence_id:<ev_id>` diagnostic
+                # when the ev_id is genuinely absent from the pool
+                # (distinct from the present-but-empty-text case
+                # diagnosed as `__empty_text_<ev_id>__`). Synthesize a
+                # token whose ev_id IS the missing id; audit_sentence's
+                # `ev_id not in pool` short-circuit fires with the
+                # exact ev_id in the reason.
+                tokens.append(f"[#ev:{ev_id}:0-0]")
+                continue
+            entry = pool[ev_id]
+            span_text = entry.get("direct_quote", "")
+            if not span_text:
+                # I-audit-001 diff iter-1 P1 fix: pool entry exists but
+                # its normalized evidence text is empty (broken
+                # substrate). MUST fail loudly as UNREACHABLE, not
+                # silently degrade to PARTIAL via the empty-span
+                # content-check path. Route through a distinct sentinel
+                # so the diagnostic reason names the empty-text case.
+                tokens.append(f"[#ev:__empty_text_{ev_id}__:0-0]")
+                continue
+            span_len = len(span_text)
+            tokens.append(f"[#ev:{ev_id}:0-{span_len}]")
+        # Re-attach tokens in stable order. Place after the prose so
+        # the existing splitter does not mis-segment.
+        synthesized.append(f"{stripped} {''.join(tokens)}")
+    return synthesized, scope_metadata
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -368,13 +566,26 @@ def main() -> int:
         "--report",
         type=Path,
         help="Path to a markdown/text artifact containing [#ev:...] tokens. "
-             "Mutually exclusive with --verified-sentences.",
+             "Mutually exclusive with --verified-sentences and --resolved-report.",
     )
     parser.add_argument(
         "--verified-sentences",
         type=Path,
         help="Path to JSONL file with one verified-sentence per line "
              "({\"sentence\": \"...\"}). Canonical input.",
+    )
+    parser.add_argument(
+        "--resolved-report",
+        type=Path,
+        help="Path to delivered (post-resolution) report.md with [N] "
+             "citation markers. Requires --bibliography. Mutually "
+             "exclusive with --report and --verified-sentences.",
+    )
+    parser.add_argument(
+        "--bibliography",
+        type=Path,
+        help="Path to bibliography.json ({num, evidence_id, url, tier, "
+             "statement}). Required iff --resolved-report set.",
     )
     parser.add_argument("--pool", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True,
@@ -390,15 +601,93 @@ def main() -> int:
     if not args.pool.exists():
         print(f"ERROR: evidence pool not found: {args.pool}", file=sys.stderr)
         return 1
-    if args.report and args.verified_sentences:
-        print("ERROR: --report and --verified-sentences are mutually exclusive",
-              file=sys.stderr)
+    modes_set = sum(
+        1 for x in (args.report, args.verified_sentences, args.resolved_report)
+        if x is not None
+    )
+    if modes_set > 1:
+        print(
+            "ERROR: --report, --verified-sentences, --resolved-report are "
+            "mutually exclusive",
+            file=sys.stderr,
+        )
         return 1
-    if not args.report and not args.verified_sentences:
-        print("ERROR: provide --report OR --verified-sentences", file=sys.stderr)
+    if modes_set == 0:
+        print(
+            "ERROR: provide --report OR --verified-sentences OR "
+            "--resolved-report",
+            file=sys.stderr,
+        )
+        return 1
+    if args.resolved_report and not args.bibliography:
+        print(
+            "ERROR: --resolved-report requires --bibliography",
+            file=sys.stderr,
+        )
+        return 1
+    if args.bibliography and not args.resolved_report:
+        print(
+            "ERROR: --bibliography is only valid with --resolved-report",
+            file=sys.stderr,
+        )
         return 1
 
     pool = _normalize_pool(json.loads(args.pool.read_text(encoding="utf-8")))
+
+    if args.resolved_report:
+        if not args.resolved_report.exists():
+            print(
+                f"ERROR: resolved-report not found: {args.resolved_report}",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.bibliography.exists():
+            print(
+                f"ERROR: bibliography not found: {args.bibliography}",
+                file=sys.stderr,
+            )
+            return 1
+        sentences, scope_metadata = _load_sentences_with_resolved_citations(
+            args.resolved_report, args.bibliography, pool,
+        )
+        result = run_line_by_line_audit_records(
+            sentences, pool, min_overlap=args.min_overlap,
+        )
+        # Plumb resolved-mode metadata into the manifest per iter-4 P2-1.
+        result["resolved_mode"] = True
+        result["excluded_synthesis_sections"] = scope_metadata[
+            "excluded_synthesis_sections"
+        ]
+        result["unrecognized_h2_sections"] = scope_metadata[
+            "unrecognized_h2_sections"
+        ]
+        result["terminal_h2_boundary_hit"] = scope_metadata[
+            "terminal_h2_boundary_hit"
+        ]
+        result["verdict_semantics_note_resolved"] = (
+            "Resolved-report mode: per-sentence audit on the delivered "
+            "report.md (post-token-resolution). Audited span = entire "
+            "normalized evidence text selected by _normalize_pool "
+            "(direct_quote or full_text or snippet) — no per-sentence "
+            "span boundaries. Coarser than token-bearing path; useful "
+            "for production output where [#ev:...] tokens are stripped. "
+            "Synthesis layers (Per-Trial Summaries, Analyst Synthesis) "
+            "use different source-text contracts and are explicitly "
+            "excluded from this audit's scope."
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        if args.output_md:
+            args.output_md.parent.mkdir(parents=True, exist_ok=True)
+            args.output_md.write_text(_render_audit_md(result), encoding="utf-8")
+        s = result["summary"]
+        print(
+            f"Audit complete: {s['total_sentences']} sentences, "
+            f"{s['verified_rate']:.1%} VERIFIED, "
+            f"{s['fabricated_rate']:.1%} FABRICATED, "
+            f"alert={s['alert']}"
+        )
+        return 2 if s["alert"] else 0
 
     if args.verified_sentences:
         if not args.verified_sentences.exists():

@@ -1,0 +1,1721 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e15ac-fd65-73c0-ab68-885475ef159b
+--------
+user
+```
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+# I-audit-001 — Extend line-by-line audit to read resolved [N] + bibliography.json + pool
+
+## Output schema (binding)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Problem
+
+`scripts/run_line_by_line_audit.py` (I-bakeoff-A-001, PR #391) audits the
+**pre-resolution** verified-sentence stream that retains `[#ev:id:start-end]`
+provenance tokens. Two existing inputs:
+
+- `--verified-sentences <jsonl>` — canonical token-bearing input from
+  generator2/strict_verify (one record per line).
+- `--report <md> --pool <json>` — legacy direct text containing tokens.
+
+**Production gap:** the delivered `report.md` is the *post-resolution* artifact
+produced by `resolve_provenance_to_citations()` at
+`src/polaris_graph/generator/provenance_generator.py:1026-1093`. That function
+strips the `[#ev:...]` tokens and replaces them with numbered `[N]` citation
+markers. Bibliography is persisted alongside as `bibliography.json`:
+
+```json
+[{"num": 1, "evidence_id": "ev_001", "tier": "T1", "url": "...", "statement": "..."}, ...]
+```
+
+So the audit harness **cannot directly read real production output**. For
+BEAT-BOTH head-to-head against ChatGPT DR + Gemini DR, we need a path
+that reads `report.md` (with `[N]`) + `bibliography.json` ({num → evidence_id}) +
+`evidence_pool.json` (the source spans). That is the I-audit-001 deliverable.
+
+Per CLAUDE.md §-1.1: this is the clinical-safety-critical audit lane.
+Per CLAUDE.md §-1.2: GH issue #398 created first; this brief is step 4
+(comprehensive grep done; offline smoke design done; this is the brief).
+
+## Files I have ALSO checked and they're clean
+
+- `src/polaris_graph/generator/provenance_generator.py:1026-1093` —
+  `resolve_provenance_to_citations()` is the canonical token-to-[N] converter;
+  bibliography format is `{num, evidence_id, url, tier, statement}`. Verified.
+- `outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/{report.md,bibliography.json,live_corpus_dump.json}`
+  — sample production output. report.md has 7 `[N]` markers, 0 `[#ev:...]`
+  tokens. bibliography.json has 5 entries `{num, evidence_id, statement, tier, url}`.
+  Note: `live_corpus_dump.json` is a tier dump (url/title/tier only, no full_text);
+  the actual evidence pool with `full_text`/`direct_quote` lives in a separate
+  `evidence_pool.json` per existing `--pool` contract. This PR does NOT change
+  the pool contract.
+- `tests/scripts/test_run_line_by_line_audit.py` (240 lines, 15 tests) — covers
+  audit_sentence + run_line_by_line_audit + _render_audit_md + _normalize_pool +
+  _normalize_sentence. New tests will append, not modify existing.
+- `scripts/run_paid_evaluator_scoring.py` — uses the same {num, evidence_id}
+  bibliography shape via `_load_sentences_with_spans_from_jsonl`; my loader
+  follows the same broken-pointer pattern (preserve UNREACHABLE state).
+- `scripts/run_entailment_fpr_audit.py` — does NOT depend on bibliography
+  resolution; orthogonal.
+- `tests/scripts/test_run_paid_evaluator_scoring.py` — broken-pointer
+  propagation pattern reused.
+- `src/polaris_graph/generator/provenance_generator.py:_PROVENANCE_TOKEN_RE` —
+  matches `\[#ev:([^:]+):(\d+)-(\d+)\]`. My new regex `\[(\d+)\]` for resolved
+  [N] markers is disjoint (no `#ev:` prefix) — no clash.
+
+## Design (revised after iter-3 P1)
+
+Add a third audit mode: `--resolved-report <path>` + `--bibliography <path>`
+(reuses `--pool <path>`). The loader inverts `resolve_provenance_to_citations`:
+
+1. Parse `bibliography.json` → build `{num: evidence_id}` map.
+2. **Isolate the claim body via explicit named-heading scope rules**
+   (iter-3 P1-1 fix). Walk the report line-by-line, tracking the current
+   level-2 heading. The scope rules use **named heading allowlists**, NOT
+   the first-`##`-stops rule (which fails on Per-Trial Summaries +
+   Analyst Synthesis insertions before Methods per
+   `scripts/run_honest_sweep_r3.py:2038,2158`):
+
+   - `_TERMINAL_H2_HEADINGS` (case-insensitive exact match on heading
+     text after `## `): `{methods, contradiction disclosures,
+     bibliography, v30 phase-1 retrieval coverage disclosure}`. On
+     encountering one, break — everything after is appended substrate.
+   - `_EXCLUDED_SYNTHESIS_H2_HEADINGS` (this audit's scope is the
+     strict-verify'd `resolve_provenance_to_citations` output;
+     synthesis layers have different source-text contracts —
+     `_m42b_refetched_quote` for M50 per
+     `src/polaris_graph/generator/multi_section_generator.py:2008-2018`
+     — and need a separate audit lane per iter-3 P1-2):
+     `{per-trial summaries, analyst synthesis}`. On encountering one,
+     enter "skipping section" mode until the next `##` heading or end
+     of file; record the heading name in
+     `manifest["excluded_synthesis_sections"]`.
+   - Default (unknown `##` heading not in either set): record name in
+     `manifest["unrecognized_h2_sections"]` and **KEEP** the content
+     (defensive: don't silently drop unfamiliar sections; future-proof
+     against new claim-body section types).
+   - Strip level-3+ heading lines (`^#{3,}\s+`) — `### Efficacy` etc.
+     are section labels, not claims.
+   - Skip the leading `# ` title line.
+   - If no `^##\s+` line is found, the entire post-title body is treated
+     as claim body (some legacy artifacts may not have appended substrate).
+   - Sentences without any `[N]` marker inside KEPT body still produce
+     UNSUPPORTED verdicts (correct: a body claim that lost its citation
+     should be visible to the audit as UNSUPPORTED, not silently dropped).
+3. Split the cleaned body into sentences with the existing `_split_sentences`.
+4. For each sentence, find every `[N]` marker via
+   `_RESOLVED_CITATION_RE = re.compile(r"\[(\d+)\]")`.
+5. For each `[N]`:
+   - If `N` not in bibliography → emit synthetic `[#ev:__unresolved_<N>__:0-0]` token
+     so existing `audit_sentence` returns `UNREACHABLE` (evidence_id not in pool).
+   - If `N` in bibliography → look up `ev_id = bibliography[N]`. If `ev_id` not in
+     pool → emit `[#ev:<ev_id>:0-0]` (UNREACHABLE via "unknown_evidence_id").
+   - If `ev_id` in pool: use the normalized `direct_quote` field which
+     `_normalize_pool` already populates via the fallback chain
+     `direct_quote or full_text or snippet` (iter-1 P2-1 fix). Emit
+     `[#ev:<ev_id>:0-len(direct_quote)>]`.
+6. Rewrite sentence: strip `[N]` markers, append synthesized `[#ev:...]` tokens,
+   feed through existing `run_line_by_line_audit_records()`.
+
+This means **the entire `direct_quote`/`full_text`/`snippet` (whichever
+`_normalize_pool` selected) becomes the audit span** — coarser than the
+token-bearing path which uses per-sentence span boundaries. Document this
+explicitly in the manifest as `verdict_semantics_note_resolved` and in the
+function docstring.
+
+## Acceptance criteria
+
+1. New CLI flag `--resolved-report <path>` (mutually exclusive with `--report`
+   and `--verified-sentences`).
+2. New CLI flag `--bibliography <path>` (required iff `--resolved-report` set;
+   error otherwise).
+3. `_load_sentences_with_resolved_citations(report_path, bibliography_path, pool) -> list[str]`
+   helper that returns token-bearing sentences ready to feed existing audit logic.
+4. Sentence with `[N]` where `N` not in bibliography → `UNREACHABLE` verdict
+   with reason exactly `unknown_evidence_id:__unresolved_<N>__` (iter-3 P2-2
+   fix: this is the single user-visible contract; we reuse the existing
+   audit path which produces this literal string when the synthesized
+   evidence_id `__unresolved_<N>__` is not in the pool).
+5. Sentence with `[N]` where `evidence_id` not in pool → `UNREACHABLE` with
+   reason `unknown_evidence_id:<ev_id>`.
+6. Sentence with `[N]` resolving to a valid `full_text` → mechanical checks
+   run against `full_text` (decimals subset, content-word overlap ≥ min_overlap).
+7. Manifest carries `verdict_semantics_note_resolved` field documenting
+   coarseness — span = entire normalized evidence text selected by
+   `_normalize_pool` (`direct_quote` or `full_text` or `snippet`), no
+   per-sentence boundaries; weaker than the token-bearing path; useful
+   for production output where tokens are stripped (iter-2 P2-1 fix).
+8. Tests added to `tests/scripts/test_run_line_by_line_audit.py`:
+   - resolved [N] resolves to valid ev_id → VERIFIED
+   - resolved [N] with N not in bibliography → UNREACHABLE
+   - resolved [N] with ev_id not in pool → UNREACHABLE
+   - multiple [N1][N2] in same sentence → both tokens synthesized
+   - no `[N]` marker → UNSUPPORTED (no provenance token)
+   - resolved + bibliography arg validation (missing --bibliography errors)
+   - manifest contains `verdict_semantics_note_resolved`
+   - **Realistic production-report fixture (iter-3 P2-1 fix — count
+     made consistent):** synthetic report mirroring I-bug-088 shape.
+     Body:
+     * `# Research report: ...` (title, skipped)
+     * `### Efficacy` heading
+     * one body sentence with `[1]` marker (→ VERIFIED)
+     * one body sentence with `[2]` marker (→ VERIFIED)
+     * `### Limitations` heading
+     * one body sentence WITHOUT any `[N]` marker (→ UNSUPPORTED)
+     * `## Per-Trial Summaries` (synthesis section, EXCLUDED from audit)
+     * one body sentence with `[1]` marker (must NOT be audited)
+     * `## Methods` (terminal substrate — break here)
+     * Methods prose + `## Bibliography` with `[1]` `[2]` ref list lines
+       + `## V30 Phase-1 Retrieval Coverage Disclosure` section.
+     Assertions: (a) `result["summary"]["total_sentences"] == 3` exactly
+     (2 VERIFIED + 1 UNSUPPORTED); (b) NO per_sentence record contains
+     any of the bibliography ref-list text; (c) NO per_sentence record
+     contains the Per-Trial-Summaries body sentence; (d)
+     `manifest["excluded_synthesis_sections"] == ["per-trial summaries"]`.
+   - **Pool with only `snippet` key (iter-1 P2-1 fix):** loader uses
+     `_normalize_pool` so a pool whose entries have ONLY `snippet` (no
+     `direct_quote` or `full_text`) is auditable with non-zero span.
+   - **Arg-validation symmetry (iter-2 P2-2 fix):** `--bibliography`
+     supplied without `--resolved-report` errors with exit 1.
+
+## Test plan
+
+```bash
+# Unit tests pass
+PYTHONPATH=. pytest tests/scripts/test_run_line_by_line_audit.py -v
+
+# Smoke against real I-bug-088 output (after synthesizing an evidence_pool.json
+# from live_corpus_dump.json + adding full_text stubs — out of scope, this is
+# infra; if pool unavailable for smoke, just unit tests suffice)
+```
+
+## Why this matters
+
+User asked the readiness question for BEAT-BOTH: "Are we ready to run a serious
+line-by-line audit head-to-head?" Answer: token-bearing audit is ready
+(I-bakeoff-A-001) but production output strips tokens, so we cannot directly
+audit delivered reports. This PR closes that gap. After merge, BEAT-BOTH
+audit can run against `outputs/<run>/report.md` + `bibliography.json` +
+`evidence_pool.json` triple — exactly what production emits — and produce
+per-claim VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE verdicts per
+CLAUDE.md §-1.1.
+
+## Scope discipline
+
+- LOC budget: ~80 production + ~80 test = ~160 LOC. Well under 200.
+- No changes to `_normalize_pool`, `audit_sentence`, `run_line_by_line_audit`,
+  `_render_audit_md`. Reuse only.
+- No changes to `provenance_generator.py` — read-only consumer of its output.
+- No new dependencies.
+
+codex
+I’ll validate the revised design against the current audit script and tests, then return only concrete blockers or residual lower-priority issues in the requested schema.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def _load|argparse|bibliography|run_line_by_line|_normalize_pool|_split_sentences|audit_sentence|_render_audit_md|manifest|verified-sentences|--report|--pool" scripts/run_line_by_line_audit.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/scripts/test_run_line_by_line_audit.py -TotalCount 320' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_line_by_line_audit.py -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "run_line_by_line_audit|_normalize_pool|UNREACHABLE|unknown_evidence_id|manifest|arg" tests/scripts/test_run_line_by_line_audit.py' in C:\POLARIS
+ succeeded in 891ms:
+4:verdict for every sentence in the **verified-sentences artifact**
+13:  --verified-sentences <jsonl>   Each line is {"sentence": "...with [#ev:...] tokens..."}.
+17:  --report <md> --pool <json>    Legacy / direct text path — assumes report
+42:    python scripts/run_line_by_line_audit.py \\
+43:        --report outputs/I-live-1/clinical/.../report.md \\
+44:        --pool outputs/I-live-1/clinical/.../evidence_pool.json \\
+55:import argparse
+84:def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
+157:def _split_sentences(text: str) -> list[str]:
+163:def audit_sentence(
+239:            # to 200 chars to bound manifest size.
+284:def run_line_by_line_audit(
+302:    sentences = _split_sentences(report_text)
+306:def run_line_by_line_audit_records(
+316:    `run_line_by_line_audit` does on raw report text.
+338:        result = audit_sentence(s, pool, min_overlap=min_overlap)
+363:    parser = argparse.ArgumentParser(
+365:        formatter_class=argparse.RawDescriptionHelpFormatter,
+368:        "--report",
+371:             "Mutually exclusive with --verified-sentences.",
+374:        "--verified-sentences",
+379:    parser.add_argument("--pool", type=Path, required=True)
+381:                        help="Path for the audit JSON manifest.")
+394:        print("ERROR: --report and --verified-sentences are mutually exclusive",
+398:        print("ERROR: provide --report OR --verified-sentences", file=sys.stderr)
+401:    pool = _normalize_pool(json.loads(args.pool.read_text(encoding="utf-8")))
+405:            print(f"ERROR: verified-sentences file not found: {args.verified_sentences}",
+422:                "ERROR: --verified-sentences contained non-empty input but "
+431:        result = run_line_by_line_audit_records(
+438:            args.output_md.write_text(_render_audit_md(result), encoding="utf-8")
+447:    # --report path (legacy / direct text)
+452:    result = run_line_by_line_audit(report_text, pool, min_overlap=args.min_overlap)
+458:        args.output_md.write_text(_render_audit_md(result), encoding="utf-8")
+472:def _render_audit_md(result: dict[str, Any]) -> str:
+
+ succeeded in 932ms:
+"""Tests for I-bakeoff-A-001 — line-by-line audit harness."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.run_line_by_line_audit import (  # noqa: E402
+    audit_sentence,
+    run_line_by_line_audit,
+)
+
+
+def _pool(direct_quote: str, ev_id: str = "ev_x") -> dict:
+    return {ev_id: {"evidence_id": ev_id, "direct_quote": direct_quote}}
+
+
+def test_unsupported_when_no_token():
+    s = "Tirzepatide reduced HbA1c by 1.5%."
+    r = audit_sentence(s, _pool("ignored"))
+    assert r["verdict"] == "UNSUPPORTED"
+    assert r["reason"] == "no_provenance_token"
+
+
+def test_unreachable_on_unknown_source():
+    s = "Tirzepatide reduced HbA1c by 1.5% [#ev:nonexistent:0-50]."
+    r = audit_sentence(s, _pool("ignored"))
+    assert r["verdict"] == "UNREACHABLE"
+    assert "unknown_evidence_id" in r["reason"]
+
+
+def test_unreachable_on_span_out_of_range():
+    span_text = "short"
+    pool = _pool(span_text, "ev_x")
+    s = f"Claim [#ev:ev_x:0-9999]."
+    r = audit_sentence(s, pool)
+    assert r["verdict"] == "UNREACHABLE"
+    assert "span_out_of_range" in r["reason"]
+
+
+def test_verified_when_decimals_match_and_overlap_ok():
+    span_text = "Tirzepatide reduced HbA1c by 1.5% in adult patients with T2DM."
+    pool = _pool(span_text, "ev_a")
+    s = f"Tirzepatide reduced HbA1c by 1.5% in adult patients [#ev:ev_a:0-{len(span_text)}]."
+    r = audit_sentence(s, pool)
+    assert r["verdict"] == "VERIFIED"
+    assert r["decimals_match"] is True
+
+
+def test_fabricated_when_numeric_mismatch_and_low_overlap():
+    span_text = "GLP-1 RAs commonly studied in T2DM."
+    pool = _pool(span_text, "ev_b")
+    # Sentence asserts a number not in span, with minimal lexical overlap
+    s = f"Tirzepatide cut weight by 22.5% in obese adults [#ev:ev_b:0-{len(span_text)}]."
+    r = audit_sentence(s, pool)
+    assert r["verdict"] == "FABRICATED"
+    assert "numeric_mismatch_AND_low_overlap" in r["reason"]
+
+
+def test_partial_when_numeric_match_but_low_overlap():
+    """Span contains only the matching decimal; sentence has the
+    same decimal but additional content words not in the span.
+    decimals_match=True, overlap=0 (span has no content words) → PARTIAL.
+    """
+    span_text = "1.5"  # just the number; no content words in span
+    pool = _pool(span_text, "ev_c")
+    # Sentence uses ONLY the matching decimal "1.5", no other numbers
+    s = f"Tirzepatide reduction was 1.5 percent in patients [#ev:ev_c:0-{len(span_text)}]."
+    r = audit_sentence(s, pool)
+    assert r["verdict"] == "PARTIAL", f"expected PARTIAL, got {r}"
+    assert "low_content_overlap" in r["reason"]
+
+
+def test_partial_when_overlap_ok_but_numeric_mismatch():
+    span_text = "Tirzepatide reduced HbA1c in adult patients with T2DM."
+    pool = _pool(span_text, "ev_d")
+    # Sentence adds a decimal not in span
+    s = f"Tirzepatide reduced HbA1c by 1.5% in adult patients [#ev:ev_d:0-{len(span_text)}]."
+    r = audit_sentence(s, pool)
+    assert r["verdict"] == "PARTIAL"
+    assert "numeric_mismatch" in r["reason"]
+
+
+def test_run_audit_aggregates_summary():
+    span_a = "Drug A reduced X by 1.5%."
+    span_b = "Drug B reduced Y by 2.3%."
+    pool = {
+        "a": {"evidence_id": "a", "direct_quote": span_a},
+        "b": {"evidence_id": "b", "direct_quote": span_b},
+    }
+    report = (
+        f"Drug A reduced X by 1.5% [#ev:a:0-{len(span_a)}]. "
+        f"Drug B reduced Y by 2.3% [#ev:b:0-{len(span_b)}]. "
+        "Drug C cured everything."  # no token → UNSUPPORTED
+    )
+    result = run_line_by_line_audit(report, pool)
+    s = result["summary"]
+    assert s["total_sentences"] == 3
+    assert s["verdict_counts"]["VERIFIED"] == 2
+    assert s["verdict_counts"]["UNSUPPORTED"] == 1
+    assert s["verified_rate"] == pytest.approx(2 / 3, abs=0.01)
+    assert s["alert"] is False  # no FABRICATED, no UNREACHABLE
+
+
+def test_alert_fires_on_fabricated():
+    span = "Drug A studied"
+    pool = _pool(span, "a")
+    report = f"Drug X cured 99.9% of patients [#ev:a:0-{len(span)}]."
+    result = run_line_by_line_audit(report, pool)
+    assert result["summary"]["verdict_counts"]["FABRICATED"] == 1
+    assert result["summary"]["alert"] is True
+
+
+def test_alert_fires_on_unreachable():
+    pool = {}
+    report = "Drug X did the thing [#ev:missing:0-5]."
+    result = run_line_by_line_audit(report, pool)
+    assert result["summary"]["verdict_counts"]["UNREACHABLE"] == 1
+    assert result["summary"]["alert"] is True
+
+
+def test_audit_md_render_includes_per_claim_table():
+    """The {model}/audit.md format contains per-claim verdict rows
+    + summary + recommendation per acceptance criterion.
+    """
+    from scripts.run_line_by_line_audit import _render_audit_md
+
+    span = "Drug A reduced X by 1.5%."
+    pool = _pool(span, "a")
+    report = f"Drug A reduced X by 1.5% [#ev:a:0-{len(span)}]."
+    result = run_line_by_line_audit(report, pool)
+    md = _render_audit_md(result)
+    assert "# Line-by-line audit" in md
+    assert "## Summary" in md
+    assert "## Per-claim verdicts" in md
+    assert "## Recommendation" in md
+    assert "VERIFIED" in md
+
+
+def test_audit_md_recommends_reject_on_fabricated():
+    from scripts.run_line_by_line_audit import _render_audit_md
+
+    span = "Drug A studied"
+    pool = _pool(span, "a")
+    report = f"Drug X cured 99.9% of patients [#ev:a:0-{len(span)}]."
+    result = run_line_by_line_audit(report, pool)
+    md = _render_audit_md(result)
+    assert "REJECT" in md.upper()
+
+
+def test_audit_md_recommends_accept_on_high_verified():
+    from scripts.run_line_by_line_audit import _render_audit_md
+
+    span = "Drug A reduced X by 1.5%"
+    pool = _pool(span, "a")
+    # 4 VERIFIED sentences → 100%
+    report = "\n".join(
+        f"Drug A reduced X by 1.5% [#ev:a:0-{len(span)}]." for _ in range(4)
+    )
+    result = run_line_by_line_audit(report, pool)
+    md = _render_audit_md(result)
+    assert "ACCEPT" in md.upper()
+
+
+def test_canonical_evidencepool_source_id_schema():
+    """I-bakeoff-A-001 iter-1 diff P1 fix: pool loader normalizes
+    canonical retrieval2.EvidencePool schema (source_id + full_text)
+    in addition to legacy {evidence_id + direct_quote}.
+    """
+    from scripts.run_line_by_line_audit import _normalize_pool
+
+    canonical = {
+        "sources": [
+            {
+                "source_id": "src-1",
+                "full_text": "Drug A reduced X by 1.5%",
+                "snippet": "fallback snippet",
+            },
+        ],
+    }
+    normalized = _normalize_pool(canonical)
+    assert "src-1" in normalized
+    assert normalized["src-1"]["direct_quote"] == "Drug A reduced X by 1.5%"
+
+    # An audit on canonical-format pool should NOT produce UNREACHABLE
+    span = "Drug A reduced X by 1.5%"
+    sentence = f"Drug A reduced X by 1.5% [#ev:src-1:0-{len(span)}]."
+    r = audit_sentence(sentence, normalized)
+    assert r["verdict"] == "VERIFIED", (
+        f"canonical schema not normalized correctly; got {r}"
+    )
+
+
+def test_canonical_verified_sentence_field_normalization():
+    """I-bakeoff-A-001 iter-1 diff P1 fix: sentence loader accepts
+    canonical VerifiedSentence schema (sentence_text field) in
+    addition to {sentence: ...}.
+    """
+    from scripts.run_line_by_line_audit import _normalize_sentence
+
+    assert _normalize_sentence({"sentence": "S1"}) == "S1"
+    assert _normalize_sentence({"sentence_text": "S2"}) == "S2"
+    assert _normalize_sentence("S3 raw") == "S3 raw"
+    assert _normalize_sentence({}) == ""
+    assert _normalize_sentence({"unrelated": "x"}) == ""
+
+
+def test_audit_md_includes_cited_span_quote():
+    """I-bakeoff-A-001 iter-1 diff P2 fix: per CLAUDE.md §-1.1 the audit
+    table includes the cited span quote that supports each verdict.
+    """
+    from scripts.run_line_by_line_audit import _render_audit_md
+
+    span = "Drug A reduced X by 1.5%"
+    pool = _pool(span, "a")
+    report = f"Drug A reduced X by 1.5% [#ev:a:0-{len(span)}]."
+    result = run_line_by_line_audit(report, pool)
+    md = _render_audit_md(result)
+    # The cited span must appear in the rendered markdown
+    assert "Drug A reduced X by 1.5%" in md
+    assert "Cited span quote" in md  # column header
+
+
+def test_per_sentence_output_truncates_long_sentences():
+    """The per-sentence dump caps sentence preview at 200 chars to
+    keep the audit manifest readable.
+    """
+    long_sentence = "a " * 200
+    span = "a a a a a"
+    pool = _pool(span, "a")
+    s = f"{long_sentence}[#ev:a:0-{len(span)}]."
+    r = audit_sentence(s, pool)
+    assert len(r["sentence"]) <= 200
+
+ succeeded in 948ms:
+14:from scripts.run_line_by_line_audit import (  # noqa: E402
+16:    run_line_by_line_audit,
+34:    assert r["verdict"] == "UNREACHABLE"
+35:    assert "unknown_evidence_id" in r["reason"]
+43:    assert r["verdict"] == "UNREACHABLE"
+102:    result = run_line_by_line_audit(report, pool)
+108:    assert s["alert"] is False  # no FABRICATED, no UNREACHABLE
+115:    result = run_line_by_line_audit(report, pool)
+123:    result = run_line_by_line_audit(report, pool)
+124:    assert result["summary"]["verdict_counts"]["UNREACHABLE"] == 1
+132:    from scripts.run_line_by_line_audit import _render_audit_md
+137:    result = run_line_by_line_audit(report, pool)
+147:    from scripts.run_line_by_line_audit import _render_audit_md
+152:    result = run_line_by_line_audit(report, pool)
+158:    from scripts.run_line_by_line_audit import _render_audit_md
+166:    result = run_line_by_line_audit(report, pool)
+176:    from scripts.run_line_by_line_audit import _normalize_pool
+187:    normalized = _normalize_pool(canonical)
+191:    # An audit on canonical-format pool should NOT produce UNREACHABLE
+205:    from scripts.run_line_by_line_audit import _normalize_sentence
+218:    from scripts.run_line_by_line_audit import _render_audit_md
+223:    result = run_line_by_line_audit(report, pool)
+232:    keep the audit manifest readable.
+
+ succeeded in 967ms:
+"""I-bakeoff-A-001 — Line-by-line audit harness (per CLAUDE.md §-1.1).
+
+Foundation deliverable for Path A bakeoff. Produces a per-claim
+verdict for every sentence in the **verified-sentences artifact**
+(NOT the delivered report.md — see input shape below).
+
+Input shape: this harness audits the PRE-RESOLUTION verified-sentence
+stream that retains `[#ev:id:start-end]` provenance tokens. The
+delivered `report.md` strips these tokens (`resolve_provenance_to_citations`)
+and replaces them with numbered citations, so auditing report.md
+directly would yield all UNSUPPORTED/no_token. Two accepted inputs:
+
+  --verified-sentences <jsonl>   Each line is {"sentence": "...with [#ev:...] tokens..."}.
+                                  This is the canonical artifact emitted by
+                                  generator2/strict_verify before resolution.
+
+  --report <md> --pool <json>    Legacy / direct text path — assumes report
+                                  contains tokens (works for INTERNAL test
+                                  artifacts but NOT for delivered reports).
+
+Per CLAUDE.md §-1.1: BOTH inputs require evidence_pool.json with
+the corresponding source spans. Output: per-claim VERIFIED /
+PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE verdicts.
+
+    VERIFIED   — sentence is fully supported by its cited span(s)
+    PARTIAL    — some claims supported, some not; partial entailment
+    UNSUPPORTED — content overlap insufficient; cited span doesn't
+                  back the claim
+    FABRICATED  — sentence asserts content not in any cited span
+                  (numeric mismatch, named-entity inflation, etc.)
+    UNREACHABLE — span pointer invalid; cannot verify
+
+This is the ONLY acceptable evaluation framework per CLAUDE.md §-1.1
+(STRICTLY BANNED: word counts, citation counts, pattern presence,
+sample-based audits, string-presence checks, metadata comparison).
+
+Per CLAUDE.md §-1.1, both Claude AND Codex run independent line-by-
+line audits in parallel. This script is Claude's automated audit;
+Codex's audit is a separate manual pass via `codex exec`.
+
+Usage:
+    python scripts/run_line_by_line_audit.py \\
+        --report outputs/I-live-1/clinical/.../report.md \\
+        --pool outputs/I-live-1/clinical/.../evidence_pool.json \\
+        --output outputs/audits/<run-id>/claude_audit.json
+
+The model bakeoff (Path A) is a wrapper that runs the pipeline with
+multiple --model arguments, then runs THIS audit on each output and
+compares the per-claim verdict distribution. That wrapper is
+out-of-scope here; this PR ships the foundational audit primitive.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
+# Reuse strict_verify primitives (mechanical checks (a)-(e))
+_DECIMAL_RE = re.compile(r"\d+(?:\.\d+)?")
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:([^:]+):(\d+)-(\d+)\]")
+
+_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at",
+    "to", "for", "with", "as", "by", "from", "into", "through", "during",
+    "before", "after", "above", "below", "between", "is", "are", "was",
+    "were", "be", "been", "being", "have", "has", "had", "having", "do",
+    "does", "did", "doing", "will", "would", "should", "could", "may",
+    "might", "must", "can", "this", "that", "these", "those", "it",
+    "its", "their", "there", "they", "them", "we", "us", "our", "you",
+    "your", "i", "me", "my", "he", "she", "his", "her",
+})
+
+
+def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
+    """Normalize evidence pool JSON to {id: {evidence_id, direct_quote/full_text/snippet}}.
+
+    Accepts:
+    - List of {evidence_id, direct_quote/full_text/snippet} (legacy generator2 schema).
+    - List of {source_id, full_text/snippet} (canonical retrieval2.EvidencePool schema).
+    - Object {<id>: <entry>} (already keyed).
+    - Object {sources: [<entry>, ...]} (EvidencePool serialized with sources field).
+    """
+    if isinstance(raw, dict) and "sources" in raw and isinstance(raw["sources"], list):
+        raw = raw["sources"]
+    if isinstance(raw, list):
+        normalized: dict[str, dict[str, Any]] = {}
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            ev_id = entry.get("evidence_id") or entry.get("source_id")
+            if not ev_id:
+                continue
+            direct_quote = (
+                entry.get("direct_quote")
+                or entry.get("full_text")
+                or entry.get("snippet", "")
+                or ""
+            )
+            normalized[ev_id] = {
+                "evidence_id": ev_id,
+                "direct_quote": direct_quote,
+                **{k: v for k, v in entry.items() if k not in {"evidence_id", "source_id", "direct_quote"}},
+            }
+        return normalized
+    if isinstance(raw, dict):
+        # Already keyed: ensure each entry has direct_quote alias
+        normalized = {}
+        for ev_id, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            direct_quote = (
+                entry.get("direct_quote")
+                or entry.get("full_text")
+                or entry.get("snippet", "")
+                or ""
+            )
+            normalized[ev_id] = {**entry, "direct_quote": direct_quote, "evidence_id": ev_id}
+        return normalized
+    raise ValueError(f"unrecognized pool shape: {type(raw).__name__}")
+
+
+def _normalize_sentence(entry: Any) -> str:
+    """Normalize verified-sentence record to string. Accepts:
+    - {sentence: "..."}
+    - {sentence_text: "..."} (canonical VerifiedSentence schema)
+    - "..." (raw string)
+    """
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return entry.get("sentence") or entry.get("sentence_text") or ""
+    return ""
+
+
+def _content_words(text: str) -> set[str]:
+    return {
+        m.group(0).lower()
+        for m in _WORD_RE.finditer(text)
+        if len(m.group(0)) >= 3 and m.group(0).lower() not in _STOPWORDS
+    }
+
+
+def _decimals(text: str) -> set[str]:
+    return {m.group(0) for m in _DECIMAL_RE.finditer(text)}
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Lightweight sentence splitter (matches generator orchestrator)."""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z\[])|(?<=\])\s+(?=[A-Z])", text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def audit_sentence(
+    sentence: str,
+    pool: dict[str, dict[str, Any]],
+    *,
+    min_overlap: int = 2,
+) -> dict[str, Any]:
+    """Per-sentence verdict: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE.
+
+    Mechanical checks (per strict_verify):
+    1. provenance tokens present
+    2. each token's evidence_id resolvable in pool
+    3. span bounds valid against full_text
+    4. every decimal in sentence appears in cited spans (numeric_match)
+    5. >=N shared content words (overlap_ok)
+
+    Verdict mapping:
+    - No tokens → UNSUPPORTED
+    - Token references unknown source_id → UNREACHABLE
+    - Span out-of-bounds → UNREACHABLE
+    - decimal mismatch + low overlap → FABRICATED
+    - decimal mismatch but overlap ok → PARTIAL (numeric inflation pattern)
+    - low overlap but decimals match → PARTIAL (topical inflation)
+    - decimals match + overlap ok → VERIFIED
+    """
+    tokens = _PROVENANCE_TOKEN_RE.findall(sentence)
+    if not tokens:
+        return {
+            "sentence": sentence[:200],
+            "verdict": "UNSUPPORTED",
+            "reason": "no_provenance_token",
+            "tokens": [],
+        }
+
+    span_texts: list[str] = []
+    token_dump: list[dict[str, Any]] = []
+    for ev_id, start_str, end_str in tokens:
+        if ev_id not in pool:
+            return {
+                "sentence": sentence[:200],
+                "verdict": "UNREACHABLE",
+                "reason": f"unknown_evidence_id:{ev_id}",
+                "tokens": [{
+                    "evidence_id": ev_id,
+                    "start": int(start_str),
+                    "end": int(end_str),
+                }],
+            }
+        full_text = (
+            pool[ev_id].get("direct_quote")
+            or pool[ev_id].get("full_text", "")
+            or ""
+        )
+        start = int(start_str)
+        end = int(end_str)
+        if start < 0 or end > len(full_text) or start > end:
+            return {
+                "sentence": sentence[:200],
+                "verdict": "UNREACHABLE",
+                "reason": f"span_out_of_range:{ev_id}:{start}-{end}",
+                "tokens": [{
+                    "evidence_id": ev_id,
+                    "start": start,
+                    "end": end,
+                    "max": len(full_text),
+                }],
+            }
+        span = full_text[start:end]
+        span_texts.append(span)
+        token_dump.append({
+            "evidence_id": ev_id,
+            "start": start,
+            "end": end,
+            "span_chars": len(span),
+            # I-bakeoff-A-001 iter-1 P2: include actual span text per
+            # CLAUDE.md §-1.1 ("per-claim verdict — with the specific
+            # evidence span quote that supports the verdict"). Truncate
+            # to 200 chars to bound manifest size.
+            "span_text": span[:200],
+        })
+
+    sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+    combined_span = " ".join(span_texts)
+    sentence_decimals = _decimals(sentence_clean)
+    span_decimals = _decimals(combined_span)
+    sentence_words = _content_words(sentence_clean)
+    span_words = _content_words(combined_span)
+    overlap = sentence_words & span_words
+
+    decimals_match = sentence_decimals.issubset(span_decimals)
+    overlap_ok = len(overlap) >= min_overlap
+
+    if decimals_match and overlap_ok:
+        verdict = "VERIFIED"
+        reason = "all_checks_pass"
+    elif decimals_match and not overlap_ok:
+        verdict = "PARTIAL"
+        reason = f"low_content_overlap:{len(overlap)}<{min_overlap}"
+    elif not decimals_match and overlap_ok:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_line_by_line_audit.py | Select-Object -Skip 240 -First 280' in C:\POLARIS
+ succeeded in 705ms:
+        })
+
+    sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+    combined_span = " ".join(span_texts)
+    sentence_decimals = _decimals(sentence_clean)
+    span_decimals = _decimals(combined_span)
+    sentence_words = _content_words(sentence_clean)
+    span_words = _content_words(combined_span)
+    overlap = sentence_words & span_words
+
+    decimals_match = sentence_decimals.issubset(span_decimals)
+    overlap_ok = len(overlap) >= min_overlap
+
+    if decimals_match and overlap_ok:
+        verdict = "VERIFIED"
+        reason = "all_checks_pass"
+    elif decimals_match and not overlap_ok:
+        verdict = "PARTIAL"
+        reason = f"low_content_overlap:{len(overlap)}<{min_overlap}"
+    elif not decimals_match and overlap_ok:
+        verdict = "PARTIAL"
+        reason = (
+            f"numeric_mismatch:sentence={sorted(sentence_decimals)} "
+            f"vs span={sorted(span_decimals)}"
+        )
+    else:
+        # Both mechanical checks fail: high confidence fabrication signal
+        verdict = "FABRICATED"
+        reason = (
+            f"numeric_mismatch_AND_low_overlap:sentence_decimals="
+            f"{sorted(sentence_decimals)} overlap={len(overlap)}"
+        )
+
+    return {
+        "sentence": sentence_clean[:200],
+        "verdict": verdict,
+        "reason": reason,
+        "tokens": token_dump,
+        "decimals_match": decimals_match,
+        "content_overlap_count": len(overlap),
+    }
+
+
+def run_line_by_line_audit(
+    report_text: str,
+    pool: dict[str, dict[str, Any]],
+    *,
+    min_overlap: int = 2,
+) -> dict[str, Any]:
+    """Run audit on every sentence in `report_text`. Return summary.
+
+    NOTE on verdict semantics (Codex iter-2 P1-1): VERIFIED here means
+    "passes mechanical lexical + numeric checks". It does NOT mean
+    "the cited span semantically entails the sentence" — that
+    requires the LLM-as-judge entailment check (gated by
+    `PG_STRICT_VERIFY_ENTAILMENT` and run inside strict_verify, not
+    here). For Carney audit-grade evaluation, run THIS audit
+    (mechanical) AND the entailment judge in parallel; both must
+    pass for a sentence to be safe-to-deliver. The audit harness
+    reports the mechanical lane; the judge lane is separate.
+    """
+    sentences = _split_sentences(report_text)
+    return _run_audit_on_sentences(sentences, pool, min_overlap=min_overlap)
+
+
+def run_line_by_line_audit_records(
+    sentence_records: list[str],
+    pool: dict[str, dict[str, Any]],
+    *,
+    min_overlap: int = 2,
+) -> dict[str, Any]:
+    """Audit a pre-segmented list of sentences (one verdict per record).
+
+    Use this when input is JSONL where each line is already one
+    verified sentence. Avoids the re-split that
+    `run_line_by_line_audit` does on raw report text.
+    """
+    return _run_audit_on_sentences(
+        [s for s in sentence_records if s], pool, min_overlap=min_overlap
+    )
+
+
+def _run_audit_on_sentences(
+    sentences: list[str],
+    pool: dict[str, dict[str, Any]],
+    *,
+    min_overlap: int = 2,
+) -> dict[str, Any]:
+    per_sentence: list[dict[str, Any]] = []
+    counts = {
+        "VERIFIED": 0,
+        "PARTIAL": 0,
+        "UNSUPPORTED": 0,
+        "FABRICATED": 0,
+        "UNREACHABLE": 0,
+    }
+    for s in sentences:
+        result = audit_sentence(s, pool, min_overlap=min_overlap)
+        per_sentence.append(result)
+        counts[result["verdict"]] = counts.get(result["verdict"], 0) + 1
+    total = len(sentences) or 1
+    summary = {
+        "total_sentences": len(sentences),
+        "verdict_counts": counts,
+        "verified_rate": round(counts["VERIFIED"] / total, 4),
+        "fabricated_rate": round(counts["FABRICATED"] / total, 4),
+        "alert": counts["FABRICATED"] > 0 or counts["UNREACHABLE"] > 0,
+    }
+    return {
+        "milestone": "I-bakeoff-A-001",
+        "version": "v1",
+        "summary": summary,
+        "per_sentence": per_sentence,
+        "verdict_semantics_note": (
+            "VERIFIED = mechanical (decimals_match + content_overlap >= "
+            f"{min_overlap}). Semantic entailment is a SEPARATE check "
+            "run via the LLM-as-judge gate; both must pass for safe-to-deliver."
+        ),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Path to a markdown/text artifact containing [#ev:...] tokens. "
+             "Mutually exclusive with --verified-sentences.",
+    )
+    parser.add_argument(
+        "--verified-sentences",
+        type=Path,
+        help="Path to JSONL file with one verified-sentence per line "
+             "({\"sentence\": \"...\"}). Canonical input.",
+    )
+    parser.add_argument("--pool", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True,
+                        help="Path for the audit JSON manifest.")
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        help="Optional markdown summary ({model}/audit.md format).",
+    )
+    parser.add_argument("--min-overlap", type=int, default=2)
+    args = parser.parse_args()
+
+    if not args.pool.exists():
+        print(f"ERROR: evidence pool not found: {args.pool}", file=sys.stderr)
+        return 1
+    if args.report and args.verified_sentences:
+        print("ERROR: --report and --verified-sentences are mutually exclusive",
+              file=sys.stderr)
+        return 1
+    if not args.report and not args.verified_sentences:
+        print("ERROR: provide --report OR --verified-sentences", file=sys.stderr)
+        return 1
+
+    pool = _normalize_pool(json.loads(args.pool.read_text(encoding="utf-8")))
+
+    if args.verified_sentences:
+        if not args.verified_sentences.exists():
+            print(f"ERROR: verified-sentences file not found: {args.verified_sentences}",
+                  file=sys.stderr)
+            return 1
+        sentences = []
+        raw_lines = args.verified_sentences.read_text(encoding="utf-8").splitlines()
+        for line in raw_lines:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            sent = _normalize_sentence(obj)
+            if sent:
+                sentences.append(sent)
+        if not sentences and any(
+            ln.strip() for ln in raw_lines
+        ):
+            print(
+                "ERROR: --verified-sentences contained non-empty input but "
+                "produced 0 sentences. Check schema: expected "
+                "{sentence: '...'} or {sentence_text: '...'} per line.",
+                file=sys.stderr,
+            )
+            return 1
+        # Codex iter-2 P1-2 fix: preserve one-record-one-verdict
+        # semantics for JSONL input. Use the records-aware entry point
+        # instead of joining-then-resplitting.
+        result = run_line_by_line_audit_records(
+            sentences, pool, min_overlap=args.min_overlap,
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        if args.output_md:
+            args.output_md.parent.mkdir(parents=True, exist_ok=True)
+            args.output_md.write_text(_render_audit_md(result), encoding="utf-8")
+        s = result["summary"]
+        print(
+            f"Audit complete: {s['total_sentences']} sentences, "
+            f"{s['verified_rate']:.1%} VERIFIED, "
+            f"{s['fabricated_rate']:.1%} FABRICATED, "
+            f"alert={s['alert']}"
+        )
+        return 2 if s["alert"] else 0
+    # --report path (legacy / direct text)
+    if not args.report.exists():
+        print(f"ERROR: report not found: {args.report}", file=sys.stderr)
+        return 1
+    report_text = args.report.read_text(encoding="utf-8")
+    result = run_line_by_line_audit(report_text, pool, min_overlap=args.min_overlap)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    if args.output_md:
+        args.output_md.parent.mkdir(parents=True, exist_ok=True)
+        args.output_md.write_text(_render_audit_md(result), encoding="utf-8")
+
+    s = result["summary"]
+    print(
+        f"Audit complete: {s['total_sentences']} sentences, "
+        f"{s['verified_rate']:.1%} VERIFIED, "
+        f"{s['fabricated_rate']:.1%} FABRICATED, "
+        f"alert={s['alert']}"
+    )
+    if s["alert"]:
+        return 2
+    return 0
+
+
+def _render_audit_md(result: dict[str, Any]) -> str:
+    """Render audit result as a markdown summary for {model}/audit.md.
+
+    Format mirrors the bakeoff acceptance: per-claim verdicts table +
+    summary stats + recommendation.
+    """
+    s = result["summary"]
+    counts = s["verdict_counts"]
+    lines = [
+        f"# Line-by-line audit — {result['milestone']} {result['version']}",
+        "",
+        "## Summary",
+        "",
+        f"- Total sentences: **{s['total_sentences']}**",
+        f"- VERIFIED: {counts['VERIFIED']} ({s['verified_rate']:.1%})",
+        f"- PARTIAL: {counts['PARTIAL']}",
+        f"- UNSUPPORTED: {counts['UNSUPPORTED']}",
+        f"- **FABRICATED: {counts['FABRICATED']}** ({s['fabricated_rate']:.1%})",
+        f"- UNREACHABLE: {counts['UNREACHABLE']}",
+        "",
+        f"**Alert:** {'YES' if s['alert'] else 'no'} "
+        f"(fires on FABRICATED > 0 or UNREACHABLE > 0)",
+        "",
+        "## Per-claim verdicts (with cited span per CLAUDE.md §-1.1)",
+        "",
+        "| # | Verdict | Reason | Sentence | Cited span quote |",
+        "|---|---------|--------|----------|------------------|",
+    ]
+    for i, ps in enumerate(result["per_sentence"][:200]):
+        sent = ps["sentence"][:120].replace("|", "\\|").replace("\n", " ")
+        reason = ps["reason"][:60].replace("|", "\\|")
+        # Concatenate cited spans (first 200 chars total) for audit traceability
+        spans = ps.get("tokens", []) or []
+        span_quote = " // ".join(t.get("span_text", "")[:120] for t in spans)[:200]
+        span_quote = span_quote.replace("|", "\\|").replace("\n", " ") or "—"
+        lines.append(f"| {i+1} | {ps['verdict']} | {reason} | {sent} | {span_quote} |")
+    if len(result["per_sentence"]) > 200:
+        lines.append(f"| ... | ({len(result['per_sentence']) - 200} more) | ... | ... |")
+    lines.extend([
+        "",
+        "## Recommendation",
+        "",
+    ])
+    if counts["FABRICATED"] > 0:
+        lines.append(
+            "- **REJECT**: FABRICATED claims indicate the generator inserted "
+            "content not supported by any cited span. Re-run with a different "
+            "generator or drop the affected sentences."
+        )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_line_by_line_audit.py | Select-Object -Skip 520 -First 120' in C:\POLARIS
+ succeeded in 688ms:
+    elif counts["UNREACHABLE"] > 0:
+        lines.append(
+            "- **INVESTIGATE**: UNREACHABLE means the citation pointer is "
+            "broken (unknown source or out-of-bound span). Likely a "
+            "generator-evidence-pool mismatch."
+        )
+    elif s["verified_rate"] >= 0.7:
+        lines.append(
+            f"- **ACCEPT**: {s['verified_rate']:.1%} VERIFIED — meets the "
+            "Carney audit-grade bar (>=70% with no FABRICATED)."
+        )
+    else:
+        # Brief specifies vocabulary ACCEPT / REJECT / INVESTIGATE.
+        # Below-threshold-no-alert maps to INVESTIGATE (the run is
+        # not safe-to-ship at <70% verified, and it's not
+        # FABRICATED-rejectable; it warrants investigation of
+        # repair-loop or generator selection).
+        lines.append(
+            f"- **INVESTIGATE**: {s['verified_rate']:.1%} VERIFIED is below "
+            "the 70% Carney bar. No FABRICATED claims found, but the "
+            "verified-rate gap warrants a repair-loop run, a different "
+            "generator (Path A bakeoff), or investigation of why "
+            "high PARTIAL/UNSUPPORTED counts persist."
+        )
+    return "\n".join(lines) + "\n"
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+codex
+I have the current audit harness shape now. I’m checking the real report headings and provenance conversion points because the main risk in this design is whether the resolved-report loader audits the intended body and excludes only substrate/synthesis sections.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/report.md) { rg -n "''^#|''^##|''^###|'"\\[[0-9]+\\]|#ev\" outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/report.md } else { Write-Output \"missing sample report\" }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def resolve_provenance_to_citations|_PROVENANCE_TOKEN_RE|bibliography|num|evidence_id" src/polaris_graph/generator/provenance_generator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Per-Trial Summaries|Analyst Synthesis|Methods|Bibliography|V30 Phase-1 Retrieval Coverage Disclosure|''^## " scripts/run_honest_sweep_r3.py src/polaris_graph/generator -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/bibliography.json) { Get-Content outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/bibliography.json -TotalCount 120 } else { Write-Output "missing sample bibliography" }' in C:\POLARIS
+ succeeded in 961ms:
+9:source that did not actually contain that number — it contained 15.0%
+16:   provenance tokens of the form `[#ev:<evidence_id>:<start>-<end>]`
+22:   c. The span text must contain the sentence's numeric values
+117:# candidate. Rather than enumerate by hand, we use the unicodedata
+214:    for i, ch in enumerate(text):
+261:    Returns (sanitized_text, num_redactions).
+306:    evidence_id: str,
+325:            total_red, evidence_id,
+328:        f"<<<evidence:{evidence_id}>>>\n"
+341:# Pattern: [#ev:<evidence_id>:<start>-<end>]
+343:_PROVENANCE_TOKEN_RE = re.compile(
+350:    evidence_id: str
+376:            evidence_id=m.group("ev_id"),
+381:        for m in _PROVENANCE_TOKEN_RE.finditer(sentence)
+459:    clean = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
+473:def _numbers_in(text: str) -> set[str]:
+481:# Codex round 1 B-1: content-word overlap check for non-numeric claims.
+508:    # Find alphabetic tokens, ignore numbers and punctuation
+607:    require_number_match: bool = True,
+614:      3. If require_number_match AND the sentence contains numbers,
+615:         each number must appear in the claimed span text.
+620:    # Strip provenance tokens for numeric matching to avoid matching
+621:    # the span numbers themselves (e.g., [#ev:x:12-45] has 12 and 45).
+622:    sentence_for_numbers = _PROVENANCE_TOKEN_RE.sub(" ", sentence).strip()
+640:    # Also: placebo-arm numbers (e.g., "vs 2.4% with placebo") and
+648:        ev = evidence_pool.get(tok.evidence_id)
+650:            failures.append(f"evidence_not_in_pool:{tok.evidence_id}")
+655:                f"span_out_of_bounds:{tok.evidence_id}:{tok.end}>{len(direct_quote)}"
+660:                f"span_invalid:{tok.evidence_id}:{tok.start}-{tok.end}"
+669:    if require_number_match and valid_token_found:
+670:        sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
+671:        # Strip placebo-comparator phrases (treat their numbers as
+683:                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+685:                    f"number_not_in_any_cited_span:{ev_ids}:"
+689:            sentence_numbers = _numbers_in(sentence_stripped)
+690:            aggregated_span_numbers: set[str] = set()
+692:                ev = evidence_pool.get(tok.evidence_id)
+697:                aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
+698:            if sentence_numbers and not (sentence_numbers & aggregated_span_numbers):
+699:                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+704:        # Codex round 1 B-1: semantic grounding for non-numeric claims.
+706:        # used to pass verification because it had no numbers — only the
+707:        # numeric-mismatch branches ran. Now we ALSO require at least
+716:                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+727:        sentence_trials = extract_trial_names(sentence_for_numbers)
+731:                ev = evidence_pool.get(tok.evidence_id)
+735:                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+763:                sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+772:                            sorted({t.evidence_id for t in tokens})
+866:    block. Sentences that make unsupported numeric claims about the
+873:    # Extract all decimal-or-integer numeric literals from the sentence.
+875:    sentence_nums = _re.findall(
+878:    # Only include numbers that are NOT trivial (e.g., "1" in "table 1"
+879:    # isn't a claim; 3+ digit or decimal is more likely a real number).
+880:    substantive = [n for n in sentence_nums if
+894:    # whitelist of known metric KEYS. A numeric literal in a Limitations
+919:    for num in substantive:
+920:        bare = num.rstrip("%")
+922:        num_escaped = _re.escape(num)
+923:        # Check every line that contains the number. The number counts
+931:            has_pct = (num != bare) and _re.search(
+932:                rf"(?<![\d.]){num_escaped}(?![\d])", line,
+938:            failures.append(f"limitations_number_not_in_telemetry:{num}")
+957:    require_number_match: bool = True,
+966:    Limitations sentences ARE verified against it — every numeric
+982:            require_number_match=require_number_match,
+1026:def resolve_provenance_to_citations(
+1030:    """Strip [#ev:...] tokens and replace with numbered citations.
+1032:    Returns (rendered_text, bibliography_list). Bibliography is a list
+1033:    of dicts: {num, evidence_id, url, tier, statement}.
+1035:    ev_to_num: dict[str, int] = {}
+1038:    def _num_for(ev_id: str) -> int:
+1039:        if ev_id not in ev_to_num:
+1040:            ev_to_num[ev_id] = len(ev_to_num) + 1
+1043:                "num": ev_to_num[ev_id],
+1044:                "evidence_id": ev_id,
+1049:        return ev_to_num[ev_id]
+1055:        # detected before we assign citation numbers (otherwise the
+1056:        # bibliography keeps an entry whose only citing sentence we
+1058:        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+1072:        # Assign citation numbers only for surviving sentences
+1073:        used_nums: list[int] = []
+1075:            n = _num_for(tok.evidence_id)
+1076:            if n not in used_nums:
+1077:                used_nums.append(n)
+1079:        markers = "".join(f"[{n}]" for n in used_nums)
+
+ succeeded in 999ms:
+scripts/run_honest_sweep_r3.py:2038:                f"\n\n## Per-Trial Summaries\n\n"
+scripts/run_honest_sweep_r3.py:2150:        # I-bug-105: two-layer report. Insert Analyst Synthesis between
+scripts/run_honest_sweep_r3.py:2158:                f"\n\n## Analyst Synthesis\n\n"
+scripts/run_honest_sweep_r3.py:2166:        # refuse to ship report.md. The old code would write a Methods
+scripts/run_honest_sweep_r3.py:2167:        # + Bibliography file with an empty findings body, and only then
+scripts/run_honest_sweep_r3.py:2226:        # R-6: surface adequacy + completeness in the Methods section.
+scripts/run_honest_sweep_r3.py:2249:            "\n\n## Methods\n"
+scripts/run_honest_sweep_r3.py:2336:        biblio_section = "\n\n## Bibliography\n"
+scripts/run_honest_sweep_r3.py:2608:        # Methods disclosure to report.md — existing generator
+scripts/run_honest_sweep_r3.py:2637:                # Append Methods disclosure to report.md only if
+src/polaris_graph/generator\analyst_synthesis.py:1:"""I-bug-105 — Analyst Synthesis (two-layer report contract).
+src/polaris_graph/generator\analyst_synthesis.py:12:This module ships the SECOND layer: an "Analyst Synthesis" pass that
+src/polaris_graph/generator\analyst_synthesis.py:49:"Analyst Synthesis" section of a research report. The earlier "Verified
+src/polaris_graph/generator\analyst_synthesis.py:314:    """Generate the Analyst Synthesis section.
+src/polaris_graph/generator\analyst_synthesis.py:338:        f"Write the Analyst Synthesis section now, following the rules. "
+src/polaris_graph/generator\contradiction_hedging.py:29:## Section relevance taxonomy
+src/polaris_graph/generator\contradiction_hedging.py:41:## Severity gate
+src/polaris_graph/generator\contract_section_runner.py:8:## Architecture (per Phase-2 plan M-63 Fix #1)
+src/polaris_graph/generator\contract_section_runner.py:24:## Dispatch
+src/polaris_graph/generator\contract_section_runner.py:32:## No legacy overlap
+src/polaris_graph/generator\provenance_generator.py:1032:    Returns (rendered_text, bibliography_list). Bibliography is a list
+src/polaris_graph/generator\frame_manifest.py:15:  2. Compose a Methods-section snippet for report.md disclosing
+src/polaris_graph/generator\frame_manifest.py:19:## What M-60 does NOT do
+src/polaris_graph/generator\frame_manifest.py:28:## Pure function
+src/polaris_graph/generator\frame_manifest.py:35:## Interaction with other layers
+src/polaris_graph/generator\frame_manifest.py:313:    """Compose the Methods-section snippet disclosing frame gap
+src/polaris_graph/generator\multi_section_generator.py:26:     verified_sections + shared Methods + contradictions + Limitations
+src/polaris_graph/generator\multi_section_generator.py:134:    # empty content (caller MUST omit the entire Analyst Synthesis
+src/polaris_graph/generator\multi_section_generator.py:1887:- Bibliography marker number [N]
+src/polaris_graph/generator\multi_section_generator.py:2207:# Limitations / Methods / Mechanism are excluded (primaries not
+src/polaris_graph/generator\multi_section_generator.py:3842:    # I-bug-105: Analyst Synthesis pass — second LLM call that takes
+src/polaris_graph/generator\slot_validator.py:16:## Checks per entity
+src/polaris_graph/generator\slot_validator.py:26:## Slot-level verdict
+src/polaris_graph/generator\slot_validator.py:33:## Entity-type-agnostic (Codex rev #7)
+src/polaris_graph/generator\slot_validator.py:39:## Pure function
+src/polaris_graph/generator\cross_trial_synthesis.py:22:## Pipeline
+src/polaris_graph/generator\cross_trial_synthesis.py:42:## Why this is V33 not V32
+src/polaris_graph/generator\cross_trial_synthesis.py:49:## Output
+src/polaris_graph/generator\cross_jurisdiction_synthesizer.py:14:## LAW II safeguard
+src/polaris_graph/generator\cross_jurisdiction_synthesizer.py:30:## Pipeline
+src/polaris_graph/generator\cross_jurisdiction_synthesizer.py:56:## Determinism
+src/polaris_graph/generator\cross_jurisdiction_synthesizer.py:64:## Why a separate module from M-70
+src/polaris_graph/generator\regulatory_synthesizer.py:16:## Pipeline
+src/polaris_graph/generator\regulatory_synthesizer.py:45:## Why a separate module from M-58
+src/polaris_graph/generator\regulatory_synthesizer.py:58:## Output shape
+src/polaris_graph/generator\regulatory_synthesizer.py:65:## Codex pass-1 review pending
+src/polaris_graph/generator\slot_fill.py:18:## Split of responsibilities
+src/polaris_graph/generator\slot_fill.py:29:## Gap handling
+src/polaris_graph/generator\slot_fill.py:37:## Entity-type-agnostic (Codex rev #7)
+src/polaris_graph/generator\slot_fill.py:45:## Determinism
+
+ succeeded in 1021ms:
+1:# Research report: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+3:### Efficacy
+5:A systematic review and meta-analysis of 14 randomized controlled trials involving 14,713 patients with type 2 diabetes or obesity found that tirzepatide significantly improved glycemic control and body weight versus placebo, GLP-1 receptor agonists, and insulin.[1] The same analysis reported that tirzepatide 5 mg, 10 mg, and 15 mg reduced body weight by −7.6 kg, −10.0 kg, and −11.4 kg, respectively, versus a 2.1 kg increase with insulin glargine (p < 0.001 for all).[2] The proportion of participants achieving an HbA1c <7.0% with tirzepatide across the SURPASS trials ranged from 81% to 97%.[3] In that same trial, body weight reductions were −7.8 kg, −10.3 kg, and −12.4 kg for tirzepatide 5 mg, 10 mg, and 15 mg, respectively, compared with −6.2 kg for semaglutide.[3] In a separate trial of adults without diabetes who had achieved ≥5.0% weight reduction after a 12-week intensive lifestyle intervention, tirzepatide maximum tolerated dose (10 or 15 mg) produced an additional mean weight change of −18.4% from randomization to week 72, compared with 2.5% for placebo (estimated treatment difference −20.8 percentage points; 95% CI −23.2% to −18.5%; P < 0.001).[4] The same trial reported that 87.5% of tirzepatide-treated participants achieved additional weight reduction ≥5%, versus 16.5% for placebo.[4] One review notes that tirzepatide also improved cardiometabolic risk factors across the SURPASS trials, including decreases in triglycerides (15.2–26.7%), LDL cholesterol (5.2–15.5%), systolic blood pressure (2.8–12.6 mmHg), and diastolic blood pressure (0.8–4.5 mmHg).[3]
+7:### Comparative
+9:However, we can frame it as "In a head-to-head indirect comparison via meta-analysis, tirzepatide produced greater weight loss than semaglutide and dulaglutide; in contrast, in a placebo-controlled obesity trial, tirzepatide 15 mg yielded 20.9% weight loss vs 3.1% placebo, illustrating the magnitude relative to no treatment." That's stretching comparative, but it's okay.[5]
+11:### Limitations
+15:## Methods
+27:## Contradiction disclosures
+35:## Bibliography
+36:[1] The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ... — https://pubmed.ncbi.nlm.nih.gov/40430487/ (tier T1)
+37:[2] Long-term efficacy and safety of tirzepatide in participants with type ... — https://pubmed.ncbi.nlm.nih.gov/40926359/ (tier T1)
+38:[3] Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes — https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (tier T4)
+39:[4] Tirzepatide after intensive lifestyle intervention in adults ... - Nature — https://www.nature.com/articles/s41591-023-02597-w (tier T4)
+40:[5] Tirzepatide Once Weekly for the Treatment of Obesity — https://www.nejm.org/doi/full/10.1056/NEJMoa2206038 (tier T4)
+45:## V30 Phase-1 Retrieval Coverage Disclosure
+
+ succeeded in 1034ms:
+[
+  {
+    "evidence_id": "ev_001",
+    "num": 1,
+    "statement": "The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40430487/"
+  },
+  {
+    "evidence_id": "ev_016",
+    "num": 2,
+    "statement": "Long-term efficacy and safety of tirzepatide in participants with type ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40926359/"
+  },
+  {
+    "evidence_id": "ev_000",
+    "num": 3,
+    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "tier": "T4",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+  },
+  {
+    "evidence_id": "ev_008",
+    "num": 4,
+    "statement": "Tirzepatide after intensive lifestyle intervention in adults ... - Nature",
+    "tier": "T4",
+    "url": "https://www.nature.com/articles/s41591-023-02597-w"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 5,
+    "statement": "Tirzepatide Once Weekly for the Treatment of Obesity",
+    "tier": "T4",
+    "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2206038"
+  }
+]
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content outputs/I-bug-088_validate/clinical/clinical_tirzepatide_t2dm/report.md -TotalCount 70' in C:\POLARIS
+ succeeded in 675ms:
+# Research report: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+
+### Efficacy
+
+A systematic review and meta-analysis of 14 randomized controlled trials involving 14,713 patients with type 2 diabetes or obesity found that tirzepatide significantly improved glycemic control and body weight versus placebo, GLP-1 receptor agonists, and insulin.[1] The same analysis reported that tirzepatide 5 mg, 10 mg, and 15 mg reduced body weight by −7.6 kg, −10.0 kg, and −11.4 kg, respectively, versus a 2.1 kg increase with insulin glargine (p < 0.001 for all).[2] The proportion of participants achieving an HbA1c <7.0% with tirzepatide across the SURPASS trials ranged from 81% to 97%.[3] In that same trial, body weight reductions were −7.8 kg, −10.3 kg, and −12.4 kg for tirzepatide 5 mg, 10 mg, and 15 mg, respectively, compared with −6.2 kg for semaglutide.[3] In a separate trial of adults without diabetes who had achieved ≥5.0% weight reduction after a 12-week intensive lifestyle intervention, tirzepatide maximum tolerated dose (10 or 15 mg) produced an additional mean weight change of −18.4% from randomization to week 72, compared with 2.5% for placebo (estimated treatment difference −20.8 percentage points; 95% CI −23.2% to −18.5%; P < 0.001).[4] The same trial reported that 87.5% of tirzepatide-treated participants achieved additional weight reduction ≥5%, versus 16.5% for placebo.[4] One review notes that tirzepatide also improved cardiometabolic risk factors across the SURPASS trials, including decreases in triglycerides (15.2–26.7%), LDL cholesterol (5.2–15.5%), systolic blood pressure (2.8–12.6 mmHg), and diastolic blood pressure (0.8–4.5 mmHg).[3]
+
+### Comparative
+
+However, we can frame it as "In a head-to-head indirect comparison via meta-analysis, tirzepatide produced greater weight loss than semaglutide and dulaglutide; in contrast, in a placebo-controlled obesity trial, tirzepatide 15 mg yielded 20.9% weight loss vs 3.1% placebo, illustrating the magnitude relative to no treatment." That's stretching comparative, but it's okay.[5]
+
+### Limitations
+
+Limitations: The corpus predominantly comprises T4 tertiary sources (43%), whereas T1 primary studies account for only 29%, limiting the direct evidentiary foundation. A high-severity contradiction was identified regarding the magnitude of body weight reduction with tirzepatide 15 mg (relative difference 135.7%). The evidence horizon spans from 2010 to the present, but the corpus entirely omits the topic of contraindications and warnings, leaving safety interpretations incomplete.
+
+## Methods
+Pre-registered protocol.json (SHA-256 e3bfa20c82386980...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: scope_query_validator: 41 kept / 23 dropped).
+Generator model: deepseek/deepseek-v4-pro (multi-section: outline + 2 parallel sections + strict_verify + regen-on-failure).
+Evaluator model: google/gemma-4-31b-it (different family).
+Sources classified using T1-T7 tier taxonomy.
+Inclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.
+Prompt-injection sanitization enabled. Retrieved 2026-05-09.
+Expected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=29%, T2=14%, T4=43%, T5=7%, T7=7%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 6/7 topics covered; uncovered: ['Contraindications / warnings'].
+
+## Contradiction disclosures
+The contradiction detector flagged 1 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different endpoints (e.g. HbA1c % vs body-weight %), different doses, different populations (T2D vs obesity-without-diabetes), or different comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, dose, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):
+
+- tirzepatide / body weight (15 mg): cited values range 7.0 to 16.5 % (source tiers: T1, T4).
+
+Claims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.
+
+
+## Bibliography
+[1] The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ... — https://pubmed.ncbi.nlm.nih.gov/40430487/ (tier T1)
+[2] Long-term efficacy and safety of tirzepatide in participants with type ... — https://pubmed.ncbi.nlm.nih.gov/40926359/ (tier T1)
+[3] Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes — https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (tier T4)
+[4] Tirzepatide after intensive lifestyle intervention in adults ... - Nature — https://www.nature.com/articles/s41591-023-02597-w (tier T4)
+[5] Tirzepatide Once Weekly for the Treatment of Obesity — https://www.nejm.org/doi/full/10.1056/NEJMoa2206038 (tier T4)
+
+
+---
+
+## V30 Phase-1 Retrieval Coverage Disclosure
+
+PHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):
+  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.
+
+Frame coverage disclosure (V30 Report Contract):
+  - Total contract-required entities: 15
+  - Fully populated: 14
+  - Unretrievable (paywalled with no OA/abstract): 1
+  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/provenance_generator.py | Select-Object -Skip 330 -First 60' in C:\POLARIS
+ succeeded in 715ms:
+        f"statement: {statement_s}\n"
+        f"direct_quote: {quote_s}\n"
+        f"<<<end_evidence>>>"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Provenance token parsing
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pattern: [#ev:<evidence_id>:<start>-<end>]
+# Example: [#ev:ev_step1:12-45]
+_PROVENANCE_TOKEN_RE = re.compile(
+    r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
+)
+
+
+@dataclass
+class ProvenanceToken:
+    evidence_id: str
+    start: int
+    end: int
+    raw: str
+
+    @property
+    def span_len(self) -> int:
+        return self.end - self.start
+
+
+@dataclass
+class SentenceVerification:
+    sentence: str
+    tokens: list[ProvenanceToken]
+    is_verified: bool
+    failure_reasons: list[str] = field(default_factory=list)
+    resolved_citation_marker: str = ""   # e.g., "[1]"
+    # Gap-2: soft warnings that don't trigger a drop but get surfaced
+    # to the evaluator (stored as PT13 in external_evaluator).
+    soft_warnings: list[str] = field(default_factory=list)
+
+
+def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
+    """Extract all [#ev:id:start-end] tokens from a sentence."""
+    return [
+        ProvenanceToken(
+            evidence_id=m.group("ev_id"),
+            start=int(m.group("start")),
+            end=int(m.group("end")),
+            raw=m.group(0),
+        )
+        for m in _PROVENANCE_TOKEN_RE.finditer(sentence)
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/provenance_generator.py | Select-Object -Skip 1018 -First 90' in C:\POLARIS
+ succeeded in 646ms:
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolution: strip provenance tokens, add citation markers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def resolve_provenance_to_citations(
+    kept_sentences: list[SentenceVerification],
+    evidence_pool: dict[str, dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Strip [#ev:...] tokens and replace with numbered citations.
+
+    Returns (rendered_text, bibliography_list). Bibliography is a list
+    of dicts: {num, evidence_id, url, tier, statement}.
+    """
+    ev_to_num: dict[str, int] = {}
+    biblio: list[dict[str, Any]] = []
+
+    def _num_for(ev_id: str) -> int:
+        if ev_id not in ev_to_num:
+            ev_to_num[ev_id] = len(ev_to_num) + 1
+            ev = evidence_pool.get(ev_id, {})
+            biblio.append({
+                "num": ev_to_num[ev_id],
+                "evidence_id": ev_id,
+                "url": ev.get("source_url", ""),
+                "tier": ev.get("tier", ""),
+                "statement": (ev.get("statement") or "")[:300],
+            })
+        return ev_to_num[ev_id]
+
+    findings_lines: list[str] = []
+    limitations_lines: list[str] = []
+    for sv in kept_sentences:
+        # Strip provenance tokens first so degenerate fragments can be
+        # detected before we assign citation numbers (otherwise the
+        # bibliography keeps an entry whose only citing sentence we
+        # later drop).
+        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+        # Clean trailing spaces before punctuation
+        stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
+        # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
+        # that survive strict_verify as bare punctuation + citation
+        # (observed in the Novo sweep as ".[4]", "Morgan analysts.[12]",
+        # ".[14]" between legitimate sentences). A real sentence has
+        # ≥3 content words AND ≥15 chars of prose after provenance
+        # stripping. Lower bounds deliberately conservative — the
+        # shortest legitimate research sentences in smoke runs
+        # ("No contradictions detected.") comfortably clear it.
+        _content_w = re.findall(r"[A-Za-z]+", stripped)
+        if len(_content_w) < 3 or len(stripped) < 15:
+            continue
+        # Assign citation numbers only for surviving sentences
+        used_nums: list[int] = []
+        for tok in sv.tokens:
+            n = _num_for(tok.evidence_id)
+            if n not in used_nums:
+                used_nums.append(n)
+        # Append citation markers
+        markers = "".join(f"[{n}]" for n in used_nums)
+        sentence_out = stripped + markers
+
+        # Gap-3: put Limitations sentences in a separate paragraph so
+        # they render on their own line in the final report.
+        if any("limitations_paragraph_pass_through" in w for w in sv.soft_warnings):
+            limitations_lines.append(sentence_out)
+        else:
+            findings_lines.append(sentence_out)
+
+    findings_para = " ".join(findings_lines)
+    if limitations_lines:
+        limitations_para = " ".join(limitations_lines)
+        return (findings_para + "\n\n" + limitations_para, biblio)
+    return findings_para, biblio
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_load_sentences_with_spans_from_jsonl|bibliography|unknown_evidence|UNREACHABLE|__unresolved" scripts/run_paid_evaluator_scoring.py tests/scripts/test_run_paid_evaluator_scoring.py' in C:\POLARIS
+ succeeded in 642ms:
+scripts/run_paid_evaluator_scoring.py:55:    "UNREACHABLE",
+scripts/run_paid_evaluator_scoring.py:78:- UNREACHABLE: the citation pointer is broken (unknown source, span out-of-bound).
+scripts/run_paid_evaluator_scoring.py:81:{{"verdict": "VERIFIED" | "PARTIAL" | "UNSUPPORTED" | "FABRICATED" | "UNREACHABLE", "rationale": "<one short sentence with specific evidence>"}}
+scripts/run_paid_evaluator_scoring.py:140:        verdict = "UNREACHABLE"
+scripts/run_paid_evaluator_scoring.py:182:        # (unknown source_id or out-of-bound span), force UNREACHABLE
+scripts/run_paid_evaluator_scoring.py:190:                "verdict": "UNREACHABLE",
+scripts/run_paid_evaluator_scoring.py:244:    spans here. Use `_load_sentences_with_spans_from_jsonl` for the
+scripts/run_paid_evaluator_scoring.py:249:    in the output stream so downstream UNREACHABLE verdict can still
+scripts/run_paid_evaluator_scoring.py:251:    UNREACHABLE per rubric).
+scripts/run_paid_evaluator_scoring.py:285:def _load_sentences_with_spans_from_jsonl(
+scripts/run_paid_evaluator_scoring.py:360:        pairs = _load_sentences_with_spans_from_jsonl(
+tests/scripts/test_run_paid_evaluator_scoring.py:28:        "VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE",
+tests/scripts/test_run_paid_evaluator_scoring.py:101:        _load_sentences_with_spans_from_jsonl,
+tests/scripts/test_run_paid_evaluator_scoring.py:115:    pairs = _load_sentences_with_spans_from_jsonl(verified_path, pool_path)
+tests/scripts/test_run_paid_evaluator_scoring.py:124:    so downstream UNREACHABLE verdict can fire."""
+tests/scripts/test_run_paid_evaluator_scoring.py:126:        _load_sentences_with_spans_from_jsonl,
+tests/scripts/test_run_paid_evaluator_scoring.py:136:    pairs = _load_sentences_with_spans_from_jsonl(verified_path, pool_path)
+tests/scripts/test_run_paid_evaluator_scoring.py:144:        _load_sentences_with_spans_from_jsonl,
+tests/scripts/test_run_paid_evaluator_scoring.py:157:    pairs = _load_sentences_with_spans_from_jsonl(verified_path, pool_path)
+tests/scripts/test_run_paid_evaluator_scoring.py:163:    per_claim as UNREACHABLE verdict, NOT silently dropped + scored.
+tests/scripts/test_run_paid_evaluator_scoring.py:178:    assert result["per_claim"][0]["verdict"] == "UNREACHABLE"
+tests/scripts/test_run_paid_evaluator_scoring.py:181:    assert result["verdict_counts"]["UNREACHABLE"] == 1
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content scripts/run_paid_evaluator_scoring.py | Select-Object -Skip 230 -First 130' in C:\POLARIS
+ succeeded in 650ms:
+    return manifest
+
+
+def _load_sentences_with_spans(
+    report_path: Path,
+    pool_path: Path,
+) -> list[dict[str, str]]:
+    """Extract (sentence, span) pairs from token-bearing report + pool.
+
+    NOTE: this path expects a PRE-RESOLUTION verified-sentences artifact
+    that retains `[#ev:id:start-end]` tokens. The DELIVERED `report.md`
+    has those tokens stripped (`resolve_provenance_to_citations`) and
+    replaced with numbered `[N]` markers — that path returns empty
+    spans here. Use `_load_sentences_with_spans_from_jsonl` for the
+    canonical pre-resolution input.
+
+    Broken pointer preservation: invalid evidence_id or out-of-bound
+    span produces an empty span_chars but the sentence is preserved
+    in the output stream so downstream UNREACHABLE verdict can still
+    fire (the evaluator sees a sentence with no evidence and returns
+    UNREACHABLE per rubric).
+    """
+    from scripts.run_line_by_line_audit import (  # noqa: E402
+        _normalize_pool,
+        _PROVENANCE_TOKEN_RE,
+        _split_sentences,
+    )
+
+    pool = _normalize_pool(json.loads(pool_path.read_text(encoding="utf-8")))
+    sentences = _split_sentences(report_path.read_text(encoding="utf-8"))
+    pairs: list[dict[str, str]] = []
+    for sentence in sentences:
+        tokens = _PROVENANCE_TOKEN_RE.findall(sentence)
+        spans: list[str] = []
+        broken_pointers: list[str] = []
+        for ev_id, start_str, end_str in tokens:
+            if ev_id not in pool:
+                broken_pointers.append(f"unknown:{ev_id}")
+                continue
+            full = pool[ev_id].get("direct_quote", "")
+            start, end = int(start_str), int(end_str)
+            if 0 <= start <= end <= len(full):
+                spans.append(full[start:end])
+            else:
+                broken_pointers.append(f"oob:{ev_id}:{start}-{end}")
+        clean_sentence = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+        pairs.append({
+            "sentence": clean_sentence,
+            "span": " // ".join(spans),
+            "broken_pointers": " | ".join(broken_pointers),
+        })
+    return pairs
+
+
+def _load_sentences_with_spans_from_jsonl(
+    verified_path: Path,
+    pool_path: Path,
+) -> list[dict[str, str]]:
+    """Canonical input: JSONL of {sentence_text} or {sentence} per line
+    where each sentence retains its [#ev:...] tokens.
+    """
+    from scripts.run_line_by_line_audit import (  # noqa: E402
+        _normalize_pool,
+        _normalize_sentence,
+        _PROVENANCE_TOKEN_RE,
+    )
+
+    pool = _normalize_pool(json.loads(pool_path.read_text(encoding="utf-8")))
+    pairs: list[dict[str, str]] = []
+    for line in verified_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        record = json.loads(line)
+        sentence = _normalize_sentence(record)
+        if not sentence:
+            continue
+        tokens = _PROVENANCE_TOKEN_RE.findall(sentence)
+        spans: list[str] = []
+        broken_pointers: list[str] = []
+        for ev_id, start_str, end_str in tokens:
+            if ev_id not in pool:
+                broken_pointers.append(f"unknown:{ev_id}")
+                continue
+            full = pool[ev_id].get("direct_quote", "")
+            start, end = int(start_str), int(end_str)
+            if 0 <= start <= end <= len(full):
+                spans.append(full[start:end])
+            else:
+                broken_pointers.append(f"oob:{ev_id}:{start}-{end}")
+        clean_sentence = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+        pairs.append({
+            "sentence": clean_sentence,
+            "span": " // ".join(spans),
+            "broken_pointers": " | ".join(broken_pointers),
+        })
+    return pairs
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--report", type=Path,
+                        help="Path to a token-bearing artifact (NOT delivered report.md). See _load_sentences_with_spans docstring.")
+    parser.add_argument("--verified-sentences", type=Path,
+                        help="JSONL of {sentence_text} or {sentence}, canonical pre-resolution input.")
+    parser.add_argument("--pool", type=Path)
+    parser.add_argument("--goldset", type=Path,
+                        help="JSONL of {sentence, span} for direct scoring (skip --report+--pool).")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--live", action="store_true")
+    parser.add_argument("--evaluator-endpoint", type=str)
+    parser.add_argument("--evaluator-api-key", type=str)
+    parser.add_argument("--evaluator-model", type=str)
+    parser.add_argument("--framework", type=str, default="GRADE",
+                        help="Audit framework: GRADE, PRISMA, AMSTAR-2.")
+    args = parser.parse_args()
+
+    if args.goldset and args.goldset.exists():
+        pairs: list[dict[str, str]] = []
+        for line in args.goldset.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                pairs.append(json.loads(line))
+    elif args.verified_sentences and args.pool:
+        if not args.verified_sentences.exists() or not args.pool.exists():
+            print("ERROR: verified-sentences or pool path not found", file=sys.stderr)
+            return 1
+        pairs = _load_sentences_with_spans_from_jsonl(
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - id: P2-1
+    finding: "Section-scope metadata plumbing is slightly under-specified."
+    detail: "`_load_sentences_with_resolved_citations(...) -> list[str]` cannot itself carry `excluded_synthesis_sections` / `unrecognized_h2_sections`; implementation should either use an internal extractor returning `(sentences, scope_metadata)` or document that the CLI wrapper owns that metadata."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+35,556
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - id: P2-1
+    finding: "Section-scope metadata plumbing is slightly under-specified."
+    detail: "`_load_sentences_with_resolved_citations(...) -> list[str]` cannot itself carry `excluded_synthesis_sections` / `unrecognized_h2_sections`; implementation should either use an internal extractor returning `(sentences, scope_metadata)` or document that the CLI wrapper owns that metadata."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
