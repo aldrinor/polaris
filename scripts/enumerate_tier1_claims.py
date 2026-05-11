@@ -105,16 +105,26 @@ def build_enumeration(report_dir: Path, prefix: str) -> dict:
             claim_id = f"{prefix}-T1-{claim_idx:03d}"
             cited_nums = sorted({int(n) for n in CITATION_RE.findall(sentence)})
             cited_evidence: list[dict] = []
+            missing_nums: list[int] = []
             for n in cited_nums:
                 if n not in num_to_biblio:
+                    # P2-2 (Codex iter-1): flag rather than silently drop
+                    # so downstream readers know a cited [N] had no
+                    # bibliography entry — the report-side citation is
+                    # then dangling and should be surfaced for audit.
+                    missing_nums.append(n)
                     continue
                 biblio = num_to_biblio[n]
                 ev_id = biblio["evidence_id"]
                 pool_entry = ev_to_pool.get(ev_id, {})
                 span_text = (pool_entry.get("direct_quote") or "").strip()
-                # Cap span_text at ~600 chars for audit readability
-                if len(span_text) > 600:
-                    span_text = span_text[:600]
+                # No truncation: span_text is the audit ground truth and
+                # must include the full captured direct_quote (typically
+                # 1.5K-9K chars per evidence_pool). The earlier 600-char
+                # truncation produced false UNSUPPORTED verdicts when
+                # the supporting figure appeared later in the captured
+                # quote (Codex P1 on iter 1, e.g. Q1-T1-003 $2B Budget
+                # 2024, Q4-T1-011 0.6%/$2.7-4.3B/$1.6B).
                 cited_evidence.append({
                     "evidence_id": ev_id,
                     "bibliography_num": n,
@@ -124,12 +134,15 @@ def build_enumeration(report_dir: Path, prefix: str) -> dict:
                     "title": biblio.get("statement", "")[:160],
                     "span_text": span_text,
                 })
-            claims.append({
+            claim_dict = {
                 "claim_id": claim_id,
                 "section": section_title,
                 "sentence": sentence,
                 "cited_evidence": cited_evidence,
-            })
+            }
+            if missing_nums:
+                claim_dict["missing_biblio_nums"] = missing_nums
+            claims.append(claim_dict)
 
     return {
         "schema_version": "tier1_v2",
@@ -165,6 +178,8 @@ def emit_yaml(doc: dict, out_path: Path) -> None:
             lines.append("        span_text: |")
             for body_line in (ev["span_text"] or "").splitlines() or [""]:
                 lines.append(f"          {body_line}")
+        if "missing_biblio_nums" in c:
+            lines.append(f"    missing_biblio_nums: {c['missing_biblio_nums']}")
         lines.append("    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence")
         lines.append("")
     out_path.write_text("\n".join(lines), encoding="utf-8")

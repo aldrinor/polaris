@@ -7,7 +7,7 @@ approval: never
 sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
 reasoning effort: xhigh
 reasoning summaries: none
-session id: 019e1897-a2eb-7521-8b33-50692affad4d
+session id: 019e18ad-8f0d-7431-87b0-75d138662ba4
 --------
 user
 Independent Tier-1 audit of 7 Q4 Canadian housing supply claims. Output YAML records only.
@@ -45,7 +45,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q4 batch 5: claims 29-35
+# Q4 batch 5: claims 29-35 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q4-T1-029
@@ -59,7 +59,19 @@ claims:
         span: '0-500'
         title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
         span_text: |
-          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growing-canada/ | | Published Date: | February 4, 2025 | | Accessed Date: | May 11, 2026 | Outline Outline Related Topics For all media inquiries, including requests for reports or interviews: Introduction and Overview Canada’s housing sector faces unprecedented challenges, with skyrocketing prices, acute affordability crises, and a growing mismatch between housing supply and population needs. Major urban centers like Toronto and Vancouver have been particularly hard-hit, with housing costs outpacing income growth. This has pushed homeownership beyond the reach of many middle-class Canadians and created significant barriers for first-time buyers and young families. On November 14, 2024, against this complex backdrop, the C.D. Howe Institute – with the support of sponsors CREA-ACI, FRPO, and Fitzrovia – convened a conference on “Housing Policy for a Growing Canada.” The sessions brought togethe
+          
+          [...]
+          
+          f new projects – a “math equation” that currently doesn’t work for developers. The speaker detailed several compounding factors that have created a perfect storm for stagnation in housing supply. On one hand, rents have dropped by approximately 8 to 8.5 percent in many areas, reducing expected revenues. The speaker mentioned that while construction costs have stabilized, significant back-end expenses, such as mechanical systems, continue to climb. Combined with high interest rates and squeezed prof
+          
+          [...]
+          
+          ing, like California’s Accessory Dwelling Units (ADUs),[10](javascript:void(0))An ADU is accessory to a primary residence with complete independent living facilities that does not require new land or costly infrastructure. In Government Code Section 65852.150, the California Legislature found and declared that, among other things, allowing ADUs in zones that allow single-family and multifamily uses provides additional rental housing and is an essential component in addressing California’s housing needs. 
+          
+          [...]
+          
+          sing Canada’s housing challenges called the Blueprint for More and Better Housing. The task force includes representatives from developers, former government officials, academics, and industry professionals. It is focused on the urgent need to build 5.8 million homes within a short period. A major concern was that this large-scale construction could add 100 megatons of greenhouse gas emissions, further burdening industries already striving to lower their environmental impact. The speaker emphasized
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-030
@@ -73,7 +85,7 @@ claims:
         span: '0-500'
         title: "Why demand-side interventions need to be paired with housing supply"
         span_text: |
-          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, prices will rise. In his latest article, CMHC's Chief Economist, Mathieu Laberge highlights new modeling analyzing the tug-of-war between demand-side and supply-side housing interventions. Quote: "Helping more Canadians access homeownership is an important goal, but how we do it matters", said Mathieu Laberge, Chief Economist, CMHC. "Without careful targeting and a matching increase in housing supply, demand-side measures can end up increasing costs for a broader group of households." Read the full article on [CMHC's website](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=329659968&u=https%3A%2F%2Fwww.cmhc-schl.gc.ca%2Fen%2Fobserver%2F2026%2Fwhy-demand-side-interventions-need-to-be-targeted-and-offset-with-supply&a=CMHC%27s+website) Related links: - [Why Canada's housing supply gap exists and how to fix it | CMHC](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=211
       - evidence_id: ev_019
         bibliography_num: 8
         url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
@@ -81,7 +93,7 @@ claims:
         span: '0-500'
         title: "Why demand-side interventions need to be paired with housing supply"
         span_text: |
-          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, prices will rise. In his latest article, CMHC's Chief Economist, Mathieu Laberge highlights new modeling analyzing the tug-of-war between demand-side and supply-side housing interventions. Quote: "Helping more Canadians access homeownership is an important goal, but how we do it matters", said Mathieu Laberge, Chief Economist, CMHC. "Without careful targeting and a matching increase in housing supply, demand-side measures can end up increasing costs for a broader group of households." Read the full article on [CMHC's website](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=329659968&u=https%3A%2F%2Fwww.cmhc-schl.gc.ca%2Fen%2Fobserver%2F2026%2Fwhy-demand-side-interventions-need-to-be-targeted-and-offset-with-supply&a=CMHC%27s+website) Related links: - [Why Canada's housing supply gap exists and how to fix it | CMHC](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=211
       - evidence_id: ev_020
         bibliography_num: 9
         url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
@@ -89,7 +101,15 @@ claims:
         span: '0-500'
         title: "Targeted demand interventions need supply for housing market ..."
         span_text: |
-          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they may worsen housing affordability, instead of improving access to housing. One key learning from this new modeling is that while our ambitions to help Canadians find the right housing must remain a priority, the means to achieve them must be balanced: Demand-side supports must be targeted and accompanied by sufficient supply. How can direct support to aspiring homebuyers reduce affordability? Well-intentioned demand-side interventions can make housing less affordable due to pent-up demand (what economists call induced demand). High housing prices can delay household formation — we all know of young people staying longer at their parents’ home or friends extending apartment-sharing arrangements because they can’t afford housing on their own. In a more favourable housing market, these people would form their own households, but with high housing prices, they simply can’t afford to. This is ca
+          
+          [...]
+          
+          ces, they simply can’t afford to. This is called household suppression — the basis of pent-up demand. This is a well-documented phenomenon in academic literature and is also [considered by other Canadian housing](https://institute.smartprosperity.ca/1.5MillionMoreHomes) researchers. A demand-side intervention would try to correct this issue by either increasing household income or reducing housing costs, enabling people to afford housing of their own. Naturally, these people would start looking for
+          
+          [...]
+          
+          e over time as additional demand from new homebuyers would put upward pressure on prices. CMHC’s modeling shows the increase in demand from the new homeowners benefitting the intervention means every other homebuyer that doesn't qualify would face a 0.6% increase in house prices. The estimated economic cost of this intervention would be $2.7 billion to $4.3 billion in direct spending for the intervention itself and $1.6 billion in unintended increased costs for all homebuyers that are not supported by the new intervention.
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-031
@@ -103,7 +123,15 @@ claims:
         span: '0-500'
         title: "Targeted demand interventions need supply for housing market ..."
         span_text: |
-          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they may worsen housing affordability, instead of improving access to housing. One key learning from this new modeling is that while our ambitions to help Canadians find the right housing must remain a priority, the means to achieve them must be balanced: Demand-side supports must be targeted and accompanied by sufficient supply. How can direct support to aspiring homebuyers reduce affordability? Well-intentioned demand-side interventions can make housing less affordable due to pent-up demand (what economists call induced demand). High housing prices can delay household formation — we all know of young people staying longer at their parents’ home or friends extending apartment-sharing arrangements because they can’t afford housing on their own. In a more favourable housing market, these people would form their own households, but with high housing prices, they simply can’t afford to. This is ca
+          
+          [...]
+          
+          ces, they simply can’t afford to. This is called household suppression — the basis of pent-up demand. This is a well-documented phenomenon in academic literature and is also [considered by other Canadian housing](https://institute.smartprosperity.ca/1.5MillionMoreHomes) researchers. A demand-side intervention would try to correct this issue by either increasing household income or reducing housing costs, enabling people to afford housing of their own. Naturally, these people would start looking for
+          
+          [...]
+          
+          e over time as additional demand from new homebuyers would put upward pressure on prices. CMHC’s modeling shows the increase in demand from the new homeowners benefitting the intervention means every other homebuyer that doesn't qualify would face a 0.6% increase in house prices. The estimated economic cost of this intervention would be $2.7 billion to $4.3 billion in direct spending for the intervention itself and $1.6 billion in unintended increased costs for all homebuyers that are not supported by the new intervention.
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-032
@@ -117,7 +145,19 @@ claims:
         span: '0-500'
         title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
         span_text: |
-          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growing-canada/ | | Published Date: | February 4, 2025 | | Accessed Date: | May 11, 2026 | Outline Outline Related Topics For all media inquiries, including requests for reports or interviews: Introduction and Overview Canada’s housing sector faces unprecedented challenges, with skyrocketing prices, acute affordability crises, and a growing mismatch between housing supply and population needs. Major urban centers like Toronto and Vancouver have been particularly hard-hit, with housing costs outpacing income growth. This has pushed homeownership beyond the reach of many middle-class Canadians and created significant barriers for first-time buyers and young families. On November 14, 2024, against this complex backdrop, the C.D. Howe Institute – with the support of sponsors CREA-ACI, FRPO, and Fitzrovia – convened a conference on “Housing Policy for a Growing Canada.” The sessions brought togethe
+          
+          [...]
+          
+          f new projects – a “math equation” that currently doesn’t work for developers. The speaker detailed several compounding factors that have created a perfect storm for stagnation in housing supply. On one hand, rents have dropped by approximately 8 to 8.5 percent in many areas, reducing expected revenues. The speaker mentioned that while construction costs have stabilized, significant back-end expenses, such as mechanical systems, continue to climb. Combined with high interest rates and squeezed prof
+          
+          [...]
+          
+          ing, like California’s Accessory Dwelling Units (ADUs),[10](javascript:void(0))An ADU is accessory to a primary residence with complete independent living facilities that does not require new land or costly infrastructure. In Government Code Section 65852.150, the California Legislature found and declared that, among other things, allowing ADUs in zones that allow single-family and multifamily uses provides additional rental housing and is an essential component in addressing California’s housing needs. 
+          
+          [...]
+          
+          sing Canada’s housing challenges called the Blueprint for More and Better Housing. The task force includes representatives from developers, former government officials, academics, and industry professionals. It is focused on the urgent need to build 5.8 million homes within a short period. A major concern was that this large-scale construction could add 100 megatons of greenhouse gas emissions, further burdening industries already striving to lower their environmental impact. The speaker emphasized
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-033
@@ -131,7 +171,19 @@ claims:
         span: '0-500'
         title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
         span_text: |
-          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growing-canada/ | | Published Date: | February 4, 2025 | | Accessed Date: | May 11, 2026 | Outline Outline Related Topics For all media inquiries, including requests for reports or interviews: Introduction and Overview Canada’s housing sector faces unprecedented challenges, with skyrocketing prices, acute affordability crises, and a growing mismatch between housing supply and population needs. Major urban centers like Toronto and Vancouver have been particularly hard-hit, with housing costs outpacing income growth. This has pushed homeownership beyond the reach of many middle-class Canadians and created significant barriers for first-time buyers and young families. On November 14, 2024, against this complex backdrop, the C.D. Howe Institute – with the support of sponsors CREA-ACI, FRPO, and Fitzrovia – convened a conference on “Housing Policy for a Growing Canada.” The sessions brought togethe
+          
+          [...]
+          
+          f new projects – a “math equation” that currently doesn’t work for developers. The speaker detailed several compounding factors that have created a perfect storm for stagnation in housing supply. On one hand, rents have dropped by approximately 8 to 8.5 percent in many areas, reducing expected revenues. The speaker mentioned that while construction costs have stabilized, significant back-end expenses, such as mechanical systems, continue to climb. Combined with high interest rates and squeezed prof
+          
+          [...]
+          
+          ing, like California’s Accessory Dwelling Units (ADUs),[10](javascript:void(0))An ADU is accessory to a primary residence with complete independent living facilities that does not require new land or costly infrastructure. In Government Code Section 65852.150, the California Legislature found and declared that, among other things, allowing ADUs in zones that allow single-family and multifamily uses provides additional rental housing and is an essential component in addressing California’s housing needs. 
+          
+          [...]
+          
+          sing Canada’s housing challenges called the Blueprint for More and Better Housing. The task force includes representatives from developers, former government officials, academics, and industry professionals. It is focused on the urgent need to build 5.8 million homes within a short period. A major concern was that this large-scale construction could add 100 megatons of greenhouse gas emissions, further burdening industries already striving to lower their environmental impact. The speaker emphasized
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-034
@@ -145,7 +197,15 @@ claims:
         span: '0-500'
         title: "Targeted demand interventions need supply for housing market ..."
         span_text: |
-          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they may worsen housing affordability, instead of improving access to housing. One key learning from this new modeling is that while our ambitions to help Canadians find the right housing must remain a priority, the means to achieve them must be balanced: Demand-side supports must be targeted and accompanied by sufficient supply. How can direct support to aspiring homebuyers reduce affordability? Well-intentioned demand-side interventions can make housing less affordable due to pent-up demand (what economists call induced demand). High housing prices can delay household formation — we all know of young people staying longer at their parents’ home or friends extending apartment-sharing arrangements because they can’t afford housing on their own. In a more favourable housing market, these people would form their own households, but with high housing prices, they simply can’t afford to. This is ca
+          
+          [...]
+          
+          ces, they simply can’t afford to. This is called household suppression — the basis of pent-up demand. This is a well-documented phenomenon in academic literature and is also [considered by other Canadian housing](https://institute.smartprosperity.ca/1.5MillionMoreHomes) researchers. A demand-side intervention would try to correct this issue by either increasing household income or reducing housing costs, enabling people to afford housing of their own. Naturally, these people would start looking for
+          
+          [...]
+          
+          e over time as additional demand from new homebuyers would put upward pressure on prices. CMHC’s modeling shows the increase in demand from the new homeowners benefitting the intervention means every other homebuyer that doesn't qualify would face a 0.6% increase in house prices. The estimated economic cost of this intervention would be $2.7 billion to $4.3 billion in direct spending for the intervention itself and $1.6 billion in unintended increased costs for all homebuyers that are not supported by the new intervention.
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-035
@@ -159,7 +219,15 @@ claims:
         span: '0-500'
         title: "Targeted demand interventions need supply for housing market ..."
         span_text: |
-          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they may worsen housing affordability, instead of improving access to housing. One key learning from this new modeling is that while our ambitions to help Canadians find the right housing must remain a priority, the means to achieve them must be balanced: Demand-side supports must be targeted and accompanied by sufficient supply. How can direct support to aspiring homebuyers reduce affordability? Well-intentioned demand-side interventions can make housing less affordable due to pent-up demand (what economists call induced demand). High housing prices can delay household formation — we all know of young people staying longer at their parents’ home or friends extending apartment-sharing arrangements because they can’t afford housing on their own. In a more favourable housing market, these people would form their own households, but with high housing prices, they simply can’t afford to. This is ca
+          
+          [...]
+          
+          ces, they simply can’t afford to. This is called household suppression — the basis of pent-up demand. This is a well-documented phenomenon in academic literature and is also [considered by other Canadian housing](https://institute.smartprosperity.ca/1.5MillionMoreHomes) researchers. A demand-side intervention would try to correct this issue by either increasing household income or reducing housing costs, enabling people to afford housing of their own. Naturally, these people would start looking for
+          
+          [...]
+          
+          e over time as additional demand from new homebuyers would put upward pressure on prices. CMHC’s modeling shows the increase in demand from the new homeowners benefitting the intervention means every other homebuyer that doesn't qualify would face a 0.6% increase in house prices. The estimated economic cost of this intervention would be $2.7 billion to $4.3 billion in direct spending for the intervention itself and $1.6 billion in unintended increased costs for all homebuyers that are not supported by the new intervention.
       - evidence_id: ev_003
         bibliography_num: 15
         url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
@@ -167,7 +235,7 @@ claims:
         span: '0-500'
         title: "Targeted demand interventions need supply for housing market ..."
         span_text: |
-          Title: Good intentions gone rogue: Balancing housing demand & supply URL Source: https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply Markdown Content: # Targeted demand interventions need supply for housing market affordability | CMHC (https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply#maincontent) [![Image 2: CMHC Home](https://assets.cmhc-schl.gc.ca/sites/cmhc/shared/imgs/chevron-en.png?rev=19e0635b-89b7-466b-a1b9-5255bd257bd5&h=142&iar=0&w=300)Canada Mortgage and Ho
+          Title: Good intentions gone rogue: Balancing housing demand & supply URL Source: https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply Markdown Content: # Targeted demand interventions need supply for housing market affordability | CMHC (https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply#maincontent) [![Image 2: CMHC Home](https://assets.cmhc-schl.gc.ca/sites/cmhc/shared/imgs/chevron-en.png?rev=19e0635b-89b7-466b-a1b9-5255bd257bd5&h=142&iar=0&w=300)Canada Mortgage and Housing Corporation](https://www.cmhc-schl.gc.ca/en) * [Sign In](https://www.cmhc-schl.gc.ca/api/sitecore/B2CAuthentication/SignIn) or [Register](https://www.cmhc-schl.gc.ca/cmhc-registration) * [Français](https://www.cmhc-schl.gc.ca/observateur-logement/2026/pourquoi-les-mesures-axees-sur-la-demande-doivent-etre-ciblees-et-saccompagner-dune-hausse-de-loffre) * [![Image 3](https://assets.cmhc-schl.gc.ca/sf/project/cmhc/home/hamburger.png?rev=209c76e3-4bb0-457a-9f8f-4452da7a80f9&h=15&iar=0&w=19) MENU](https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply) [](https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply) [![Image 4](https://assets.cmhc-schl.gc.ca/sf/project/cmhc/home/hamburger.png?rev=209c76e3-4bb0-457a-9f8f-4452da7a80f9&h=15&iar=0&w=19)MENU](https://www.cmhc-sch
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
@@ -192,115 +260,119 @@ batch_summary:
 Output the YAML directly. No commentary outside.
 
 codex
+```yaml
 - claim_id: Q4-T1-029
   claim_type: economic
-  materiality: major
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span only shows C.D. Howe page metadata and the title 'Housing Policy for a Growing Canada,' with no mention of a developer 'math equation,' rents, construction costs, or interest rates."
-  reviewer_confidence: 0.92
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states that a 'math equation' for new projects does not work for developers, citing rent drops, stabilized but still high construction-related costs, and high interest rates."
+  reviewer_confidence: 0.94
 - claim_id: Q4-T1-030
   claim_type: economic
   materiality: major
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The CMHC span says demand-side interventions directly help households, that demand without proportionate supply increases prices, and that new CMHC modeling shows this dynamic."
-  reviewer_confidence: 0.86
+  rationale: "The CMHC span says demand-side interventions may worsen affordability unless targeted and accompanied by sufficient supply."
+  reviewer_confidence: 0.95
 - claim_id: Q4-T1-031
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The cited span discusses CMHC modeling of demand-side interventions but does not show the claimed $2.7 billion to $4.3 billion direct cost or $1.6 billion unintended cost figures."
-  reviewer_confidence: 0.95
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly gives $2.7 billion to $4.3 billion in direct spending and $1.6 billion in unintended increased costs for unsupported homebuyers."
+  reviewer_confidence: 0.98
 - claim_id: Q4-T1-032
-  claim_type: economic
-  materiality: minor
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span only provides C.D. Howe publication metadata and does not mention first-time buyers, young families, urban centers, incomes, or middle-class homeownership."
-  reviewer_confidence: 0.94
+  claim_type: background
+  materiality: background
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says Toronto and Vancouver housing costs have outpaced income growth, pushing homeownership beyond many middle-class Canadians and creating barriers for first-time buyers and young families."
+  reviewer_confidence: 0.93
 - claim_id: Q4-T1-033
-  claim_type: economic
+  claim_type: background
   materiality: minor
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span identifies the C.D. Howe publication but contains no statement about barriers for first-time buyers."
-  reviewer_confidence: 0.95
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span directly says this has created significant barriers for first-time buyers and young families."
+  reviewer_confidence: 0.92
 - claim_id: Q4-T1-034
-  claim_type: mechanism
+  claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The CMHC span supports the mechanism that demand increases without proportionate supply raise prices, but it does not explicitly mention interventions that increase household income or reduce housing costs correcting suppressed demand."
-  reviewer_confidence: 0.82
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explains household suppression, says demand-side interventions may increase income or reduce housing costs, and states added demand can put upward pressure on prices without proportionate supply."
+  reviewer_confidence: 0.94
 - claim_id: Q4-T1-035
-  claim_type: guideline
+  claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The CMHC spans support pairing demand-side interventions with proportionate supply and the title references targeted demand interventions, but the visible text is truncated before explicitly stating the full recommendation to target supports and avoid broader affordability worsening."
-  reviewer_confidence: 0.78
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The CMHC span says demand-side supports must be targeted and accompanied by sufficient supply and may otherwise worsen affordability for broader groups."
+  reviewer_confidence: 0.91
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 1, PARTIAL: 2, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 1, partial: 3, no: 3}
-  notable: ["Claims relying on C.D. Howe span ev_015 are unsupported because the visible span contains only page metadata, not substantive claim text.", "Q4-T1-031 cites CMHC modeling but the claimed dollar figures are absent from the visible span."]
+  per_verdict: {VERIFIED: 7, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["All seven claims are supported by the provided span_text; Q4-T1-031 contains the clearest explicit figures."]
+```
 tokens used
-6,084
+8,233
+```yaml
 - claim_id: Q4-T1-029
   claim_type: economic
-  materiality: major
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span only shows C.D. Howe page metadata and the title 'Housing Policy for a Growing Canada,' with no mention of a developer 'math equation,' rents, construction costs, or interest rates."
-  reviewer_confidence: 0.92
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states that a 'math equation' for new projects does not work for developers, citing rent drops, stabilized but still high construction-related costs, and high interest rates."
+  reviewer_confidence: 0.94
 - claim_id: Q4-T1-030
   claim_type: economic
   materiality: major
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The CMHC span says demand-side interventions directly help households, that demand without proportionate supply increases prices, and that new CMHC modeling shows this dynamic."
-  reviewer_confidence: 0.86
+  rationale: "The CMHC span says demand-side interventions may worsen affordability unless targeted and accompanied by sufficient supply."
+  reviewer_confidence: 0.95
 - claim_id: Q4-T1-031
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The cited span discusses CMHC modeling of demand-side interventions but does not show the claimed $2.7 billion to $4.3 billion direct cost or $1.6 billion unintended cost figures."
-  reviewer_confidence: 0.95
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly gives $2.7 billion to $4.3 billion in direct spending and $1.6 billion in unintended increased costs for unsupported homebuyers."
+  reviewer_confidence: 0.98
 - claim_id: Q4-T1-032
-  claim_type: economic
-  materiality: minor
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span only provides C.D. Howe publication metadata and does not mention first-time buyers, young families, urban centers, incomes, or middle-class homeownership."
-  reviewer_confidence: 0.94
+  claim_type: background
+  materiality: background
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says Toronto and Vancouver housing costs have outpaced income growth, pushing homeownership beyond many middle-class Canadians and creating barriers for first-time buyers and young families."
+  reviewer_confidence: 0.93
 - claim_id: Q4-T1-033
-  claim_type: economic
+  claim_type: background
   materiality: minor
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span identifies the C.D. Howe publication but contains no statement about barriers for first-time buyers."
-  reviewer_confidence: 0.95
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span directly says this has created significant barriers for first-time buyers and young families."
+  reviewer_confidence: 0.92
 - claim_id: Q4-T1-034
-  claim_type: mechanism
+  claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The CMHC span supports the mechanism that demand increases without proportionate supply raise prices, but it does not explicitly mention interventions that increase household income or reduce housing costs correcting suppressed demand."
-  reviewer_confidence: 0.82
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explains household suppression, says demand-side interventions may increase income or reduce housing costs, and states added demand can put upward pressure on prices without proportionate supply."
+  reviewer_confidence: 0.94
 - claim_id: Q4-T1-035
-  claim_type: guideline
+  claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The CMHC spans support pairing demand-side interventions with proportionate supply and the title references targeted demand interventions, but the visible text is truncated before explicitly stating the full recommendation to target supports and avoid broader affordability worsening."
-  reviewer_confidence: 0.78
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The CMHC span says demand-side supports must be targeted and accompanied by sufficient supply and may otherwise worsen affordability for broader groups."
+  reviewer_confidence: 0.91
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 1, PARTIAL: 2, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 1, partial: 3, no: 3}
-  notable: ["Claims relying on C.D. Howe span ev_015 are unsupported because the visible span contains only page metadata, not substantive claim text.", "Q4-T1-031 cites CMHC modeling but the claimed dollar figures are absent from the visible span."]
+  per_verdict: {VERIFIED: 7, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["All seven claims are supported by the provided span_text; Q4-T1-031 contains the clearest explicit figures."]
+```

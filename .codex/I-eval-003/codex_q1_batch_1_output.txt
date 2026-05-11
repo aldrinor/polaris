@@ -7,7 +7,7 @@ approval: never
 sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
 reasoning effort: xhigh
 reasoning summaries: none
-session id: 019e1888-3a91-7e70-9e71-c4bfa09dec9a
+session id: 019e18a1-b04d-7ac2-803f-61fb535c6326
 --------
 user
 Independent Tier-1 audit of 7 Q1 AI Sovereignty claims. Output YAML records only.
@@ -45,7 +45,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q1 batch 1: claims 1-7
+# Q1 batch 1: claims 1-7 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q1-T1-001
@@ -59,7 +59,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
         span_text: |
-          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual property while enabling made-in-Canada AI solutions. The strategy comprises three complementary elements. The first, mobilising private sector investment, allocates up to CAD $700 million through the AI Compute Challenge, which seeks proposals from companies, consortiums and academic-industry partnerships to establish commercial AI data-centre solutions in Canada. Projects must build or expand AI-specific data centre capacity, offer flexible and affordable compute, contribute to anchoring Canadian AI companies, and advance sustainable solutions. The second element, building public supercomputing infrastructure, commits up to CAD $1 billion, including a new state-of-the-art AI supercomputing system through the AI Sovereign Compute Infrastructure Program (SCIP), a smaller secure facility led by Shared Services Canada and the National Research Council for government and industry R&D includin
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-002
@@ -73,7 +73,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
         span_text: |
-          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual property while enabling made-in-Canada AI solutions. The strategy comprises three complementary elements. The first, mobilising private sector investment, allocates up to CAD $700 million through the AI Compute Challenge, which seeks proposals from companies, consortiums and academic-industry partnerships to establish commercial AI data-centre solutions in Canada. Projects must build or expand AI-specific data centre capacity, offer flexible and affordable compute, contribute to anchoring Canadian AI companies, and advance sustainable solutions. The second element, building public supercomputing infrastructure, commits up to CAD $1 billion, including a new state-of-the-art AI supercomputing system through the AI Sovereign Compute Infrastructure Program (SCIP), a smaller secure facility led by Shared Services Canada and the National Research Council for government and industry R&D includin
       - evidence_id: ev_010
         bibliography_num: 2
         url: "https://ised-isde.canada.ca/site/ised/en/canadian-sovereign-ai-compute-strategy"
@@ -81,7 +81,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy"
         span_text: |
-          To strengthen Canada's position as a global leader in artificial intelligence (AI), it is essential for Canadian AI industries and researchers to have access to affordable, cutting‑edge compute infrastructure. By boosting access to powerful computing resources right here in Canada, we can drive innovation, create new opportunities and ensure that Canada stays competitive in the global AI race. What is AI compute? AI compute refers to the computational resources required for AI systems to perform tasks, such as processing data, running algorithms and training machine learning models. In other w
+          To strengthen Canada's position as a global leader in artificial intelligence (AI), it is essential for Canadian AI industries and researchers to have access to affordable, cutting‑edge compute infrastructure. By boosting access to powerful computing resources right here in Canada, we can drive innovation, create new opportunities and ensure that Canada stays competitive in the global AI race. What is AI compute? AI compute refers to the computational resources required for AI systems to perform tasks, such as processing data, running algorithms and training machine learning models. In other words, AI compute is the technology that powers AI. More compute power means faster and more accurate results. And that means more innovation, more productivity and more opportunity for Canadian AI companies, researchers and talent. That is why the Government of Canada is committed to building a strong and secure AI compute foundation. Budget 2024 announced $2 billion over five years, starting in 2024–25, to launch new initiatives that will give Canadian researchers and AI companies the tools they need to be competitive globally. Over the summer of 2024, the government launched a public consultation to inform the design and implementation of these two initiatives. We heard from more than 1,000 stakeholders from research, industry and civil society across Canada through in‑person and virtual round table discussions and an online survey. Read the [What We Heard Report](/site/ised/en/what-we
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-003
@@ -95,7 +95,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy"
         span_text: |
-          To strengthen Canada's position as a global leader in artificial intelligence (AI), it is essential for Canadian AI industries and researchers to have access to affordable, cutting‑edge compute infrastructure. By boosting access to powerful computing resources right here in Canada, we can drive innovation, create new opportunities and ensure that Canada stays competitive in the global AI race. What is AI compute? AI compute refers to the computational resources required for AI systems to perform tasks, such as processing data, running algorithms and training machine learning models. In other w
+          To strengthen Canada's position as a global leader in artificial intelligence (AI), it is essential for Canadian AI industries and researchers to have access to affordable, cutting‑edge compute infrastructure. By boosting access to powerful computing resources right here in Canada, we can drive innovation, create new opportunities and ensure that Canada stays competitive in the global AI race. What is AI compute? AI compute refers to the computational resources required for AI systems to perform tasks, such as processing data, running algorithms and training machine learning models. In other words, AI compute is the technology that powers AI. More compute power means faster and more accurate results. And that means more innovation, more productivity and more opportunity for Canadian AI companies, researchers and talent. That is why the Government of Canada is committed to building a strong and secure AI compute foundation. Budget 2024 announced $2 billion over five years, starting in 2024–25, to launch new initiatives that will give Canadian researchers and AI companies the tools they need to be competitive globally. Over the summer of 2024, the government launched a public consultation to inform the design and implementation of these two initiatives. We heard from more than 1,000 stakeholders from research, industry and civil society across Canada through in‑person and virtual round table discussions and an online survey. Read the [What We Heard Report](/site/ised/en/what-we
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-004
@@ -109,7 +109,7 @@ claims:
         span: '0-500'
         title: "Government of Canada launches call for proposals ..."
         span_text: |
-          5 February 2026 • 4 minute read Government of Canada launches call for proposals for large scale sovereign AI data centres The Government of Canada has launched a national process to identify and advance large‑scale sovereign AI data centre projects, marking a significant step in expanding the country’s AI infrastructure and strengthening its innovation ecosystem. As artificial intelligence becomes increasingly central to economic growth, the federal government aims to ensure that Canadian researchers, businesses, and institutions have access to the computing capacity needed to remain competit
+          5 February 2026 • 4 minute read Government of Canada launches call for proposals for large scale sovereign AI data centres The Government of Canada has launched a national process to identify and advance large‑scale sovereign AI data centre projects, marking a significant step in expanding the country’s AI infrastructure and strengthening its innovation ecosystem. As artificial intelligence becomes increasingly central to economic growth, the federal government aims to ensure that Canadian researchers, businesses, and institutions have access to the computing capacity needed to remain competitive. This initiative aligns with Budget 2025, which proposes $925.6 million over five years starting in 2025–26 to establish a sovereign, large‑scale public AI computing infrastructure. The investment is intended to expand national AI compute availability and ensure secure, sovereign access for both public‑ and private‑sector research, positioning Canada to compete globally. Through this intake, led by the Minister of Artificial Intelligence and Digital Innovation, the federal government is engaging with industry to identify promising projects, explore potential support mechanisms, and coordinate across jurisdictions to enable the development of large‑scale AI infrastructure. Overview of the initiative Canada has launched a one‑month federal intake to identify and advance “sovereign, large‑scale AI data centres” exceeding 100 megawatts (MW), with selected proponents entering memoranda of
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-005
@@ -123,7 +123,7 @@ claims:
         span: '0-500'
         title: "U.S. cites Canada's cloud sovereignty push as a trade irritant"
         span_text: |
-          OTTAWA — The United States has flagged Canada’s early interest in a sovereign cloud that would bar foreign governments from accessing data without consent as a potential trade irritant. U.S. Trade Representative Jamieson Greer [included](https://ustr.gov/sites/default/files/files/Press/Releases/2026/2026%20NTE%20Report%20_%20Final.pdf) it among several procurement issues in the annual report on foreign trade barriers he submitted Tuesday to U.S. Congress and President Donald Trump. Talking Points As always, Canada’s tightly controlled [dairy market](https://thelogic.co/news/dairy-trade-us-cana
+          OTTAWA — The United States has flagged Canada’s early interest in a sovereign cloud that would bar foreign governments from accessing data without consent as a potential trade irritant. U.S. Trade Representative Jamieson Greer [included](https://ustr.gov/sites/default/files/files/Press/Releases/2026/2026%20NTE%20Report%20_%20Final.pdf) it among several procurement issues in the annual report on foreign trade barriers he submitted Tuesday to U.S. Congress and President Donald Trump. Talking Points As always, Canada’s tightly controlled [dairy market](https://thelogic.co/news/dairy-trade-us-canada-tariffs/) got a mention. So did the Online Streaming Act and the Online News Act, which Greer has [flagged](https://thelogic.co/briefing/what-trump-wants-from-canada-dairy-market-access-digital-services-reform/) as priorities for the coming review of the North American trade pact. The federal government’s [Buy Canadian](https://thelogic.co/news/buy-canadian-policy-lets-foreign-owned-firms-qualify-as-canadian-lightbound-says/) policy for contracts over $25 million is a new one this year, as are moves by some provinces to keep U.S. alcohol [out](https://thelogic.co/news/the-big-read/wine-trade-war-canada-united-states/) of liquor stores. The [long wait](https://thelogic.co/briefing/trump-threatens-to-decertify-and-slap-50-tariff-on-canadian-aircraft/) for regulatory approval of aircraft and a proposed change to the disclosure rules regarding fragrance allergens in cosmetics also debuted
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-006
@@ -137,7 +137,7 @@ claims:
         span: '0-500'
         title: "U.S. cites Canada's cloud sovereignty push as a trade irritant"
         span_text: |
-          OTTAWA — The United States has flagged Canada’s early interest in a sovereign cloud that would bar foreign governments from accessing data without consent as a potential trade irritant. U.S. Trade Representative Jamieson Greer [included](https://ustr.gov/sites/default/files/files/Press/Releases/2026/2026%20NTE%20Report%20_%20Final.pdf) it among several procurement issues in the annual report on foreign trade barriers he submitted Tuesday to U.S. Congress and President Donald Trump. Talking Points As always, Canada’s tightly controlled [dairy market](https://thelogic.co/news/dairy-trade-us-cana
+          OTTAWA — The United States has flagged Canada’s early interest in a sovereign cloud that would bar foreign governments from accessing data without consent as a potential trade irritant. U.S. Trade Representative Jamieson Greer [included](https://ustr.gov/sites/default/files/files/Press/Releases/2026/2026%20NTE%20Report%20_%20Final.pdf) it among several procurement issues in the annual report on foreign trade barriers he submitted Tuesday to U.S. Congress and President Donald Trump. Talking Points As always, Canada’s tightly controlled [dairy market](https://thelogic.co/news/dairy-trade-us-canada-tariffs/) got a mention. So did the Online Streaming Act and the Online News Act, which Greer has [flagged](https://thelogic.co/briefing/what-trump-wants-from-canada-dairy-market-access-digital-services-reform/) as priorities for the coming review of the North American trade pact. The federal government’s [Buy Canadian](https://thelogic.co/news/buy-canadian-policy-lets-foreign-owned-firms-qualify-as-canadian-lightbound-says/) policy for contracts over $25 million is a new one this year, as are moves by some provinces to keep U.S. alcohol [out](https://thelogic.co/news/the-big-read/wine-trade-war-canada-united-states/) of liquor stores. The [long wait](https://thelogic.co/briefing/trump-threatens-to-decertify-and-slap-50-tariff-on-canadian-aircraft/) for regulatory approval of aircraft and a proposed change to the disclosure rules regarding fragrance allergens in cosmetics also debuted
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-007
@@ -151,7 +151,7 @@ claims:
         span: '0-500'
         title: "Government of Canada launches call for proposals ..."
         span_text: |
-          5 February 2026 • 4 minute read Government of Canada launches call for proposals for large scale sovereign AI data centres The Government of Canada has launched a national process to identify and advance large‑scale sovereign AI data centre projects, marking a significant step in expanding the country’s AI infrastructure and strengthening its innovation ecosystem. As artificial intelligence becomes increasingly central to economic growth, the federal government aims to ensure that Canadian researchers, businesses, and institutions have access to the computing capacity needed to remain competit
+          5 February 2026 • 4 minute read Government of Canada launches call for proposals for large scale sovereign AI data centres The Government of Canada has launched a national process to identify and advance large‑scale sovereign AI data centre projects, marking a significant step in expanding the country’s AI infrastructure and strengthening its innovation ecosystem. As artificial intelligence becomes increasingly central to economic growth, the federal government aims to ensure that Canadian researchers, businesses, and institutions have access to the computing capacity needed to remain competitive. This initiative aligns with Budget 2025, which proposes $925.6 million over five years starting in 2025–26 to establish a sovereign, large‑scale public AI computing infrastructure. The investment is intended to expand national AI compute availability and ensure secure, sovereign access for both public‑ and private‑sector research, positioning Canada to compete globally. Through this intake, led by the Minister of Artificial Intelligence and Digital Innovation, the federal government is engaging with industry to identify promising projects, explore potential support mechanisms, and coordinate across jurisdictions to enable the development of large‑scale AI infrastructure. Overview of the initiative Canada has launched a one‑month federal intake to identify and advance “sovereign, large‑scale AI data centres” exceeding 100 megawatts (MW), with selected proponents entering memoranda of
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
@@ -180,127 +180,115 @@ codex
 - claim_id: Q1-T1-001
   claim_type: regulatory
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span says the strategy 'responds to a recognised gap in affordable, domestic computing resources' for Canadian researchers, businesses and innovators, but does not explicitly call it a national policy framework."
-  reviewer_confidence: 0.86
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says the Canadian Sovereign AI Compute Strategy 'responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators,' matching the claim."
+  reviewer_confidence: 0.94
 - claim_id: Q1-T1-002
   claim_type: regulatory
   materiality: minor
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span explicitly states that a summer 2024 public consultation involved more than 1,000 stakeholders from research, industry and civil society who highlighted high cost and limited domestic capacity as barriers."
-  reviewer_confidence: 0.97
-
+  rationale: "The spans explicitly state that over summer 2024 consultation heard from more than 1,000 stakeholders from research, industry, and civil society, who highlighted high cost and limited domestic capacity as barriers."
+  reviewer_confidence: 0.98
 - claim_id: Q1-T1-003
   claim_type: regulatory
   materiality: critical
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span discusses affordable compute infrastructure and defines AI compute, but it does not mention Budget 2024, $2 billion, five years, or 2024-25."
-  reviewer_confidence: 0.98
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The cited span explicitly states that Budget 2024 announced '$2 billion over five years, starting in 2024-25' for initiatives giving Canadian researchers and AI companies competitive tools."
+  reviewer_confidence: 0.99
 - claim_id: Q1-T1-004
   claim_type: regulatory
   materiality: critical
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The span is on-topic and dated 5 February 2026, describing a national process for large-scale sovereign AI data centre projects, but it does not include the exceeding 100 MW threshold."
-  reviewer_confidence: 0.94
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span is dated 5 February 2026 and says Canada launched a federal intake to identify and advance sovereign large-scale AI data centres exceeding 100 megawatts."
+  reviewer_confidence: 0.97
 - claim_id: Q1-T1-005
   claim_type: regulatory
   materiality: major
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span states that the United States flagged Canada's early interest in a sovereign cloud barring foreign government data access without consent as a potential trade irritant in the annual foreign trade barriers report."
-  reviewer_confidence: 0.96
-
+  rationale: "The span says the United States flagged Canada's early interest in a sovereign cloud barring foreign governments from accessing data without consent as a potential trade irritant in the annual foreign trade barriers report."
+  reviewer_confidence: 0.95
 - claim_id: Q1-T1-006
   claim_type: regulatory
-  materiality: major
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span mentions several procurement issues generally, but it does not mention Canada's Buy Canadian policy or a $25 million contract threshold."
-  reviewer_confidence: 0.97
-
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly says the federal government's Buy Canadian policy for contracts over $25 million is a new procurement issue in the report."
+  reviewer_confidence: 0.98
 - claim_id: Q1-T1-007
   claim_type: regulatory
   materiality: critical
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The span describes a February 2026 call for large-scale sovereign AI data centre projects, but it does not mention Budget 2025, $925.6 million, five years, or 2025-26."
-  reviewer_confidence: 0.98
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly states that Budget 2025 proposes $925.6 million over five years starting in 2025-26 to establish sovereign, large-scale public AI computing infrastructure."
+  reviewer_confidence: 0.99
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 2, PARTIAL: 1, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 2, partial: 2, no: 3}
-  notable: ["Claims Q1-T1-003 and Q1-T1-007 contain headline budget figures absent from the cited spans.", "Claim Q1-T1-004 is on-topic but the cited span does not show the 100 MW threshold.", "Claim Q1-T1-006 cites a $25 million procurement threshold not visible in the span."]
+  per_verdict: {VERIFIED: 7, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["All seven claims are supported by the provided spans; critical figures matched include $2B over five years, 100 MW, and $925.6M over five years."]
 ```
 tokens used
-5,551
+5,898
 ```yaml
 - claim_id: Q1-T1-001
   claim_type: regulatory
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span says the strategy 'responds to a recognised gap in affordable, domestic computing resources' for Canadian researchers, businesses and innovators, but does not explicitly call it a national policy framework."
-  reviewer_confidence: 0.86
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says the Canadian Sovereign AI Compute Strategy 'responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators,' matching the claim."
+  reviewer_confidence: 0.94
 - claim_id: Q1-T1-002
   claim_type: regulatory
   materiality: minor
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span explicitly states that a summer 2024 public consultation involved more than 1,000 stakeholders from research, industry and civil society who highlighted high cost and limited domestic capacity as barriers."
-  reviewer_confidence: 0.97
-
+  rationale: "The spans explicitly state that over summer 2024 consultation heard from more than 1,000 stakeholders from research, industry, and civil society, who highlighted high cost and limited domestic capacity as barriers."
+  reviewer_confidence: 0.98
 - claim_id: Q1-T1-003
   claim_type: regulatory
   materiality: critical
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span discusses affordable compute infrastructure and defines AI compute, but it does not mention Budget 2024, $2 billion, five years, or 2024-25."
-  reviewer_confidence: 0.98
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The cited span explicitly states that Budget 2024 announced '$2 billion over five years, starting in 2024-25' for initiatives giving Canadian researchers and AI companies competitive tools."
+  reviewer_confidence: 0.99
 - claim_id: Q1-T1-004
   claim_type: regulatory
   materiality: critical
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The span is on-topic and dated 5 February 2026, describing a national process for large-scale sovereign AI data centre projects, but it does not include the exceeding 100 MW threshold."
-  reviewer_confidence: 0.94
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span is dated 5 February 2026 and says Canada launched a federal intake to identify and advance sovereign large-scale AI data centres exceeding 100 megawatts."
+  reviewer_confidence: 0.97
 - claim_id: Q1-T1-005
   claim_type: regulatory
   materiality: major
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span states that the United States flagged Canada's early interest in a sovereign cloud barring foreign government data access without consent as a potential trade irritant in the annual foreign trade barriers report."
-  reviewer_confidence: 0.96
-
+  rationale: "The span says the United States flagged Canada's early interest in a sovereign cloud barring foreign governments from accessing data without consent as a potential trade irritant in the annual foreign trade barriers report."
+  reviewer_confidence: 0.95
 - claim_id: Q1-T1-006
   claim_type: regulatory
-  materiality: major
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The cited span mentions several procurement issues generally, but it does not mention Canada's Buy Canadian policy or a $25 million contract threshold."
-  reviewer_confidence: 0.97
-
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly says the federal government's Buy Canadian policy for contracts over $25 million is a new procurement issue in the report."
+  reviewer_confidence: 0.98
 - claim_id: Q1-T1-007
   claim_type: regulatory
   materiality: critical
-  citation_context_match: no
-  verdict: UNSUPPORTED
-  rationale: "The span describes a February 2026 call for large-scale sovereign AI data centre projects, but it does not mention Budget 2025, $925.6 million, five years, or 2025-26."
-  reviewer_confidence: 0.98
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly states that Budget 2025 proposes $925.6 million over five years starting in 2025-26 to establish sovereign, large-scale public AI computing infrastructure."
+  reviewer_confidence: 0.99
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 2, PARTIAL: 1, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 2, partial: 2, no: 3}
-  notable: ["Claims Q1-T1-003 and Q1-T1-007 contain headline budget figures absent from the cited spans.", "Claim Q1-T1-004 is on-topic but the cited span does not show the 100 MW threshold.", "Claim Q1-T1-006 cites a $25 million procurement threshold not visible in the span."]
+  per_verdict: {VERIFIED: 7, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["All seven claims are supported by the provided spans; critical figures matched include $2B over five years, 100 MW, and $925.6M over five years."]
 ```

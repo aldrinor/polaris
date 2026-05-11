@@ -7,7 +7,7 @@ approval: never
 sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
 reasoning effort: xhigh
 reasoning summaries: none
-session id: 019e188e-05b9-70b3-abc3-209a2639cbc7
+session id: 019e18a7-4fe9-77d2-8250-b14a3643f907
 --------
 user
 Independent Tier-1 audit of 7 Q2 Canada-US CUSMA claims. Output YAML records only.
@@ -45,7 +45,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q2 batch 5: claims 29-35
+# Q2 batch 5: claims 29-35 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q2-T1-029
@@ -59,7 +59,27 @@ claims:
         span: '0-500'
         title: "USMCA Review 2026 - CSIS"
         span_text: |
-          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected to be a routine assessment aimed at improving implementation is now likely to become a high-stakes negotiation. The Trump administration is poised to seek additional concessions from Mexico and Canada on long-standing trade disputes, while also leveraging the review to address non-trade issues such as migration, drug trafficking, and continental defense. Both neighbors, already in talks with Washington over tariff relief, are approaching the process with caution. While the review may become a platform for the United States to secure short-term wins, it also presents a rare opportunity to modernize the agreement and strengthen North America’s shared competitiveness. How the three nations navigate this moment will shape the region’s economic future for decades. Introduction In 2020, the USMCA replaced the North American Free Trade Agreement (NAFTA), which had governed trade between the th
+          
+          [...]
+          
+          n people, accounting for 30 percent of global GDP. Since its ratification, significant progress has been made in expanding trade, investment, and jobs across North America. In 2024, goods and services trade within North America totaled an estimated $1.93 trillion, solidifying Mexico and Canada as the United States’ top trading partners. In July 2026, on the sixth anniversary of the USMCA’s implementation, the three countries will hold a joint review to assess the agreement’s performance and determin
+          
+          [...]
+          
+          er NAFTA is its state-to-state dispute settlement system. Under NAFTA, disputes often stalled because one party could block the formation of a panel by refusing to appoint panelists or agree on a roster. The USMCA addresses this flaw through Article 31.8, which creates a standing list of preapproved independent trade experts, ensuring that dispute resolution panels could be formed even when one party is uncooperative. NAFTA’s shortcomings are most evident in the decades-long sugar dispute between th
+          
+          [...]
+          
+          um has acknowledged drug consumption as a shared challenge and continues to call for bilateral cooperation. Still, her government has delivered results: Since she took office in October 2024, fentanyl seizures have surged, including a record bust of 1.1 metric tons in December 2025. According to President Sheinbaum, fentanyl trafficking at the U.S.-Mexico border is down 50 percent. In addition, in February 2025, the Mexican government transferred 29 high-level criminal suspects to U.S. custody; in 
+          
+          [...]
+          
+          point, not a breaking point, for the future of regional integration. Understanding the 2026 Review Clause: Pathways, Risks, and Leverage The USMCA is designed to last 16 years, expiring on July 1, 2036, unless the parties agree to extend it. Article 34.7 of the agreement requires the United States, Mexico, and Canada to conduct a formal review at the six-year mark. This process requires the three governments, through their Free Trade Commission, to evaluate the agreement’s effectiveness, consider ea
+          
+          [...]
+          
+          ears or letting the agreement expire in 2036. Each country may gather input from its stakeholders, including businesses, unions, nongovernmental organizations, legislators, and local authorities involved in or affected by the USMCA. However, Article 34.7 leaves critical gaps and does not explicitly establish how the commission will evaluate or prioritize these proposals, nor does it specify criteria for deciding which suggestions will be considered or dismissed. A
       - evidence_id: ev_008
         bibliography_num: 9
         url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
@@ -67,7 +87,11 @@ claims:
         span: '0-500'
         title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
         span_text: |
-          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of possible outcomes is wide How CUSMA negotiations will unfold is uncertain. Possible outcomes include the following: - CUSMA is extended, with limited changes, for a new term of 16 years until 2042. The current regime is maintained, which reduces uncertainty for exporters and around integrated supply chains. The extension of CUSMA is the outcome assumed in the base-case projection. - CUSMA is significantly renegotiated. This could make trade more expensive. For example, stricter rules around proving where a product was made (rules of origin) or a smaller discount on CUSMA-compliant goods (reduced tariff preferences) would increase effective trade costs. At the same time, as part of the negotiations, some sectoral tariff rates could be lowered, reducing trade costs. - Members withdraw from CUSMA. This could result in a significant increase in trade barriers. Alternatively, parties could ag
+          
+          [...]
+          
+          ial counter-tariffs, supply chain disruptions and a weaker Canadian dollar would push up consumer prices. At the same time, softer demand and the associated excess supply would dampen consumer prices. Endnotes - 1. See Government of Canada, “Article 34.7: Review and Term Extension,” [Canada-United States-Mexico Agreement (CUSMA) – Chapter 34 – Final provisions](https://www.international.gc.ca/trade-commerce/trade-agreements-accords-commerciaux/agr-acc/cusma-aceum/text-texte/34.aspx?lang=eng)(Decembe
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-030
@@ -81,7 +105,11 @@ claims:
         span: '0-500'
         title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
         span_text: |
-          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of possible outcomes is wide How CUSMA negotiations will unfold is uncertain. Possible outcomes include the following: - CUSMA is extended, with limited changes, for a new term of 16 years until 2042. The current regime is maintained, which reduces uncertainty for exporters and around integrated supply chains. The extension of CUSMA is the outcome assumed in the base-case projection. - CUSMA is significantly renegotiated. This could make trade more expensive. For example, stricter rules around proving where a product was made (rules of origin) or a smaller discount on CUSMA-compliant goods (reduced tariff preferences) would increase effective trade costs. At the same time, as part of the negotiations, some sectoral tariff rates could be lowered, reducing trade costs. - Members withdraw from CUSMA. This could result in a significant increase in trade barriers. Alternatively, parties could ag
+          
+          [...]
+          
+          ial counter-tariffs, supply chain disruptions and a weaker Canadian dollar would push up consumer prices. At the same time, softer demand and the associated excess supply would dampen consumer prices. Endnotes - 1. See Government of Canada, “Article 34.7: Review and Term Extension,” [Canada-United States-Mexico Agreement (CUSMA) – Chapter 34 – Final provisions](https://www.international.gc.ca/trade-commerce/trade-agreements-accords-commerciaux/agr-acc/cusma-aceum/text-texte/34.aspx?lang=eng)(Decembe
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-031
@@ -95,7 +123,19 @@ claims:
         span: '0-500'
         title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
         span_text: |
-          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-032
@@ -109,7 +149,27 @@ claims:
         span: '0-500'
         title: "USMCA Review 2026 - CSIS"
         span_text: |
-          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected to be a routine assessment aimed at improving implementation is now likely to become a high-stakes negotiation. The Trump administration is poised to seek additional concessions from Mexico and Canada on long-standing trade disputes, while also leveraging the review to address non-trade issues such as migration, drug trafficking, and continental defense. Both neighbors, already in talks with Washington over tariff relief, are approaching the process with caution. While the review may become a platform for the United States to secure short-term wins, it also presents a rare opportunity to modernize the agreement and strengthen North America’s shared competitiveness. How the three nations navigate this moment will shape the region’s economic future for decades. Introduction In 2020, the USMCA replaced the North American Free Trade Agreement (NAFTA), which had governed trade between the th
+          
+          [...]
+          
+          n people, accounting for 30 percent of global GDP. Since its ratification, significant progress has been made in expanding trade, investment, and jobs across North America. In 2024, goods and services trade within North America totaled an estimated $1.93 trillion, solidifying Mexico and Canada as the United States’ top trading partners. In July 2026, on the sixth anniversary of the USMCA’s implementation, the three countries will hold a joint review to assess the agreement’s performance and determin
+          
+          [...]
+          
+          er NAFTA is its state-to-state dispute settlement system. Under NAFTA, disputes often stalled because one party could block the formation of a panel by refusing to appoint panelists or agree on a roster. The USMCA addresses this flaw through Article 31.8, which creates a standing list of preapproved independent trade experts, ensuring that dispute resolution panels could be formed even when one party is uncooperative. NAFTA’s shortcomings are most evident in the decades-long sugar dispute between th
+          
+          [...]
+          
+          um has acknowledged drug consumption as a shared challenge and continues to call for bilateral cooperation. Still, her government has delivered results: Since she took office in October 2024, fentanyl seizures have surged, including a record bust of 1.1 metric tons in December 2025. According to President Sheinbaum, fentanyl trafficking at the U.S.-Mexico border is down 50 percent. In addition, in February 2025, the Mexican government transferred 29 high-level criminal suspects to U.S. custody; in 
+          
+          [...]
+          
+          point, not a breaking point, for the future of regional integration. Understanding the 2026 Review Clause: Pathways, Risks, and Leverage The USMCA is designed to last 16 years, expiring on July 1, 2036, unless the parties agree to extend it. Article 34.7 of the agreement requires the United States, Mexico, and Canada to conduct a formal review at the six-year mark. This process requires the three governments, through their Free Trade Commission, to evaluate the agreement’s effectiveness, consider ea
+          
+          [...]
+          
+          ears or letting the agreement expire in 2036. Each country may gather input from its stakeholders, including businesses, unions, nongovernmental organizations, legislators, and local authorities involved in or affected by the USMCA. However, Article 34.7 leaves critical gaps and does not explicitly establish how the commission will evaluate or prioritize these proposals, nor does it specify criteria for deciding which suggestions will be considered or dismissed. A
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-033
@@ -123,7 +183,27 @@ claims:
         span: '0-500'
         title: "USMCA Review 2026 - CSIS"
         span_text: |
-          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected to be a routine assessment aimed at improving implementation is now likely to become a high-stakes negotiation. The Trump administration is poised to seek additional concessions from Mexico and Canada on long-standing trade disputes, while also leveraging the review to address non-trade issues such as migration, drug trafficking, and continental defense. Both neighbors, already in talks with Washington over tariff relief, are approaching the process with caution. While the review may become a platform for the United States to secure short-term wins, it also presents a rare opportunity to modernize the agreement and strengthen North America’s shared competitiveness. How the three nations navigate this moment will shape the region’s economic future for decades. Introduction In 2020, the USMCA replaced the North American Free Trade Agreement (NAFTA), which had governed trade between the th
+          
+          [...]
+          
+          n people, accounting for 30 percent of global GDP. Since its ratification, significant progress has been made in expanding trade, investment, and jobs across North America. In 2024, goods and services trade within North America totaled an estimated $1.93 trillion, solidifying Mexico and Canada as the United States’ top trading partners. In July 2026, on the sixth anniversary of the USMCA’s implementation, the three countries will hold a joint review to assess the agreement’s performance and determin
+          
+          [...]
+          
+          er NAFTA is its state-to-state dispute settlement system. Under NAFTA, disputes often stalled because one party could block the formation of a panel by refusing to appoint panelists or agree on a roster. The USMCA addresses this flaw through Article 31.8, which creates a standing list of preapproved independent trade experts, ensuring that dispute resolution panels could be formed even when one party is uncooperative. NAFTA’s shortcomings are most evident in the decades-long sugar dispute between th
+          
+          [...]
+          
+          um has acknowledged drug consumption as a shared challenge and continues to call for bilateral cooperation. Still, her government has delivered results: Since she took office in October 2024, fentanyl seizures have surged, including a record bust of 1.1 metric tons in December 2025. According to President Sheinbaum, fentanyl trafficking at the U.S.-Mexico border is down 50 percent. In addition, in February 2025, the Mexican government transferred 29 high-level criminal suspects to U.S. custody; in 
+          
+          [...]
+          
+          point, not a breaking point, for the future of regional integration. Understanding the 2026 Review Clause: Pathways, Risks, and Leverage The USMCA is designed to last 16 years, expiring on July 1, 2036, unless the parties agree to extend it. Article 34.7 of the agreement requires the United States, Mexico, and Canada to conduct a formal review at the six-year mark. This process requires the three governments, through their Free Trade Commission, to evaluate the agreement’s effectiveness, consider ea
+          
+          [...]
+          
+          ears or letting the agreement expire in 2036. Each country may gather input from its stakeholders, including businesses, unions, nongovernmental organizations, legislators, and local authorities involved in or affected by the USMCA. However, Article 34.7 leaves critical gaps and does not explicitly establish how the commission will evaluate or prioritize these proposals, nor does it specify criteria for deciding which suggestions will be considered or dismissed. A
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-034
@@ -137,7 +217,27 @@ claims:
         span: '0-500'
         title: "USMCA Review 2026 - CSIS"
         span_text: |
-          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected to be a routine assessment aimed at improving implementation is now likely to become a high-stakes negotiation. The Trump administration is poised to seek additional concessions from Mexico and Canada on long-standing trade disputes, while also leveraging the review to address non-trade issues such as migration, drug trafficking, and continental defense. Both neighbors, already in talks with Washington over tariff relief, are approaching the process with caution. While the review may become a platform for the United States to secure short-term wins, it also presents a rare opportunity to modernize the agreement and strengthen North America’s shared competitiveness. How the three nations navigate this moment will shape the region’s economic future for decades. Introduction In 2020, the USMCA replaced the North American Free Trade Agreement (NAFTA), which had governed trade between the th
+          
+          [...]
+          
+          n people, accounting for 30 percent of global GDP. Since its ratification, significant progress has been made in expanding trade, investment, and jobs across North America. In 2024, goods and services trade within North America totaled an estimated $1.93 trillion, solidifying Mexico and Canada as the United States’ top trading partners. In July 2026, on the sixth anniversary of the USMCA’s implementation, the three countries will hold a joint review to assess the agreement’s performance and determin
+          
+          [...]
+          
+          er NAFTA is its state-to-state dispute settlement system. Under NAFTA, disputes often stalled because one party could block the formation of a panel by refusing to appoint panelists or agree on a roster. The USMCA addresses this flaw through Article 31.8, which creates a standing list of preapproved independent trade experts, ensuring that dispute resolution panels could be formed even when one party is uncooperative. NAFTA’s shortcomings are most evident in the decades-long sugar dispute between th
+          
+          [...]
+          
+          um has acknowledged drug consumption as a shared challenge and continues to call for bilateral cooperation. Still, her government has delivered results: Since she took office in October 2024, fentanyl seizures have surged, including a record bust of 1.1 metric tons in December 2025. According to President Sheinbaum, fentanyl trafficking at the U.S.-Mexico border is down 50 percent. In addition, in February 2025, the Mexican government transferred 29 high-level criminal suspects to U.S. custody; in 
+          
+          [...]
+          
+          point, not a breaking point, for the future of regional integration. Understanding the 2026 Review Clause: Pathways, Risks, and Leverage The USMCA is designed to last 16 years, expiring on July 1, 2036, unless the parties agree to extend it. Article 34.7 of the agreement requires the United States, Mexico, and Canada to conduct a formal review at the six-year mark. This process requires the three governments, through their Free Trade Commission, to evaluate the agreement’s effectiveness, consider ea
+          
+          [...]
+          
+          ears or letting the agreement expire in 2036. Each country may gather input from its stakeholders, including businesses, unions, nongovernmental organizations, legislators, and local authorities involved in or affected by the USMCA. However, Article 34.7 leaves critical gaps and does not explicitly establish how the commission will evaluate or prioritize these proposals, nor does it specify criteria for deciding which suggestions will be considered or dismissed. A
       - evidence_id: ev_011
         bibliography_num: 2
         url: "https://www.fasken.com/en/knowledge/2025/10/2026-cusma-review-consultation"
@@ -145,7 +245,7 @@ claims:
         span: '0-500'
         title: "2026 CUSMA Review Consultation | Knowledge - Fasken"
         span_text: |
-          In advance of the July 2026 joint review of the Canada-United States-Mexico Agreement (CUSMA) that will be held between Canada, Mexico, and the United States, Canada has opened formal public consultations on the operation of the CUSMA, providing an important opportunity for Canadians to help shape Canada’s negotiating positions. Given the instability in North American free trade under the Trump 2.0 Administration, the joint review has assumed central importance as a means for Canada to restore certainty to its key trade relationships, thus making the consultations all the more critical for Can
+          In advance of the July 2026 joint review of the Canada-United States-Mexico Agreement (CUSMA) that will be held between Canada, Mexico, and the United States, Canada has opened formal public consultations on the operation of the CUSMA, providing an important opportunity for Canadians to help shape Canada’s negotiating positions. Given the instability in North American free trade under the Trump 2.0 Administration, the joint review has assumed central importance as a means for Canada to restore certainty to its key trade relationships, thus making the consultations all the more critical for Canadian industry. Below, we provide an overview of the joint review and consultation processes. Overview of the CUSMA Joint Review When the CUSMA entered into force on July 1, 2020, it contained a new article (34.7) which included both a “sunset” clause—providing for the termination of the agreement 16 years after its entry into force unless it is otherwise renewed—as well as a provision mandating a “joint review” of the agreement by the parties in July 2026. The stated purpose of the joint review is to enable parties to consider the operation of the agreement, review any recommendations for action submitted by a party, and decide on any actions. During the joint review, parties will be required to confirm whether they wish to extend the CUSMA by an additional 16 years. If parties unanimously agree, then the agreement will be extended until 2052 and joint reviews will take place every six
       - evidence_id: ev_000
         bibliography_num: 3
         url: "https://www.policymagazine.ca/thoughts-on-the-cusma-review-and-negotiating-with-trump/"
@@ -156,7 +256,12 @@ claims:
           Thoughts on the CUSMA Review and Negotiating with Trump
           May 2, 2026
           July 1, 2026, is an important date for the future of the Canada-U.S. Mexico Agreement (CUSMA), but there is considerable confusion as to exactly what is supposed to happen on that date. Some think it is the final deadline for negotiations to save the agreement from termination. Others think it is the starting date for a complete renegotiation of the CUSMA.
-          I am not directly involved in the evolving review of the CUSMA, but I do have experience in trade negotiations, including as Canada’s chief negotiator for the original NAFTA
+          I am not directly involved in the evolving review of the CUSMA, but I do have experience in trade negotiations, including as Canada’s chief negotiator for the original NAFTA negotiations.
+          I will not offer comments on the detail of what is going on today. Rather, I will focus on issues relevant to any big negotiation and comment on some matters relating to the review of the CUSMA that are in the public domain.
+          The CUSMA Review
+          The text of CUSMA itself (Article 34.7: Review and Term Extension) provides the only authoritative description of what will happen on Canada Day.
+          “This Agreement shall terminate 16 years after the date of its entry into force (July 1, 2020), unless each Party confirms it wishes to continue this Agreement for a new 16-year term.” In other words, the agreement will continue for a further 10 years after July 1 regardless of what happens on that date, unless one of the parties decides to exercise its right to withdraw from the agreement which is possible at any time with six months written notice.
+          Importantly, Article 34:7 provides that th
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q2-T1-035
@@ -173,7 +278,12 @@ claims:
           Thoughts on the CUSMA Review and Negotiating with Trump
           May 2, 2026
           July 1, 2026, is an important date for the future of the Canada-U.S. Mexico Agreement (CUSMA), but there is considerable confusion as to exactly what is supposed to happen on that date. Some think it is the final deadline for negotiations to save the agreement from termination. Others think it is the starting date for a complete renegotiation of the CUSMA.
-          I am not directly involved in the evolving review of the CUSMA, but I do have experience in trade negotiations, including as Canada’s chief negotiator for the original NAFTA
+          I am not directly involved in the evolving review of the CUSMA, but I do have experience in trade negotiations, including as Canada’s chief negotiator for the original NAFTA negotiations.
+          I will not offer comments on the detail of what is going on today. Rather, I will focus on issues relevant to any big negotiation and comment on some matters relating to the review of the CUSMA that are in the public domain.
+          The CUSMA Review
+          The text of CUSMA itself (Article 34.7: Review and Term Extension) provides the only authoritative description of what will happen on Canada Day.
+          “This Agreement shall terminate 16 years after the date of its entry into force (July 1, 2020), unless each Party confirms it wishes to continue this Agreement for a new 16-year term.” In other words, the agreement will continue for a further 10 years after July 1 regardless of what happens on that date, unless one of the parties decides to exercise its right to withdraw from the agreement which is possible at any time with six months written notice.
+          Importantly, Article 34:7 provides that th
       - evidence_id: ev_006
         bibliography_num: 10
         url: "https://www.facebook.com/CanadaTodayNews/posts/canadas-massive-trade-agreement-with-the-us-cusma-must-be-reviewed-by-july-1-202/122109998289163139/"
@@ -181,7 +291,7 @@ claims:
         span: '0-500'
         title: "Canada's massive trade agreement with the US (CUSMA) must be ..."
         span_text: |
-          Canada's massive trade agreement with the US (CUSMA) must be reviewed by July 1, 2026. The US Trade Representative says it's unlikely all issues will be resolved in time. PM Carney's entire $1 TRILLION infrastructure plan for Canada by 2030 depends on this deal going well. Experts warn failure could devastate Canada's economy 所有心情： 3則留言 讚 留言 yyyysone the deal doesn't expire until 2036 so there doesn't need to be an agreement by that date. Either way, they won't talk unless Canada makes the concessions trump demanded. Do you want Canada to allow a foreign government to dictate Canadian policies
+          Canada's massive trade agreement with the US (CUSMA) must be reviewed by July 1, 2026. The US Trade Representative says it's unlikely all issues will be resolved in time. PM Carney's entire $1 TRILLION infrastructure plan for Canada by 2030 depends on this deal going well. Experts warn failure could devastate Canada's economy 所有心情： 3則留言 讚 留言 yyyysone the deal doesn't expire until 2036 so there doesn't need to be an agreement by that date. Either way, they won't talk unless Canada makes the concessions trump demanded. Do you want Canada to allow a foreign government to dictate Canadian policies, and agree to the concessions so talks can begin? Do you think there will be more concessions once talks start? Do you think after making all the concessions and we get a deal, that Trump will maintain his word; additionally, Canada will go to war with Iran under Trumps command or your deal is toast. 4 Kathleen Celli It Does NOT expire July 2026..it’s under review only. Catherine Dewar Trump doesn't honour his deals anyway 2
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
@@ -211,110 +321,110 @@ codex
   materiality: background
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span says the CUSMA review is in 2026 and could lead to many possible outcomes with a wide range of impacts on the Canadian economy."
-  reviewer_confidence: 0.88
+  rationale: "The cited spans explicitly say CUSMA is up for review in 2026, possible outcomes are wide, and those outcomes can have wide impacts on the Canadian economy."
+  reviewer_confidence: 0.92
 - claim_id: Q2-T1-030
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The visible Bank of Canada span only says the review could have a wide range of economic impacts and is an important risk, but it does not state GDP reduction, higher tariffs, demand shock, or lower inflation."
-  reviewer_confidence: 0.91
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The Bank of Canada span says withdrawal could significantly increase trade barriers and that counter-tariffs and supply-chain disruption would push prices up while softer demand would dampen consumer prices."
+  reviewer_confidence: 0.82
 - claim_id: Q2-T1-031
   claim_type: regulatory
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The CGAI span is about CUSMA scenarios and mentions a 25 percent tariff threat, but it does not mention Article 34.7, maximum pressure through the review process, concessions, or a trade imbalance excluding hydrocarbons."
-  reviewer_confidence: 0.9
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The cited span states that the U.S. side will use the Article 34.7 review to apply maximum pressure on Canada, including demands to end the U.S. trade imbalance with Canada excluding hydrocarbons."
+  reviewer_confidence: 0.96
 - claim_id: Q2-T1-032
   claim_type: economic
-  materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The CSIS span confirms a formal review starting in July 2026 and frames USMCA as important to North American competitiveness, but the specific $1.93 trillion 2024 trade figure is not visible."
-  reviewer_confidence: 0.93
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The CSIS span explicitly says 2024 goods and services trade within North America totaled an estimated $1.93 trillion and that the July 2026 joint review will assess the agreement's performance."
+  reviewer_confidence: 0.97
 - claim_id: Q2-T1-033
-  claim_type: regulatory
+  claim_type: background
   materiality: background
   citation_context_match: yes
   verdict: PARTIAL
-  rationale: "The CSIS span explicitly says the USMCA will undergo formal review starting in July 2026 and lists pathways and risks, but the breaking-point-versus-renewal framing is interpretive rather than directly stated."
+  rationale: "The span supports the framing by calling the review a potential renewal point rather than a breaking point, but the claim overstates this as what will determine the 2026 review."
   reviewer_confidence: 0.78
 - claim_id: Q2-T1-034
   claim_type: regulatory
   materiality: critical
   citation_context_match: yes
-  verdict: PARTIAL
-  rationale: "The spans explicitly mention the July 2026 joint review and public confusion that it is not necessarily a complete renegotiation, but the quoted Article 34.7 mandate language about six-year joint evaluation and recommendations is not present in the visible text."
-  reviewer_confidence: 0.8
+  verdict: VERIFIED
+  rationale: "The spans explicitly identify Article 34.7, the July 2026 six-year joint review, assessment of the agreement's operation, review of recommendations, and public confusion that it is a complete renegotiation."
+  reviewer_confidence: 0.9
 - claim_id: Q2-T1-035
   claim_type: regulatory
   materiality: critical
   citation_context_match: yes
-  verdict: PARTIAL
-  rationale: "The visible spans mention confusion around July 1, 2026 and a comment stating the deal does not expire until 2036, but they do not substantiate the separate withdrawal right with six months' notice or the claim that continuation is guaranteed regardless of the review outcome."
-  reviewer_confidence: 0.82
+  verdict: VERIFIED
+  rationale: "The Policy Magazine span says there is confusion about July 1, 2026, quotes the 16-year termination clause from July 1, 2020, and says the agreement continues another 10 years unless a party withdraws with six months' notice."
+  reviewer_confidence: 0.95
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 1, PARTIAL: 3, UNSUPPORTED: 3, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 4, partial: 3, no: 0}
-  notable: ["Several claims cite spans that stop before the specific supporting detail appears, especially GDP/inflation effects, the $1.93 trillion 2024 trade figure, and Article 34.7 procedural text.", "Claim Q2-T1-035 relies partly on a T6 Facebook comment for the 2036 expiration point and lacks visible support for six-month withdrawal mechanics."]
+  per_verdict: {VERIFIED: 6, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["Q2-T1-033 is PARTIAL because the cited span supports the renewal-versus-breaking-point framing but not the stronger deterministic phrasing."]
 tokens used
-6,506
+9,779
 - claim_id: Q2-T1-029
   claim_type: economic
   materiality: background
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span says the CUSMA review is in 2026 and could lead to many possible outcomes with a wide range of impacts on the Canadian economy."
-  reviewer_confidence: 0.88
+  rationale: "The cited spans explicitly say CUSMA is up for review in 2026, possible outcomes are wide, and those outcomes can have wide impacts on the Canadian economy."
+  reviewer_confidence: 0.92
 - claim_id: Q2-T1-030
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The visible Bank of Canada span only says the review could have a wide range of economic impacts and is an important risk, but it does not state GDP reduction, higher tariffs, demand shock, or lower inflation."
-  reviewer_confidence: 0.91
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The Bank of Canada span says withdrawal could significantly increase trade barriers and that counter-tariffs and supply-chain disruption would push prices up while softer demand would dampen consumer prices."
+  reviewer_confidence: 0.82
 - claim_id: Q2-T1-031
   claim_type: regulatory
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The CGAI span is about CUSMA scenarios and mentions a 25 percent tariff threat, but it does not mention Article 34.7, maximum pressure through the review process, concessions, or a trade imbalance excluding hydrocarbons."
-  reviewer_confidence: 0.9
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The cited span states that the U.S. side will use the Article 34.7 review to apply maximum pressure on Canada, including demands to end the U.S. trade imbalance with Canada excluding hydrocarbons."
+  reviewer_confidence: 0.96
 - claim_id: Q2-T1-032
   claim_type: economic
-  materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The CSIS span confirms a formal review starting in July 2026 and frames USMCA as important to North American competitiveness, but the specific $1.93 trillion 2024 trade figure is not visible."
-  reviewer_confidence: 0.93
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The CSIS span explicitly says 2024 goods and services trade within North America totaled an estimated $1.93 trillion and that the July 2026 joint review will assess the agreement's performance."
+  reviewer_confidence: 0.97
 - claim_id: Q2-T1-033
-  claim_type: regulatory
+  claim_type: background
   materiality: background
   citation_context_match: yes
   verdict: PARTIAL
-  rationale: "The CSIS span explicitly says the USMCA will undergo formal review starting in July 2026 and lists pathways and risks, but the breaking-point-versus-renewal framing is interpretive rather than directly stated."
+  rationale: "The span supports the framing by calling the review a potential renewal point rather than a breaking point, but the claim overstates this as what will determine the 2026 review."
   reviewer_confidence: 0.78
 - claim_id: Q2-T1-034
   claim_type: regulatory
   materiality: critical
   citation_context_match: yes
-  verdict: PARTIAL
-  rationale: "The spans explicitly mention the July 2026 joint review and public confusion that it is not necessarily a complete renegotiation, but the quoted Article 34.7 mandate language about six-year joint evaluation and recommendations is not present in the visible text."
-  reviewer_confidence: 0.8
+  verdict: VERIFIED
+  rationale: "The spans explicitly identify Article 34.7, the July 2026 six-year joint review, assessment of the agreement's operation, review of recommendations, and public confusion that it is a complete renegotiation."
+  reviewer_confidence: 0.9
 - claim_id: Q2-T1-035
   claim_type: regulatory
   materiality: critical
   citation_context_match: yes
-  verdict: PARTIAL
-  rationale: "The visible spans mention confusion around July 1, 2026 and a comment stating the deal does not expire until 2036, but they do not substantiate the separate withdrawal right with six months' notice or the claim that continuation is guaranteed regardless of the review outcome."
-  reviewer_confidence: 0.82
+  verdict: VERIFIED
+  rationale: "The Policy Magazine span says there is confusion about July 1, 2026, quotes the 16-year termination clause from July 1, 2020, and says the agreement continues another 10 years unless a party withdraws with six months' notice."
+  reviewer_confidence: 0.95
 
 batch_summary:
   total: 7
-  per_verdict: {VERIFIED: 1, PARTIAL: 3, UNSUPPORTED: 3, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 4, partial: 3, no: 0}
-  notable: ["Several claims cite spans that stop before the specific supporting detail appears, especially GDP/inflation effects, the $1.93 trillion 2024 trade figure, and Article 34.7 procedural text.", "Claim Q2-T1-035 relies partly on a T6 Facebook comment for the 2036 expiration point and lacks visible support for six-month withdrawal mechanics."]
+  per_verdict: {VERIFIED: 6, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["Q2-T1-033 is PARTIAL because the cited span supports the renewal-versus-breaking-point framing but not the stronger deterministic phrasing."]

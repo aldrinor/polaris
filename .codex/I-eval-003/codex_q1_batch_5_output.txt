@@ -7,7 +7,7 @@ approval: never
 sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
 reasoning effort: xhigh
 reasoning summaries: none
-session id: 019e188a-c3c8-7b63-a5f7-21a0af3a237a
+session id: 019e18a4-5a04-7a63-b545-fb58ad4017a5
 --------
 user
 Independent Tier-1 audit of 3 Q1 AI Sovereignty claims. Output YAML records only.
@@ -45,7 +45,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q1 batch 5: claims 29-31
+# Q1 batch 5: claims 29-31 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q1-T1-029
@@ -59,7 +59,7 @@ claims:
         span: '0-500'
         title: "Canada launches national initiative to build large-scale AI ..."
         span_text: |
-          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde
+          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde.canada.ca/site/ised/en/ai-sovereign-compute-infrastructure-program), supported by historic investments announced in Budget 2024 and Budget 2025. This program, part of the [Canadian Sovereign AI Compute Strategy](https://ised-isde.canada.ca/site/ised/en/canadian-sovereign-ai-compute-strategy), will enable the development of large-scale, Canadian-based compute infrastructure to advance AI research and innovation, while safeguarding Canada’s national interests. These systems will form a core part of Canada’s digital backbone, enabling breakthroughs in areas like health care, energy, advanced manufacturing and scientific discovery. This will strengthen Canada’s global competitiveness, support world-leading research and ensure secure, reliable access to critical digital infrastructure for Canadian innovators. This transformational investment, via a competitive call for applications, invites
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-030
@@ -73,7 +73,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
         span_text: |
-          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual property while enabling made-in-Canada AI solutions. The strategy comprises three complementary elements. The first, mobilising private sector investment, allocates up to CAD $700 million through the AI Compute Challenge, which seeks proposals from companies, consortiums and academic-industry partnerships to establish commercial AI data-centre solutions in Canada. Projects must build or expand AI-specific data centre capacity, offer flexible and affordable compute, contribute to anchoring Canadian AI companies, and advance sustainable solutions. The second element, building public supercomputing infrastructure, commits up to CAD $1 billion, including a new state-of-the-art AI supercomputing system through the AI Sovereign Compute Infrastructure Program (SCIP), a smaller secure facility led by Shared Services Canada and the National Research Council for government and industry R&D includin
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-031
@@ -87,7 +87,7 @@ claims:
         span: '0-500'
         title: "Canada launches national initiative to build large-scale AI ..."
         span_text: |
-          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde
+          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde.canada.ca/site/ised/en/ai-sovereign-compute-infrastructure-program), supported by historic investments announced in Budget 2024 and Budget 2025. This program, part of the [Canadian Sovereign AI Compute Strategy](https://ised-isde.canada.ca/site/ised/en/canadian-sovereign-ai-compute-strategy), will enable the development of large-scale, Canadian-based compute infrastructure to advance AI research and innovation, while safeguarding Canada’s national interests. These systems will form a core part of Canada’s digital backbone, enabling breakthroughs in areas like health care, energy, advanced manufacturing and scientific discovery. This will strengthen Canada’s global competitiveness, support world-leading research and ensure secure, reliable access to critical digital infrastructure for Canadian innovators. This transformational investment, via a competitive call for applications, invites
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
@@ -113,65 +113,61 @@ Output the YAML directly. No commentary outside.
 codex
 ```yaml
 - claim_id: Q1-T1-029
-  claim_type: economic
+  claim_type: efficacy
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span says Canada is building advanced AI supercomputing capacity so Canadian researchers, innovators, and institutions can 'innovate, compete and lead,' but it does not visibly mention health care, advanced manufacturing, scaled investment, or secure critical digital infrastructure."
-  reviewer_confidence: 0.82
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says the systems will enable breakthroughs in health care and advanced manufacturing, strengthen global competitiveness, and ensure secure, reliable access to critical digital infrastructure."
+  reviewer_confidence: 0.93
 - claim_id: Q1-T1-030
   claim_type: background
   materiality: background
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span explicitly states that the Canadian Sovereign AI Compute Strategy 'responds to a recognised gap in affordable, domestic computing resources' for Canadian AI researchers, businesses, and innovators."
-  reviewer_confidence: 0.96
-
+  rationale: "The span explicitly states that the Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators."
+  reviewer_confidence: 0.97
 - claim_id: Q1-T1-031
-  claim_type: mechanism
+  claim_type: background
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span supports a national effort to build advanced AI supercomputing and sovereign AI infrastructure, but the visible text does not include the phrase or concept that it forms a core part of Canada's digital backbone."
-  reviewer_confidence: 0.86
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states Canada is launching a national effort and that the program will enable large-scale Canadian-based compute infrastructure whose systems will form a core part of Canada's digital backbone."
+  reviewer_confidence: 0.95
 
 batch_summary:
   total: 3
-  per_verdict: {VERIFIED: 1, PARTIAL: 2, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 1, partial: 2, no: 0}
-  notable: ["Q1-T1-029 and Q1-T1-031 are on-topic but rely on details not visible in the cited spans."]
+  per_verdict: {VERIFIED: 3, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 3, partial: 0, no: 0}
+  notable: []
 ```
 tokens used
-3,809
+4,244
 ```yaml
 - claim_id: Q1-T1-029
-  claim_type: economic
+  claim_type: efficacy
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span says Canada is building advanced AI supercomputing capacity so Canadian researchers, innovators, and institutions can 'innovate, compete and lead,' but it does not visibly mention health care, advanced manufacturing, scaled investment, or secure critical digital infrastructure."
-  reviewer_confidence: 0.82
-
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says the systems will enable breakthroughs in health care and advanced manufacturing, strengthen global competitiveness, and ensure secure, reliable access to critical digital infrastructure."
+  reviewer_confidence: 0.93
 - claim_id: Q1-T1-030
   claim_type: background
   materiality: background
   citation_context_match: yes
   verdict: VERIFIED
-  rationale: "The span explicitly states that the Canadian Sovereign AI Compute Strategy 'responds to a recognised gap in affordable, domestic computing resources' for Canadian AI researchers, businesses, and innovators."
-  reviewer_confidence: 0.96
-
+  rationale: "The span explicitly states that the Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators."
+  reviewer_confidence: 0.97
 - claim_id: Q1-T1-031
-  claim_type: mechanism
+  claim_type: background
   materiality: background
-  citation_context_match: partial
-  verdict: PARTIAL
-  rationale: "The span supports a national effort to build advanced AI supercomputing and sovereign AI infrastructure, but the visible text does not include the phrase or concept that it forms a core part of Canada's digital backbone."
-  reviewer_confidence: 0.86
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states Canada is launching a national effort and that the program will enable large-scale Canadian-based compute infrastructure whose systems will form a core part of Canada's digital backbone."
+  reviewer_confidence: 0.95
 
 batch_summary:
   total: 3
-  per_verdict: {VERIFIED: 1, PARTIAL: 2, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 1, partial: 2, no: 0}
-  notable: ["Q1-T1-029 and Q1-T1-031 are on-topic but rely on details not visible in the cited spans."]
+  per_verdict: {VERIFIED: 3, PARTIAL: 0, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 3, partial: 0, no: 0}
+  notable: []
 ```

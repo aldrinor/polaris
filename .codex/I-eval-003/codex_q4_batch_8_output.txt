@@ -7,7 +7,7 @@ approval: never
 sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
 reasoning effort: xhigh
 reasoning summaries: none
-session id: 019e1899-34c4-7432-ad66-56476cf113ab
+session id: 019e18ae-b101-7ac3-a3ec-d46729318ada
 --------
 user
 Independent Tier-1 audit of 2 Q4 Canadian housing supply claims. Output YAML records only.
@@ -45,7 +45,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q4 batch 8: claims 50-51
+# Q4 batch 8: claims 50-51 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q4-T1-050
@@ -59,7 +59,15 @@ claims:
         span: '0-500'
         title: "Solving the Housing Crisis: Canada's Housing Plan"
         span_text: |
-          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defining crossroads. As soldiers returned home and displaced people began to start their new lives in Canada, we experienced rapid population growth. This had far-reaching impacts, including a spike in inflation and an immense pressure on housing. Canada had a choice between building homes slowly and steadily, or rising to the occasion to build quickly and ensure that everyone who called our growing country home would have a roof over their head. Canada met the moment. Canada chose to build. What followed was a national effort to build homes at a record pace to meet the needs of a new generation of Canadians. Governments and private industry came together and made the investments necessary to get the job done. We overcame what seemed impossible and created a generation of housing that can still be found in our cities today. A generation later, as baby boomers came of age, Canada once again fac
+          
+          [...]
+          
+          ration and partnership with Indigenous Peoples through Nation-to-Nation, Inuit-Crown, and Government-to-Government relationships. This has resulted in new, co-developed distinctions-based approaches to Indigenous housing and homelessness, more than $10.7B, which has created almost 22,000 new or repaired homes on-reserve. With federal partnership, Indigenous communities can build the homes and infrastructure needed to meet the needs of their members, families, and youth. That's why Budget 2024 will p
+          
+          [...]
+          
+          t housing challenges. They also represent a disproportionately high share of shelter users, 33% in 2022, while only comprising 5% of Canada's population. We recognize the magnitude of the work ahead. The Government of Canada committed an additional $4.3 billion towards the Urban, Rural and Northern Indigenous Housing Strategy that will launch in 2024. With this funding, the strategy is establishing a ‘for Indigenous, by Indigenous' National Housing Centre and will provide additional distinctions-ba
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q4-T1-051
@@ -76,7 +84,68 @@ claims:
           America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
           In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
           Building Permits: A Long-Term Perspective
-          To understand housing supply, we start with building permits—the first step in the con
+          To understand housing supply, we start with building permits—the first step in the construction pipeline that also captures the optimism of real estate developers and households about the future. Looking at permits adjusted for population growth provides a clearer picture of whether construction is keeping pace with a growing nation. (See the first figure.)
+          As the figure shows, there are several distinctive periods:
+          - The 1970s peak: Permit activity peaked in 1972 at 10.6 permits per 1,000 people. This was no accident—the baby boom generation was entering prime household-formation age, the interstate highway system had opened vast suburban lands for development, and federal policies—from Federal Housing Administration loan guarantees to mortgage interest deductions—actively encouraged homeownership. This confluence of demographic pressure, available land and policy incentives created the high-water mark of postwar housing construction.
+          - The 1980s to the 2000s, from volat
+          
+          [...]
+          
+          h inflation and interest rates is reflected in the volatility of permits, until the mid-1990s that started a decade and a half of stable growth.
+          - The 2008 collapse: The housing crisis triggered a dramatic decline in permits. Total permits fell from 7.3 per 1,000 in 2005 to just 1.9 per 1,000 in 2009—a 74% decline and the lowest level on record since data collection began in 1960.
+          - The incomplete recovery: Despite over a decade of recovery, total permits per capita in 2024 stand at 4.3 per 1,000—still 35% below the 1960-2000 average of 6.6 permits per 1,000. The U.S. is building less housing per person than at almost any point in the postwar era.
+          Why Has Housing Construction Stayed Low?
+          Several factors constrain today’s housing supply:
+          - Labor shortages: The construction workforce nev
+          
+          [...]
+          
+          Developable land near job centers has become scarcer and more expensive, pushing construction to outlying areas.
+          The Multifamily Shift
+          One notable trend is the growing share of multifamily construction (5+ units). Multifamily permits have risen from 0.4 per 1,000 in 2011 to 1.3 per 1,000 in 2024, partially offsetting weak single-family activity. Single-family permits remain at 2.9 per 1,000—well below the historical average of 4.1.
+          From Permits to Completions: The “Leaky Pipe” of Supply
+          A building permit is a statement of intent, not a finished home. By analyzing the growing divergence between permits issued and final completions, we can identify the specific structural bottl
+          
+          [...]
+          
+           from flowing to completion.
+          The second figure reveals three hurdles to finishing construction:
+          - The completion lag: Permits consistently lead completions by several months to a year, reflecting the time required to build. In 2024, permits stood at 4.3 per 1,000 people while completions were 4.8 per 1,000 people—the gap has narrowed as the postpandemic construction pipeline works through.
+          - Historical patterns: At the 1972 peak, permits reached 10.6 per 1,000 while completions hit 9.5 per 1,000 the following year. During the 2008 crisis, both series collapsed together, with completions falling to just 2.1 per 1,000 by 2010.
+          - Postpandemic divergence: The COVID-19 pandemic period shows notable dynamics—permits surged to 5.2 per 1,000 in 2021 as demand spiked, but completions lagged as builders faced unprecedented supply chain disruptions and labor shortages.
+          Housing Stock and Household Size
+          Total housing inventory must be measured against the evolving American househol
+          
+          [...]
+          
+          2 units per 1,000 people in 1965 to 386 in 1980, 415 in 2000, and 432 in 2024. This represents a 30% increase since 1965—roughly matching the decline in household size.
+          - Declining household size: Average household size has fallen dramatically: from 3.37 persons per household in 1965 to 2.81 in 1980, 2.65 in 2000, and 2.57 in 2024. This means family size has declined by nearly a quarter (23.7%) since 1965; as a result, far more housing units are needed to house the same population.
+          So, on this back-of-the-envelope calculation, the U.S. doesn’t look obviously “overbuilt” at the national level: Units per person increased by roughly the sam
+          
+          [...]
+          
+          ing absorbed quickly, often correlating with rising prices and rents.
+          These vacancy rates have shifted dramatically in the past two decades.
+          - Postcrisis spike: Vacancy rates spiked after 2008 as foreclosures flooded the market. Rental vacancies hit 10.6% in 2009, while homeowner vacancies reached 2.9% in 2008—both elevated as distressed properties sat empty.
+          - The current tightness: Both vacancy rates have fallen to near-historic lows. Rental vacancy stood at 6.8% in 2024—down from the 2009 peak and below the 1960s levels of 7% to 8%. Homeowner vacancy was just 0.95% (2024)—the lowest on record, down from 2.9% in 2008.
+          What do low vacancies mean? Low rental vacancies give landlords pricing power and indicate few options for renters seeking affordable units. Low homeowner vacancies signal intense competition among buyers, driving prices higher.
+          Supply vs.
+          
+          [...]
+          
+          n which the lowest earners are left without a seat.
+          This figure shows two distinct changes during the past two decades:
+          - The precrisis overshoot: In the years leading up to 2008, housing completions frequently exceeded household formation. In 2004, 1.83 million units were completed while only 1.35 million new households (three-year average) were formed—contributing to the oversupply that precipitated the crash.
+          - The postcrisis undershoot: Since 2008, the pattern has been mixed. In several years, household formation outpaced completions. In 2011, only 585,000 units were completed while 1.30 million households (three-year average) formed—a striking imbalance.
+          The result of these changes has been a cumulative gap. Various studies estimate a cumulative housing shortfall of 3 million to 5 million units that has built up since 2008, contrib
+          
+          [...]
+          
+          es, and homeownership becomes increasingly out of reach for many American families.
+          Conclusion: The Supply Imperative
+          The data tell a consistent story: The U.S. is not building enough housing to meet demand. Building permits per capita stood at just 4.3 per 1,000 in 2024—35% below the 1960-2000 historical average and 59% below the 1972 peak. Vacancy rates have fallen to historic lows, with rental vacancy at 6.8% and homeowner vacancy below 1%, signaling intense competition for limited housing stock. Various estimates suggest a cumulative shortfall of 3 million to 5 million units has accumulated since 2008.
+          Demographic pressures compound these challenges. Average household size has fallen 23.7% since 1965—from 3.37 to 2.57 persons per household in 2024. Yet construction has not kept pace with this structural shift in how Americans live.
+          These supply-side constraints are a key driver of the affordability challenges documented in our companion post. When housing supply
       - evidence_id: ev_005
         bibliography_num: 6
         url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
@@ -84,7 +153,15 @@ claims:
         span: '0-500'
         title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
         span_text: |
-          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, underscoring the need to preserve existing lower cost homes as new supply comes online. - Supply growth alone can’t reach extremely low income renters. Sustained public subsidy is indispensable. - Lasting affordability requires pairing new construction with preservation, ensuring low-cost homes are not lost faster than supply can relieve pressure on the housing market. Recent housing debates have increasingly focused not just on how much housing is built, but on who occupies newly built homes and how increases in supply may improve affordability across markets. A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes, a dynamic recently highlighted in a February article from [The Atlantic](https://www.thea
+          
+          [...]
+          
+           argument that housing markets are segmented by income, location and tenure. This distributional lens matters because neighborhood context shapes life outcomes. Evidence from the [Moving to Opportunity experiment](https://pubs.aeaweb.org/doi/pdfplus/10.1257/aer.20150572) shows that children who moved to lower‑poverty neighborhoods at younger ages had better long‑term outcomes, underscoring that where housing is available can matter alongside how much is built. According to [Harvard’s Joint Center for H
+          
+          [...]
+          
+          using debate, often described as the housing ‘filtering’ process. Stuart Rosenthal’s estimates from “[Are Private Markets and Filtering a Viable Source of Low-Income Housing? Estimates from a "Repeat Income" Model](https://www.aeaweb.org/articles?id=10.1257/aer.104.2.687)” indicate that filtering is, on average, faster in rental housing than in owner‑occupied housing, but it still takes time. More recently, [analysis summarized](https://nlihc.org/resource/new-study-examines-filtering-dynamics-us-housing-supply)
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
@@ -108,49 +185,45 @@ batch_summary:
 Output the YAML directly. No commentary outside.
 
 codex
-```yaml
 - claim_id: Q4-T1-050
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The span_text is only the introductory Canada housing-plan text about needing to build more homes and does not show the claimed 'more than $10.7 billion' or 'almost 22,000' on-reserve homes."
-  reviewer_confidence: 0.86
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly states 'more than $10.7B' created 'almost 22,000 new or repaired homes on-reserve,' matching the claim."
+  reviewer_confidence: 0.98
 - claim_id: Q4-T1-051
   claim_type: mechanism
   materiality: background
   citation_context_match: partial
   verdict: PARTIAL
-  rationale: "The spans discuss inelastic housing supply, vacancy chains, easing rent pressures, and very-low-income needs, but do not explicitly state the full claim that low vacancies create intense competition and leave the lowest-income households most vulnerable."
-  reviewer_confidence: 0.78
+  rationale: "The spans support the general mechanism that inadequate supply and low vacancies intensify competition and affordability pressure, but the cited evidence is U.S./general rather than Canada-specific."
+  reviewer_confidence: 0.82
 
 batch_summary:
   total: 2
-  per_verdict: {VERIFIED: 0, PARTIAL: 1, UNSUPPORTED: 1, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 0, partial: 2, no: 0}
-  notable: ["Q4-T1-050 lacks the specific funding and home-count figures in the visible span.", "Q4-T1-051 is directionally supported but not explicitly matched to the full vacancy-competition vulnerability framing."]
-```
+  per_verdict: {VERIFIED: 1, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 1, partial: 1, no: 0}
+  notable: ["Q4-T1-051 is directionally supported but relies on U.S./general housing-market evidence for a Canadian housing-supply framing."]
 tokens used
-3,709
-```yaml
+5,574
 - claim_id: Q4-T1-050
   claim_type: economic
   materiality: major
-  citation_context_match: partial
-  verdict: UNSUPPORTED
-  rationale: "The span_text is only the introductory Canada housing-plan text about needing to build more homes and does not show the claimed 'more than $10.7 billion' or 'almost 22,000' on-reserve homes."
-  reviewer_confidence: 0.86
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly states 'more than $10.7B' created 'almost 22,000 new or repaired homes on-reserve,' matching the claim."
+  reviewer_confidence: 0.98
 - claim_id: Q4-T1-051
   claim_type: mechanism
   materiality: background
   citation_context_match: partial
   verdict: PARTIAL
-  rationale: "The spans discuss inelastic housing supply, vacancy chains, easing rent pressures, and very-low-income needs, but do not explicitly state the full claim that low vacancies create intense competition and leave the lowest-income households most vulnerable."
-  reviewer_confidence: 0.78
+  rationale: "The spans support the general mechanism that inadequate supply and low vacancies intensify competition and affordability pressure, but the cited evidence is U.S./general rather than Canada-specific."
+  reviewer_confidence: 0.82
 
 batch_summary:
   total: 2
-  per_verdict: {VERIFIED: 0, PARTIAL: 1, UNSUPPORTED: 1, FABRICATED: 0, UNREACHABLE: 0}
-  per_context_match: {yes: 0, partial: 2, no: 0}
-  notable: ["Q4-T1-050 lacks the specific funding and home-count figures in the visible span.", "Q4-T1-051 is directionally supported but not explicitly matched to the full vacancy-competition vulnerability framing."]
-```
+  per_verdict: {VERIFIED: 1, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 1, partial: 1, no: 0}
+  notable: ["Q4-T1-051 is directionally supported but relies on U.S./general housing-market evidence for a Canadian housing-supply framing."]

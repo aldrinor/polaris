@@ -33,7 +33,7 @@ You are populating Tier-1 audit fields for each claim in the BATCH below.
 
 # Batch (the claims to audit are below; each has cited_evidence with span_text inline)
 
-# Q1 batch 2: claims 8-14
+# Q1 batch 2: claims 8-14 (re-run with full direct_quote)
 schema_version: tier1_v2
 claims:
   - claim_id: Q1-T1-008
@@ -47,7 +47,7 @@ claims:
         span: '0-500'
         title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
         span_text: |
-          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual property while enabling made-in-Canada AI solutions. The strategy comprises three complementary elements. The first, mobilising private sector investment, allocates up to CAD $700 million through the AI Compute Challenge, which seeks proposals from companies, consortiums and academic-industry partnerships to establish commercial AI data-centre solutions in Canada. Projects must build or expand AI-specific data centre capacity, offer flexible and affordable compute, contribute to anchoring Canadian AI companies, and advance sustainable solutions. The second element, building public supercomputing infrastructure, commits up to CAD $1 billion, including a new state-of-the-art AI supercomputing system through the AI Sovereign Compute Infrastructure Program (SCIP), a smaller secure facility led by Shared Services Canada and the National Research Council for government and industry R&D includin
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-009
@@ -61,7 +61,23 @@ claims:
         span: '0-500'
         title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
         span_text: |
-          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-central-1. The servers are physically in Canada, so the data is safe — right? Wrong. Data sovereignty is about whose laws apply to your data, not where the servers sit. And under the US CLOUD Act, any US-based company — or any foreign subsidiary under meaningful US parent control — can be compelled to produce data to US authorities, regardless of where that data is stored and regardless of whether it belongs to a Canadian person or organization. "Under the CLOUD Act, US authorities can compel US-based companies or foreign subsidiaries under US control to produce data — even if stored in Canada and relating to non-US persons." — Borden Ladner Gervais, "Data Sovereignty and the CLOUD Act" (April 2026) Microsoft, Google, Amazon, OpenAI, and Anthropic are all US-headquartered companies. Their Canadian subsidiaries fall under US corporate control. When your team uploads documents to ChatGPT, 
+          
+          [...]
+          
+          an sovereign AI providers has emerged, responding to exactly these pressures: CanXP AI Canada's first fully Canadian-owned and operated AI platform, launched October 2025 in Toronto. Chat, agents, and projects hosted on Canadian-owned servers. From $7.99/month. Augure AI OpenAI-compatible API with proprietary Canadian models (Ossington, Tofino). Full Canadian data residency, no US parent company. Drop-in replacement for OpenAI SDK. Pay-per-use in CAD. NorthernInference Canadian API gateway with a 5-
+          
+          [...]
+          
+          but the Canadian AI ecosystem remains thin compared to US offerings. Model quality trails frontier models. Context windows are shorter. Feature sets are narrower. For organizations that need frontier AI capabilities today — the coding power of Kimi K2.6, the MIT-licensed freedom of GLM-5.1, the reasoning depth of Qwen 3.6 — Canadian cloud options don't yet match up. On-Premises: The Only Complete Solution On-premises AI deployment solves the sovereignty problem at the architectural level, without sacrificing model quality. Running open-weight frontier models on Farad
+          
+          [...]
+          
+          ata physically never reaches a US-connected network. No US corporate entity can be compelled to produce it. No contractual promise needs to override a statutory obligation, because the jurisdiction question never arises. Frontier Model Quality Kimi K2.6 scores 58.6% on SWE-bench Pro, beating GPT-5.4. GLM-5.1 runs under MIT license. Qwen 3.6 offers 1M token context. These are frontier models — not compromises — running on hardware you own in your office. Automatic Compliance PIPEDA, Quebec's Law 25, Alberta's sovereign procurement rules, OSFI guidelines — all satisfied by default when d
+          
+          [...]
+          
+           independent AI capacity with every model you train and every tool you ship. Faraday Machines clusters are built and operated in Toronto. The hardware is owned by you, housed in your office, and subject exclusively to Canadian law. Models like Kimi K2.6 and GLM-5.1 are downloaded once and run locally. Your prompts, your code, your documents — they exist only on your infrastructure, under your control, subject only to the laws of Canada. The Cost of Waiting Every month that your organization routes AI workloads
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-010
@@ -75,7 +91,23 @@ claims:
         span: '0-500'
         title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
         span_text: |
-          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-central-1. The servers are physically in Canada, so the data is safe — right? Wrong. Data sovereignty is about whose laws apply to your data, not where the servers sit. And under the US CLOUD Act, any US-based company — or any foreign subsidiary under meaningful US parent control — can be compelled to produce data to US authorities, regardless of where that data is stored and regardless of whether it belongs to a Canadian person or organization. "Under the CLOUD Act, US authorities can compel US-based companies or foreign subsidiaries under US control to produce data — even if stored in Canada and relating to non-US persons." — Borden Ladner Gervais, "Data Sovereignty and the CLOUD Act" (April 2026) Microsoft, Google, Amazon, OpenAI, and Anthropic are all US-headquartered companies. Their Canadian subsidiaries fall under US corporate control. When your team uploads documents to ChatGPT, 
+          
+          [...]
+          
+          an sovereign AI providers has emerged, responding to exactly these pressures: CanXP AI Canada's first fully Canadian-owned and operated AI platform, launched October 2025 in Toronto. Chat, agents, and projects hosted on Canadian-owned servers. From $7.99/month. Augure AI OpenAI-compatible API with proprietary Canadian models (Ossington, Tofino). Full Canadian data residency, no US parent company. Drop-in replacement for OpenAI SDK. Pay-per-use in CAD. NorthernInference Canadian API gateway with a 5-
+          
+          [...]
+          
+          but the Canadian AI ecosystem remains thin compared to US offerings. Model quality trails frontier models. Context windows are shorter. Feature sets are narrower. For organizations that need frontier AI capabilities today — the coding power of Kimi K2.6, the MIT-licensed freedom of GLM-5.1, the reasoning depth of Qwen 3.6 — Canadian cloud options don't yet match up. On-Premises: The Only Complete Solution On-premises AI deployment solves the sovereignty problem at the architectural level, without sacrificing model quality. Running open-weight frontier models on Farad
+          
+          [...]
+          
+          ata physically never reaches a US-connected network. No US corporate entity can be compelled to produce it. No contractual promise needs to override a statutory obligation, because the jurisdiction question never arises. Frontier Model Quality Kimi K2.6 scores 58.6% on SWE-bench Pro, beating GPT-5.4. GLM-5.1 runs under MIT license. Qwen 3.6 offers 1M token context. These are frontier models — not compromises — running on hardware you own in your office. Automatic Compliance PIPEDA, Quebec's Law 25, Alberta's sovereign procurement rules, OSFI guidelines — all satisfied by default when d
+          
+          [...]
+          
+           independent AI capacity with every model you train and every tool you ship. Faraday Machines clusters are built and operated in Toronto. The hardware is owned by you, housed in your office, and subject exclusively to Canadian law. Models like Kimi K2.6 and GLM-5.1 are downloaded once and run locally. Your prompts, your code, your documents — they exist only on your infrastructure, under your control, subject only to the laws of Canada. The Cost of Waiting Every month that your organization routes AI workloads
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-011
@@ -89,7 +121,27 @@ claims:
         span: '0-500'
         title: "Scale AI (Canada)"
         span_text: |
-          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem par
+          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem partners. The industry-led cluster focuses on building Canadian-owned IP, fostering cross-sector AI adoption, and developing a skilled workforce. Scale AI (Canada) Abstract Introduction Copy link to IntroductionText. The Global Innovation Clusters (GICs) programme, first launched in 2017 as the Innovation Superclusters Initiative and renamed in 2022, aims to enhance Canada’s innovation performance and competitiveness through co-investment with industry in five strategic domains identified by the government as nationally significant: artificial intelligence (AI), digital technologies, protein industries, oceans, and advanced manufacturing. As a flagship component of Canada’s innovation policy, the GICs are designed to foster industry-led innovation ecosystems that link businesses, research institutions, and other partners to accelerate technology development and adoption. Each cluster define
+          
+          [...]
+          
+          lementation body | Scale AI | ||||| | Programme timeline | Phase I (2018–2023): Phase II (2023–2028): | ||||| | Project funding | Total: USD 492 million (CAD 673 million) (As of March 2025) * Additional Quebec government funding: USD 20 million (CAD 27.6 million) | ||||| | Geographic scope | | ||||| | Objectives | | ||||| | Industries in focus | Consumer goods and retail | Industrial goods and manufacturing | Transport and logistics | Intrahospital logistics | Infrastructure and construction | | | E
+          
+          [...]
+          
+          MEs participating in projects | 425 | ||||| | Value of investment committed by industry | USD 299 million (CAD 409 million) | ||||| | Total project investment | USD 492 million (CAD 673 million) | ||||| | Direct value creation expected by 2030 | USD 5.1 billion (CAD 7 billion) | ||||| | IP creation | 100% of IP created in the first 100 Scale AI-funded projects was Canadian-owned, with over 95% of that IP commercially deployed by Canadian firms (as of March 2025). | ||||| | Expected jobs to be creat
+          
+          [...]
+          
+          ing the basis for collaborative R&D funding and talent programmes. In addition to core funding from ISED, the Government of Québec provided complementary co-funding for projects delivered within the province. Over the past seven years, approximately 11.5% of Scale AI’s total public funding came from the Québec government, reinforcing a shared federal–provincial commitment to position Canadian innovators at the forefront of international AI ecosystems. This co-investment model is central to Scale AI’
+          
+          [...]
+          
+          This progression is reflected in key performance indicators. The number of active projects increased from 8 in the early phase, to 26 during the deployment phase, and to 33 in the most recent period, alongside growth in annual project value from USD 81.4 million (CAD 111 million) to USD 85.8 million (CAD 117 million), and subsequently to USD 104.9 million (CAD 143 million). Over the same period, the share of projects involving first-time AI adopters increased from 69% to 75%, indicating a widening diffusion of AI capabilities beyond early movers. Cumulative project funding rose from USD 538 m
+          
+          [...]
+          
+          on needs. The Cluster operates under a co-investment model, with USD 299 million (CAD 409 million) committed by industry partners, contributing to a total portfolio of USD 492 million (CAD 673 million). These investments are expected to generate USD 5.1 billion (CAD 7 billion) in direct economic value by 2030. Scale AI-supported projects have also contributed to building a robust Canadian AI IP base. As of March 2025, 100% of IP created in the first 100 projects was Canadian-owned, and over 95% of
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-012
@@ -103,7 +155,27 @@ claims:
         span: '0-500'
         title: "Scale AI (Canada)"
         span_text: |
-          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem par
+          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem partners. The industry-led cluster focuses on building Canadian-owned IP, fostering cross-sector AI adoption, and developing a skilled workforce. Scale AI (Canada) Abstract Introduction Copy link to IntroductionText. The Global Innovation Clusters (GICs) programme, first launched in 2017 as the Innovation Superclusters Initiative and renamed in 2022, aims to enhance Canada’s innovation performance and competitiveness through co-investment with industry in five strategic domains identified by the government as nationally significant: artificial intelligence (AI), digital technologies, protein industries, oceans, and advanced manufacturing. As a flagship component of Canada’s innovation policy, the GICs are designed to foster industry-led innovation ecosystems that link businesses, research institutions, and other partners to accelerate technology development and adoption. Each cluster define
+          
+          [...]
+          
+          lementation body | Scale AI | ||||| | Programme timeline | Phase I (2018–2023): Phase II (2023–2028): | ||||| | Project funding | Total: USD 492 million (CAD 673 million) (As of March 2025) * Additional Quebec government funding: USD 20 million (CAD 27.6 million) | ||||| | Geographic scope | | ||||| | Objectives | | ||||| | Industries in focus | Consumer goods and retail | Industrial goods and manufacturing | Transport and logistics | Intrahospital logistics | Infrastructure and construction | | | E
+          
+          [...]
+          
+          MEs participating in projects | 425 | ||||| | Value of investment committed by industry | USD 299 million (CAD 409 million) | ||||| | Total project investment | USD 492 million (CAD 673 million) | ||||| | Direct value creation expected by 2030 | USD 5.1 billion (CAD 7 billion) | ||||| | IP creation | 100% of IP created in the first 100 Scale AI-funded projects was Canadian-owned, with over 95% of that IP commercially deployed by Canadian firms (as of March 2025). | ||||| | Expected jobs to be creat
+          
+          [...]
+          
+          ing the basis for collaborative R&D funding and talent programmes. In addition to core funding from ISED, the Government of Québec provided complementary co-funding for projects delivered within the province. Over the past seven years, approximately 11.5% of Scale AI’s total public funding came from the Québec government, reinforcing a shared federal–provincial commitment to position Canadian innovators at the forefront of international AI ecosystems. This co-investment model is central to Scale AI’
+          
+          [...]
+          
+          This progression is reflected in key performance indicators. The number of active projects increased from 8 in the early phase, to 26 during the deployment phase, and to 33 in the most recent period, alongside growth in annual project value from USD 81.4 million (CAD 111 million) to USD 85.8 million (CAD 117 million), and subsequently to USD 104.9 million (CAD 143 million). Over the same period, the share of projects involving first-time AI adopters increased from 69% to 75%, indicating a widening diffusion of AI capabilities beyond early movers. Cumulative project funding rose from USD 538 m
+          
+          [...]
+          
+          on needs. The Cluster operates under a co-investment model, with USD 299 million (CAD 409 million) committed by industry partners, contributing to a total portfolio of USD 492 million (CAD 673 million). These investments are expected to generate USD 5.1 billion (CAD 7 billion) in direct economic value by 2030. Scale AI-supported projects have also contributed to building a robust Canadian AI IP base. As of March 2025, 100% of IP created in the first 100 projects was Canadian-owned, and over 95% of
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-013
@@ -120,7 +192,12 @@ claims:
           Presented by:
           The race for AI dominance isn’t just about code; it’s about processing power. As the ambition of the industry soars, there’s never been more demand for the infrastructure to support it.
           As a result, compute has become the hot commodity in AI. It’s why tech giants and asset managers are proposing and building data centres that consume as much power as entire neighbourhoods. It’s also why companies like Nvidia, whose GPUs are used to help run and train AI models, are soaring in value.
-          In Canada and across the world, governments and businesses are trying to grab a piece of the compu
+          In Canada and across the world, governments and businesses are trying to grab a piece of the compute build out, which has become a shorthand for the wider competition to own AI.
+          That need for processing power stretches from academic researchers and the earliest of early-stage startups to tech giants and governments. And if you read the headlines, supply is limited and demand is soaring.
+          But not every company needs the same type of compute, or the same amount. And infrastructure providers have different visions of how to deliver it, from mammoth data centres proposed in Alberta to upstart neoclouds selling AI services. Then there’s the question of sovereignty, a term seemingly everyone’s using differently.
+          As Canada tries to secure its place in the AI race, how much compute capacity does it need, and can it build it? And why should people and businesses care about sovereignty? Watch the video below for an in-depth discussion tackling all the big questions.
+          Loading...
+          Thanks for sharin
       - evidence_id: ev_003
         bibliography_num: 8
         url: "https://www.facebook.com/groups/157936343987907/posts/807875675660634/"
@@ -128,7 +205,11 @@ claims:
         span: '0-500'
         title: "ai insights on hyperscale data centers - Facebook"
         span_text: |
-          Title: Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook URL Source: https://www.facebook.com/groups/157936343987907/posts/807875675660634/ Markdown Content: # Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook [Log In](https://www.facebook.com/login/device-based/regular/login/?login_attempt=1&next=https%3A%2F%2Fwww.facebook.com%2Fgroups%2F157936343987907%2Fposts%2F807875675660634%2F) [Forgot Account?](https:/
+          Title: Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook URL Source: https://www.facebook.com/groups/157936343987907/posts/807875675660634/ Markdown Content: # Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook [Log In](https://www.facebook.com/login/device-based/regular/login/?login_attempt=1&next=https%3A%2F%2Fwww.facebook.com%2Fgroups%2F157936343987907%2Fposts%2F807875675660634%2F) [Forgot Account?](https://www.facebook.com/recover/initiate?ars=royal_blue_bar) ![Image 1](https://static.xx.fbcdn.net/rsrc.php/y-/r/oJDN4UDRn_R.webp) ai insights on hyperscale data centers Summarized by AI from the post below [](https://www.facebook.com/groups/157936343987907/?__cft__[0]=AZY96aX6ujd2W9exQQL-549bMt-QDD-R7uEKHiP-0M8OJ0K3dDnJ82Gh0jAcrbScZHJch29Af4uQ8sz30byqjXmlpQw2yldyIkG5WqFgcQhaE4UMMrfKCJpmNj2Qt0LuSq-hPG0pYDdFAKLANl1d1WWl6AR5aUPa5bJWmQcGcP5ywxxZimG3O8Jsr6Y0Nw4rKSj83Qf9hbaohfpWdHlCn3QiLMKtAE9CQY3XVonQ2EoKHDy6WVn7K8awgrfquO-uiR7-dgACom5PpnUfVmq-2vL1&__tn__=%3C%3C%2CP-R) ## [Mt. Orab Anti-Establishment Network.](https://www.facebook.com/groups/157936343987907/?__cft__[0]=AZY96aX6ujd2W9exQQL-549bMt-QDD-R7uEKHiP-0M8OJ0K3dDnJ82Gh0jAcrbScZHJch29Af4uQ8sz30byqjXmlpQw2yldyIkG5WqFgcQhaE4UMMrfKCJpmNj2Qt0LuSq-hPG0pYDdFAKLANl1d1WWl6AR5aUPa5bJWmQcGcP5ywxxZimG3O8Jsr6Y0Nw4rKSj83Qf9hbaohfpWdHlCn3QiLMKtAE9CQY3XVon
+          
+          [...]
+          
+          Qf9hbaohfpWdHlCn3QiLMKtAE9CQY3XVonQ2EoKHDy6WVn7K8awgrfquO-uiR7-dgACom5PpnUfVmq-2vL1&__tn__=%2CO%2CP-R) · When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. ![Image 2](https://scontent-det1-1.xx.fbcdn.net/v/t15.5256-10/634159219_2764488123887268_2465223591797097603_n.jpg?_nc_cat=111&ccb=1-7&_nc_sid=117846&_nc_ohc=_14Kf124PwsQ7kNvwEzVT7n&_nc_oc=AdpuM2j2PQaIipf9KSMD05MFG_NMqC0FEgaudGIo7qJC8j0blc0SyxPFdvIkJ4LapJg&_nc_zt=23&_nc_ht=scontent-det1-1.xx&_nc_gid=d0wsyfa
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
   - claim_id: Q1-T1-014
@@ -142,7 +223,23 @@ claims:
         span: '0-500'
         title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
         span_text: |
-          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-central-1. The servers are physically in Canada, so the data is safe — right? Wrong. Data sovereignty is about whose laws apply to your data, not where the servers sit. And under the US CLOUD Act, any US-based company — or any foreign subsidiary under meaningful US parent control — can be compelled to produce data to US authorities, regardless of where that data is stored and regardless of whether it belongs to a Canadian person or organization. "Under the CLOUD Act, US authorities can compel US-based companies or foreign subsidiaries under US control to produce data — even if stored in Canada and relating to non-US persons." — Borden Ladner Gervais, "Data Sovereignty and the CLOUD Act" (April 2026) Microsoft, Google, Amazon, OpenAI, and Anthropic are all US-headquartered companies. Their Canadian subsidiaries fall under US corporate control. When your team uploads documents to ChatGPT, 
+          
+          [...]
+          
+          an sovereign AI providers has emerged, responding to exactly these pressures: CanXP AI Canada's first fully Canadian-owned and operated AI platform, launched October 2025 in Toronto. Chat, agents, and projects hosted on Canadian-owned servers. From $7.99/month. Augure AI OpenAI-compatible API with proprietary Canadian models (Ossington, Tofino). Full Canadian data residency, no US parent company. Drop-in replacement for OpenAI SDK. Pay-per-use in CAD. NorthernInference Canadian API gateway with a 5-
+          
+          [...]
+          
+          but the Canadian AI ecosystem remains thin compared to US offerings. Model quality trails frontier models. Context windows are shorter. Feature sets are narrower. For organizations that need frontier AI capabilities today — the coding power of Kimi K2.6, the MIT-licensed freedom of GLM-5.1, the reasoning depth of Qwen 3.6 — Canadian cloud options don't yet match up. On-Premises: The Only Complete Solution On-premises AI deployment solves the sovereignty problem at the architectural level, without sacrificing model quality. Running open-weight frontier models on Farad
+          
+          [...]
+          
+          ata physically never reaches a US-connected network. No US corporate entity can be compelled to produce it. No contractual promise needs to override a statutory obligation, because the jurisdiction question never arises. Frontier Model Quality Kimi K2.6 scores 58.6% on SWE-bench Pro, beating GPT-5.4. GLM-5.1 runs under MIT license. Qwen 3.6 offers 1M token context. These are frontier models — not compromises — running on hardware you own in your office. Automatic Compliance PIPEDA, Quebec's Law 25, Alberta's sovereign procurement rules, OSFI guidelines — all satisfied by default when d
+          
+          [...]
+          
+           independent AI capacity with every model you train and every tool you ship. Faraday Machines clusters are built and operated in Toronto. The hardware is owned by you, housed in your office, and subject exclusively to Canadian law. Models like Kimi K2.6 and GLM-5.1 are downloaded once and run locally. Your prompts, your code, your documents — they exist only on your infrastructure, under your control, subject only to the laws of Canada. The Cost of Waiting Every month that your organization routes AI workloads
     # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
 
 
