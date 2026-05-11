@@ -159,11 +159,107 @@ class RedundancyGroup:
     redundants: list[SentenceLocation]
 
 
+def _signatures_overlap(
+    a: FactSignature, b: FactSignature, min_decimal_overlap: int = 2,
+) -> bool:
+    """Overlap-based signature matcher — per Codex Phase 3 diagnosis.
+
+    Two signatures are considered the same fact unit if they share
+    EITHER:
+      - At least `min_decimal_overlap` decimal values (e.g., 9.2% and
+        13.9% appearing in both → semantic match even if years differ),
+      - OR they share the COMPLETE decimal set AND have supporting
+        year/dollar overlap (so a "3.7% in 2016" sentence does NOT match
+        a "3.7% in 2014" sentence — different timepoints, different
+        facts),
+      - OR they share ≥2 dollar buckets.
+
+    Strict pure-decimal match is allowed ONLY when both signatures have
+    no years and no dollars (so the equality is truly about decimals
+    alone, not coincidentally-same decimals in different contexts).
+
+    Empty signatures never match.
+
+    Codex iter-1 P1 fix: previously, pure-decimal equality matched even
+    when years differed → false-positive deduplication risk on facts
+    that share the same decimal across different timepoints/contexts.
+    """
+    if a.is_empty() or b.is_empty():
+        return False
+    # Path 0: exact-signature equality (legacy behavior preserved).
+    # Codex iter-2 P1 regression fix: when two sentences carry the
+    # IDENTICAL full FactSignature (e.g., both extract as
+    # FactSignature(dollar_buckets={204}, decimals={}, years={}) for
+    # "$200 more per person"), they ARE the same fact. The stricter
+    # iter-1 fix accidentally regressed this case.
+    if a == b:
+        return True
+    # Codex iter-4 P1 fix: populated-axis conflicts must block ALL
+    # heuristic paths (Path 1/Path 2/Path 3), not just Path 2. Previously
+    # the guard lived inside Path 2 only, so e.g. "3.0%/1.6% of $40K/$80K
+    # in 2014" vs "3.0%/1.6% of $200K/$300K in 2014" could still match via
+    # Path 1's ≥2-decimal shortcut (decimals shared, dollar buckets
+    # disjoint while years overlap). Lift the guard to a top-level
+    # precondition so any disjoint populated-axis disqualifies a match.
+    years_conflict = (a.years and b.years) and not (a.years & b.years)
+    dollars_conflict = (
+        (a.dollar_buckets and b.dollar_buckets)
+        and not (a.dollar_buckets & b.dollar_buckets)
+    )
+    if years_conflict or dollars_conflict:
+        return False
+    # Path 1: shared salient percentages (≥2 decimals in common)
+    shared_decimals = a.decimals & b.decimals
+    if len(shared_decimals) >= min_decimal_overlap:
+        return True
+    # Path 2: full decimal-set equality
+    if a.decimals == b.decimals and a.decimals:
+        # At least one supporting overlap → match
+        if a.dollar_buckets & b.dollar_buckets or a.years & b.years:
+            return True
+        # Pure decimal-only match: allowed ONLY when both sides have NO
+        # contextual years AND NO contextual dollars.
+        if (not a.years and not b.years
+                and not a.dollar_buckets and not b.dollar_buckets):
+            return True
+        return False
+    # Path 3: shared dollar buckets (≥2 distinct amounts in common)
+    shared_dollars = a.dollar_buckets & b.dollar_buckets
+    if len(shared_dollars) >= 2:
+        return True
+    return False
+
+
+def _cluster_overlaps(
+    candidate: SentenceLocation, cluster: list[SentenceLocation],
+) -> bool:
+    """True if candidate overlaps with ANY member of the cluster.
+
+    Phase 3 P1-2 fix (per Codex review): previous greedy implementation
+    compared candidate only against cluster[0] (representative), which
+    missed transitive overlap chains. e.g., A={1.1,2.2} ←→ B={1.1,2.2,3.3,4.4}
+    ←→ C={3.3,4.4}: A↛C directly, but B bridges them. Comparing against
+    ALL cluster members + merging clusters that share an overlap with the
+    candidate captures the full transitive closure.
+    """
+    for member in cluster:
+        if _signatures_overlap(candidate.signature, member.signature):
+            return True
+    return False
+
+
 def build_groups(
     sections: dict[str, list[str]],
     section_order: Optional[list[str]] = None,
 ) -> list[RedundancyGroup]:
-    """Group sentences across sections by FactSignature.
+    """Group sentences across sections by overlap-matched FactSignature.
+
+    Per Codex Phase 3 diagnosis (`.codex/I-gen-002-phase3/`): the
+    earlier exact-FactSignature grouping was too strict — incidental
+    years/dollars added in one section but not another broke the match.
+    Now uses `_signatures_overlap` core-fact matcher to group
+    semantically equivalent sentences even when contextual numerics
+    differ.
 
     Args:
         sections: dict mapping section_title -> list of sentence strings.
@@ -171,17 +267,16 @@ def build_groups(
             If None, falls back to insertion order of `sections` keys.
 
     Returns:
-        List of RedundancyGroup, one per signature appearing in 2+
-        section-distinct sentences. Empty signatures are excluded.
+        List of RedundancyGroup, one per overlap-cluster appearing in
+        2+ section-distinct sentences. Empty signatures are excluded.
         Sentences within the same section that share a signature are
-        NOT counted as redundancy (intra-section repetition is a
-        different bug).
+        NOT counted as redundancy.
     """
     if section_order is None:
         section_order = list(sections.keys())
 
-    # Collect all sentences with their signatures
-    locations_by_sig: dict[FactSignature, list[SentenceLocation]] = {}
+    # Collect all locations with their signatures
+    all_locations: list[SentenceLocation] = []
     for section_title in section_order:
         if section_title not in sections:
             continue
@@ -189,26 +284,51 @@ def build_groups(
             sig = extract_signature(sentence)
             if sig.is_empty():
                 continue
-            locations_by_sig.setdefault(sig, []).append(
-                SentenceLocation(
-                    section=section_title,
-                    index=idx,
-                    sentence=sentence,
-                    signature=sig,
-                )
-            )
+            all_locations.append(SentenceLocation(
+                section=section_title, index=idx,
+                sentence=sentence, signature=sig,
+            ))
+
+    # Transitive clustering by overlap: each location is compared against
+    # ANY member of each existing cluster. If it overlaps with multiple
+    # clusters, those clusters are MERGED (transitive closure). Otherwise
+    # the location seeds a new cluster.
+    # Phase 3 P1-2 fix: this replaces the earlier greedy
+    # representative-only comparison which missed A→B→C chains.
+    clusters: list[list[SentenceLocation]] = []
+    for loc in all_locations:
+        # Collect every cluster this location overlaps with.
+        overlapping_idx = [
+            i for i, cluster in enumerate(clusters)
+            if _cluster_overlaps(loc, cluster)
+        ]
+        if not overlapping_idx:
+            clusters.append([loc])
+            continue
+        # Merge: pick the lowest-index cluster as target, fold all
+        # other overlapping clusters into it, append the new location.
+        target = clusters[overlapping_idx[0]]
+        target.append(loc)
+        for j in sorted(overlapping_idx[1:], reverse=True):
+            target.extend(clusters[j])
+            del clusters[j]
 
     groups: list[RedundancyGroup] = []
-    for sig, locations in locations_by_sig.items():
-        # Filter: at least 2 distinct sections must share this signature
-        distinct_sections = {loc.section for loc in locations}
+    for cluster in clusters:
+        # Filter: at least 2 distinct sections must share this cluster
+        distinct_sections = {loc.section for loc in cluster}
         if len(distinct_sections) < 2:
             continue
-        # Primary = first location in section_order; redundants = rest
-        primary = locations[0]
-        redundants = locations[1:]
+        # Within the cluster, primary = first location in section_order;
+        # redundants = all other locations (even same section as primary,
+        # if they appear after — but typically these will be from
+        # different sections).
+        primary = cluster[0]
+        redundants = cluster[1:]
         groups.append(RedundancyGroup(
-            signature=sig, primary=primary, redundants=redundants,
+            signature=primary.signature,
+            primary=primary,
+            redundants=redundants,
         ))
 
     return groups

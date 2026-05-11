@@ -395,3 +395,305 @@ async def test_dedup_pass_returns_unchanged_when_no_duplicates() -> None:
     assert new_sections == sections
     # LLM should not have been called
     assert len(fake_llm.calls) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 (Codex post-merge diagnosis): overlap-based signature matching
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_signatures_overlap_shares_two_decimals() -> None:
+    """Same 9.2%/13.9% fact with different extra years should overlap."""
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature(
+        "9.2% of Quebecers aged 55-64 vs 13.9% in ROC in 2014 [ev_X]."
+    )
+    sig_b = extract_signature(
+        "9.2% in 2014, building on the 1997 baseline, compared 13.9% in ROC [ev_Y]."
+    )
+    # sig_a has years={2014}; sig_b has years={2014, 1997}; but decimals match
+    assert _signatures_overlap(sig_a, sig_b)
+
+
+def test_signatures_overlap_shares_two_dollar_amounts() -> None:
+    """Same $11.2B/$13.4B fact in different sections should overlap."""
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature(
+        "PBO estimates $11.2 billion in 2024-25 rising to $13.4 billion in 2027-28 [ev_X]."
+    )
+    sig_b = extract_signature(
+        "Incremental cost $11.2 billion 2024-25 to $13.4 billion 2027-28 (Quebec context) [ev_Y]."
+    )
+    assert _signatures_overlap(sig_a, sig_b)
+
+
+def test_signatures_overlap_distinct_facts_dont_match() -> None:
+    """Different decimals should NOT overlap."""
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("8.7% of Quebec households in 2007 [ev_X].")
+    sig_b = extract_signature("9.2% of Quebecers aged 55-64 in 2014 [ev_Y].")
+    # Only 1 decimal overlap (none shared); not enough for overlap match
+    assert not _signatures_overlap(sig_a, sig_b)
+
+
+def test_signatures_overlap_empty_sig_never_matches() -> None:
+    """Empty signatures should never overlap."""
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("The system is regressive [ev_X].")  # empty
+    sig_b = extract_signature("Premium is 3% of income [ev_Y].")
+    assert not _signatures_overlap(sig_a, sig_b)
+    assert not _signatures_overlap(sig_a, sig_a)
+
+
+def test_build_groups_real_q5_post_fix_pattern_with_extra_years() -> None:
+    """Reproduces Codex Phase 3 diagnosis case: the same 9.2%/13.9%
+    fact appears in two sections but with different incidental years —
+    Phase 2's exact-FactSignature would have missed this; Phase 3's
+    overlap matcher should catch it.
+    """
+    sections = {
+        "Efficacy": [
+            "9.2% of Quebecers aged 55 to 64 vs 13.9% in ROC in 2014 [ev_X].",
+        ],
+        "Long-term Outcomes": [
+            "Building on 1997 baseline, 9.2% reported access barriers vs "
+            "13.9% in ROC as of 2014 [ev_Y].",
+        ],
+    }
+    groups = build_groups(sections)
+    assert len(groups) == 1, (
+        f"overlap matcher should catch 9.2%/13.9% repeat despite year drift; "
+        f"got {len(groups)} groups"
+    )
+    assert groups[0].primary.section == "Efficacy"
+    assert groups[0].redundants[0].section == "Long-term Outcomes"
+
+
+def test_build_groups_three_section_chain_clusters_correctly() -> None:
+    """A → B → C where A and B share core fact, B and C share core fact,
+    but A and C don't directly share. With greedy clustering (B joins A's
+    cluster first; C joins B's cluster which is A's cluster), all three
+    end up in one group.
+    """
+    sections = {
+        "Efficacy": ["8.7% of Quebec, 4.8% ROC in 2007 [ev_1]."],
+        "Comparative": ["8.7% Quebec vs 4.8% ROC, ranging from 1.2% to 2.4% [ev_2]."],
+        "Long-term Outcomes": ["8.7% Quebec OOP rate 4.8% ROC, baseline 1997 [ev_3]."],
+    }
+    groups = build_groups(sections)
+    assert len(groups) == 1
+    # All three sections should be in the cluster
+    sections_in_cluster = {groups[0].primary.section} | {r.section for r in groups[0].redundants}
+    assert sections_in_cluster == {"Efficacy", "Comparative", "Long-term Outcomes"}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 iter-2 (Codex P1 corrections): false-positive guard +
+# non-vacuous transitive cluster
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_signatures_overlap_same_decimal_diff_year_does_not_match() -> None:
+    """3.7% in 2016 vs 3.7% in 2014 should NOT match — different years
+    means different facts. Codex iter-1 P1-1 case.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("3.7% in 2016 [ev_X].")
+    sig_b = extract_signature("3.7% in 2014 [ev_Y].")
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "single decimal with disagreeing years must not overlap"
+    )
+
+
+def test_signatures_overlap_same_decimal_disjoint_dollars_does_not_match() -> None:
+    """Same single decimal but completely different dollar amounts is
+    NOT a fact match. Codex iter-1 P1-1 case.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("3.0% of $40,000 income [ev_X].")
+    sig_b = extract_signature("3.0% of $200,000 income [ev_Y].")
+    # Both have {3.0} decimal but different dollar contexts
+    # Without strict guard, _signatures_overlap would return True via Path 2
+    # With guard, should return False
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "single decimal with disjoint dollars should not overlap"
+    )
+
+
+def test_build_groups_transitive_chain_non_vacuous() -> None:
+    """A and C do NOT directly overlap; B bridges them.
+    A = {1.1, 2.2}; B = {1.1, 2.2, 3.3, 4.4}; C = {3.3, 4.4}.
+    A↔B match (shared 1.1, 2.2). B↔C match (shared 3.3, 4.4). A↛C direct.
+    True transitive clustering should fold all three into ONE group.
+    Codex iter-1 P1-2 case.
+    """
+    sections = {
+        "Efficacy": ["The figures are 1.1% and 2.2% [ev_A]."],
+        "Comparative": ["Numbers were 1.1%, 2.2%, 3.3%, 4.4% [ev_B]."],
+        "Regulatory": ["3.3% and 4.4% are the boundaries [ev_C]."],
+    }
+    groups = build_groups(
+        sections,
+        section_order=["Efficacy", "Comparative", "Regulatory"],
+    )
+    assert len(groups) == 1, (
+        f"transitive chain A→B→C should fold to 1 group; got {len(groups)}"
+    )
+    sections_in_cluster = (
+        {groups[0].primary.section}
+        | {r.section for r in groups[0].redundants}
+    )
+    assert sections_in_cluster == {"Efficacy", "Comparative", "Regulatory"}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 iter-3 (Codex regression fix): preserve exact single-dollar
+# duplicate grouping without reopening pure-decimal false-positive
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_signatures_overlap_identical_single_dollar_still_matches() -> None:
+    """Codex iter-2 P1 regression: '$200 more per person' appearing in
+    two sections has FactSignature(decimals={}, dollar_buckets={204}, years={})
+    on both sides. Identical signature MUST match (legacy exact-equality
+    behavior preserved).
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("Quebec spends $200 more per person [ev_X].")
+    sig_b = extract_signature("Quebec spends $200 more per person on prescriptions [ev_Y].")
+    assert _signatures_overlap(sig_a, sig_b), (
+        "identical single-dollar signatures must still match"
+    )
+
+
+def test_build_groups_quebec_200_dollar_cross_section_caught() -> None:
+    """Q5 observable bug Codex flagged: '$200 more per person' across
+    4 sections should cluster into ONE redundancy group.
+    """
+    sections = {
+        "Efficacy": ["Quebec spends $200 more per person on prescriptions [ev_X]."],
+        "Regulatory": ["The province spends $200 more per person than the rest of Canada [ev_Y]."],
+        "Population Subgroups": ["Per capita spending exceeds Canada by $200 [ev_Z]."],
+        "Long-term Outcomes": ["This adds up: $200 more per resident [ev_W]."],
+    }
+    groups = build_groups(sections, section_order=list(sections.keys()))
+    assert len(groups) == 1, (
+        f"single-dollar duplicate fact across 4 sections should be ONE group; "
+        f"got {len(groups)}"
+    )
+    assert groups[0].primary.section == "Efficacy"
+    assert len(groups[0].redundants) == 3
+
+
+def test_signatures_overlap_year_only_identical_still_matches() -> None:
+    """Identical year-only signatures match: '1997 baseline' in two sections."""
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("Implemented in 1997 [ev_X].")
+    sig_b = extract_signature("Established in 1997 [ev_Y].")
+    assert _signatures_overlap(sig_a, sig_b), (
+        "identical year-only signatures must match"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 iter-3 (Codex Path 2 conflict-masking fix): same decimal +
+# shared year + disjoint dollars must NOT match; same decimal + shared
+# dollar + disjoint years must NOT match.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_signatures_overlap_same_decimal_shared_year_disjoint_dollars_blocks() -> None:
+    """3.0% of $40K in 2014 vs 3.0% of $200K in 2014: shared year masks
+    the dollar conflict. Codex iter-3 P1 case.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("3.0% of $40,000 income in 2014 [ev_X].")
+    sig_b = extract_signature("3.0% of $200,000 income in 2014 [ev_Y].")
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "year-overlap should NOT mask disjoint-dollar conflict"
+    )
+
+
+def test_signatures_overlap_same_decimal_shared_dollar_disjoint_years_blocks() -> None:
+    """3.0% of $40K in 2014 vs 3.0% of $40K in 2016: shared dollar
+    masks the year conflict. Codex iter-3 P1 case.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("3.0% of $40,000 income in 2014 [ev_X].")
+    sig_b = extract_signature("3.0% of $40,000 income in 2016 [ev_Y].")
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "dollar-overlap should NOT mask disjoint-year conflict"
+    )
+
+
+def test_signatures_overlap_same_decimal_one_side_empty_context_matches() -> None:
+    """3.0% with $40K + 2014 vs 3.0% with only $40K: one side has empty
+    years. No conflict, supporting overlap on dollars → match.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature("3.0% of $40,000 income in 2014 [ev_X].")
+    sig_b = extract_signature("3.0% of $40,000 income [ev_Y].")  # no year
+    assert _signatures_overlap(sig_a, sig_b), (
+        "one side with empty year axis should not block — no conflict"
+    )
+
+
+def test_signatures_overlap_path1_two_decimals_disjoint_dollars_blocks() -> None:
+    """Path 1 case — ≥2 decimals shared but dollar buckets disjoint (years
+    overlap, dollars conflict). Was matching via Path 1 short-circuit in
+    iter 3; now blocked by the lifted top-level conflict guard.
+
+    3.0%/1.6% on income $40K/$80K in 2014 vs 3.0%/1.6% on income
+    $200K/$300K in 2014 — same decimals, same year, but the dollar
+    contexts are different income tiers. Distinct facts.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature(
+        "3.0% on $40,000 and 1.6% on $80,000 income in 2014 [ev_X]."
+    )
+    sig_b = extract_signature(
+        "3.0% on $200,000 and 1.6% on $300,000 income in 2014 [ev_Y]."
+    )
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "Path 1 must respect populated-dollar conflict guard"
+    )
+
+
+def test_signatures_overlap_path3_two_dollars_disjoint_years_blocks() -> None:
+    """Path 3 case — ≥2 dollar buckets shared but years disjoint. Was
+    matching via Path 3 short-circuit in iter 3; now blocked.
+
+    Two distinct fiscal-year reports each citing $40K and $200K
+    thresholds, but for different years (2014 vs 2018) — not the same
+    fact.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature(
+        "Thresholds of $40,000 and $200,000 in 2014 [ev_X]."
+    )
+    sig_b = extract_signature(
+        "Thresholds of $40,000 and $200,000 in 2018 [ev_Y]."
+    )
+    assert not _signatures_overlap(sig_a, sig_b), (
+        "Path 3 must respect populated-year conflict guard"
+    )
+
+
+def test_signatures_overlap_path1_two_decimals_compatible_context_matches() -> None:
+    """Positive Path 1 case under new top-level guard — ≥2 shared decimals
+    AND one side has empty supporting axes (no conflict possible) →
+    should still match.
+
+    9.2% and 13.9% appear in both sentences; sig_b has no dollar context
+    so no conflict is possible. Match is preserved.
+    """
+    from src.polaris_graph.generator.fact_dedup import _signatures_overlap
+    sig_a = extract_signature(
+        "9.2% and 13.9% of seniors received OAS in 2014 [ev_X]."
+    )
+    sig_b = extract_signature(
+        "9.2% and 13.9% of seniors received OAS [ev_Y]."
+    )
+    assert _signatures_overlap(sig_a, sig_b), (
+        "Path 1 with compatible context (one side empty) must still match"
+    )
