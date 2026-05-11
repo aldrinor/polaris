@@ -1,0 +1,296 @@
+Independent Tier-1 audit of 7 Q4 Canadian housing supply claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q4-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CMHC supply targets, BC/ON municipal upzoning timelines, federal Housing Accelerator Fund dollars, mortgage qualification stress test rates)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q4 batch 1: claims 1-7 (re-run with full direct_quote)
+schema_version: tier1_v2
+claims:
+  - claim_id: Q4-T1-001
+    section: "Efficacy"
+    sentence: "Evidence on the efficacy of zoning reform is contested, with one analysis of U.S. cities concluding zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period.[1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analysis of more than two dozen [case studies](https://www.aei.org/housing-supply-case-studies/) of major reforms, which show substantially larger effects. Meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year. This discrepancy led us to examine their study more closely. In a paper published in [Econ Journal Watch](https://econjwatch.org/file_download/1409/PeterEtAlMarch2026.pdf?mimetype=pdf), we painstakingly reviewed all 180 articles underlying the Stacy et al. dataset and coded each reform by hand. Our manual review finds that 178 of the 180 articles do not qualify as major reforms by the authors’ own criteria. They are misclassified, too minor to plausibly affect housing supply, or do not contain enough information to evaluate the policy change. Consider one example published in the Miami Herald. Stacy et al. attribute a zoning reform to the city of Miami, but 
+          
+          [...]
+          
+          y of the examples we identify appear to be precisely the kinds of changes they say they excluded. They also characterize the two sets of findings as broadly consistent. That glosses over a fundamental difference in magnitude. Their estimate is about 0.8 percent over three- to eight-years. Our findings show increases of 1 to 2.5 percent per year following major reforms. These are not small differences. They imply very different conclusions about the effectiveness of zoning reform. At its core, this debate is about measurement. Urban’s approach prioritizes scale, using machi
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-002
+    section: "Efficacy"
+    sentence: "Critics of that study argue meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year, a fundamentally different magnitude of effect.[2][1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analysis of more than two dozen [case studies](https://www.aei.org/housing-supply-case-studies/) of major reforms, which show substantially larger effects. Meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year. This discrepancy led us to examine their study more closely. In a paper published in [Econ Journal Watch](https://econjwatch.org/file_download/1409/PeterEtAlMarch2026.pdf?mimetype=pdf), we painstakingly reviewed all 180 articles underlying the Stacy et al. dataset and coded each reform by hand. Our manual review finds that 178 of the 180 articles do not qualify as major reforms by the authors’ own criteria. They are misclassified, too minor to plausibly affect housing supply, or do not contain enough information to evaluate the policy change. Consider one example published in the Miami Herald. Stacy et al. attribute a zoning reform to the city of Miami, but 
+          
+          [...]
+          
+          y of the examples we identify appear to be precisely the kinds of changes they say they excluded. They also characterize the two sets of findings as broadly consistent. That glosses over a fundamental difference in magnitude. Their estimate is about 0.8 percent over three- to eight-years. Our findings show increases of 1 to 2.5 percent per year following major reforms. These are not small differences. They imply very different conclusions about the effectiveness of zoning reform. At its core, this debate is about measurement. Urban’s approach prioritizes scale, using machi
+      - evidence_id: ev_000
+        bibliography_num: 2
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          Title: The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny URL Source: https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/ Markdown Content: # The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny | AEI * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donate/) [![Image 2: American Enterprise Institute – AEI](https://www.aei.org/wp-content/uploads/2025/12/aei-blue-logo.svg?x97961)](https://www.aei.org/) Search for: * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donate/) Search for: * [Our Experts](https://www.aei.org/our-scholars/) * [All Scholars](https://www.aei.org/our-scholars/) * [Agricultural Policy Studies](https://www.aei.org/our-scholars/?policy-area=american-boondoggle) * [Economics](https://www.aei.org/our-scholars/?policy-area=economics) * [Education](https://www.aei.org/our-scholars/?policy-area=education) * [Foreign and Defense Policy](https://www.aei.org/our-scholars/?policy-area=foreign-and-defense-policy) * [Health Care](https://www.aei.org/our-scholars/?policy-area=health-care) * [Housing](https://www.aei.org/our-scholars/?policy-area=housing-center) * [Legal and Constitutional](https://www.aei.org/our-scholars/?policy-area=legal-and-constitutional) * [Opportunity and Social Mobility](https://www.aei.org/our-scholars/?policy-area=opportunity-social-mobility) * [Politics and Public Opinion](https://www.aei.org/our-scholars/?policy-a
+          
+          [...]
+          
+          an-institutes-zoning-study-doesnt-hold-up-under-scrutiny/#) * [General Contact:](https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/#) * 1789 Massachusetts Avenue * NW Washington, DC 200036 * Main telephone: 202.862.5800 * Main fax: 202.862.7177 * [Press Inquiries:](https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/#) * [Press Department](https://www.aei.org/press/) * Press Email: MediaServices@Aei.org * Press Phone: 202.862.5829 # The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny [![Image 3: Tobias Peter](https://www.aei.org/wp-content/uploads/2014/04/peter_tobias_600x370.png?x97961) Tobias Peter](https://www.aei.org/profile/tobias-peter/) ![Image 4: Au
+          
+          [...]
+          
+          ttps://platform-cdn.sharethis.com/img/linkedin.svg) ![Image 12: bluesky sharing button](https://platform-cdn.sharethis.com/img/bluesky.svg) ![Image 13: email sharing button](https://platform-cdn.sharethis.com/img/email.svg) ##### Latest Work * * * * 05.05.2026 | [AEI Housing Market Indicators, April 2026](https://www.aei.org/research-products/report/aei-housing-market-indicators-april-2026/) * 04.29.2026 | [Loosening Bank Capital Rules Won’t Bring Banks Back to Mortgage Lending](https://www.aei.org/housing-center/loosening-bank-capital-rules-wont-bring-banks-back-to-mortgage-lending/) * 04.27.2026 | [AEI National Home Price Appreciation (HPA) Index: March 2026](https://www.aei.org/research-products/report/aei-national-home-price-appreciation-hpa-index-march-2026/) * 04.22.2026 | [Why First-Time Buyer Age Isn’t Rising—Even as Housing Gets Less Affordable](https://www.aei.org/articles/why-first-time-buyer-age-isnt-rising-even-as-housing-gets-less-affordable/) * 04.15.2026 | [Rehabilitating Housing Supply: Evidence from an Institutional Investor’s Acquisition, Renovation, and Market Position](https://www.aei.org/research-products/report/rehabilitating-housing-supply-evidence-from-an-institutional-investors-acquisition-renovation-and-market-position/) * 04.10.2026 | [FHA Premium Cuts Move Market Shares, Not the Affordability Needle](https://www.aei.org/housing-center/fha-premium-cuts-move-market-shares-not-the-affordability-needle/) How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [_Urban Affairs_](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analysis of more than two dozen [case studies](https://www.aei.org/housing-supply-case-studies/) of major reforms, which show substantially larger effects. Meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year. This discrepancy led us to examine their study more closely. In a paper published in [_Econ Journal Watch_](https://econjwatch.org/file_download/1409/PeterEtAlMarch2026.pdf?mimetype=pdf), we painstakingly reviewed all 180 articles 
+          
+          [...]
+          
+          y of the examples we identify appear to be precisely the kinds of changes they say they excluded. They also characterize the two sets of findings as broadly consistent. That glosses over a fundamental difference in magnitude. Their estimate is about 0.8 percent over three- to eight-years. Our findings show increases of 1 to 2.5 percent per year following major reforms. These are not small differences. They imply very different conclusions about the effectiveness of zoning reform. At its core, this debate is about measurement. Urban’s approach prioritizes scale, using machi
+          
+          [...]
+          
+          n have large effects on housing supply, as our [case studies](https://www.aei.org/housing-supply-case-studies/) show. The question is not whether those effects exist. The question is whether we are measuring them correctly. ##### Latest Work * * * * 05.05.2026 | [AEI Housing Market Indicators, April 2026](https://www.aei.org/research-products/report/aei-housing-market-indicators-april-2026/) * 04.29.2026 | [Loosening Bank Capital Rules Won’t Bring Banks Back to Mortgage Lending](https://www.aei.org/housing-center/loosening-bank-capital-rules-wont-bring-banks-back-to-mortgage-lending/) * 04.27.2026 | [AEI National Home Price Appreciation (HPA) Index: March 2026](https://www.aei.org/research-products/report/aei-national-home-price-appreciation-hpa-index-march-2026/) * 04.22.2026 | [Why First-Time Buyer Age Isn’t Rising—Even as Housing Gets Less Affordable](https://www.aei.org/articles/why-first-time-buyer-age-isnt-rising-even-as-housing-gets-less-affordable/) * 04.15.2026 | [Rehabilitating Housing Supply: Evidence from an Institutional Investor’s Acquisition, Renovation, and Market Position](https://www.aei.org/research-products/report/rehabilitating-housing-supply-evidence-from-an-institutional-investors-acquisition-renovation-and-market-position/) * 04.10.2026 | [FHA Premium Cuts Move Market Shares, Not the Affordability Needle](https://www.aei.org/housing-center/fha-premium-cuts-move-market-shares-not-the-affordability-needle/) ### Related Working Paper [AEI Economic Policy Working Paper Series](htt
+          
+          [...]
+          
+          ce, Energy, and Environment](https://www.aei.org/policy-areas/science-and-energy/) * [Housing](https://www.aei.org/policy-areas/housing/) ##### Contact American Enterprise Institute 1789 Massachusetts Avenue, NW Washington, DC 20036 Main telephone: [202.862.5800](tel:202.862.5800) Main fax: [202.862.7177](tel:202.862.7177) [![Image 16](https://www.aei.org/wp-content/themes/aei-2025/assets/img/socials/X.svg?x97961)](https://twitter.com/AEI)[![Image 17](https://www.aei.org/wp-content/themes/aei-2025/assets/img/socials/Instagram.svg?x97961)](http://instagram.com/ae
+          
+          [...]
+          
+          0%99t%20Hold%20Up%20Under%20Scrutiny%20%7C%20AEI&tw_document_href=https%3A%2F%2Fwww.aei.org%2Farticles%2Fthe-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny%2F&tw_iframe_status=0&tw_order_quantity=0&tw_pid_src=1&tw_sale_amount=0&twpid=tw.1778498282665.468566214890465655&txn_id=nugjp&type=javascript&version=2.3.53)![Image 29](https://analytics.twitter.com/i/adsct?bci=1&dv=UTC%26en-US%26Google%20Inc.%26Linux%20x86_64%26255%26800%26600%268%2624%26800%26600%260%26na&eci=1&event_id=eeeb55e5-efaf-4fe9-a4ed-2938b24c0ced&integration=advertiser&p_id=Twitter&p_user
+          
+          [...]
+          
+          0%99t%20Hold%20Up%20Under%20Scrutiny%20%7C%20AEI&tw_document_href=https%3A%2F%2Fwww.aei.org%2Farticles%2Fthe-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny%2F&tw_iframe_status=0&tw_order_quantity=0&tw_pid_src=1&tw_sale_amount=0&twpid=tw.1778498282665.468566214890465655&txn_id=nugjp&type=javascript&version=2.3.53)
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-003
+    section: "Efficacy"
+    sentence: "The federal government has attempted to incentivize municipal zoning reform by tying it to federal transfers, though one report notes such deregulation allowed an eight-unit row house development to proceed \"without public debate or deliberation at city council\".[3]"
+    cited_evidence:
+      - evidence_id: ev_012
+        bibliography_num: 3
+        url: "https://canadiandimension.com/articles/view/zoning-deregulation-wont-fix-the-housing-crisis"
+        tier: T4
+        span: '0-500'
+        title: "Zoning deregulation won't fix the housing crisis - Canadian Dimension"
+        span_text: |
+          Zoning deregulation won’t fix the housing crisis Single-family detached zoning is a problem, but real estate profiteers are not the solution A garden once thrived at the corner of 89th Street and 92nd Avenue in Edmonton. Every spring residents of the city’s Strathearn neighbourhood planted root vegetables in long rows and grew tomatoes out of old tires while rain barrels collected water. Every fall the community gathered to share in the bounty. Last year the garden was uprooted. The lot the garden stood on was sold for almost $600,000. Immediately after the sale local developer Platinum Living tore up the earth and began construction on an eight-unit row house. These built-to-rent homes are set to hit the market this summer and if Platinum Living’s other builds are any indication, they are going to cost well over market averages. Built at the whim of the landowner, without public debate or deliberation at city council, this development breezed through the approval process thanks to an extended campaign by law makers at all levels of government to deregulate municipal zoning. For the last 18 months the federal government has been incentivizing city councils across the country to restructure their zoning bylaws. In exchange for federal dollars, cities are giving developers free reign to build multi-unit housing in almost any residential neighbourhood. Then-Housing Minister Sean Fraser described these efforts in rosy terms: “We have been working directly with communities across
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-004
+    section: "Efficacy"
+    sentence: "A broader economic perspective notes that upzoning alone can create windfall gains for existing landowners and potentially encourage development delays without complementary policies like land value taxes to capture increased value and incentivize quicker construction.[4]"
+    cited_evidence:
+      - evidence_id: ev_004
+        bibliography_num: 4
+        url: "https://www.brookings.edu/articles/to-improve-housing-affordability-we-need-better-alignment-of-zoning-taxes-and-subsidies/"
+        tier: T4
+        span: '0-500'
+        title: "To improve housing affordability, we need better alignment of zoning ..."
+        span_text: |
+          Housing affordability is a financial stress on American families Housing costs are rising faster than incomes, putting greater financial stress on U.S. families. In 2017, [nearly half](https://www.jchs.harvard.edu/sites/default/files/Harvard_JCHS_State_of_the_Nations_Housing_2019.pdf) of renter households spent more than 30 percent of their income on rent, meeting the Department of Housing and Urban Development’s (HUD) definition of being “[cost-burdened](https://www.huduser.gov/portal/pdredge/pdr_edge_featd_article_092214.html).” While affordability has long been a problem for [poor](https://www.federalreserve.gov/econres/notes/feds-notes/assessing-the-severity-of-rent-burden-on-low-income-families-20171222.htm) renters, even middle-income households are facing greater challenges, particularly in urban areas with strong job markets. And where people can afford to live has important implications. Research shows that children who grow up in [high-opportunity communities](https://opportunityinsights.org/wp-content/uploads/2018/03/mto_paper.pdf) have better economic outcomes as adults. Cities and neighborhoods with strong [labor markets](https://www.aeaweb.org/articles?id=10.1257/mac.20170388) and good schools——exactly the places in highest demand——are not [building](https://www.aeaweb.org/articles?id=10.1257/jep.32.1.3) enough [new housing](https://www.brookings.edu/wp-content/uploads/2019/07/20190711_metro_Is-California-Apartment-Market-Broken-Schuetz-Murray.pdf), contributing
+          
+          [...]
+          
+           who grow up in [high-opportunity communities](https://opportunityinsights.org/wp-content/uploads/2018/03/mto_paper.pdf) have better economic outcomes as adults. Cities and neighborhoods with strong [labor markets](https://www.aeaweb.org/articles?id=10.1257/mac.20170388) and good schools——exactly the places in highest demand——are not [building](https://www.aeaweb.org/articles?id=10.1257/jep.32.1.3) enough [new housing](https://www.brookings.edu/wp-content/uploads/2019/07/20190711_metro_Is-California-Apartment-Market-Broken-Schuetz-Murray.pdf), contributing to worsening affordability. Because housing near jobs and transit centers is so expen
+          
+          [...]
+          
+           zoning reforms that allow higher density development is that such upzoning increases property values, creating windfall gains for existing property owners. Upzoning could also encourage landowners to [delay](https://www.mitpressjournals.org/doi/abs/10.1162/rest.89.2.343) development as they await the opportunity to build larger, denser buildings. Assessing taxes on the increased land value not only incentivizes more development more quickly on expensive land, but also allows local communities to [capture](https://onlinelibrary.wiley.com/doi/full/10.1111/j.1536-7150.2012.00849.x?casa_token=DbfH7cfg1DkAAAAA%3A77NF2xqNZszbDBAAtF6sUzX1seRosQt5vwRCWeuB4CgeiMhccS8NQEa40EgqqZO_skrnnjBzgoGDRA) some of the returns on additional land value. This feature of land value taxes is especially attractive in locations where the loca
+          
+          [...]
+          
+          oaYh43lIN&sig=koBy24HeBakPNKiQpgODjXCy2c0#v=onepage&q=alonso%20mills%20muth&f=false), near job clusters and transportation nodes. Land value taxes primarily change financial incentives for owners of [expensive land](https://link.springer.com/article/10.1007/s12061-009-9039-3) with low density structures. The increased density encouraged by shifting to a land value tax would enable more people to [live near work](https://www.sciencedirect.com/science/article/abs/pii/S0094119009000576), reducing commutin
+          
+          [...]
+          
+          o cover more families would therefore help protect low-income renters from displacement. It is also possible that expanding housing subsidies without enabling more supply through zoning reform would [push up rents](https://www.aeaweb.org/articles?id=10.1257/pol.20130064) in some markets. Implementation questions and challenges The economic intuition behind zoning reform, land value taxes, and increased housing subsidies is straightforward, but implementing these policies poses some challenges. Single-f
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-005
+    section: "Efficacy"
+    sentence: "Analysis of the general supply-side challenge indicates the U.S. is building less housing per person than historically, with permits per capita at 4.3 per 1,000 in 2024, which is 35% below the 1960-2000 average, contributing to a cumulative estimated shortfall of 3 million to 5 million units since 2008.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the construction pipeline that also captures the optimism of real estate developers and households about the future. Looking at permits adjusted for population growth provides a clearer picture of whether construction is keeping pace with a growing nation. (See the first figure.)
+          As the figure shows, there are several distinctive periods:
+          - The 1970s peak: Permit activity peaked in 1972 at 10.6 permits per 1,000 people. This was no accident—the baby boom generation was entering prime household-formation age, the interstate highway system had opened vast suburban lands for development, and federal policies—from Federal Housing Administration loan guarantees to mortgage interest deductions—actively encouraged homeownership. This confluence of demographic pressure, available land and policy incentives created the high-water mark of postwar housing construction.
+          - The 1980s to the 2000s, from volat
+          
+          [...]
+          
+          h inflation and interest rates is reflected in the volatility of permits, until the mid-1990s that started a decade and a half of stable growth.
+          - The 2008 collapse: The housing crisis triggered a dramatic decline in permits. Total permits fell from 7.3 per 1,000 in 2005 to just 1.9 per 1,000 in 2009—a 74% decline and the lowest level on record since data collection began in 1960.
+          - The incomplete recovery: Despite over a decade of recovery, total permits per capita in 2024 stand at 4.3 per 1,000—still 35% below the 1960-2000 average of 6.6 permits per 1,000. The U.S. is building less housing per person than at almost any point in the postwar era.
+          Why Has Housing Construction Stayed Low?
+          Several factors constrain today’s housing supply:
+          - Labor shortages: The construction workforce nev
+          
+          [...]
+          
+          Developable land near job centers has become scarcer and more expensive, pushing construction to outlying areas.
+          The Multifamily Shift
+          One notable trend is the growing share of multifamily construction (5+ units). Multifamily permits have risen from 0.4 per 1,000 in 2011 to 1.3 per 1,000 in 2024, partially offsetting weak single-family activity. Single-family permits remain at 2.9 per 1,000—well below the historical average of 4.1.
+          From Permits to Completions: The “Leaky Pipe” of Supply
+          A building permit is a statement of intent, not a finished home. By analyzing the growing divergence between permits issued and final completions, we can identify the specific structural bottl
+          
+          [...]
+          
+           from flowing to completion.
+          The second figure reveals three hurdles to finishing construction:
+          - The completion lag: Permits consistently lead completions by several months to a year, reflecting the time required to build. In 2024, permits stood at 4.3 per 1,000 people while completions were 4.8 per 1,000 people—the gap has narrowed as the postpandemic construction pipeline works through.
+          - Historical patterns: At the 1972 peak, permits reached 10.6 per 1,000 while completions hit 9.5 per 1,000 the following year. During the 2008 crisis, both series collapsed together, with completions falling to just 2.1 per 1,000 by 2010.
+          - Postpandemic divergence: The COVID-19 pandemic period shows notable dynamics—permits surged to 5.2 per 1,000 in 2021 as demand spiked, but completions lagged as builders faced unprecedented supply chain disruptions and labor shortages.
+          Housing Stock and Household Size
+          Total housing inventory must be measured against the evolving American househol
+          
+          [...]
+          
+          2 units per 1,000 people in 1965 to 386 in 1980, 415 in 2000, and 432 in 2024. This represents a 30% increase since 1965—roughly matching the decline in household size.
+          - Declining household size: Average household size has fallen dramatically: from 3.37 persons per household in 1965 to 2.81 in 1980, 2.65 in 2000, and 2.57 in 2024. This means family size has declined by nearly a quarter (23.7%) since 1965; as a result, far more housing units are needed to house the same population.
+          So, on this back-of-the-envelope calculation, the U.S. doesn’t look obviously “overbuilt” at the national level: Units per person increased by roughly the sam
+          
+          [...]
+          
+          ing absorbed quickly, often correlating with rising prices and rents.
+          These vacancy rates have shifted dramatically in the past two decades.
+          - Postcrisis spike: Vacancy rates spiked after 2008 as foreclosures flooded the market. Rental vacancies hit 10.6% in 2009, while homeowner vacancies reached 2.9% in 2008—both elevated as distressed properties sat empty.
+          - The current tightness: Both vacancy rates have fallen to near-historic lows. Rental vacancy stood at 6.8% in 2024—down from the 2009 peak and below the 1960s levels of 7% to 8%. Homeowner vacancy was just 0.95% (2024)—the lowest on record, down from 2.9% in 2008.
+          What do low vacancies mean? Low rental vacancies give landlords pricing power and indicate few options for renters seeking affordable units. Low homeowner vacancies signal intense competition among buyers, driving prices higher.
+          Supply vs.
+          
+          [...]
+          
+          n which the lowest earners are left without a seat.
+          This figure shows two distinct changes during the past two decades:
+          - The precrisis overshoot: In the years leading up to 2008, housing completions frequently exceeded household formation. In 2004, 1.83 million units were completed while only 1.35 million new households (three-year average) were formed—contributing to the oversupply that precipitated the crash.
+          - The postcrisis undershoot: Since 2008, the pattern has been mixed. In several years, household formation outpaced completions. In 2011, only 585,000 units were completed while 1.30 million households (three-year average) formed—a striking imbalance.
+          The result of these changes has been a cumulative gap. Various studies estimate a cumulative housing shortfall of 3 million to 5 million units that has built up since 2008, contrib
+          
+          [...]
+          
+          es, and homeownership becomes increasingly out of reach for many American families.
+          Conclusion: The Supply Imperative
+          The data tell a consistent story: The U.S. is not building enough housing to meet demand. Building permits per capita stood at just 4.3 per 1,000 in 2024—35% below the 1960-2000 historical average and 59% below the 1972 peak. Vacancy rates have fallen to historic lows, with rental vacancy at 6.8% and homeowner vacancy below 1%, signaling intense competition for limited housing stock. Various estimates suggest a cumulative shortfall of 3 million to 5 million units has accumulated since 2008.
+          Demographic pressures compound these challenges. Average household size has fallen 23.7% since 1965—from 3.37 to 2.57 persons per household in 2024. Yet construction has not kept pace with this structural shift in how Americans live.
+          These supply-side constraints are a key driver of the affordability challenges documented in our companion post. When housing supply
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-006
+    section: "Efficacy"
+    sentence: "The efficacy of new supply in improving affordability operates through filtering and vacancy chains, but research underscores that supply growth alone cannot reach extremely low-income renters, making sustained public subsidy indispensable.[6]"
+    cited_evidence:
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, underscoring the need to preserve existing lower cost homes as new supply comes online. - Supply growth alone can’t reach extremely low income renters. Sustained public subsidy is indispensable. - Lasting affordability requires pairing new construction with preservation, ensuring low-cost homes are not lost faster than supply can relieve pressure on the housing market. Recent housing debates have increasingly focused not just on how much housing is built, but on who occupies newly built homes and how increases in supply may improve affordability across markets. A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes, a dynamic recently highlighted in a February article from [The Atlantic](https://www.thea
+          
+          [...]
+          
+           argument that housing markets are segmented by income, location and tenure. This distributional lens matters because neighborhood context shapes life outcomes. Evidence from the [Moving to Opportunity experiment](https://pubs.aeaweb.org/doi/pdfplus/10.1257/aer.20150572) shows that children who moved to lower‑poverty neighborhoods at younger ages had better long‑term outcomes, underscoring that where housing is available can matter alongside how much is built. According to [Harvard’s Joint Center for H
+          
+          [...]
+          
+          using debate, often described as the housing ‘filtering’ process. Stuart Rosenthal’s estimates from “[Are Private Markets and Filtering a Viable Source of Low-Income Housing? Estimates from a "Repeat Income" Model](https://www.aeaweb.org/articles?id=10.1257/aer.104.2.687)” indicate that filtering is, on average, faster in rental housing than in owner‑occupied housing, but it still takes time. More recently, [analysis summarized](https://nlihc.org/resource/new-study-examines-filtering-dynamics-us-housing-supply)
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-007
+    section: "Efficacy"
+    sentence: "CMHC modeling cautions that demand-side interventions without a matching increase in supply can end up increasing costs for a broader group of households.[7][8]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 7
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, prices will rise. In his latest article, CMHC's Chief Economist, Mathieu Laberge highlights new modeling analyzing the tug-of-war between demand-side and supply-side housing interventions. Quote: "Helping more Canadians access homeownership is an important goal, but how we do it matters", said Mathieu Laberge, Chief Economist, CMHC. "Without careful targeting and a matching increase in housing supply, demand-side measures can end up increasing costs for a broader group of households." Read the full article on [CMHC's website](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=329659968&u=https%3A%2F%2Fwww.cmhc-schl.gc.ca%2Fen%2Fobserver%2F2026%2Fwhy-demand-side-interventions-need-to-be-targeted-and-offset-with-supply&a=CMHC%27s+website) Related links: - [Why Canada's housing supply gap exists and how to fix it | CMHC](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=211
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, prices will rise. In his latest article, CMHC's Chief Economist, Mathieu Laberge highlights new modeling analyzing the tug-of-war between demand-side and supply-side housing interventions. Quote: "Helping more Canadians access homeownership is an important goal, but how we do it matters", said Mathieu Laberge, Chief Economist, CMHC. "Without careful targeting and a matching increase in housing supply, demand-side measures can end up increasing costs for a broader group of households." Read the full article on [CMHC's website](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=329659968&u=https%3A%2F%2Fwww.cmhc-schl.gc.ca%2Fen%2Fobserver%2F2026%2Fwhy-demand-side-interventions-need-to-be-targeted-and-offset-with-supply&a=CMHC%27s+website) Related links: - [Why Canada's housing supply gap exists and how to fix it | CMHC](https://edge.prnewswire.com/c/link/?t=0&l=en&o=4664504-1&h=211
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.

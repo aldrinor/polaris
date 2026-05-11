@@ -1,0 +1,228 @@
+Independent Tier-1 audit of 7 Q4 Canadian housing supply claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q4-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CMHC supply targets, BC/ON municipal upzoning timelines, federal Housing Accelerator Fund dollars, mortgage qualification stress test rates)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q4 batch 4: claims 22-28 (re-run with full direct_quote)
+schema_version: tier1_v2
+claims:
+  - claim_id: Q4-T1-022
+    section: "Regulatory"
+    sentence: "A specific federal commitment includes an additional $4.3 billion towards an Urban, Rural and Northern Indigenous Housing Strategy launching in 2024, which aims to establish a \u2018for Indigenous, by Indigenous' National Housing Centre.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defining crossroads. As soldiers returned home and displaced people began to start their new lives in Canada, we experienced rapid population growth. This had far-reaching impacts, including a spike in inflation and an immense pressure on housing. Canada had a choice between building homes slowly and steadily, or rising to the occasion to build quickly and ensure that everyone who called our growing country home would have a roof over their head. Canada met the moment. Canada chose to build. What followed was a national effort to build homes at a record pace to meet the needs of a new generation of Canadians. Governments and private industry came together and made the investments necessary to get the job done. We overcame what seemed impossible and created a generation of housing that can still be found in our cities today. A generation later, as baby boomers came of age, Canada once again fac
+          
+          [...]
+          
+          ration and partnership with Indigenous Peoples through Nation-to-Nation, Inuit-Crown, and Government-to-Government relationships. This has resulted in new, co-developed distinctions-based approaches to Indigenous housing and homelessness, more than $10.7B, which has created almost 22,000 new or repaired homes on-reserve. With federal partnership, Indigenous communities can build the homes and infrastructure needed to meet the needs of their members, families, and youth. That's why Budget 2024 will p
+          
+          [...]
+          
+          t housing challenges. They also represent a disproportionately high share of shelter users, 33% in 2022, while only comprising 5% of Canada's population. We recognize the magnitude of the work ahead. The Government of Canada committed an additional $4.3 billion towards the Urban, Rural and Northern Indigenous Housing Strategy that will launch in 2024. With this funding, the strategy is establishing a ‘for Indigenous, by Indigenous' National Housing Centre and will provide additional distinctions-ba
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-023
+    section: "Regulatory"
+    sentence: "This builds on previous federal investments, as one source reports that more than $10.7B in co-developed distinctions-based approaches has created almost 22,000 new or repaired homes on-reserve.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defining crossroads. As soldiers returned home and displaced people began to start their new lives in Canada, we experienced rapid population growth. This had far-reaching impacts, including a spike in inflation and an immense pressure on housing. Canada had a choice between building homes slowly and steadily, or rising to the occasion to build quickly and ensure that everyone who called our growing country home would have a roof over their head. Canada met the moment. Canada chose to build. What followed was a national effort to build homes at a record pace to meet the needs of a new generation of Canadians. Governments and private industry came together and made the investments necessary to get the job done. We overcame what seemed impossible and created a generation of housing that can still be found in our cities today. A generation later, as baby boomers came of age, Canada once again fac
+          
+          [...]
+          
+          ration and partnership with Indigenous Peoples through Nation-to-Nation, Inuit-Crown, and Government-to-Government relationships. This has resulted in new, co-developed distinctions-based approaches to Indigenous housing and homelessness, more than $10.7B, which has created almost 22,000 new or repaired homes on-reserve. With federal partnership, Indigenous communities can build the homes and infrastructure needed to meet the needs of their members, families, and youth. That's why Budget 2024 will p
+          
+          [...]
+          
+          t housing challenges. They also represent a disproportionately high share of shelter users, 33% in 2022, while only comprising 5% of Canada's population. We recognize the magnitude of the work ahead. The Government of Canada committed an additional $4.3 billion towards the Urban, Rural and Northern Indigenous Housing Strategy that will launch in 2024. With this funding, the strategy is establishing a ‘for Indigenous, by Indigenous' National Housing Centre and will provide additional distinctions-ba
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-024
+    section: "Regulatory"
+    sentence: "Howe Institute, highlights the acute affordability crises in major urban centers and the growing mismatch between supply and population needs.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growing-canada/ | | Published Date: | February 4, 2025 | | Accessed Date: | May 11, 2026 | Outline Outline Related Topics For all media inquiries, including requests for reports or interviews: Introduction and Overview Canada’s housing sector faces unprecedented challenges, with skyrocketing prices, acute affordability crises, and a growing mismatch between housing supply and population needs. Major urban centers like Toronto and Vancouver have been particularly hard-hit, with housing costs outpacing income growth. This has pushed homeownership beyond the reach of many middle-class Canadians and created significant barriers for first-time buyers and young families. On November 14, 2024, against this complex backdrop, the C.D. Howe Institute – with the support of sponsors CREA-ACI, FRPO, and Fitzrovia – convened a conference on “Housing Policy for a Growing Canada.” The sessions brought togethe
+          
+          [...]
+          
+          f new projects – a “math equation” that currently doesn’t work for developers. The speaker detailed several compounding factors that have created a perfect storm for stagnation in housing supply. On one hand, rents have dropped by approximately 8 to 8.5 percent in many areas, reducing expected revenues. The speaker mentioned that while construction costs have stabilized, significant back-end expenses, such as mechanical systems, continue to climb. Combined with high interest rates and squeezed prof
+          
+          [...]
+          
+          ing, like California’s Accessory Dwelling Units (ADUs),[10](javascript:void(0))An ADU is accessory to a primary residence with complete independent living facilities that does not require new land or costly infrastructure. In Government Code Section 65852.150, the California Legislature found and declared that, among other things, allowing ADUs in zones that allow single-family and multifamily uses provides additional rental housing and is an essential component in addressing California’s housing needs. 
+          
+          [...]
+          
+          sing Canada’s housing challenges called the Blueprint for More and Better Housing. The task force includes representatives from developers, former government officials, academics, and industry professionals. It is focused on the urgent need to build 5.8 million homes within a short period. A major concern was that this large-scale construction could add 100 megatons of greenhouse gas emissions, further burdening industries already striving to lower their environmental impact. The speaker emphasized
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-025
+    section: "Regulatory"
+    sentence: "For comparative context, legislative reform packages in the United States, such as the hybrid 21st Century ROAD to Housing Act passed by the Senate, propose major updates to federal programs like the Home Investment Partnerships Program (HOME) to expand support for workforce households and housing-related infrastructure.[12][13]"
+    cited_evidence:
+      - evidence_id: ev_006
+        bibliography_num: 12
+        url: "https://www.naco.org/resource/house-and-senate-housing-reform-packages-side-side"
+        tier: T4
+        span: '0-500'
+        title: "House and Senate Housing Reform Packages: Side-by-Side"
+        span_text: |
+          House and Senate Housing Reform Packages: Side-by-Side Upcoming Events Related News As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. Jump to Section As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. In March, the Senate passed the hybrid 21st Century ROAD to Housing Act, which combined elements of the House’s Housing for the 21st Century Act with the Senate’s existing bill, the ROAD to Housing Act. Still, key differences remain between the two bills as the two chambers look to negotiate a final product. Below is a side-by-side comparison of major provisions. Home Investment Partnerships Program (HOME) The HOME program provides flexible formula funding to counties and states to support affordable housing development, rehabilitation and homeownership activities. These proposals would expand counties’ ability to serve workforce households and fund housing-related infrastructure, with the Senate bill offering greater long-term program certainty through reauthorization. House Bill: | Senate Bill: | | | | | Community Development Block Grant (CDBG) House Bill: | Senate Bill: | | | |
+      - evidence_id: ev_022
+        bibliography_num: 13
+        url: "https://www.naco.org/resource/house-and-senate-housing-reform-packages-side-side"
+        tier: T4
+        span: '0-500'
+        title: "House and Senate Housing Reform Packages: Side-by-Side"
+        span_text: |
+          House and Senate Housing Reform Packages: Side-by-Side Upcoming Events Related News As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. Jump to Section As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. In March, the Senate passed the hybrid 21st Century ROAD to Housing Act, which combined elements of the House’s Housing for the 21st Century Act with the Senate’s existing bill, the ROAD to Housing Act. Still, key differences remain between the two bills as the two chambers look to negotiate a final product. Below is a side-by-side comparison of major provisions. Home Investment Partnerships Program (HOME) The HOME program provides flexible formula funding to counties and states to support affordable housing development, rehabilitation and homeownership activities. These proposals would expand counties’ ability to serve workforce households and fund housing-related infrastructure, with the Senate bill offering greater long-term program certainty through reauthorization. House Bill: | Senate Bill: | | | | | Community Development Block Grant (CDBG) House Bill: | Senate Bill: | | | |
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-026
+    section: "Regulatory"
+    sentence: "The international perspective from a World Economic Forum report notes that a common metric for housing affordability is housing expenditure that is less than 30% of household income.[14]"
+    cited_evidence:
+      - evidence_id: ev_026
+        bibliography_num: 14
+        url: "https://www3.weforum.org/docs/WEF_Making_Affordable_Housing_A_Reality_In_Cities_report.pdf"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "[PDF] Making Affordable Housing a Reality in Cities | World Economic Forum"
+        span_text: |
+          Insight Report Cities, Urban Development & Urban Services Platform In Collaboration with PwC Making Affordable Housing a Reality in Cities June 2019 Foreword Executive Summary Chapter 1 – Introduction Chapter 2 – Supply-Side Challenges: Land Acquisition and Securing Title Chapter 3 – Supply-Side Challenges: Land Use – Zoning and Regulations Chapter 4 – Supply-Side Challenges: Funding Affordable Housing Chapter 5 – Supply-Side Challenges: Design Considerations and Construction Costs of Affordable Housing Chapter 6 – Demand-Side Challenges: An Overview Chapter 7 – Recommendations References Acknowledgements Endnotes 3 – 4 5 7 14 18 24 28 33 39 44 58 59 Contents World Economic Forum 91-93 route de la Capite CH-1223 Cologny/Geneva Switzerland Tel.: +41 (0)22 869 1212 Fax: +41 (0)22 786 2744 Email: contact@weforum.org www.weforum.org © 2019 World Economic Forum. All rights reserved. No part of this publication may be reproduced or transmitted in any form or by any means, including photocopying and recording, or by any information storage and retrieval system. 3 Making Affordable Housing a Reality in Cities A world in which only a few can afford housing is not sustainable. Everyone deserves a safe place to live: it can transform the quality of life of individuals and families. Today, however, most cities around the world are facing major challenges in providing safe and adequate housing for their people, especially cities that are growing rapidly and where the affordable housing op
+          
+          [...]
+          
+          me Transit Pass – as well as safe and affordable housing, regardless of their income. Although affordable compared to many other North American cities for those purchasing their home, Calgary still has a considerable non-market housing deficit. Only 3.6 per cent of our housing is non-market, compared to the national average of 6 per cent for other urban centers. Calgary is addressing this imbalance through the innovative initiatives in our affordable housing strategy, as we work to encourage the de
+          
+          [...]
+          
+          , 2016). In 2014, McKinsey estimated that 330 million urban households were living in substandard housing or were ﬁnancially stretched by housing costs (McKinsey Global Institute, 2014). This is projected to rise to nearly 440 million households, or 1.6 billion people, by 2025 – and 2.5 billion people by 2050. 13% In Africa, over 50% of the population live in substandard conditions; whereas in India and China, nearly a quarter of the population live in informal ettlements (Florida, 2017). Millennials across the world are spending m
+          
+          [...]
+          
+          Comparison of Affordable Housing Metrics The table below illustrates the advantages and disadvantages of each method. Median house price that is three times or less than the annual income of the median household (e.g. house price- to-income ratio of 3.0 and below). Housing expenditure (e.g. mortgage repayment) that is less than 30% of household income. Residual income (after deducting non-housing costs) that is sufficient to service monthly mortgage obligations. Easy to calculate. Allows comparison
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-027
+    section: "Regulatory"
+    sentence: "The same report cites a 2014 McKinsey estimate that 330 million urban households globally were living in substandard housing or were financially stretched by housing costs, projected to rise to nearly 440 million households by 2025.[14]"
+    cited_evidence:
+      - evidence_id: ev_026
+        bibliography_num: 14
+        url: "https://www3.weforum.org/docs/WEF_Making_Affordable_Housing_A_Reality_In_Cities_report.pdf"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "[PDF] Making Affordable Housing a Reality in Cities | World Economic Forum"
+        span_text: |
+          Insight Report Cities, Urban Development & Urban Services Platform In Collaboration with PwC Making Affordable Housing a Reality in Cities June 2019 Foreword Executive Summary Chapter 1 – Introduction Chapter 2 – Supply-Side Challenges: Land Acquisition and Securing Title Chapter 3 – Supply-Side Challenges: Land Use – Zoning and Regulations Chapter 4 – Supply-Side Challenges: Funding Affordable Housing Chapter 5 – Supply-Side Challenges: Design Considerations and Construction Costs of Affordable Housing Chapter 6 – Demand-Side Challenges: An Overview Chapter 7 – Recommendations References Acknowledgements Endnotes 3 – 4 5 7 14 18 24 28 33 39 44 58 59 Contents World Economic Forum 91-93 route de la Capite CH-1223 Cologny/Geneva Switzerland Tel.: +41 (0)22 869 1212 Fax: +41 (0)22 786 2744 Email: contact@weforum.org www.weforum.org © 2019 World Economic Forum. All rights reserved. No part of this publication may be reproduced or transmitted in any form or by any means, including photocopying and recording, or by any information storage and retrieval system. 3 Making Affordable Housing a Reality in Cities A world in which only a few can afford housing is not sustainable. Everyone deserves a safe place to live: it can transform the quality of life of individuals and families. Today, however, most cities around the world are facing major challenges in providing safe and adequate housing for their people, especially cities that are growing rapidly and where the affordable housing op
+          
+          [...]
+          
+          me Transit Pass – as well as safe and affordable housing, regardless of their income. Although affordable compared to many other North American cities for those purchasing their home, Calgary still has a considerable non-market housing deficit. Only 3.6 per cent of our housing is non-market, compared to the national average of 6 per cent for other urban centers. Calgary is addressing this imbalance through the innovative initiatives in our affordable housing strategy, as we work to encourage the de
+          
+          [...]
+          
+          , 2016). In 2014, McKinsey estimated that 330 million urban households were living in substandard housing or were ﬁnancially stretched by housing costs (McKinsey Global Institute, 2014). This is projected to rise to nearly 440 million households, or 1.6 billion people, by 2025 – and 2.5 billion people by 2050. 13% In Africa, over 50% of the population live in substandard conditions; whereas in India and China, nearly a quarter of the population live in informal ettlements (Florida, 2017). Millennials across the world are spending m
+          
+          [...]
+          
+          Comparison of Affordable Housing Metrics The table below illustrates the advantages and disadvantages of each method. Median house price that is three times or less than the annual income of the median household (e.g. house price- to-income ratio of 3.0 and below). Housing expenditure (e.g. mortgage repayment) that is less than 30% of household income. Residual income (after deducting non-housing costs) that is sufficient to service monthly mortgage obligations. Easy to calculate. Allows comparison
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-028
+    section: "Regulatory"
+    sentence: "A major concern was that large-scale construction targets, such as building 5.8 million homes, could add 100 megatons of greenhouse gas emissions, presenting an environmental policy challenge.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growing-canada/ | | Published Date: | February 4, 2025 | | Accessed Date: | May 11, 2026 | Outline Outline Related Topics For all media inquiries, including requests for reports or interviews: Introduction and Overview Canada’s housing sector faces unprecedented challenges, with skyrocketing prices, acute affordability crises, and a growing mismatch between housing supply and population needs. Major urban centers like Toronto and Vancouver have been particularly hard-hit, with housing costs outpacing income growth. This has pushed homeownership beyond the reach of many middle-class Canadians and created significant barriers for first-time buyers and young families. On November 14, 2024, against this complex backdrop, the C.D. Howe Institute – with the support of sponsors CREA-ACI, FRPO, and Fitzrovia – convened a conference on “Housing Policy for a Growing Canada.” The sessions brought togethe
+          
+          [...]
+          
+          f new projects – a “math equation” that currently doesn’t work for developers. The speaker detailed several compounding factors that have created a perfect storm for stagnation in housing supply. On one hand, rents have dropped by approximately 8 to 8.5 percent in many areas, reducing expected revenues. The speaker mentioned that while construction costs have stabilized, significant back-end expenses, such as mechanical systems, continue to climb. Combined with high interest rates and squeezed prof
+          
+          [...]
+          
+          ing, like California’s Accessory Dwelling Units (ADUs),[10](javascript:void(0))An ADU is accessory to a primary residence with complete independent living facilities that does not require new land or costly infrastructure. In Government Code Section 65852.150, the California Legislature found and declared that, among other things, allowing ADUs in zones that allow single-family and multifamily uses provides additional rental housing and is an essential component in addressing California’s housing needs. 
+          
+          [...]
+          
+          sing Canada’s housing challenges called the Blueprint for More and Better Housing. The task force includes representatives from developers, former government officials, academics, and industry professionals. It is focused on the urgent need to build 5.8 million homes within a short period. A major concern was that this large-scale construction could add 100 megatons of greenhouse gas emissions, further burdening industries already striving to lower their environmental impact. The speaker emphasized
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.

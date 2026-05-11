@@ -1,0 +1,358 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e18a6-8957-76f0-a730-15de75ac35a0
+--------
+user
+Independent Tier-1 audit of 7 Q2 Canada-US CUSMA claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q2-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CUSMA July-2026 review trigger, USMCA dispute counts, tariff schedules, federal procurement thresholds)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q2 batch 3: claims 15-21 (re-run with full direct_quote)
+schema_version: tier1_v2
+claims:
+  - claim_id: Q2-T1-015
+    section: "Population Subgroups"
+    sentence: "For metals importers, a critical change was the shift to applying tariffs on the full imported value of goods, rather than only the metal content, which can fundamentally change the tariff exposure for derivative products.[6]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 6
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/us-tariffs-steel-aluminum-copper-imports-2026.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: US tariffs on steel, aluminum and copper imports from ..."
+        span_text: |
+          April 22, 2026 Issue 2026-17 On April 2, 2026, US President Donald Trump signed a proclamation1 under section 232 of the US Trade Expansion Act of 1962 to strengthen existing tariffs on steel and aluminum imports into the United States and expand the scope of these measures to include copper articles and derivatives for the first time. Effective April 6, 2026, the proclamation establishes a revised tariff structure that:2 These developments build on prior proclamations, which are discussed in our previously released Tax Insights.3 The April 2, 2026 proclamation significantly increases the cost of importing affected goods into the United States and introduces complex, variable tariff outcomes that depend on product classification, origin and participation in government programs (e.g. trade agreements, reduced rate categories). The inclusion of copper under section 232 for the first time represents a material expansion that will affect a broad range of Canadian industries, including mining, electrical equipment manufacturing, construction and infrastructure. For metals importers, the shift to applying tariffs on the full imported value of goods, rather than only the metal content, can fundamentally change the tariff exposure for derivative products. The proclamation includes a reduced list of covered derivative products, but the revised tariff calculation approach means that the remaining derivative products could face significantly higher tariffs than under the prior section 2
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-016
+    section: "Population Subgroups"
+    sentence: "The agreement itself faces uncertainty, with a mandatory joint review beginning July 1, 2026, under Article 34.7, a process designed to give the U.S. side maximum leverage.[5][8]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/preparing-cusma-2026-review.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: Preparing for the CUSMA 2026 review US trade ... - PwC"
+        span_text: |
+          Issue 2026-16 In brief What happened? The Canada‑United States‑Mexico Agreement (CUSMA) will have its first mandatory joint review on July 1, 2026, six years after its entry into force. While the review is not a comprehensive renegotiation of the agreement, it provides an opportunity for the parties to assess how CUSMA is functioning, consider recommendations for potential updates and influence how the agreement is administered and enforced, including whether targeted changes or commitments are pursued. On March 31, 2026, the Office of the United States Trade Representative (USTR) released its 2026 National Trade Estimate report, which outlines trade concerns that the US has with Canada — both market access barriers and non‑market practices. These concerns could play a significant role in the review’s priorities. Why is it relevant? The joint review presents both significant risks and potential opportunities for Canadian companies doing business with the US. Specific grievances between the parties can translate into negotiating leverage, focused enforcement, or changes that affect day‑to‑day compliance. Even small, focused changes in trade policy (e.g. how tariff‑rate quotas (TRQs) are administered, border procedures, government procurement rules, digital measures) can affect Canadian, US and Mexican supply chains, affecting product eligibility, total import costs, contract terms and documentation. Actions to consider To prepare for the CUSMA joint review, businesses should s
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-017
+    section: "Population Subgroups"
+    sentence: "A proclamation signed in April 2026 strengthened existing tariffs on steel and aluminum imports and expanded their scope to include copper articles and derivatives for the first time.[6]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 6
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/us-tariffs-steel-aluminum-copper-imports-2026.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: US tariffs on steel, aluminum and copper imports from ..."
+        span_text: |
+          April 22, 2026 Issue 2026-17 On April 2, 2026, US President Donald Trump signed a proclamation1 under section 232 of the US Trade Expansion Act of 1962 to strengthen existing tariffs on steel and aluminum imports into the United States and expand the scope of these measures to include copper articles and derivatives for the first time. Effective April 6, 2026, the proclamation establishes a revised tariff structure that:2 These developments build on prior proclamations, which are discussed in our previously released Tax Insights.3 The April 2, 2026 proclamation significantly increases the cost of importing affected goods into the United States and introduces complex, variable tariff outcomes that depend on product classification, origin and participation in government programs (e.g. trade agreements, reduced rate categories). The inclusion of copper under section 232 for the first time represents a material expansion that will affect a broad range of Canadian industries, including mining, electrical equipment manufacturing, construction and infrastructure. For metals importers, the shift to applying tariffs on the full imported value of goods, rather than only the metal content, can fundamentally change the tariff exposure for derivative products. The proclamation includes a reduced list of covered derivative products, but the revised tariff calculation approach means that the remaining derivative products could face significantly higher tariffs than under the prior section 2
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-018
+    section: "Population Subgroups"
+    sentence: "The broader trade relationship is under strain, with President Trump having threatened to impose 25 percent tariffs on all Canadian and Mexican imports, a move that contravenes U.S. obligations under CUSMA and the WTO Agreement.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-019
+    section: "Population Subgroups"
+    sentence: "The U.S. will almost certainly use the process to apply maximum pressure on Canada, for example by demanding concessions to address the U.S. trade imbalance with Canada.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-020
+    section: "Population Subgroups"
+    sentence: "Protecting integrated supply chains is a key Canadian priority, with one analysis noting Canada already supplies many minerals deemed critical by the United States, with bilateral mineral trade valued at $95.6 billion in 2020.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-021
+    section: "Population Subgroups"
+    sentence: "Consequently, the impact of trade policy on supply chains is a factor in the CUSMA review process.[5][8]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration has no intention of complying with U.S. treaty obligations. The threatened tariffs contravene U.S. obligations under the Canada-U.S.-Mexico Agreement (CUSMA) as well as the World Trade Organization (WTO) Agreement. It is a signal that shows Canada, Mexico and the world at large that his future government will not be bound by America’s treaty obligations, be they multilateral or bilateral. In other words, there are no rules that the U.S. can be expected to follow in ongoing trade relations. That approach was seen during Trump’s first administration, when tariff surcharges were applied on imports of steel, aluminum, solar panels and other items, which a subsequent WTO panel found had contravened U.S. treaty commitments. While some experts [maintain](https://www.economist.com/united-states/2024/11/27/does-donald-trump-have-unlimited-authority-to-impose-tariffs) that such tariff increases ar
+          
+          [...]
+          
+          titutional issues, and while it may seem far-fetched, Trump could threaten do this again with CUSMA, to maximize political leverage.[2](#_ftn2) The U.S. does have the clear right withdraw from the Agreement by giving six months’ notice under Article 34.6. If it did that, even if Canada and Mexico stayed on board, CUSMA would effectively be terminated. While it’s hard to envisage that happening because, as many have commented, it would be hugely disruptive to the U.S. economy itself, it has to be factored in as a possible, even if far-fetched, scenario. What is more plausible would be an array of tough U.S. demands to change CUSMA to its liking in the review process that starts in 2026 under Article 34.7 of the Agreement. The article says that if the three governments don’t agree to extend it, the Agreement will terminate in 2036. Until then, there will be with annual reviews of the Agreement’s operation, a process was designed to give the U.S. side maximum leverage, as former U.S. Trade Representative Robert Lighthizer and Katherine Tai, his successor, have made clear. While it’s difficult to predict how the Article 34.7 review will unfold, the U.S. side will certainly use the process to apply maximum pressure on Canada, for example, by demanding concessions to end the U.S. trade imbalance with Canada (excluding hydrocarbons). It will almost certainly insist on its 
+          
+          [...]
+          
+          ources and potential, and cooperation in multilateral fora. It is also an area where Canada has important advantages: “Canada already supplies many of the minerals deemed critical by the United States: in 2020, bilateral mineral trade was valued at $95.6 billion, with 298 Canadian mining companies and a combined $40 billion in Canadian mining assets south of the border.”[3](#_ftn3) The Action Plan is a substantive bilateral effort, outside of the three-way CUSMA arrangements that is compatible with 
+          
+          [...]
+          
+          uring the 2017 NAFTA renegotiations, the initial US position was that the new agreement (CUSMA/USMCA) should terminate definitively after six years. In the end, the Americans agreed to the 2036 termination date and the 2026 review process in Article 34.7. [3](#_ftnref3) Ibid. Canada is also a member of the US-led Minerals Security Partnership, which encourages public and private sector coordination on critical minerals investments. [4](#_ftnref4) Defence Production Sharing Agreement (1 October 1956)
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/preparing-cusma-2026-review.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: Preparing for the CUSMA 2026 review US trade ... - PwC"
+        span_text: |
+          Issue 2026-16 In brief What happened? The Canada‑United States‑Mexico Agreement (CUSMA) will have its first mandatory joint review on July 1, 2026, six years after its entry into force. While the review is not a comprehensive renegotiation of the agreement, it provides an opportunity for the parties to assess how CUSMA is functioning, consider recommendations for potential updates and influence how the agreement is administered and enforced, including whether targeted changes or commitments are pursued. On March 31, 2026, the Office of the United States Trade Representative (USTR) released its 2026 National Trade Estimate report, which outlines trade concerns that the US has with Canada — both market access barriers and non‑market practices. These concerns could play a significant role in the review’s priorities. Why is it relevant? The joint review presents both significant risks and potential opportunities for Canadian companies doing business with the US. Specific grievances between the parties can translate into negotiating leverage, focused enforcement, or changes that affect day‑to‑day compliance. Even small, focused changes in trade policy (e.g. how tariff‑rate quotas (TRQs) are administered, border procedures, government procurement rules, digital measures) can affect Canadian, US and Mexican supply chains, affecting product eligibility, total import costs, contract terms and documentation. Actions to consider To prepare for the CUSMA joint review, businesses should s
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.
+
+codex
+- claim_id: Q2-T1-015
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states that for metals importers, tariffs shifted to the full imported value rather than only metal content, changing exposure for derivative products."
+  reviewer_confidence: 0.97
+- claim_id: Q2-T1-016
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The spans explicitly state the mandatory joint review is on July 1, 2026, and that the Article 34.7 process was designed to give the U.S. side maximum leverage."
+  reviewer_confidence: 0.96
+- claim_id: Q2-T1-017
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says that on April 2, 2026, President Trump signed a proclamation strengthening steel and aluminum tariffs and adding copper articles and derivatives for the first time."
+  reviewer_confidence: 0.98
+- claim_id: Q2-T1-018
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly says Trump threatened 25 percent tariffs on Canadian and Mexican imports and that the threatened tariffs contravene CUSMA and WTO obligations."
+  reviewer_confidence: 0.96
+- claim_id: Q2-T1-019
+  claim_type: regulatory
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states the U.S. side will use the Article 34.7 review process to apply maximum pressure on Canada, including demanding concessions over the trade imbalance."
+  reviewer_confidence: 0.95
+- claim_id: Q2-T1-020
+  claim_type: economic
+  materiality: major
+  citation_context_match: yes
+  verdict: PARTIAL
+  rationale: "The span supports the minerals point and explicitly gives $95.6 billion in 2020, but the broader claim that protecting integrated supply chains is a key Canadian priority is inferential rather than directly stated."
+  reviewer_confidence: 0.82
+- claim_id: Q2-T1-021
+  claim_type: regulatory
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The PwC span states that trade policy changes can affect Canadian, U.S. and Mexican supply chains and that concerns could shape the CUSMA review priorities."
+  reviewer_confidence: 0.9
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 6, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["Q2-T1-020 is PARTIAL because the cited span gives the mineral-trade figures but does not directly state the Canadian priority framing."]
+tokens used
+10,335
+- claim_id: Q2-T1-015
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states that for metals importers, tariffs shifted to the full imported value rather than only metal content, changing exposure for derivative products."
+  reviewer_confidence: 0.97
+- claim_id: Q2-T1-016
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The spans explicitly state the mandatory joint review is on July 1, 2026, and that the Article 34.7 process was designed to give the U.S. side maximum leverage."
+  reviewer_confidence: 0.96
+- claim_id: Q2-T1-017
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span says that on April 2, 2026, President Trump signed a proclamation strengthening steel and aluminum tariffs and adding copper articles and derivatives for the first time."
+  reviewer_confidence: 0.98
+- claim_id: Q2-T1-018
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span explicitly says Trump threatened 25 percent tariffs on Canadian and Mexican imports and that the threatened tariffs contravene CUSMA and WTO obligations."
+  reviewer_confidence: 0.96
+- claim_id: Q2-T1-019
+  claim_type: regulatory
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The span states the U.S. side will use the Article 34.7 review process to apply maximum pressure on Canada, including demanding concessions over the trade imbalance."
+  reviewer_confidence: 0.95
+- claim_id: Q2-T1-020
+  claim_type: economic
+  materiality: major
+  citation_context_match: yes
+  verdict: PARTIAL
+  rationale: "The span supports the minerals point and explicitly gives $95.6 billion in 2020, but the broader claim that protecting integrated supply chains is a key Canadian priority is inferential rather than directly stated."
+  reviewer_confidence: 0.82
+- claim_id: Q2-T1-021
+  claim_type: regulatory
+  materiality: minor
+  citation_context_match: yes
+  verdict: VERIFIED
+  rationale: "The PwC span states that trade policy changes can affect Canadian, U.S. and Mexican supply chains and that concerns could shape the CUSMA review priorities."
+  reviewer_confidence: 0.9
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 6, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 7, partial: 0, no: 0}
+  notable: ["Q2-T1-020 is PARTIAL because the cited span gives the mineral-trade figures but does not directly state the Canadian priority framing."]
