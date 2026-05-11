@@ -752,7 +752,7 @@ def verify_sentence_provenance(
         # generator2.strict_verify module does NOT import from
         # polaris_graph.generator).
         if not failures:
-            from polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
+            from src.polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
                 _entailment_mode,
                 _get_judge,
                 _record_judge_outcome,

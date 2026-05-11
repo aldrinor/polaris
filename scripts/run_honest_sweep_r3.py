@@ -30,6 +30,12 @@ load_dotenv(override=False)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+# Pipeline modules use both `from src.polaris_graph.X import Y` and
+# `from polaris_graph.X import Y` namespaces. Add C:/POLARIS/src so
+# the bare-namespace imports resolve. (I-bug-100 documented the
+# module-instance identity hazard; for runtime production scripts
+# both prefixes must resolve to the same files.)
+sys.path.insert(0, str(ROOT / "src"))
 
 logging.basicConfig(
     level=os.environ.get("PG_LOG_LEVEL", "INFO"),
@@ -2409,6 +2415,19 @@ async def run_one_query(
         verif_details["drop_reason_counts"] = reason_counts
         (run_dir / "verification_details.json").write_text(
             json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+
+        # I-beat-001: persist evidence_pool.json so the line-by-line
+        # audit harness (scripts/run_line_by_line_audit.py
+        # --resolved-report) can run on delivered output. Without
+        # this, the audit harness has no source spans to check claims
+        # against, and BEAT-BOTH proof cannot run on production reports.
+        (run_dir / "evidence_pool.json").write_text(
+            json.dumps(
+                [{**v, "evidence_id": k} for k, v in ev_pool.items()],
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
             encoding="utf-8",
         )
 
