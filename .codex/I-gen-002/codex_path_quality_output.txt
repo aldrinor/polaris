@@ -1,0 +1,166 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e17fd-8ad6-7c80-abcb-d0a6b3937db1
+--------
+user
+Quality-impact comparison: Path A vs Path B for GH#423 duplicate-fact redundancy. Output YAML.
+
+# Context
+
+POLARIS multi_section_generator.py emits 5 sections in parallel via `asyncio.gather`. Each section retrieves+synthesizes from the evidence_pool independently. Tier-1 pilot Q5 (PR #421) showed 40% of audit-grade claims are duplicate-fact instances across sections (same 3%/1.6%/0.7% regressivity fact appears in 4 sections; same 8.7%/4.8% OOP-2007 in 3 sections; etc.).
+
+This is invisible to per-claim audit (each instance individually VERIFIED) but visible to a reader of the report as filler.
+
+# Two paths to consider — pick on QUALITY IMPACT alone, not speed
+
+## Path A — Post-generation dedup pass
+
+After all 5 sections generate (current parallel behavior preserved), but **BEFORE strict_verify** drops bad sentences:
+
+1. Extract numeric-token signature per sentence (decimals to 2dp + dollar buckets within ±5% + years).
+2. Group sentences across all sections by signature.
+3. For each group with len > 1: first-section instance = PRIMARY, others = REDUNDANT.
+4. Single LLM call rewrites REDUNDANT sentences as cross-references ("as noted under Efficacy [ev_X]").
+5. Replace REDUNDANT in section drafts; continue to strict_verify (which now sees rewrites).
+
+Cost: +1 LLM call per report ($0.001, +30s wall-clock). Preserves parallel section generation.
+
+## Path B — Sequential section refactor
+
+Change 4 `asyncio.gather` call sites to serial `for section in plan: await ...`. Thread `facts_emitted_so_far` through section calls.
+
+1. Section 1 generates with empty facts_emitted_so_far → emits its sentences.
+2. Extract numeric-token signatures from section 1 sentences (verified ones).
+3. Section 2 generates with facts_emitted_so_far = section 1 facts → prompt says "Facts already established: [list]. Cross-reference instead of restate."
+4. Continue serially through 5 sections.
+5. Each section's prose is generated WITH knowledge of prior sections' established facts.
+
+Cost: Lose parallelism (~5× section calls × ~10s = +40s wall-clock). No extra LLM call cost.
+
+# Quality-impact angles to evaluate
+
+1. **Narrative coherence**: Does Path B's "section knows what prior sections established" produce more coherent cross-references than Path A's "rewrite-after-the-fact"?
+2. **Risk of degraded prose**: Path A's rewrite step could produce awkward "as noted in Efficacy" boilerplate; Path B's section-aware prompt could produce too-terse "see section X" stubs.
+3. **strict_verify interaction**: Path A rewrites BEFORE strict_verify — rewrites with invalid provenance get dropped (good safety). Path B's section 2 references facts established in section 1 but section 1's facts could later FAIL strict_verify, leaving section 2 dangling.
+4. **Fact-signature precision**: Path A groups by raw numeric token; Path B groups by what section 1 actually said. Path A may over-group (catch genuine non-duplicates with shared decimals); Path B doesn't have this risk.
+5. **Audit trail / reproducibility**: Path A is single-pass-with-rewrite (one LLM call → can replay); Path B's section-to-section state-passing is harder to replay deterministically.
+6. **Maintenance cost long-term**: Path A is a separable module; Path B is a deeper change to the production generator.
+7. **Failure modes if generator misbehaves**: Path A — if rewrite call returns garbage, fallback to PRIMARY-only (drop redundant entirely) is safe. Path B — if section 2 misreads prior-facts list, may invent cross-references that don't exist.
+8. **Reader experience**: Carney is a non-developer reader. Which path produces a report that reads more like a coherent research synthesis vs a multi-section concatenation?
+
+# Question
+
+For QUALITY IMPACT on the Carney delivery (the report reads coherent, no factual redundancy, no orphan cross-references), which path wins?
+
+Output YAML:
+
+```yaml
+verdict: path_a_better | path_b_better | tied | hybrid
+reasoning: "3-5 sentences with specific quality-impact analysis"
+quality_dimensions_compared:
+  - dimension: ...
+    path_a_score: 0-10
+    path_b_score: 0-10
+    why: ...
+risk_assessment:
+  path_a_main_risk: "..."
+  path_b_main_risk: "..."
+recommended_path: A | B | hybrid
+hybrid_definition_if_applicable: "..."
+confidence: 0.0 - 1.0
+```
+
+Output the YAML directly. No commentary outside.
+
+codex
+verdict: path_a_better
+reasoning: "Path A wins on quality impact for the Carney delivery because it directly targets the observed cross-section duplicate-fact failure after seeing the full report, then lets strict_verify police the rewritten text. Path B may produce more natural references in theory, but it creates a more serious quality risk: later sections can depend on facts that may not survive verification, producing orphan or misleading cross-references. For a non-developer reader, the safer outcome is a report with fewer repeated facts and fewer dangling references, even if some cross-reference prose is slightly more mechanical."
+quality_dimensions_compared:
+  - dimension: narrative_coherence
+    path_a_score: 7
+    path_b_score: 8
+    why: "Path B can generate section-aware prose natively, but Path A can still improve coherence if the rewrite prompt uses section names and preserves local argument flow."
+  - dimension: risk_of_degraded_prose
+    path_a_score: 7
+    path_b_score: 6
+    why: "Path A risks boilerplate cross-references, but Path B risks overly terse sections that omit needed context because the model is told prior facts already exist."
+  - dimension: strict_verify_interaction
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A rewrites before verification, so bad rewritten claims can be dropped. Path B can create references to prior-section facts that later fail verification."
+  - dimension: fact_signature_precision
+    path_a_score: 6
+    path_b_score: 8
+    why: "Path A may over-group sentences that share numeric tokens but are not true duplicates. Path B reasons from prior emitted facts, so it has less raw-signature false-positive risk."
+  - dimension: audit_trail_reproducibility
+    path_a_score: 8
+    path_b_score: 6
+    why: "Path A is a discrete post-generation transform that can be logged and replayed. Path B threads evolving state through generation, making causality harder to inspect."
+  - dimension: maintenance_cost_long_term
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A is a separable dedup module. Path B changes generation ordering and section-call contracts across multiple call sites."
+  - dimension: failure_modes
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A has a clean fallback: drop or keep only the primary instance if rewriting fails. Path B failure can contaminate later sections with invented or orphaned references."
+  - dimension: reader_experience
+    path_a_score: 8
+    path_b_score: 7
+    why: "Path A is more likely to remove the visible filler problem without destabilizing the report. Path B could read more integrated when it works, but its orphan-reference risk is more damaging."
+risk_assessment:
+  path_a_main_risk: "Over-grouping unrelated numeric sentences or producing repetitive cross-reference boilerplate."
+  path_b_main_risk: "Generating downstream references to facts that are later removed by strict_verify, leaving orphan or misleading prose."
+recommended_path: A
+hybrid_definition_if_applicable: ""
+confidence: 0.82
+tokens used
+3,701
+verdict: path_a_better
+reasoning: "Path A wins on quality impact for the Carney delivery because it directly targets the observed cross-section duplicate-fact failure after seeing the full report, then lets strict_verify police the rewritten text. Path B may produce more natural references in theory, but it creates a more serious quality risk: later sections can depend on facts that may not survive verification, producing orphan or misleading cross-references. For a non-developer reader, the safer outcome is a report with fewer repeated facts and fewer dangling references, even if some cross-reference prose is slightly more mechanical."
+quality_dimensions_compared:
+  - dimension: narrative_coherence
+    path_a_score: 7
+    path_b_score: 8
+    why: "Path B can generate section-aware prose natively, but Path A can still improve coherence if the rewrite prompt uses section names and preserves local argument flow."
+  - dimension: risk_of_degraded_prose
+    path_a_score: 7
+    path_b_score: 6
+    why: "Path A risks boilerplate cross-references, but Path B risks overly terse sections that omit needed context because the model is told prior facts already exist."
+  - dimension: strict_verify_interaction
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A rewrites before verification, so bad rewritten claims can be dropped. Path B can create references to prior-section facts that later fail verification."
+  - dimension: fact_signature_precision
+    path_a_score: 6
+    path_b_score: 8
+    why: "Path A may over-group sentences that share numeric tokens but are not true duplicates. Path B reasons from prior emitted facts, so it has less raw-signature false-positive risk."
+  - dimension: audit_trail_reproducibility
+    path_a_score: 8
+    path_b_score: 6
+    why: "Path A is a discrete post-generation transform that can be logged and replayed. Path B threads evolving state through generation, making causality harder to inspect."
+  - dimension: maintenance_cost_long_term
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A is a separable dedup module. Path B changes generation ordering and section-call contracts across multiple call sites."
+  - dimension: failure_modes
+    path_a_score: 8
+    path_b_score: 5
+    why: "Path A has a clean fallback: drop or keep only the primary instance if rewriting fails. Path B failure can contaminate later sections with invented or orphaned references."
+  - dimension: reader_experience
+    path_a_score: 8
+    path_b_score: 7
+    why: "Path A is more likely to remove the visible filler problem without destabilizing the report. Path B could read more integrated when it works, but its orphan-reference risk is more damaging."
+risk_assessment:
+  path_a_main_risk: "Over-grouping unrelated numeric sentences or producing repetitive cross-reference boilerplate."
+  path_b_main_risk: "Generating downstream references to facts that are later removed by strict_verify, leaving orphan or misleading prose."
+recommended_path: A
+hybrid_definition_if_applicable: ""
+confidence: 0.82
