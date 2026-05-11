@@ -1,0 +1,57 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1623-d24c-7023-a7ea-e49e42c6200d
+--------
+user
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q5 Pharmacare):
+"PBO estimates total drug expenditures under Pharmacare to be $33.2 billion in 2024-25, increasing to $38.9 billion in 2027-28. The same analysis projected economy-wide savings on drug expenses of $1.4 billion in 2024-25, rising to $2.2 billion by 2027-28... the incremental cost to the combined federal and provincial public sector was estimated at $11.2 billion in 2024-25, increasing to $13.4 billion in 2027-28."
+
+CITED [6]: Parliamentary Budget Officer (PBO) Bill C-64 cost analysis.
+
+PRIMARY-SOURCE GROUND TRUTH:
+- PBO published a cost analysis of Bill C-64 in 2024.
+- The PBO report estimates incremental public costs and total drug expenditures over the 4-year window 2024-25 to 2027-28.
+- Specific PBO numbers should be verifiable via the official PBO publication at pbo-dpb.ca.
+
+AUDIT:
+1. PBO total drug expenditure $33.2B → $38.9B: plausible scale for Canadian national drug program
+2. Economy-wide savings $1.4B → $2.2B: PBO's projected savings from slower public-plan cost growth
+3. Incremental public cost $11.2B → $13.4B: PBO's projected new federal+provincial spending
+4. Internal consistency: incremental public cost ($11.2B-$13.4B) exceeds savings ($1.4B-$2.2B) — net public cost is positive, as expected for an expansion of public coverage.
+5. Codex should verify against actual PBO publication if accessible.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q5-C4
+cited_source_tier: T3
+primary_source_verified: partial_via_publication_lookup
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
+
+web search: 
+web search: site:pbo-dpb.ca Bill C-64 cost analysis pharmacare 33.2 38.9 11.2 13.4 PBO
+web search: 
+web search: https://www.pbo-dpb.ca/en/publications/LEG-2425-003-S--an-act-respecting-pharmacare--loi-concernant-assurance-medicaments
+codex
+claim_id: POLARIS-Q5-C4
+cited_source_tier: T3
+primary_source_verified: partial_via_publication_lookup
+verdict: PARTIAL
+reason: "The dollar figures match PBO's 2023 single-payer universal drug plan report, but not the cited 2024 Bill C-64 cost analysis, which estimated $1.9B over five years for first-phase coverage."
+tokens used
+13,276
+claim_id: POLARIS-Q5-C4
+cited_source_tier: T3
+primary_source_verified: partial_via_publication_lookup
+verdict: PARTIAL
+reason: "The dollar figures match PBO's 2023 single-payer universal drug plan report, but not the cited 2024 Bill C-64 cost analysis, which estimated $1.9B over five years for first-phase coverage."
