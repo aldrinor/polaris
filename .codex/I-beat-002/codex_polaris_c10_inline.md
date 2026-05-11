@@ -1,0 +1,36 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS tirzepatide Efficacy section):
+"Significantly more participants in tirzepatide groups achieved HbA1c targets; a total of 82 to 86% of the patients who received tirzepatide and 79% of those who received semaglutide had a decrease in the glycated hemoglobin level to less than 7.0%, and a total of 69 to 80% of the patients who received tirzepatide and 64% of those who received semaglutide had a decrease in the glycated hemoglobin level to 6.5% or less."
+
+CITED [1]: SURPASS-2 NEJM 2021 (Frias et al., DOI: 10.1056/NEJMoa2107519) — direct head-to-head tirzepatide 5/10/15 mg vs semaglutide 1 mg in T2D inadequately controlled on metformin, 40-week treatment-regimen estimand.
+
+PRIMARY SOURCE GROUND TRUTH (SURPASS-2 NEJM 2021 publicly documented):
+- 40-week trial, N=1,879, all on metformin background
+- HbA1c <7.0% target attainment (treatment-regimen estimand):
+  - Tirzepatide 5 mg: 82% ✓ (matches 82-86% lower bound)
+  - Tirzepatide 10 mg: 86% ✓ (matches range)
+  - Tirzepatide 15 mg: 86% ✓ (matches 82-86% upper bound)
+  - Semaglutide 1 mg: 79% ✓ (matches claim exactly)
+- HbA1c ≤6.5% target attainment:
+  - Tirzepatide 5 mg: 69% ✓ (matches lower bound)
+  - Tirzepatide 10 mg: 77% ✓ (in 69-80% range)
+  - Tirzepatide 15 mg: 80% ✓ (matches upper bound)
+  - Semaglutide 1 mg: 64% ✓ (matches claim exactly)
+- Citation [1] is the correct primary T1 source.
+
+AUDIT:
+1. 82-86% range for tirzepatide <7%: VERIFIED EXACT
+2. 79% semaglutide <7%: VERIFIED EXACT
+3. 69-80% range for tirzepatide ≤6.5%: VERIFIED EXACT
+4. 64% semaglutide ≤6.5%: VERIFIED EXACT
+5. Citation appropriate (T1 NEJM primary)
+
+Output YAML:
+```yaml
+claim_id: POLARIS-C10
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```

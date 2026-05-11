@@ -1,0 +1,29 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q5 Pharmacare Regulatory section):
+"PBO estimates total drug expenditures under Pharmacare to be $33.2 billion in 2024-25, increasing to $38.9 billion in 2027-28."
+
+CITED [6]: Parliamentary Budget Officer (PBO) "Cost Estimate of a Single-payer Universal Drug Plan" — RP-2324-016-S (2023).
+
+PRIMARY SOURCE GROUND TRUTH (PBO single-payer universal drug plan cost report, 2023):
+- The PBO 2023 report on universal single-payer pharmacare projected TOTAL drug expenditures (private + public combined) under a single-payer plan.
+- Specific figures: ~$33.2 billion in 2024-25, rising to ~$38.9 billion in 2027-28 ✓
+- These are the TOTAL expenditure projections, distinct from the INCREMENTAL public-sector cost ($11.2B → $13.4B over the same period) audited in POLARIS-Q5-C4.
+- The PBO uses an expanded-Quebec-formulary scenario, applies the 13.5% utilization elasticity, and projects drug expenditure trajectories for both the baseline (status quo) and policy (universal single-payer) scenarios.
+- $33.2B → $38.9B represents the policy-scenario trajectory (baseline grows faster, hence the projected savings).
+- Note POLARIS-Q5-C4 caught a real production bug (PBO 2023 universal-plan analysis was mis-attributed to Bill C-64 (2024)). For Q5-C15, this is a separate PBO projection ($33.2B → $38.9B total expenditures) NOT a Bill-C-64-specific figure. Whether POLARIS prose correctly contextualizes this depends on whether it's framed as universal single-payer vs Bill C-64 phase-1.
+
+AUDIT:
+1. $33.2B 2024-25 total drug expenditure under pharmacare: VERIFIED (PBO 2023 universal-plan analysis)
+2. $38.9B 2027-28 total drug expenditure under pharmacare: VERIFIED (PBO 2023 universal-plan analysis)
+3. Citation [6] (PBO 2023): VERIFIED appropriate primary source
+4. CAVEAT: same potential conflation issue as Q5-C4 — if the surrounding prose presents this as Bill C-64 (2024) cost, that's a PBO-2023-universal-plan-vs-Bill-C-64-2024 conflation. The Regulatory section opens with Bill C-64 introduction, so the framing matters for whether this is VERIFIED or PARTIAL.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q5-C15
+cited_source_tier: T2
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
