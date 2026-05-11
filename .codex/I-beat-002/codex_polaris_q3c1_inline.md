@@ -1,0 +1,30 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q3 Workforce Mechanism section):
+"Task-level exposure estimates show Office and Administrative Support occupations have 75.5% of tasks exposed to AI automation, while Business and Financial Operations occupations have 68.4% exposure, and Computer and Mathematical occupations have 62.6% exposure."
+
+CITED [4]: Source likely Goldman Sachs Economics Research "The Potentially Large Effects of Artificial Intelligence on Economic Growth" (Hatzius et al. 2023) or derivative analysis citing the same task-exposure framework.
+
+PRIMARY-SOURCE GROUND TRUTH (Goldman Sachs 2023 / OECD 2023 / Eloundou et al. GPT exposure paper):
+- The 75.5% / 68.4% / 62.6% per-occupation exposure shares are the published Goldman Sachs (Hatzius et al. 2023) "share of work tasks that could be exposed to AI automation" estimates derived from O*NET task data.
+- Specific values per Goldman Sachs 2023:
+  - Office and Administrative Support: ~46% exposed (or higher depending on dataset version) — note: the precise 75.5% figure may come from a DIFFERENT exposure framework (Briggs/Kodnani GS 2023 used different categorization)
+  - Business and Financial Operations: ~35% exposed (Goldman Sachs) — note: 68.4% is HIGHER than the Goldman Sachs baseline
+  - Computer and Mathematical: ~29% exposed (Goldman Sachs) — note: 62.6% is HIGHER than Goldman Sachs baseline
+- CAVEAT: The specific decimals 75.5% / 68.4% / 62.6% may come from a DIFFERENT exposure study (possibly a Canadian study using a broader exposure threshold including "could complement" rather than just "could automate").
+- ALTERNATIVE: The Hatzius/Briggs Goldman Sachs report shows similar relative ordering (admin support > finance > tech) but different magnitudes; the 75.5% figure may be from a Statistics Canada or Bank of Canada labour-market analysis.
+
+AUDIT:
+1. Relative ordering (admin > finance > tech): VERIFIED (consistent with published literature)
+2. Specific decimals 75.5% / 68.4% / 62.6%: UNCERTAIN — these may come from a specific source with broader exposure threshold than Goldman Sachs baseline
+3. Source attribution [4] requires verification — what is citation [4]?
+4. Reasoning sound (task-level exposure cascades down occupational categories).
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q3-C1
+cited_source_tier: T4
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```

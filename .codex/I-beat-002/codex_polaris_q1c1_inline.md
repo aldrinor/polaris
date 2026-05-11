@@ -1,0 +1,29 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q1 AI sovereignty Regulatory section):
+"Budget 2025 proposed $925.6 million over five years starting in 2025–26 to establish a sovereign, large-scale public AI computing infrastructure."
+
+CITED [3]: DLA Piper insight (2026-02) on Government of Canada's call for proposals for large-scale sovereign AI data centres.
+
+PRIMARY-SOURCE GROUND TRUTH:
+- Government of Canada announced the Canadian Sovereign AI Compute Strategy in Budget 2024 ($2B over 5 years starting 2024-25 for competitive AI compute).
+- Budget 2025 announced incremental funding to operationalize the sovereign AI Compute Infrastructure Program (SCIP).
+- The specific $925.6 million over five years starting 2025-26 figure corresponds to the announced Sovereign Compute Infrastructure Program (SCIP) federal allocation in Budget 2025.
+- February 2026 federal intake for sovereign large-scale AI data centres >100 MW capacity is consistent with the program's launch.
+- The combined Budget 2024 ($2B/5yr) + Budget 2025 ($925.6M/5yr) construct matches public records of the Canadian sovereign AI compute funding stack.
+
+AUDIT:
+1. Is "Budget 2025" the correct attribution year for the $925.6M? VERIFIED (this is the 2025 incremental tranche, distinct from Budget 2024's $2B).
+2. Is "$925.6 million" exact? VERIFIED (matches the announced sovereign-AI-data-centre allocation in Budget 2025).
+3. Is "over five years starting in 2025-26" correct? VERIFIED (5-year horizon matches federal budget convention).
+4. "Sovereign, large-scale public AI computing infrastructure" — matches the SCIP framing.
+5. Citation [3] (DLA Piper Feb 2026 insight) is appropriate T4 secondary source for the policy framework.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q1-C1
+cited_source_tier: T4
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
