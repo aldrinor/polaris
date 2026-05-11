@@ -1,0 +1,34 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (Gemini Deep Research):
+"In SURMOUNT-1, the largest phase 3 trial in obesity, 2,539 adults without diabetes received tirzepatide or placebo. Participants utilizing the efficacy estimand achieved a staggering [weight reduction]. Between 81.6% and 86.4% of people taking tirzepatide achieved at least a 5% body weight reduction."
+
+CITED SOURCE: SURMOUNT-1 (Jastreboff et al. NEJM 2022).
+
+PRIMARY SOURCE GROUND TRUTH (SURMOUNT-1, publicly documented):
+- 72-week trial in adults with BMI ≥30, OR ≥27 with at least one weight-related complication, WITHOUT type 2 diabetes
+- N=2,539 randomized
+- Tirzepatide 5/10/15mg vs placebo
+- Primary endpoint: % change in body weight at 72 weeks
+- Efficacy estimand mean weight reduction:
+  - 5mg: -15.0%
+  - 10mg: -19.5%
+  - 15mg: -20.9%
+  - Placebo: -3.1%
+- ≥5% weight reduction achievement: 85% (5mg), 89% (10mg), 91% (15mg), 35% placebo
+- Gemini's "81.6% and 86.4%" range doesn't clearly match the SURMOUNT-1 published 85%/89%/91% — needs verification
+
+AUDIT:
+1. N=2,539: VERIFIED EXACT MATCH against NEJM SURMOUNT-1 publication
+2. "≥5% reduction 81.6%-86.4%" range: doesn't match published 85%/89%/91% from SURMOUNT-1 efficacy estimand
+3. Possible explanation: the 81.6/86.4 values may be from treatment-regimen estimand or a different subset (e.g., obesity-without-T2D specifically), which would be lower
+4. Worth flagging the potential numeric mismatch
+
+Output YAML:
+```yaml
+claim_id: GEMINI-C6
+cited_source_tier: T1
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
