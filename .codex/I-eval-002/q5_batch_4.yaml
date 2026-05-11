@@ -1,0 +1,119 @@
+# Q5 Pharmacare claim enumeration — Tier-1 pilot (GH#420 I-eval-002)
+# Total verified-finding claims: 28
+
+schema_version: tier1_v1
+report: outputs/I-beat-001_round_q5_retry/policy/carney_pharmacare_bill_c64_evidence/report.md
+claims:
+  - claim_id: Q5-T1-022
+    section: 'Long-term Outcomes'
+    sentence: 'In 2016, 8.8% of adult Quebecers reported skipping prescriptions due to cost, which was better than the 10.7% average for the rest of Canada but worse than the 6% or less seen in most comparator nations .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '3300-3800'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          able high-income countries with universal coverage of prescription drugs. As shown in [Table 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#t1-189e1259), among all adults aged 18 and older, 8.8% of Quebecers skipped prescriptions because of cost in 2016.[13](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b13-189e1259) That is better than the 10.7% average for the rest of Canada, but worse than the 6% or less in most comparator countries. The poorer-performing systems in international co
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-023
+    section: 'Long-term Outcomes'
+    sentence: 'This advantage for working-age residents appears sustained; in 2014, 9.2% of Quebecers aged 55–64 reported cost-related non-adherence, compared to 13.9% in the rest of Canada .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '2100-2600'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          s
+          
+          [...]
+          
+          th medicines and physicians’ services among the working-age population.[9](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b9-189e1259) This advantage with respect to insurance for working-aged Quebecers appears to have been sustained: as of 2014, 9.2% of Quebecers aged 55 to 64 reported that they had not filled prescriptions because of cost, whereas 13.9% of similarly aged residents in the rest of Canada reported such access barriers.[10](https://pmc.ncbi.nlm.nih.gov/articles/PMC563
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-024
+    section: 'Long-term Outcomes'
+    sentence: 'The system has also created financial burdens, as the premiums, deductibles, and coinsurance represent a greater proportion of income for lower-income households .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '200-700'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          public system of prescription drug insurance increased access to insurance for working-age residents and increased user charges for beneficiaries of public drug plans._ * _Quebec’s regime increased access to medicines for working-age residents of Quebec; however, access to medicines in Quebec is lower than in comparable countries._ * _The premiums, deductibles and coinsurance under Quebec’s regime represent a greater proportion of income for lower-income households than for high-income ones._ * 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-025
+    section: 'Long-term Outcomes'
+    sentence: 'For example, the mandatory public premium can represent more than 3% of household income for a family earning $40,000, compared to 1.6% for a family earning $80,000 .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '4900-5400'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          alth Fund’s 2016 International Health Policy Survey; the Commonwealth Fund’s 2007 International Health Policy Survey; Statistics Canada’s 2007 Survey of Household Spending; and the Organisatio
+          
+          [...]
+          
+          mes higher than $39 880 must pay $1334 in annual premiums.[8](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b8-189e1259) That mandatory public premium represents more than 3% of household income for couple families earning $40 000; it represents 1.6% of income for couple families earning the $8
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-026
+    section: 'Long-term Outcomes'
+    sentence: 'Furthermore, high out-of-pocket costs remain common, with 8.7% of Quebec households incurring more than $1000 in out-of-pocket prescription costs in 2007, compared to 4.8% in the rest of Canada .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5600-6100'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          5636629/#b18-189e1259) Premiums for private insurance in Quebec may be even more regressive. This is because pr
+          
+          [...]
+          
+          ov/articles/PMC5636629/#b21-189e1259) Furthermore, as shown in [Table 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#t1-189e1259), high out-of-pocket costs are more common in Quebec and the rest of Canada than in comparator countries. In 2007, 8.7% of Quebec households incurred more than $1000 in out-of-pocket costs for prescriptions, compared with 4.8% for the rest of Ca
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-027
+    section: 'Long-term Outcomes'
+    sentence: "In terms of expenditure control, Quebec's regime did not reduce taxpayer-financed drug expenditures and substantially increased employer- and household-financed expenditures ."
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '400-900'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          cess to medicines for working-age residents of Quebec; however, access to medicines in Quebec is lower than in comparable countries._ * _The premiums, deductibles and coinsurance under Quebec’s regime represent a greater proportion of income for lower-income households than for high-income ones._ * _Quebec’s regime did not reduce taxpayer-financed drug expenditures and substantially increased employer- and household-financed expenditures._ As calls for universal pharmacare across Canada become s
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-028
+    section: 'Long-term Outcomes'
+    sentence: 'One analysis notes that if household- and employer-financed costs in Quebec had grown at the same rate as in the rest of Canada since 1997, Quebec households and employers would be spending $1.7 billion less per year .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '6700-7200'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          1.jpg) Expenditure per capita on prescription drugs from 1985 to 2016 in Quebec and the rest of Canada, (A) tax-financed versus (B) household-
+          
+          [...]
+          
+          ld and employer contributions than residents in the rest of Canada. Thus, if household- and employer-financed costs in Quebec had grown at the same rate as they did in the rest of Canada since 1997, Quebec households and employers would be spending $1.7 billion less per year on prescription drugs. Put another way, if the rest of Canada had matched
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence

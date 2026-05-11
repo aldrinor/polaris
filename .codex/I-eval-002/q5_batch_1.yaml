@@ -1,0 +1,152 @@
+# Q5 Pharmacare claim enumeration — Tier-1 pilot (GH#420 I-eval-002)
+# Total verified-finding claims: 28
+
+schema_version: tier1_v1
+report: outputs/I-beat-001_round_q5_retry/policy/carney_pharmacare_bill_c64_evidence/report.md
+claims:
+  - claim_id: Q5-T1-001
+    section: 'Efficacy'
+    sentence: 'One analysis notes that Quebec spends approximately $200 more per person on prescription drugs than the rest of Canada .'
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 2
+        url: 'https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/'
+        tier: T4
+        span: '0-500'
+        title: 'A lesson for Canada: Quebec pharmacare system creates winners ...'
+        span_text: |
+          Title: A lesson for Canada: Quebec pharmacare system creates winners and losers URL Source: https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/ Published Time: 2017-10-10T16:16:51+00:00 Markdown Content: ![Image 1](https://med-fom-spph.sites.olt.ubc.ca/files/2017/10/Steve-Morgan-Oct-10-two.jpg) Quebec spends $200 more per person than the rest of Canada to provide prescription drug coverage to everyone in the province, finds new research that could inform 
+      - evidence_id: ev_020
+        bibliography_num: 3
+        url: 'https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/'
+        tier: T4
+        span: '0-500'
+        title: 'A lesson for Canada: Quebec pharmacare system creates winners ...'
+        span_text: |
+          Title: A lesson for Canada: Quebec pharmacare system creates winners and losers URL Source: https://spph.ubc.ca/a-lesson-for-canada-quebec-pharmacare-system-creates-winners-and-losers/ Published Time: 2017-10-10T16:16:51+00:00 Markdown Content: ![Image 1](https://med-fom-spph.sites.olt.ubc.ca/files/2017/10/Steve-Morgan-Oct-10-two.jpg) Quebec spends $200 more per person than the rest of Canada to provide prescription drug coverage to everyone in the province, finds new research that could inform 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-002
+    section: 'Efficacy'
+    sentence: "Furthermore, the financial structure of Quebec's plan is regressive; for example, the mandatory public premium represented more than 3% of household income for a couple family earning $40,000, 1.6% for a family at the $80,000 median income, and 0.7% or less for families with incomes over $180,000 ."
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5200-5700'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          /PMC5636629/#b8-189e1259) That mandatory public premium represents more than 3% of household income for couple families earning $40 000; it represents 1.6% of income for couple families earning the $80 000 median income of such households; and it represents 0.7% or less of income for the roughly 10% of couple families with incomes higher than $180 000.[18](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b18-189e1259) Premiums for private insurance in Quebec may be even more regressive. This is
+      - evidence_id: ev_019
+        bibliography_num: 5
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5200-5700'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          /PMC5636629/#b8-189e1259) That mandatory public premium represents more than 3% of household income for couple families earning $40 000; it represents 1.6% of income for couple families earning the $80 000 median income of such households; and it represents 0.7% or less of income for the roughly 10% of couple families with incomes higher than $180 000.[18](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b18-189e1259) Premiums for private insurance in Quebec may be even more regressive. This is
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-003
+    section: 'Efficacy'
+    sentence: 'High out-of-pocket costs are also more common in Quebec than in many international peers, with 8.7% of Quebec households incurring more than $1000 in out-of-pocket costs for prescriptions in 2007, compared to 4.8% in the rest of Canada and less than 3% in countries like New Zealand, the UK, Germany, and the Netherlands .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5800-6300'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          /pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#t1-189e1259), high out-of-pocket costs are more common in Quebec and the rest of Canada than in comparator countries. In 2007, 8.7% of Quebec households incurred more than $1000 in out-of-pocket costs for prescriptions, compared with 4.8% for the rest of Canada and less than 3% for comparator countries with universal drug coverage that involves limited user charges (New Zealand, the UK, Germany and the Netherlands). ### System costs A final major consid
+      - evidence_id: ev_019
+        bibliography_num: 5
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '5800-6300'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          /pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#t1-189e1259), high out-of-pocket costs are more common in Quebec and the rest of Canada than in comparator countries. In 2007, 8.7% of Quebec households incurred more than $1000 in out-of-pocket costs for prescriptions, compared with 4.8% for the rest of Canada and less than 3% for comparator countries with universal drug coverage that involves limited user charges (New Zealand, the UK, Germany and the Netherlands). ### System costs A final major consid
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-004
+    section: 'Efficacy'
+    sentence: 'Projections for a national single-payer universal pharmacare plan, modeled on an expanded Quebec-style formulary, estimate it would generate economy-wide savings on drug expenses of $1.4 billion in 2024-25, rising to $2.2 billion in 2027-28, despite increasing public sector costs by $11.2 billion to $13.4 billion over the same period .'
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 6
+        url: 'https://www.pbo-dpb.ca/en/publications/RP-2324-016-S--cost-estimate-single-payer-universal-drug-plan--estimation-couts-un-regime-assurance-medicaments-universel-payeur-unique'
+        tier: T2
+        span: '7242-7742'
+        title: 'Cost Estimate of a Single-payer Universal Drug Plan'
+        span_text: |
+          ittle additional s
+          
+          [...]
+          
+          on of the Régie de l'assurance maladie du Québec (RAMQ) drug formulary, with universal access and a standardized copayment scheme implemented by a single payer. According to our estimates, the additional cost to the public sector is estimated to be $11.2 billion in 2024-2025, increasing to $13.4 billion in 2027-2028. - The economy-wide savings on drug expenses generated by a single-payer plan would amount to $1.4 billion in 2024-2025, rising to $2.2 billion in 2027-28.
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-005
+    section: 'Efficacy'
+    sentence: 'This savings is attributed to slower projected expenditure growth under a public plan (5.3%) compared to the baseline (5.8%), as private plan drug costs historically grow faster .'
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 6
+        url: 'https://www.pbo-dpb.ca/en/publications/RP-2324-016-S--cost-estimate-single-payer-universal-drug-plan--estimation-couts-un-regime-assurance-medicaments-universel-payeur-unique'
+        tier: T2
+        span: '2300-2800'
+        title: 'Cost Estimate of a Single-payer Universal Drug Plan'
+        span_text: |
+          ditures currently covered by the private insurance and out-of-pocket outlays, economy-wide spending on the drugs listed on the formulary is estimated to be lower. The economy-wide savings are projected to increase from $1.4 billion in 2024-25 to $2.2 billion in 2027-28, as the expenditure growth rate of Pharmacare is slower compared to the baseline (5.3 per cent vs. 5.8 per cent). This is because historically, drug expenditures of private plans grow at a faster rate than those of public plans.[^
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-006
+    section: 'Efficacy'
+    sentence: 'One review suggests a universal public pharmacare program designed like systems abroad could save Canadians $7.3 billion per year while achieving better outcomes in access and out-of-pocket costs .'
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 4
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '8100-8600'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          uld improve access to insurance while generating mixed results in terms of access to medicines and very negative results in terms of control of overall expenditure. In contrast, a universal public pharmacare program could save Canadians $7.3 billion per year if designed like the universal public systems abroad, which also achieve better outcomes in terms of access to medicines and out-of-pocket costs for patients.[25](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b25-189e1259) Makin
+          
+          [...]
+          
+          
+      - evidence_id: ev_019
+        bibliography_num: 5
+        url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/'
+        tier: T4
+        span: '8100-8600'
+        title: "Evaluating the effects of Quebec's private–public drug insurance ..."
+        span_text: |
+          uld improve access to insurance while generating mixed results in terms of access to medicines and very negative results in terms of control of overall expenditure. In contrast, a universal public pharmacare program could save Canadians $7.3 billion per year if designed like the universal public systems abroad, which also achieve better outcomes in terms of access to medicines and out-of-pocket costs for patients.[25](https://pmc.ncbi.nlm.nih.gov/articles/PMC5636629/#b25-189e1259) Makin
+          
+          [...]
+          
+          
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q5-T1-007
+    section: 'Comparative'
+    sentence: 'The system mandates that private plan coverage be at least equivalent to the public formulary, with monthly deductibles limited to $22, coinsurance to 32%, and a maximum annual out-of-pocket payment of $1,196 for insurees .'
+    cited_evidence:
+      - evidence_id: ev_012
+        bibliography_num: 7
+        url: 'https://sencanada.ca/Content/Sen/Committee/441/SOCI/briefs/2024-09-18_SOCI_C-64_Brief_MAGagnon_e.pdf'
+        tier: T4
+        span: '2800-3300'
+        title: '[PDF] Policy Brief on Pharmacare and Access to Medicines in Canada'
+        span_text: |
+          ption) can be required: one program covers seniors (65 years old and older); one program covers low-income people receiving social assistance; and one program covers residents of long-term care homes. ODB also provides first-dollar cover
+          
+          [...]
+          
+          d private drug plans: all drugs covered by the public plan must be covered by private drug plans; monthly deductibles are limited to 22$; the coinsurance rate is limited to 32%; and total annual out-of-pocket payments for insurees must not exceed $1,196.
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
