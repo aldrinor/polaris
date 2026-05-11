@@ -483,6 +483,103 @@ SWEEP_QUERIES: list[dict] = [
             "Lilly Concord North Carolina Indiana manufacturing investment",
         ],
     },
+    # I-beat-001 Carney goldset (per outputs/I-beat-001/carney_goldset_v1.md)
+    {
+        "slug": "carney_ai_sovereignty_canada_compute",
+        "domain": "ai_sovereignty",
+        "question": (
+            "What is the cost-quality-jurisdiction trade-off between Canada "
+            "operating its own sovereign frontier-LLM compute (SCALE-AI funded "
+            "clusters, Quebec hydro) versus relying on US-headquartered "
+            "hyperscalers (Azure, AWS, GCP) for federal-government AI "
+            "workloads in 2026?"
+        ),
+        "amplified": [
+            "Canada sovereign AI compute SCALE-AI cluster",
+            "CLOUD Act FISA 702 Canadian data jurisdictional risk",
+            "Quebec hydro AI compute energy grid",
+            "AWS GovCloud Azure Government Canada federal procurement",
+            "Canadian Centre for Cyber Security AI cloud guidelines",
+            "Pan-Canadian AI Strategy compute infrastructure",
+        ],
+    },
+    {
+        "slug": "carney_canada_us_cusma_review_2026",
+        "domain": "canada_us",
+        "question": (
+            "How are Canada's CUSMA review preparations (2026 Article 34.7 "
+            "mandatory review) being shaped by the second Trump administration's "
+            "tariff threats on Canadian steel, aluminum, and softwood lumber, "
+            "and what are the realistic negotiating leverage points for the "
+            "Carney government?"
+        ),
+        "amplified": [
+            "CUSMA Article 34.7 review 2026 Canada",
+            "Trump tariff Canadian steel aluminum 2026",
+            "softwood lumber dispute Canada-US 2026",
+            "Section 232 national security tariff Canada",
+            "Canadian dairy supply management CUSMA negotiation",
+            "Canada-US trade leverage 2026 critical minerals",
+        ],
+    },
+    {
+        "slug": "carney_workforce_genai_white_collar",
+        "domain": "workforce",
+        "question": (
+            "What is the projected impact of generative-AI adoption on "
+            "Canadian white-collar employment in finance, legal, and "
+            "public-sector knowledge work over 2026-2030, and what active "
+            "labour-market interventions have evidence of effectiveness in "
+            "analogous past technology shocks?"
+        ),
+        "amplified": [
+            "generative AI white collar employment Canada finance legal",
+            "Canadian labour market AI displacement augmentation",
+            "ESDC retraining technology shock effectiveness",
+            "OECD employment outlook generative AI 2026",
+            "Statistics Canada labour force AI adoption",
+            "Canadian public sector knowledge work AI productivity",
+        ],
+    },
+    {
+        "slug": "carney_housing_supply_vs_demand_metros",
+        "domain": "policy",
+        "question": (
+            "What is the evidence base for the effectiveness of supply-side "
+            "housing interventions (zoning reform, infrastructure-tied federal "
+            "transfers, modular construction subsidies, foreign-buyer bans) "
+            "versus demand-side interventions (mortgage stress-test changes, "
+            "first-time-buyer incentives, immigration-pacing) on housing "
+            "affordability in major Canadian metros 2020-2026?"
+        ),
+        "amplified": [
+            "Canadian housing supply zoning reform evidence",
+            "Canada Housing Accelerator Fund effectiveness",
+            "mortgage stress test B-20 housing affordability",
+            "foreign buyer ban Canada housing prices impact",
+            "Toronto Vancouver housing starts policy intervention",
+            "CMHC housing supply gap analysis 2026",
+        ],
+    },
+    {
+        "slug": "carney_pharmacare_bill_c64_evidence",
+        "domain": "policy",
+        "question": (
+            "What is the evidence base for the effectiveness of pharmacare "
+            "programs at reducing population-level chronic-disease morbidity "
+            "and out-of-pocket household drug spending, comparing Quebec RPAM, "
+            "New Zealand PHARMAC, and UK NHS models, with implications for "
+            "the federal Pharmacare Act (Bill C-64) rollout in Canada?"
+        ),
+        "amplified": [
+            "Quebec RPAM pharmacare effectiveness evidence",
+            "New Zealand PHARMAC drug pricing health outcomes",
+            "UK NHS prescription drug coverage chronic disease",
+            "Canada Pharmacare Act Bill C-64 implementation",
+            "out-of-pocket drug spending Canada household",
+            "CIHI Conference Board pharmacare cost-effectiveness",
+        ],
+    },
 ]
 
 
