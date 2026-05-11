@@ -1,0 +1,136 @@
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index dc3ab9b7..da542450 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -1265,7 +1265,11 @@ async def _run_section(
+         dropped_due_to_failure=dropped_due_to_failure,
+         input_tokens=total_in_tok,
+         output_tokens=total_out_tok,
+-        # GH#423 I-gen-002: preserve pre-resolve sentence list for dedup.
++        # GH#423 I-gen-002: preserve the SentenceVerification objects
++        # (not just strings) so the orchestrator can thread them through
++        # the dedup pass and the post-dedup re-resolve. fact_dedup
++        # extracts .sentence for grouping; resolve_provenance_to_citations
++        # consumes the full SV objects. Per Codex iter-2 P1 review.
+         kept_sentences_pre_resolve=list(report.kept_sentences),
+     )
+ 
+@@ -3541,11 +3545,20 @@ async def generate_multi_section_report(
+     fact_dedup_telemetry: dict[str, Any] = {}
+     try:
+         from .fact_dedup import dedup_pass as _fact_dedup_pass
+-        sections_for_dedup = {
+-            sr.title: list(sr.kept_sentences_pre_resolve)
+-            for sr in section_results
+-            if not sr.dropped_due_to_failure
+-        }
++        # Build SV-aware structures: fact_dedup needs strings, but
++        # resolve_provenance_to_citations needs full SentenceVerification
++        # objects. Per Codex iter-2 P1 review, we maintain a sentence->SV
++        # lookup so we can reconstruct the SV list post-dedup.
++        sv_by_section_by_sentence: dict[str, dict[str, Any]] = {}
++        sections_for_dedup: dict[str, list[str]] = {}
++        for sr in section_results:
++            if sr.dropped_due_to_failure:
++                continue
++            sv_list = sr.kept_sentences_pre_resolve  # list[SentenceVerification]
++            sv_by_section_by_sentence[sr.title] = {
++                sv.sentence: sv for sv in sv_list
++            }
++            sections_for_dedup[sr.title] = [sv.sentence for sv in sv_list]
+         if sum(len(v) for v in sections_for_dedup.values()) >= 2:
+             from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+ 
+@@ -3570,28 +3583,83 @@ async def generate_multi_section_report(
+                 _dedup_llm_callable,
+                 section_order=[p.title for p in plans],
+             )
+-            # Re-resolve provenance for sections whose sentence lists changed
++            # GH#423 P1-2 fix (per Codex iter-1 review): rewrites MUST
++            # be re-verified through strict_verify before acceptance.
++            # Otherwise unsupported LLM rewrite text could enter the
++            # Verified Findings prose with a citation marker that no
++            # longer reflects the original content overlap.
++            #
++            # Process: for each section whose sentence list changed,
++            # identify the new (rewrite) sentences vs unchanged originals,
++            # run strict_verify on the new ones, accept only those that
++            # pass, drop those that fail. The original unchanged sentences
++            # were already verified upstream and don't need re-verification.
++            rewrites_re_verified_pass = 0
++            rewrites_re_verified_drop = 0
+             for sr in section_results:
+                 if sr.dropped_due_to_failure:
+                     continue
+-                new_sents = deduped_sections.get(sr.title)
+-                if new_sents is None:
++                new_sentence_strs = deduped_sections.get(sr.title)
++                if new_sentence_strs is None:
+                     continue
+-                if list(new_sents) == sr.kept_sentences_pre_resolve:
++                original_sv_map = sv_by_section_by_sentence.get(sr.title, {})
++                original_strs = list(original_sv_map.keys())
++                if list(new_sentence_strs) == original_strs:
+                     continue
+-                # Section changed — re-resolve and update verified_text
++                # Identify which sentence strings are NEW (rewrites).
++                original_set = set(original_strs)
++                rewrite_candidates = [
++                    s for s in new_sentence_strs if s not in original_set
++                ]
++                # Re-verify rewrites via strict_verify; keep only ones
++                # that pass content-overlap + provenance checks. The
++                # original sentences already passed upstream strict_verify.
++                accepted_rewrite_svs: list[Any] = []
++                if rewrite_candidates:
++                    rewrite_report = strict_verify(
++                        "\n".join(rewrite_candidates), evidence_pool,
++                    )
++                    accepted_rewrite_svs = list(rewrite_report.kept_sentences)
++                    rewrites_re_verified_pass += len(accepted_rewrite_svs)
++                    rewrites_re_verified_drop += (
++                        len(rewrite_candidates) - len(accepted_rewrite_svs)
++                    )
++                # Build final SV list in the ORDER given by new_sentence_strs:
++                #   - if string matches an original, use its SV
++                #   - if it matches an accepted rewrite SV, use that SV
++                #   - else drop (failed strict_verify or unknown)
++                accepted_rewrite_by_str = {sv.sentence: sv for sv in accepted_rewrite_svs}
++                final_svs: list[Any] = []
++                for s in new_sentence_strs:
++                    if s in original_sv_map:
++                        final_svs.append(original_sv_map[s])
++                    elif s in accepted_rewrite_by_str:
++                        final_svs.append(accepted_rewrite_by_str[s])
++                    # else: drop (LLM rewrite failed strict_verify)
++                # Update SectionResult fields with deduped + re-verified content
+                 from .provenance_generator import resolve_provenance_to_citations as _resolve
+-                new_text, new_biblio = _resolve(new_sents, evidence_pool)
++                new_text, new_biblio = _resolve(final_svs, evidence_pool)
+                 sr.verified_text = new_text
+                 sr.biblio_slice = new_biblio
+-                sr.kept_sentences_pre_resolve = list(new_sents)
+-                sr.sentences_verified = len(new_sents)
++                # Reflect dropped redundants in section telemetry
++                dropped_count = len(original_strs) - len(final_svs)
++                if dropped_count > 0:
++                    sr.sentences_dropped += dropped_count
++                sr.kept_sentences_pre_resolve = list(final_svs)
++                sr.sentences_verified = len(final_svs)
++                if not final_svs:
++                    sr.dropped_due_to_failure = True
++            fact_dedup_telemetry["n_rewrites_strict_verify_pass"] = rewrites_re_verified_pass
++            fact_dedup_telemetry["n_rewrites_strict_verify_drop"] = rewrites_re_verified_drop
+             logger.info(
+                 "[multi_section] GH#423 fact_dedup: groups=%d redundants=%d "
+-                "rewrites=%d drops=%d",
++                "rewrites_proposed=%d rewrites_kept=%d rewrites_dropped_by_strict_verify=%d "
++                "redundants_dropped_by_llm_fallback=%d",
+                 fact_dedup_telemetry.get("n_groups", 0),
+                 fact_dedup_telemetry.get("n_redundants", 0),
+                 fact_dedup_telemetry.get("n_rewrites_applied", 0),
++                rewrites_re_verified_pass,
++                rewrites_re_verified_drop,
+                 fact_dedup_telemetry.get("n_drops", 0),
+             )
+     except Exception as exc:  # noqa: BLE001 — safe-degrade per Codex review
