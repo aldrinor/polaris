@@ -1,0 +1,148 @@
+# Gemini DR Q1 Tier-1 v2 enumeration
+# Total claims: 36
+
+schema_version: tier1_v2_competitor
+claims:
+  - claim_id: GM-Q1-T1-001
+    sentence: "# GEMINI Deep Research - Q1 **Question:** What is the cost-quality-jurisdiction trade-off between Canada operating its own sovereign frontier-LLM compute (SCALE-AI funded clusters, Quebec hydro) versus relying on US-headquartered hyperscalers (Azure, AWS, GCP) for federal-government AI workloads in 2026? --- I've completed your research."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-002
+    sentence: "HyperscalerThe 2026 AI Compute Trilemma: Navigating Cost, Quality, and Jurisdiction in Canada's Federal AI WorkloadsIntroduction: The Sovereign Compute Imperative in 2026As artificial intelligence transitions from a frontier experimental capability to a foundational element of public infrastructure, the Canadian federal government is confronting a profound architectural and policy trilemma."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-003
+    sentence: "In 2026, this dynamic is encapsulated by the strategic choice between cultivating a domestic, sovereign AI compute ecosystem\u2014anchored by massive federal initiatives like the Artificial Intelligence Sovereign Compute Infrastructure Program (SCIP) and industry clusters like SCALE AI\u2014versus leveraging the immense scale, ecosystem maturity, and localized cryptographic adaptations of United States-headquartered hyperscalers such as Microsoft Azure, Amazon Web Services (AWS), and Google Cloud Platform (GCP).The stakes in 2026 extend far beyond the mechanics of public procurement; they encompass national security, economic competitiveness, and the absolute preservation of domestic intellectual property."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-004
+    sentence: "By the end of 2025, total global AI data center power capacity exceeded 30 gigawatts\u2014a figure comparable to the peak power usage of entire industrialized states such as New York, and substantially larger than the baseline demand of many developed nations."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-005
+    sentence: "Within this constrained and fiercely competitive global market, Canada has launched a $2 billion Sovereign AI Compute Strategy to secure domestic capacity, committing approximately $890 million to the Infrastructure Build Layer of SCIP alone."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-006
+    sentence: "Microsoft's unprecedented $19 billion commitment to Canada introduces localized cloud controls, confidential computing enclaves, and contractual legal shields designed to seamlessly mimic the benefits of physical sovereignty while retaining global cloud agility."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-007
+    sentence: "The Extraterritorial Reach of the US CLOUD ActThe primary catalyst for Canada's aggressive sovereign compute push is the United States Clarifying Lawful Overseas Use of Data (CLOUD) Act of 2018."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-008
+    sentence: "When a senior Microsoft executive was asked under oath before the French Senate in June 2025 whether he could guarantee that French government data stored in Microsoft's cloud would never be transmitted to US authorities without French authorization, his answer was unequivocal: \"Non, je ne peux pas le garantir\" (\"No, I cannot guarantee it\")."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-009
+    sentence: "To address the jurisdictional gap without fracturing their highly integrated global network architectures, hyperscalers have pioneered a concept that can be termed \"cryptographic sovereignty.\" In 2026, Microsoft launched its Sovereign AI Landing Zone (SAIL) in Canada, backed by an unprecedented $19 billion capital investment pledge."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-010
+    sentence: "The Domestic Ecosystem: SCALE AI and the Sovereign Compute StrategyTo establish a definitive, legally impregnable alternative to foreign CSPs, the Government of Canada initiated the $2 billion Canadian Sovereign AI Compute Strategy."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-011
+    sentence: "Backed by approximately $890 million directed explicitly toward the Infrastructure Build Layer, SCIP represents a coordinated national effort to repatriate compute capacity and anchor a secure ecosystem."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-012
+    sentence: "By late 2025, Scale AI announced a historic, record-breaking $128.5 million CAD funding round to support 44 new applied AI projects, driving collective investments toward the $500 million mark."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-013
+    sentence: "As of March 2025, 100% of the IP created in the cluster's first 100 projects remained Canadian-owned, ensuring that the algorithmic innovations generated domestically are not immediately absorbed by foreign conglomerates."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-014
+    sentence: "Following the rapid, unprecedented sell-out of its initial facility in Rimouski, Quebec, TELUS is executing a massive expansion into British Columbia with a cluster projected to scale to an astonishing 60,000 high-performance GPUs and 150 megawatts of power demand by 2032."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-015
+    sentence: "This project represents a $9 billion economic injection and is explicitly marketed as a secure alternative to global hyperscalers."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-016
+    sentence: "TELUS guarantees that intellectual property and sensitive data will never traverse outside Canadian borders, while running the entire operation on 98% clean hydroelectric energy and utilizing advanced liquid cooling with heat recovery technologies."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-017
+    sentence: "In early 2026, Alpha Compute officially activated the ALPHA-01 cluster in a Canadian datacenter, featuring 504 of the latest NVIDIA B200 GPUs, with aggressive plans to scale beyond 1,000 GPUs using specialized, hardware-backed non-recourse debt financing."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-018
+    sentence: "While the federal SCIP funding and private debt markets provide the initial CapEx necessary to secure hardware, the OpEx of Canadian infrastructure is undergoing a radical, state-driven transformation in 2026.The Quebec Hydro Rate Shock and the Erosion of ArbitrageHistorically, Canada's primary competitive advantage in global datacenter hosting was rooted in the province of Quebec's abundant, exceptionally low-cost, and sustainable hydroelectric power."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-019
+    sentence: "Global AI power capacity escalated to approximately 30 GW by late 2025, and Hydro-Qu\u00e9bec internal projections indicate that datacenter electricity demand within the province will surge an astonishing sevenfold by 2035, exceeding 1,000 MW."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-020
+    sentence: "To prevent these colossal fixed infrastructure and grid expansion costs from being passed onto regular residential consumers\u2014and to politically and economically extract the \"full value\" of the province's green energy premium\u2014Hydro-Qu\u00e9bec formally petitioned the provincial energy regulator (R\u00e9gie de l'\u00e9nergie) to double the electricity rates for new data centers exceeding 5 MW of capacity."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-021
+    sentence: "Set to take effect in the second half of 2026, the new rate establishes a strict baseline of 13 cents per kilowatt-hour (kWh) for large AI data centers, while cryptographic and blockchain operations face an even steeper, punitive hike to an average of 19.5 cents/kWh."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-022
+    sentence: "The table below illustrates the narrowing gap between Canadian and US power pricing.JurisdictionSector ClassRate (cents/kWh)Strategic Impact on AI WorkloadsQuebec (H2 2026)Large Data Center (>5 MW)13.00\u00a2Eliminates historical arbitrage; forces competition on sovereignty value.Texas (May 2026)Commercial10.77\u00a2Highly attractive for hyperscale builds due to deregulated energy market.Virginia (May 2026)Commercial11.44\u00a2Intense cluster density maintains competitive rates despite massive demand.US National AvgCommercial14.12\u00a2Represents the baseline operating cost for broadly distributed hyperscale zones.Quebec (Crypto)Blockchain/Crypto19.50\u00a2Punitive rate designed to force out low-economic-benefit workloads.Export to SheetsFrontier Hardware: The Economics of the NVIDIA Blackwell B200Beyond foundational power constraints, the silicon hardware itself dictates the ultimate cost-quality equation."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-023
+    sentence: "In 2026, the NVIDIA B200 Blackwell architecture has become the undisputed, indispensable standard for frontier AI workloads, completely eclipsing the previous generation's H100 Hopper chips."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-024
+    sentence: "The B200 represents a monumental leap in hardware engineering, featuring 192 GB of HBM3e memory operating at an unprecedented 8 TB/s bandwidth, along with dedicated support for ultra-low precision FP4 and FP6 calculations, which the older H100 architecture lacks."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-025
+    sentence: "In stark contrast, the B200 delivers roughly 57 tokens per second\u2014a nearly 140% massive increase in raw throughput."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-026
+    sentence: "Consequently, while the B200 hardware commands a significant premium rental price\u2014averaging $4.50 to $6.00 per hour for on-demand instances across global cloud providers, and soaring up to $9.86/hr depending on the cluster size and commitment duration\u2014the ultimate cost-per-token generated actually plummets due to its vast efficiency gains."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-027
+    sentence: "ProviderHardware ProfilePricing ModelHourly Rate (per GPU)Market AvailabilityCoreWeaveNVIDIA B200Reserved$2.65Waitlisted / EnterpriseRunPodNVIDIA B200On-Demand$5.98ImmediateInworld ComputeNVIDIA B200On-DemandFrom $6.00Available NowLambdaNVIDIA B200 (16-node)On-Demand$9.862-week to 1-year termsIndustry AvgNVIDIA H100On-Demand$1.38 - $11.01Broad availabilityExport to SheetsFor the Canadian sovereign ecosystem, securing B200 availability is absolutely paramount for remaining technologically relevant."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-028
+    sentence: "Global supply remains highly constrained, with an estimated 3.6 million units heavily backordered through mid-2026."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-029
+    sentence: "Managed under the Sovereign AI Compute Strategy, this $300 million fund is specifically designed to tackle the high cost of compute resources and the limited availability of domestic capacity."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-030
+    sentence: "Google Cloud Platform (GCP) leverages its Vertex AI platform and deep integration with proprietary silicon (Tensor Processing Units, or TPUs) to power the Gemini model family, earning recognition as a Leader in the 2026 Forrester Wave for Sovereign Cloud Platforms."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-031
+    sentence: "Ultimately, the quality trade-off in 2026 undeniably favors the hyperscalers for immediate, out-of-the-box application development and rapid deployment."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-032
+    sentence: "However, the heavily funded sovereign National Service Layer is actively closing this capability gap, aiming to provide customized, highly secure, and functionally comparable environments optimized specifically for foundational model training and sensitive government inference tasks.Synthesizing the Trilemma for Federal Workloads in 2026The complex decision matrix for deploying federal government AI workloads in 2026 cannot be solved by a uniform, monolithic policy directive."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-033
+    sentence: "For Protected B AI workloads, the optimal trade-off in 2026 heavily favors leveraging the mature, localized hyperscaler ecosystems.Jurisdiction: Hyperscalers have successfully and demonstrably met the Government of Canada's stringent technical requirements for this tier."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-034
+    sentence: "Domestic facilities like Alpha Compute are actively and successfully deploying 8 TB/s bandwidth Blackwell B200 architectures concurrently with major US deployments."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-035
+    sentence: "ConclusionThe 2026 landscape of Canadian federal AI compute is defined by the profound tension between the immense gravitational pull of United States hyperscale efficiency and the indispensable, non-negotiable necessity of sovereign jurisdictional control."
+    has_numeric_fact: true
+
+  - claim_id: GM-Q1-T1-036
+    sentence: "The Government of Canada has astutely recognized that neither path is universally superior, nor can a single architecture satisfy the vast, disparate needs of the modern federal apparatus.The $2 billion Sovereign AI Compute Strategy, underscored by the massive SCIP infrastructure build and the targeted SME support of the AI Compute Access Fund, successfully ensures that Canada will not be entirely dependent on foreign infrastructure for its most critical operations or the cultivation of its domestic innovation ecosystem."
+    has_numeric_fact: true

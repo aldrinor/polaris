@@ -1,0 +1,274 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e191b-7ce5-77f1-b685-d0bfeb9d460a
+--------
+user
+Tier-1 v2 audit on ChatGPT Pro Deep Research Q1 output. Output YAML.
+
+# Context
+
+Auditing the ChatGPT Pro Deep Research report on Q1 "Canada sovereign frontier-LLM compute vs US hyperscalers for federal AI workloads 2026". POLARIS scored 96.8% VERIFIED on the same question (30V / 1P / 0U across 31 audit-grade claims). The ChatGPT report has 25 citations total / 451 web searches across 12 min of DR. We're testing whether ChatGPT's claims hold under the same line-by-line standard.
+
+# Audit instruction
+
+For each claim below, assess against your general knowledge + ChatGPT's stated citation source. ChatGPT's DR output uses inline URL annotations and `turn<N>search<N>` citation markers; the latter are internal to ChatGPT's research session and not externally resolvable, but you can judge plausibility against the named source title.
+
+Apply Tier-1 v2 schema per claim:
+- claim_type: efficacy | safety | regulatory | economic | technical | comparative | mechanism | epidemiology | background
+- materiality: critical | major | minor | background
+- citation_context_match: yes | partial | no | unverifiable
+- verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+- rationale: one sentence
+- reviewer_confidence: 0.0 - 1.0
+
+# Banned shortcuts
+
+- Do NOT auto-VERIFIED. Specific decimals, dollar figures, and dates must be plausible against your knowledge.
+- Flag UNVERIFIABLE if the claim depends on a session-internal source (`turn<N>search<N>`) you cannot resolve.
+- Flag UNSUPPORTED if the claim contradicts what you know about the named source.
+
+# Claims (cleanest 7 from ChatGPT Q1)
+
+```yaml
+- claim_id: CG-Q1-A
+  sentence: |
+    Canada has committed up to C$700 million for private-sector compute capacity, up to C$1 billion for public supercomputing, and up to C$300 million for an AI Compute Access Fund; the AI Sovereign Compute Infrastructure Program alone will provide about C$890 million to the build layer beginning in fiscal 2026-27.
+  cited_sources: ["Government of Canada (multiple official docs)"]
+
+- claim_id: CG-Q1-B
+  sentence: |
+    A 1,024-GPU H100/H200-class Canadian cluster amortized over five years lands at roughly US$2.8/GPU-hour at 80% utilization, but rises to US$5.5/GPU-hour at 40% utilization.
+  cited_sources: ["ChatGPT internal model"]
+
+- claim_id: CG-Q1-C
+  sentence: |
+    A TELUS facility in Rimouski said in May 2026 that its first sovereign AI factory was already fully sold out.
+  cited_sources: ["TELUS press release / multiple news sources"]
+
+- claim_id: CG-Q1-D
+  sentence: |
+    Hydro-Quebec proposed in February 2026 that all new data centres over 5 MW in Quebec move to a new average rate of about 13c/kWh, approximately double what current large-power customers pay, and said data-centre electricity use in the province could rise sevenfold by 2035 to more than 1,000 MW.
+  cited_sources: ["Hydro-Quebec (https://www.hydroquebec.com)"]
+
+- claim_id: CG-Q1-E
+  sentence: |
+    Treasury Board's cloud-guardrail material says Protected B supply contracts were established with Amazon Web Services Canada and Microsoft Canada in August 2019 and with Google Cloud Canada in December 2022.
+  cited_sources: ["Treasury Board of Canada Secretariat"]
+
+- claim_id: CG-Q1-F
+  sentence: |
+    Microsoft Azure publicly indexed 2026 retail snapshots for ND96isr H100 v5 show roughly US$98.32/h in East US and US$117.98/h in Canada Central, or about US$12.29-14.75/GPU-hour.
+  cited_sources: ["Microsoft Azure (https://azure.microsoft.com)"]
+
+- claim_id: CG-Q1-G
+  sentence: |
+    Official AWS examples retrieved show p5.48xlarge at US$55.04/h on-demand in N. Virginia, or US$6.88/GPU-hour. A recent AWS official example also showed Capacity Blocks at US$34.608/h, or about US$4.33/GPU-hour.
+  cited_sources: ["Amazon Web Services (https://aws.amazon.com)"]
+```
+
+# Output schema
+
+```yaml
+records:
+  - claim_id: CG-Q1-A
+    claim_type: economic
+    materiality: critical
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "..."
+    reviewer_confidence: 0.9
+  - ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N, UNVERIFIABLE: N}
+  per_context_match: {yes: N, partial: N, no: N, unverifiable: N}
+```
+
+codex
+I’ll verify the date-sensitive and pricing claims against official or primary sources where possible, then return only the requested YAML.
+web search: 
+web search: Government of Canada AI Sovereign Compute Infrastructure Program $890 million fiscal 2026-27 $700 million $1 billion $300 million AI Compute Access Fund
+web search: 
+web search: TELUS Rimouski sovereign AI factory fully sold out May 2026
+web search: 
+web search: "fully sold out" "TELUS" "AI Factory"
+web search: 
+web search: Hydro-Quebec February 2026 data centres over 5 MW 13 cents kWh double current large power customers sevenfold by 2035 1000 MW
+web search: 
+web search: Treasury Board cloud guardrails Protected B supply contracts Amazon Web Services Canada Microsoft Canada August 2019 Google Cloud Canada December 2022
+web search: 
+web search: https://www.tbs-sct.canada.ca/pol/doc-eng.aspx?id=32787
+web search: 
+web search: "Google Cloud Canada" "December 2022" "Protected B"
+web search: 
+web search: "Google Cloud Canada Corporation" "Protected B" "supply contracts"
+web search: 
+web search: "Amazon Web Services Canada" "Microsoft Canada" "August 2019" "Google Cloud Canada"
+web search: 
+web search: "Google Cloud Canada Corporation" "Government of Canada" "Framework Agreement"
+web search: 
+web search: "In December 2022" "GC cloud guardrails"
+web search: 
+web search: "Google Cloud Canada" "December 2022" "cloud" "Shared Services Canada"
+web search: 
+web search: Azure ND96isr H100 v5 price East US 98.32 Canada Central 117.98
+web search: 
+web search: 
+web search: 
+web search: prices.azure.com api retail prices Standard_ND96isr_H100_v5 eastus 98.32
+web search: 
+web search: "Standard_ND96isr_H100_v5" "98.320" "Microsoft"
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ProgressPreference='"'SilentlyContinue'; "'$url = "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&currencyCode=USD&`$filter=serviceName%20eq%20'"'Virtual%20Machines'%20and%20armSkuName%20eq%20'Standard_ND96isr_H100_v5'%20and%20priceType%20eq%20'Consumption'%20and%20(armRegionName%20eq%20'eastus'%20or%20armRegionName%20eq%20'canadacentral')\"; try { (Invoke-RestMethod -Uri "'$url -TimeoutSec 20).Items | Select-Object armRegionName,skuName,meterName,productName,retailPrice,unitPrice | ConvertTo-Json -Depth 4 } catch { $_.Exception.Message }' in C:\POLARIS
+ succeeded in 3685ms:
+The SSL connection could not be established, see inner exception.
+
+web search: 
+web search: https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview
+web search: 
+web search: 
+web search: 
+web search: https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&currencyCode=USD&%24filter=armSkuName%20eq%20%27Standard_ND96isr_H100_v5%27%20and%20armRegionName%20eq%20%27eastus%27%20and%20priceType%20eq%20%27Consumption%27
+web search: 
+web search: 'Standard_ND96isr_H100_v5' in https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview
+web search: 
+web search: AWS p5.48xlarge on-demand us-east-1 55.04 per hour Capacity Blocks 34.608 p5.48xlarge
+web search: 
+web search: "p5.48xlarge" "55.0400000000" "us-east-1"
+codex
+```yaml
+records:
+  - claim_id: CG-Q1-A
+    claim_type: economic
+    materiality: critical
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Government of Canada materials support the C$700M, C$1B, and C$300M pillars, and the SCIP page states approximately C$890M for the Infrastructure Build Layer beginning in fiscal 2026-27."
+    reviewer_confidence: 0.96
+
+  - claim_id: CG-Q1-B
+    claim_type: economic
+    materiality: major
+    citation_context_match: unverifiable
+    verdict: UNVERIFIABLE
+    rationale: "The arithmetic is plausible, but the claim depends on an internal cost model with unstated capex, opex, power, financing, and utilization assumptions rather than an externally checkable source."
+    reviewer_confidence: 0.9
+
+  - claim_id: CG-Q1-C
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "TELUS Q1 2026 and May 2026 release language states the Rimouski sovereign AI factory sold out within months of launch and was fully sold out."
+    reviewer_confidence: 0.95
+
+  - claim_id: CG-Q1-D
+    claim_type: regulatory
+    materiality: critical
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Hydro-Quebec's February 19, 2026 release matches the 5 MW threshold, 13c/kWh average rate, roughly double current large-power rates, and sevenfold growth to over or about 1,000 MW by 2035."
+    reviewer_confidence: 0.98
+
+  - claim_id: CG-Q1-E
+    claim_type: regulatory
+    materiality: major
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "Treasury Board cloud-guardrail material supports the August 2019 AWS Canada and Microsoft Azure Protected B contracts, but the cited context does not cleanly substantiate the Google Cloud Canada December 2022 date."
+    reviewer_confidence: 0.78
+
+  - claim_id: CG-Q1-F
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Azure retail-pricing snapshots and pricing-index mirrors align with ND96isr_H100_v5 at about US$98.32/h in East US and US$117.984/h in Canada Central, and the 8-GPU division yields about US$12.29-14.75/GPU-hour."
+    reviewer_confidence: 0.88
+
+  - claim_id: CG-Q1-G
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "AWS pricing evidence supports p5.48xlarge on-demand at US$55.04/h in N. Virginia and official Capacity Blocks pricing at US$34.608/h, which divide across 8 H100 GPUs to US$6.88 and about US$4.33/GPU-hour."
+    reviewer_confidence: 0.93
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 5, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0, UNVERIFIABLE: 1}
+  per_context_match: {yes: 5, partial: 1, no: 0, unverifiable: 1}
+```
+tokens used
+206,193
+```yaml
+records:
+  - claim_id: CG-Q1-A
+    claim_type: economic
+    materiality: critical
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Government of Canada materials support the C$700M, C$1B, and C$300M pillars, and the SCIP page states approximately C$890M for the Infrastructure Build Layer beginning in fiscal 2026-27."
+    reviewer_confidence: 0.96
+
+  - claim_id: CG-Q1-B
+    claim_type: economic
+    materiality: major
+    citation_context_match: unverifiable
+    verdict: UNVERIFIABLE
+    rationale: "The arithmetic is plausible, but the claim depends on an internal cost model with unstated capex, opex, power, financing, and utilization assumptions rather than an externally checkable source."
+    reviewer_confidence: 0.9
+
+  - claim_id: CG-Q1-C
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "TELUS Q1 2026 and May 2026 release language states the Rimouski sovereign AI factory sold out within months of launch and was fully sold out."
+    reviewer_confidence: 0.95
+
+  - claim_id: CG-Q1-D
+    claim_type: regulatory
+    materiality: critical
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Hydro-Quebec's February 19, 2026 release matches the 5 MW threshold, 13c/kWh average rate, roughly double current large-power rates, and sevenfold growth to over or about 1,000 MW by 2035."
+    reviewer_confidence: 0.98
+
+  - claim_id: CG-Q1-E
+    claim_type: regulatory
+    materiality: major
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "Treasury Board cloud-guardrail material supports the August 2019 AWS Canada and Microsoft Azure Protected B contracts, but the cited context does not cleanly substantiate the Google Cloud Canada December 2022 date."
+    reviewer_confidence: 0.78
+
+  - claim_id: CG-Q1-F
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Azure retail-pricing snapshots and pricing-index mirrors align with ND96isr_H100_v5 at about US$98.32/h in East US and US$117.984/h in Canada Central, and the 8-GPU division yields about US$12.29-14.75/GPU-hour."
+    reviewer_confidence: 0.88
+
+  - claim_id: CG-Q1-G
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "AWS pricing evidence supports p5.48xlarge on-demand at US$55.04/h in N. Virginia and official Capacity Blocks pricing at US$34.608/h, which divide across 8 H100 GPUs to US$6.88 and about US$4.33/GPU-hour."
+    reviewer_confidence: 0.93
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 5, PARTIAL: 1, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0, UNVERIFIABLE: 1}
+  per_context_match: {yes: 5, partial: 1, no: 0, unverifiable: 1}
+```

@@ -1,0 +1,242 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e191e-96dc-7ab3-ad0a-beb7bbdcd2df
+--------
+user
+Tier-1 v2 audit on Gemini Ultra Deep Research Q1 output. Output YAML.
+
+# Context
+
+Auditing Gemini Ultra Deep Research on Q1 "Canada sovereign frontier-LLM compute vs US hyperscalers for federal AI workloads 2026". POLARIS scored 96.8% V on same question. ChatGPT Pro DR scored 71% V on 7 audited claims. Gemini's textContent did NOT include inline citation markers (they were rendered as superscripts that dropped during text extraction), so audit each claim against general knowledge.
+
+# Audit instruction
+
+Apply Tier-1 v2 schema per claim:
+- claim_type, materiality, citation_context_match (yes/partial/no/unverifiable), verdict, rationale, reviewer_confidence
+
+# Banned
+
+- Don't auto-VERIFIED. Decimals/dates/dollars must be plausible.
+
+# Claims (cleanest 7 from Gemini Q1)
+
+```yaml
+- claim_id: GM-Q1-A
+  sentence: |
+    By the end of 2025, total global AI data center power capacity exceeded 30 gigawatts—a figure comparable to the peak power usage of entire industrialized states such as New York, and substantially larger than the baseline demand of many developed nations.
+
+- claim_id: GM-Q1-B
+  sentence: |
+    Canada has launched a $2 billion Sovereign AI Compute Strategy to secure domestic capacity, committing approximately $890 million to the Infrastructure Build Layer of SCIP alone.
+
+- claim_id: GM-Q1-C
+  sentence: |
+    The Canadian Sovereign AI Compute Strategy is a national policy framework designed to address a recognized gap in affordable, domestic computing resources for Canadian AI researchers, businesses, and innovators.
+
+- claim_id: GM-Q1-D
+  sentence: |
+    A separate federal intake process launched in February 2026 aims to identify and advance sovereign, large-scale AI data centre projects exceeding 100 megawatts (MW) in capacity.
+
+- claim_id: GM-Q1-E
+  sentence: |
+    Budget 2025 proposed $925.6 million over five years starting in 2025-26 to establish a sovereign, large-scale public AI computing infrastructure.
+
+- claim_id: GM-Q1-F
+  sentence: |
+    Under the US CLOUD Act, US authorities can compel US-based companies or foreign subsidiaries under US control to produce data, regardless of where it is stored and even if it belongs to a Canadian person or organization.
+
+- claim_id: GM-Q1-G
+  sentence: |
+    The May 2026 collaboration between the federal government and TELUS to build massive, highly-efficient AI clusters using next-generation Nvidia architectures, highlight this shift.
+```
+
+# Output schema
+
+```yaml
+records:
+  - claim_id: ...
+    claim_type: ...
+    materiality: ...
+    citation_context_match: ...
+    verdict: ...
+    rationale: ...
+    reviewer_confidence: ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N, UNVERIFIABLE: N}
+  per_context_match: {yes: N, partial: N, no: N, unverifiable: N}
+```
+
+codex
+I’ll verify the quantitative and 2026 policy claims against primary/current sources where possible, then map each item to the requested Tier-1 fields in YAML.
+web search: 
+web search: global AI data center power capacity exceeded 30 gigawatts by end of 2025 AI data center power capacity 30 GW New York peak power usage
+web search: 
+web search: https://epoch.ai/data-insights/ai-datacenter-power
+web search: 
+web search: Canada $2 billion Sovereign AI Compute Strategy $890 million Infrastructure Build Layer SCIP
+web search: 
+web search: https://oecd.ai/en/dashboards/policy-initiatives/canadian-sovereign-ai-compute-strategy
+web search: 
+web search: February 2026 Canada federal intake sovereign large-scale AI data centre projects exceeding 100 MW
+web search: 
+web search: https://ised-isde.canada.ca/site/ised/en/enabling-large-scale-sovereign-ai-data-centres?wbdisable=true
+web search: 
+web search: Budget 2025 Canada $925.6 million over five years 2025-26 sovereign large-scale public AI computing infrastructure
+web search: 
+web search: CLOUD Act US authorities compel US based companies foreign subsidiaries under US control produce data regardless of where stored Canadian organization
+web search: 
+web search: https://www.law.cornell.edu/uscode/text/18/2713
+web search: 
+web search: 'regardless of whether the data is located in the United States' in https://www.congress.gov/crs-product/R45173
+web search: 
+web search: May 2026 federal government TELUS build AI clusters Nvidia architecture Canada
+web search: 
+web search: site:canada.ca/en/innovation-science-economic-development/news/2026/05 TELUS AI data centre project Vancouver Solomon May 11 2026
+web search: 
+web search: site:telus.com/about/news-and-events/media-releases/telus May 11 2026 sovereign AI infrastructure clusters British Columbia
+web search: 
+web search: https://chatnewstoday.ca/2026/05/11/telus-and-feds-announce-ai-data-cluster-in-b-c-to-boost-sovereign-computing-power/
+web search: 
+web search: https://www.telus.com/about/news-and-events/media-releases/telus-opens-canadas-first-fully-sovereign-ai-factory
+web search: 
+web search: https://ised-isde.canada.ca/site/ised/en/ai-sovereign-compute-infrastructure-program
+web search: 
+web search: https://www.canada.ca/en/innovation-science-economic-development/news/2025/03/government-of-canada-introduces-ai-compute-access-fund-to-support-canadian-innovators.html
+codex
+```yaml
+records:
+  - claim_id: GM-Q1-A
+    claim_type: quantitative_estimate
+    materiality: medium
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "Epoch AI reports approximately 30 GW in Q4 2025, comparable to New York State peak demand and above many developed countries, but the claim hardens an extrapolated approximate estimate into 'exceeded 30 GW' and shifts the comparison toward 'baseline demand'. Source: https://epoch.ai/data-insights/ai-datacenter-power"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-B
+    claim_type: policy_funding
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Canada describes the Canadian Sovereign AI Compute Strategy as a $2 billion federal investment, and the SCIP page states approximately $890 million is available for the Infrastructure Build Layer. Source: https://ised-isde.canada.ca/site/ised/en/ai-sovereign-compute-infrastructure-program"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-C
+    claim_type: policy_purpose
+    materiality: medium
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Government and OECD policy descriptions support that the strategy targets insufficient affordable domestic AI compute for Canadian researchers, businesses, and innovators. Source: https://oecd.ai/en/dashboards/policy-initiatives/canadian-sovereign-ai-compute-strategy"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-D
+    claim_type: policy_process
+    materiality: high
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "The separate ISED intake did seek sovereign large-scale AI data centre proposals above 100 MW and aimed to identify projects for possible MOUs, but the official intake ran January 15 to February 15, 2026, not launched in February. Source: https://ised-isde.canada.ca/site/ised/en/enabling-large-scale-sovereign-ai-data-centres"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-E
+    claim_type: budget_funding
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Budget 2025 states $925.6 million over five years from 2025-26 to support large-scale sovereign public AI infrastructure for public and private research. Source: https://budget.canada.ca/2025/report-rapport/chap1-en.html"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-F
+    claim_type: legal_jurisdiction
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "18 U.S.C. § 2713 requires covered electronic or remote computing service providers to disclose data in their possession, custody, or control regardless of whether it is inside or outside the U.S.; this can include Canadian-owned data, subject to lawful process and possible challenges. Source: https://www.law.cornell.edu/uscode/text/18/2713"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-G
+    claim_type: current_event_partnership
+    materiality: medium
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "A May 11, 2026 federal-TELUS announcement for three B.C. AI data centre facilities is supported, and TELUS materials support NVIDIA-powered sovereign AI factories. However, the May federal announcement itself does not clearly establish a government-TELUS technical collaboration specifically to build NVIDIA-architecture clusters. Sources: https://chatnewstoday.ca/2026/05/11/telus-and-feds-announce-ai-data-cluster-in-b-c-to-boost-sovereign-computing-power/ ; https://www.telus.com/en/about/news-and-events/media-releases/telus-opens-canadas-first-fully-sovereign-ai-factory"
+    reviewer_confidence: medium
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 4, PARTIAL: 3, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0, UNVERIFIABLE: 0}
+  per_context_match: {yes: 4, partial: 3, no: 0, unverifiable: 0}
+```
+tokens used
+109,633
+```yaml
+records:
+  - claim_id: GM-Q1-A
+    claim_type: quantitative_estimate
+    materiality: medium
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "Epoch AI reports approximately 30 GW in Q4 2025, comparable to New York State peak demand and above many developed countries, but the claim hardens an extrapolated approximate estimate into 'exceeded 30 GW' and shifts the comparison toward 'baseline demand'. Source: https://epoch.ai/data-insights/ai-datacenter-power"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-B
+    claim_type: policy_funding
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Canada describes the Canadian Sovereign AI Compute Strategy as a $2 billion federal investment, and the SCIP page states approximately $890 million is available for the Infrastructure Build Layer. Source: https://ised-isde.canada.ca/site/ised/en/ai-sovereign-compute-infrastructure-program"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-C
+    claim_type: policy_purpose
+    materiality: medium
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Government and OECD policy descriptions support that the strategy targets insufficient affordable domestic AI compute for Canadian researchers, businesses, and innovators. Source: https://oecd.ai/en/dashboards/policy-initiatives/canadian-sovereign-ai-compute-strategy"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-D
+    claim_type: policy_process
+    materiality: high
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "The separate ISED intake did seek sovereign large-scale AI data centre proposals above 100 MW and aimed to identify projects for possible MOUs, but the official intake ran January 15 to February 15, 2026, not launched in February. Source: https://ised-isde.canada.ca/site/ised/en/enabling-large-scale-sovereign-ai-data-centres"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-E
+    claim_type: budget_funding
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "Budget 2025 states $925.6 million over five years from 2025-26 to support large-scale sovereign public AI infrastructure for public and private research. Source: https://budget.canada.ca/2025/report-rapport/chap1-en.html"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-F
+    claim_type: legal_jurisdiction
+    materiality: high
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "18 U.S.C. § 2713 requires covered electronic or remote computing service providers to disclose data in their possession, custody, or control regardless of whether it is inside or outside the U.S.; this can include Canadian-owned data, subject to lawful process and possible challenges. Source: https://www.law.cornell.edu/uscode/text/18/2713"
+    reviewer_confidence: high
+
+  - claim_id: GM-Q1-G
+    claim_type: current_event_partnership
+    materiality: medium
+    citation_context_match: partial
+    verdict: PARTIAL
+    rationale: "A May 11, 2026 federal-TELUS announcement for three B.C. AI data centre facilities is supported, and TELUS materials support NVIDIA-powered sovereign AI factories. However, the May federal announcement itself does not clearly establish a government-TELUS technical collaboration specifically to build NVIDIA-architecture clusters. Sources: https://chatnewstoday.ca/2026/05/11/telus-and-feds-announce-ai-data-cluster-in-b-c-to-boost-sovereign-computing-power/ ; https://www.telus.com/en/about/news-and-events/media-releases/telus-opens-canadas-first-fully-sovereign-ai-factory"
+    reviewer_confidence: medium
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 4, PARTIAL: 3, UNSUPPORTED: 0, FABRICATED: 0, UNREACHABLE: 0, UNVERIFIABLE: 0}
+  per_context_match: {yes: 4, partial: 3, no: 0, unverifiable: 0}
+```
