@@ -230,22 +230,67 @@ def _signatures_overlap(
     return False
 
 
-def _cluster_overlaps(
+def _signatures_conflict(a: FactSignature, b: FactSignature) -> bool:
+    """True iff a populated context axis (years OR dollar_buckets) is
+    populated on BOTH sides AND has zero intersection.
+
+    Codex brief-iter-1 P1 fix: this is the same populated-axis-conflict
+    check used by `_signatures_overlap` top-level guard, lifted into a
+    helper so cluster-membership logic can reject contextless-bridge
+    merges (e.g. A={2014} and C={2016} merged via B={} bridge).
+    """
+    if a.is_empty() or b.is_empty():
+        return False
+    years_conflict = (a.years and b.years) and not (a.years & b.years)
+    dollars_conflict = (
+        (a.dollar_buckets and b.dollar_buckets)
+        and not (a.dollar_buckets & b.dollar_buckets)
+    )
+    return years_conflict or dollars_conflict
+
+
+def _cluster_is_compatible(
     candidate: SentenceLocation, cluster: list[SentenceLocation],
 ) -> bool:
-    """True if candidate overlaps with ANY member of the cluster.
+    """True iff candidate overlaps with AT LEAST ONE cluster member AND
+    does NOT conflict with ANY cluster member.
 
-    Phase 3 P1-2 fix (per Codex review): previous greedy implementation
-    compared candidate only against cluster[0] (representative), which
-    missed transitive overlap chains. e.g., A={1.1,2.2} ←→ B={1.1,2.2,3.3,4.4}
-    ←→ C={3.3,4.4}: A↛C directly, but B bridges them. Comparing against
-    ALL cluster members + merging clusters that share an overlap with the
-    candidate captures the full transitive closure.
+    Phase 3 P1-2 fix (Codex review): previous greedy implementation
+    compared candidate only against cluster[0]. Comparing against ALL
+    members captures transitive chains (A↔B↔C where A↛C directly).
+
+    Codex brief-iter-1 P1 fix: requiring "no conflict with any member"
+    blocks the contextless-bridge merge — e.g. A={9.2%,13.9%,2014} and
+    C={9.2%,13.9%,2016} would otherwise be merged via B={9.2%,13.9%}
+    (which overlaps with both and conflicts with neither).
     """
+    has_overlap = False
     for member in cluster:
+        if _signatures_conflict(candidate.signature, member.signature):
+            return False
         if _signatures_overlap(candidate.signature, member.signature):
-            return True
-    return False
+            has_overlap = True
+    return has_overlap
+
+
+def _clusters_pairwise_compatible(
+    cluster_a: list[SentenceLocation], cluster_b: list[SentenceLocation],
+) -> bool:
+    """True iff no member of cluster_a conflicts with any member of
+    cluster_b.
+
+    Codex brief-iter-1 P1 fix: when a candidate bridges two existing
+    clusters X and Y, the candidate may be individually compatible with
+    both (`_cluster_is_compatible` True for each) while X and Y
+    themselves contain mutually-conflicting members. Without this
+    pairwise check, the candidate would silently fuse incompatible
+    clusters through its contextless overlap.
+    """
+    for a in cluster_a:
+        for b in cluster_b:
+            if _signatures_conflict(a.signature, b.signature):
+                return False
+    return True
 
 
 def build_groups(
@@ -289,28 +334,37 @@ def build_groups(
                 sentence=sentence, signature=sig,
             ))
 
-    # Transitive clustering by overlap: each location is compared against
-    # ANY member of each existing cluster. If it overlaps with multiple
-    # clusters, those clusters are MERGED (transitive closure). Otherwise
-    # the location seeds a new cluster.
-    # Phase 3 P1-2 fix: this replaces the earlier greedy
-    # representative-only comparison which missed A→B→C chains.
+    # Transitive clustering by compatibility (overlap + no-conflict):
+    # each location is compared against ALL members of each existing
+    # cluster. The candidate joins a cluster iff it has at least one
+    # overlapping member AND no conflicting member. When the candidate is
+    # compatible with multiple clusters, those clusters are merged into
+    # the lowest-index target ONLY IF the clusters themselves are
+    # pairwise-compatible (no cross-cluster member conflict). This
+    # prevents contextless-bridge merges (Codex brief-iter-1 P1 fix).
     clusters: list[list[SentenceLocation]] = []
     for loc in all_locations:
-        # Collect every cluster this location overlaps with.
-        overlapping_idx = [
+        compat_idx = [
             i for i, cluster in enumerate(clusters)
-            if _cluster_overlaps(loc, cluster)
+            if _cluster_is_compatible(loc, cluster)
         ]
-        if not overlapping_idx:
+        if not compat_idx:
             clusters.append([loc])
             continue
-        # Merge: pick the lowest-index cluster as target, fold all
-        # other overlapping clusters into it, append the new location.
-        target = clusters[overlapping_idx[0]]
+        target = clusters[compat_idx[0]]
         target.append(loc)
-        for j in sorted(overlapping_idx[1:], reverse=True):
-            target.extend(clusters[j])
+        # Codex brief-iter-2 P1 fix: check compatibility against the
+        # GROWING target (not the original), so two non-target clusters
+        # that conflict with each other cannot both be folded in via the
+        # same candidate bridge. Iteration order is the natural compat_idx
+        # order; for each follow-on candidate, the test is against the
+        # target's CURRENT membership.
+        merged_idx: list[int] = []
+        for j in compat_idx[1:]:
+            if _clusters_pairwise_compatible(target, clusters[j]):
+                target.extend(clusters[j])
+                merged_idx.append(j)
+        for j in sorted(merged_idx, reverse=True):
             del clusters[j]
 
     groups: list[RedundancyGroup] = []

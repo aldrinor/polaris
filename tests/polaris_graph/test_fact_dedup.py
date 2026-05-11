@@ -471,18 +471,24 @@ def test_build_groups_real_q5_post_fix_pattern_with_extra_years() -> None:
 
 def test_build_groups_three_section_chain_clusters_correctly() -> None:
     """A → B → C where A and B share core fact, B and C share core fact,
-    but A and C don't directly share. With greedy clustering (B joins A's
-    cluster first; C joins B's cluster which is A's cluster), all three
-    end up in one group.
+    but A and C don't directly share. With non-conflicting context,
+    transitive clustering merges all three.
+
+    Codex brief-iter-1 P1 hardening: this test used to use mixed years
+    (2007 / none / 1997). Under the new contextless-bridge guard those
+    two populated years are a conflict and the endpoints are correctly
+    refused merge. Reframed here with consistent year context so the
+    transitive merge test still validates the chain-clustering behavior
+    independently of the conflict guard. Year-conflict bridge case is
+    now covered by `test_build_groups_no_contextless_bridge_merge_years`.
     """
     sections = {
-        "Efficacy": ["8.7% of Quebec, 4.8% ROC in 2007 [ev_1]."],
+        "Efficacy": ["8.7% of Quebec, 4.8% ROC [ev_1]."],
         "Comparative": ["8.7% Quebec vs 4.8% ROC, ranging from 1.2% to 2.4% [ev_2]."],
-        "Long-term Outcomes": ["8.7% Quebec OOP rate 4.8% ROC, baseline 1997 [ev_3]."],
+        "Long-term Outcomes": ["8.7% Quebec OOP rate 4.8% ROC, baseline [ev_3]."],
     }
     groups = build_groups(sections)
     assert len(groups) == 1
-    # All three sections should be in the cluster
     sections_in_cluster = {groups[0].primary.section} | {r.section for r in groups[0].redundants}
     assert sections_in_cluster == {"Efficacy", "Comparative", "Long-term Outcomes"}
 
@@ -696,4 +702,146 @@ def test_signatures_overlap_path1_two_decimals_compatible_context_matches() -> N
     )
     assert _signatures_overlap(sig_a, sig_b), (
         "Path 1 with compatible context (one side empty) must still match"
+    )
+
+
+def test_build_groups_no_contextless_bridge_merge_years() -> None:
+    """Codex brief-iter-1 P1 fix — contextless bridge B={9.2%,13.9%} must
+    NOT merge year-conflicting endpoints A={9.2%,13.9%,2014} and
+    C={9.2%,13.9%,2016} into a single group.
+
+    Even though _signatures_overlap(A,B) and _signatures_overlap(B,C) are
+    both True (Path 1 ≥2 shared decimals, no conflict because B has empty
+    years), A and C themselves conflict on years. Cluster membership
+    must require no-conflict-with-any-member; merging clusters must
+    require pairwise compatibility.
+    """
+    sections = {
+        "intro": [
+            "9.2% and 13.9% of seniors received OAS in 2014 [ev_A].",
+        ],
+        "history": [
+            "9.2% and 13.9% of seniors received OAS [ev_B].",
+        ],
+        "outlook": [
+            "9.2% and 13.9% of seniors received OAS in 2016 [ev_C].",
+        ],
+    }
+    groups = build_groups(sections, section_order=["intro", "history", "outlook"])
+    # Expected: A and B merged (no conflict, overlap); C separate
+    # (conflicts with A despite overlapping with B). Cluster of size 1
+    # (C alone) is filtered out (distinct_sections < 2).
+    # So 1 group with 2 members: A, B.
+    assert len(groups) == 1, (
+        f"Expected exactly 1 group (A+B), got {len(groups)}: "
+        f"contextless-bridge merge must not pull C into A's cluster"
+    )
+    primary_and_redundants = (
+        [groups[0].primary.sentence]
+        + [r.sentence for r in groups[0].redundants]
+    )
+    assert "in 2016" not in " ".join(primary_and_redundants), (
+        "C (2016) must NOT be merged with A (2014) via contextless B bridge"
+    )
+
+
+def test_build_groups_no_contextless_bridge_merge_dollars() -> None:
+    """Same shape as the year-bridge test but for dollar conflicts.
+
+    A={3.0%,$40K}, B={3.0%}, C={3.0%,$200K}. _signatures_overlap takes
+    A↔B and B↔C, but A↔C directly conflicts on dollar_buckets. C must
+    not merge into A's cluster via B.
+    """
+    sections = {
+        "low_income": [
+            "3.0% of households earning $40,000 [ev_A]."
+        ],
+        "general": [
+            "3.0% of households [ev_B]."
+        ],
+        "high_income": [
+            "3.0% of households earning $200,000 [ev_C]."
+        ],
+    }
+    groups = build_groups(sections, section_order=["low_income", "general", "high_income"])
+    # All three signatures only have 1 shared decimal (3.0%) -- Path 1 needs ≥2.
+    # Path 0 doesn't match (signatures differ). Path 2 requires full
+    # decimal equality + supporting overlap; A vs B has decimals equal
+    # ({3.0%}) and A has dollars, B has empty dollars (no conflict) ->
+    # match. B vs C similarly. A vs C conflicts on dollars.
+    # Expected outcome: A and B form one group; C separate.
+    assert all(
+        "in 2014" not in g.primary.sentence
+        and not any("$200" in r.sentence and "$40" in g.primary.sentence
+                    for r in g.redundants)
+        for g in groups
+    ), "A and C must not co-cluster via contextless B bridge"
+    # Stronger: no group should contain BOTH a $40,000 sentence and a
+    # $200,000 sentence.
+    for g in groups:
+        sentences = [g.primary.sentence] + [r.sentence for r in g.redundants]
+        joined = " ".join(sentences)
+        assert not ("$40,000" in joined and "$200,000" in joined), (
+            "$40K and $200K must not share a cluster"
+        )
+
+
+def test_build_groups_no_cross_merge_of_mutually_conflicting_clusters() -> None:
+    """Codex brief-iter-2 P1 fix — when a candidate bridges two existing
+    non-target clusters, the non-target clusters must also be
+    pairwise-compatible with each other (not just with the target). A
+    candidate D should NOT fuse B={3.3%,4.4%,2014} and C={5.5%,6.6%,2016}
+    into one cluster even if D overlaps with all three.
+
+    Order: X={1.1%,2.2%,2014+2016 superset}, B, C, D.
+    X seeds; B seeds (no overlap with X); C seeds (no overlap with X or
+    B); D arrives with decimals overlapping all three but B and C
+    conflict on years. With incremental compat-against-target, D folds
+    in X first, then B (B is compatible with target=[X,D]), then C is
+    rejected because target already contains B and B↔C years conflict.
+    """
+    sections = {
+        "s_x": ["1.1% and 2.2% rates measured in 2014 and 2016 [ev_X]."],
+        "s_b": ["3.3% and 4.4% rates from 2014 cohort [ev_B]."],
+        "s_c": ["5.5% and 6.6% rates from 2016 cohort [ev_C]."],
+        "s_d": ["3.3% and 4.4% with 5.5% and 6.6% bridge facts [ev_D]."],
+    }
+    groups = build_groups(
+        sections, section_order=["s_x", "s_b", "s_c", "s_d"]
+    )
+    # No single group should contain both a 2014-cohort sentence (B) and
+    # a 2016-cohort sentence (C).
+    for g in groups:
+        members = [g.primary.sentence] + [r.sentence for r in g.redundants]
+        joined = " ".join(members)
+        assert not ("2014 cohort" in joined and "2016 cohort" in joined), (
+            "non-target clusters with mutually conflicting years must not "
+            "co-merge via a bridging candidate"
+        )
+
+
+def test_build_groups_transitive_chain_without_conflict_still_merges() -> None:
+    """Regression: the transitive merging behavior from iter-2 must
+    survive the new compatibility check when no conflicts exist.
+
+    A={1.1,2.2,3.3}, B={2.2,3.3,4.4,5.5}, C={4.4,5.5,6.6}. A↛C direct
+    (no shared decimals); A↔B and B↔C overlap. No years/dollars. All
+    three must still cluster as one group.
+    """
+    sections = {
+        "s1": ["1.1% and 2.2% and 3.3% [ev_A]."],
+        "s2": ["2.2% and 3.3% and 4.4% and 5.5% [ev_B]."],
+        "s3": ["4.4% and 5.5% and 6.6% [ev_C]."],
+    }
+    groups = build_groups(sections, section_order=["s1", "s2", "s3"])
+    assert len(groups) == 1, (
+        f"transitive chain with no conflicts should still cluster as 1 "
+        f"group, got {len(groups)}"
+    )
+    members = (
+        [groups[0].primary.sentence]
+        + [r.sentence for r in groups[0].redundants]
+    )
+    assert len(members) == 3, (
+        f"Expected all 3 sentences in the cluster, got {len(members)}"
     )
