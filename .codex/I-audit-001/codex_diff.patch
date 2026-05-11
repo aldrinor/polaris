@@ -847,3 +847,4 @@ index 0c3b7b7f..0484e05a 100644
 +    )
 +    assert "excluded_synthesis_sections" in manifest
 +    assert "unrecognized_h2_sections" in manifest
+# canonical-diff-sha256: b04b01613c17623cdc5ebffddf63316a4f4957cfdfba1b50a6a1249ac8ded5e1
