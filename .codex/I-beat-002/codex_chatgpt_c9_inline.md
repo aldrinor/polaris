@@ -1,0 +1,33 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (ChatGPT Deep Research):
+"In SURPASS-1 monotherapy, tirzepatide produced HbA1c reductions of 1.87, 1.89, and 2.07 percentage points for the 5 mg, 10 mg, and 15 mg doses, compared to a 0.04 percentage point increase with placebo over 40 weeks."
+
+CITED SOURCE: SURPASS-1 (Rosenstock et al. Lancet 2021). PMID 34186022.
+
+PRIMARY SOURCE GROUND TRUTH (verified earlier via PubMed PMID 34186022):
+- 40-week, placebo-controlled monotherapy RCT in T2D patients inadequately controlled with diet/exercise
+- N=478 (5mg=121, 10mg=121, 15mg=121, placebo=115)
+- Baseline HbA1c: 7.9% (63 mmol/mol), BMI: 31.9 kg/m²
+- HbA1c changes from baseline at 40 weeks:
+  - Tirzepatide 5mg: −1.87% (20 mmol/mol) ✓
+  - Tirzepatide 10mg: −1.89% (21 mmol/mol) ✓
+  - Tirzepatide 15mg: −2.07% (23 mmol/mol) ✓
+  - Placebo: +0.04% (+0.4 mmol/mol) ✓
+- All comparisons p<0.0001
+
+AUDIT:
+1. -1.87%, -1.89%, -2.07% for 5/10/15mg: VERIFIED EXACT
+2. Placebo +0.04%: VERIFIED EXACT
+3. 40 weeks: VERIFIED EXACT (primary endpoint)
+4. Monotherapy: VERIFIED (no background metformin)
+5. Citation appropriate (T1 Lancet primary)
+
+Output YAML:
+```yaml
+claim_id: CHATGPT-C9
+cited_source_tier: T1
+primary_source_verified: yes
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
