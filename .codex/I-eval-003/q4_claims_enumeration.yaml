@@ -1,0 +1,831 @@
+# Tier-1 v2 claim enumeration — outputs/I-tpl-009_fullsweep/policy/carney_housing_supply_vs_demand_metros/report.md
+# Total claims: 51
+
+schema_version: tier1_v2
+report: outputs/I-tpl-009_fullsweep/policy/carney_housing_supply_vs_demand_metros/report.md
+claims:
+  - claim_id: Q4-T1-001
+    section: "Efficacy"
+    sentence: "Evidence on the efficacy of zoning reform is contested, with one analysis of U.S. cities concluding zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period.[1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analys
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-002
+    section: "Efficacy"
+    sentence: "Critics of that study argue meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year, a fundamentally different magnitude of effect.[2][1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analys
+      - evidence_id: ev_000
+        bibliography_num: 2
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          Title: The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny URL Source: https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/ Markdown Content: # The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny | AEI * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donate/) [![Image 2: American Enterprise Institute – AEI](https://www.aei.org/wp-content/uploads/2025/12/aei-blue-logo.svg?x97961)](https://www.aei.org/) Search for: * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donat
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-003
+    section: "Efficacy"
+    sentence: "The federal government has attempted to incentivize municipal zoning reform by tying it to federal transfers, though one report notes such deregulation allowed an eight-unit row house development to proceed \"without public debate or deliberation at city council\".[3]"
+    cited_evidence:
+      - evidence_id: ev_012
+        bibliography_num: 3
+        url: "https://canadiandimension.com/articles/view/zoning-deregulation-wont-fix-the-housing-crisis"
+        tier: T4
+        span: '0-500'
+        title: "Zoning deregulation won't fix the housing crisis - Canadian Dimension"
+        span_text: |
+          Zoning deregulation won’t fix the housing crisis Single-family detached zoning is a problem, but real estate profiteers are not the solution A garden once thrived at the corner of 89th Street and 92nd Avenue in Edmonton. Every spring residents of the city’s Strathearn neighbourhood planted root vegetables in long rows and grew tomatoes out of old tires while rain barrels collected water. Every fall the community gathered to share in the bounty. Last year the garden was uprooted. The lot the garden stood on was sold for almost $600,000. Immediately after the sale local developer Platinum Living
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-004
+    section: "Efficacy"
+    sentence: "A broader economic perspective notes that upzoning alone can create windfall gains for existing landowners and potentially encourage development delays without complementary policies like land value taxes to capture increased value and incentivize quicker construction.[4]"
+    cited_evidence:
+      - evidence_id: ev_004
+        bibliography_num: 4
+        url: "https://www.brookings.edu/articles/to-improve-housing-affordability-we-need-better-alignment-of-zoning-taxes-and-subsidies/"
+        tier: T4
+        span: '0-500'
+        title: "To improve housing affordability, we need better alignment of zoning ..."
+        span_text: |
+          Housing affordability is a financial stress on American families Housing costs are rising faster than incomes, putting greater financial stress on U.S. families. In 2017, [nearly half](https://www.jchs.harvard.edu/sites/default/files/Harvard_JCHS_State_of_the_Nations_Housing_2019.pdf) of renter households spent more than 30 percent of their income on rent, meeting the Department of Housing and Urban Development’s (HUD) definition of being “[cost-burdened](https://www.huduser.gov/portal/pdredge/pdr_edge_featd_article_092214.html).” While affordability has long been a problem for [poor](https://
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-005
+    section: "Efficacy"
+    sentence: "Analysis of the general supply-side challenge indicates the U.S. is building less housing per person than historically, with permits per capita at 4.3 per 1,000 in 2024, which is 35% below the 1960-2000 average, contributing to a cumulative estimated shortfall of 3 million to 5 million units since 2008.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-006
+    section: "Efficacy"
+    sentence: "The efficacy of new supply in improving affordability operates through filtering and vacancy chains, but research underscores that supply growth alone cannot reach extremely low-income renters, making sustained public subsidy indispensable.[6]"
+    cited_evidence:
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-007
+    section: "Efficacy"
+    sentence: "CMHC modeling cautions that demand-side interventions without a matching increase in supply can end up increasing costs for a broader group of households.[7][8]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 7
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-008
+    section: "Efficacy"
+    sentence: "Vacancy rates are at historic lows, with U.S. homeowner vacancy at just 0.95% in 2024.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-009
+    section: "Comparative"
+    sentence: "Demand-side interventions, such as first-time-buyer incentives, are often favored for their immediate, visible impact compared to the slower process of building new homes.[9][8]"
+    cited_evidence:
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-010
+    section: "Comparative"
+    sentence: "However, basic supply-and-demand principles indicate that increasing demand without a proportionate increase in supply leads to higher prices.[9][8]"
+    cited_evidence:
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-011
+    section: "Comparative"
+    sentence: "New modeling by the Canada Mortgage and Housing Corporation (CMHC) quantifies this dynamic, showing that a demand-side intervention can increase house prices by 0.6% for homebuyers who do not qualify for the support.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-012
+    section: "Comparative"
+    sentence: "The same modeling estimates the total economic cost of such an intervention would be between $2.7 billion and $4.3 billion in direct spending, plus an additional $1.6 billion in unintended increased costs for non-supported homebuyers.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-013
+    section: "Comparative"
+    sentence: "Consequently, CMHC analysis concludes that demand-side supports must be carefully targeted and accompanied by sufficient supply increases to avoid worsening affordability for a broader group.[9][7]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 7
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-014
+    section: "Comparative"
+    sentence: "In contrast, the foundational solution identified in Canada's national housing plan is to build more homes by the millions, echoing historical efforts that successfully met past crises through large-scale construction.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-015
+    section: "Comparative"
+    sentence: "The current challenge is exacerbated by a significant mismatch between housing supply and population needs in major urban centers, where costs have dramatically outpaced income growth.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-016
+    section: "Comparative"
+    sentence: "One analysis of the U.S. market, which faces analogous supply constraints, notes that building permits per capita stood at just 4.3 per 1,000 people in 2024, which is 35% below the 1960-2000 historical average, contributing to a cumulative housing shortfall estimated between 3 million and 5 million units since 2008.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-017
+    section: "Comparative"
+    sentence: "This undersupply is reflected in vacancy rates at historic lows, with homeowner vacancy at just 0.95% in 2024, signaling intense competition for limited stock.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-018
+    section: "Comparative"
+    sentence: "Therefore, while targeted demand-side measures can help specific households, their effectiveness is inherently limited and can be counterproductive without concurrent, aggressive supply-side action to address the core shortage.[9][11]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-019
+    section: "Comparative"
+    sentence: "This occurs because high prices suppress household formation, creating pent-up demand; when an intervention enables this suppressed demand to enter the market, it can reduce affordability.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-020
+    section: "Regulatory"
+    sentence: "The Government of Canada's national housing plan frames the current affordability challenge as a crisis requiring a historic building effort, stating \"we need to build them by the millions\" and drawing parallels to post-war construction efforts.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-021
+    section: "Regulatory"
+    sentence: "This plan outlines a multi-pronged approach, including building more homes, making it easier to rent or own, and helping Canadians who cannot afford a home.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-022
+    section: "Regulatory"
+    sentence: "A specific federal commitment includes an additional $4.3 billion towards an Urban, Rural and Northern Indigenous Housing Strategy launching in 2024, which aims to establish a \u2018for Indigenous, by Indigenous' National Housing Centre.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-023
+    section: "Regulatory"
+    sentence: "This builds on previous federal investments, as one source reports that more than $10.7B in co-developed distinctions-based approaches has created almost 22,000 new or repaired homes on-reserve.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-024
+    section: "Regulatory"
+    sentence: "Howe Institute, highlights the acute affordability crises in major urban centers and the growing mismatch between supply and population needs.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-025
+    section: "Regulatory"
+    sentence: "For comparative context, legislative reform packages in the United States, such as the hybrid 21st Century ROAD to Housing Act passed by the Senate, propose major updates to federal programs like the Home Investment Partnerships Program (HOME) to expand support for workforce households and housing-related infrastructure.[12][13]"
+    cited_evidence:
+      - evidence_id: ev_006
+        bibliography_num: 12
+        url: "https://www.naco.org/resource/house-and-senate-housing-reform-packages-side-side"
+        tier: T4
+        span: '0-500'
+        title: "House and Senate Housing Reform Packages: Side-by-Side"
+        span_text: |
+          House and Senate Housing Reform Packages: Side-by-Side Upcoming Events Related News As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. Jump to Section As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development proj
+      - evidence_id: ev_022
+        bibliography_num: 13
+        url: "https://www.naco.org/resource/house-and-senate-housing-reform-packages-side-side"
+        tier: T4
+        span: '0-500'
+        title: "House and Senate Housing Reform Packages: Side-by-Side"
+        span_text: |
+          House and Senate Housing Reform Packages: Side-by-Side Upcoming Events Related News As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development projects. Jump to Section As Congress considers comprehensive housing legislation, both the House and Senate proposals include major updates to federal housing programs that counties rely on to improve affordability and support infrastructure and community development proj
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-026
+    section: "Regulatory"
+    sentence: "The international perspective from a World Economic Forum report notes that a common metric for housing affordability is housing expenditure that is less than 30% of household income.[14]"
+    cited_evidence:
+      - evidence_id: ev_026
+        bibliography_num: 14
+        url: "https://www3.weforum.org/docs/WEF_Making_Affordable_Housing_A_Reality_In_Cities_report.pdf"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "[PDF] Making Affordable Housing a Reality in Cities | World Economic Forum"
+        span_text: |
+          Insight Report Cities, Urban Development & Urban Services Platform In Collaboration with PwC Making Affordable Housing a Reality in Cities June 2019 Foreword Executive Summary Chapter 1 – Introduction Chapter 2 – Supply-Side Challenges: Land Acquisition and Securing Title Chapter 3 – Supply-Side Challenges: Land Use – Zoning and Regulations Chapter 4 – Supply-Side Challenges: Funding Affordable Housing Chapter 5 – Supply-Side Challenges: Design Considerations and Construction Costs of Affordable Housing Chapter 6 – Demand-Side Challenges: An Overview Chapter 7 – Recommendations References Ackn
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-027
+    section: "Regulatory"
+    sentence: "The same report cites a 2014 McKinsey estimate that 330 million urban households globally were living in substandard housing or were financially stretched by housing costs, projected to rise to nearly 440 million households by 2025.[14]"
+    cited_evidence:
+      - evidence_id: ev_026
+        bibliography_num: 14
+        url: "https://www3.weforum.org/docs/WEF_Making_Affordable_Housing_A_Reality_In_Cities_report.pdf"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "[PDF] Making Affordable Housing a Reality in Cities | World Economic Forum"
+        span_text: |
+          Insight Report Cities, Urban Development & Urban Services Platform In Collaboration with PwC Making Affordable Housing a Reality in Cities June 2019 Foreword Executive Summary Chapter 1 – Introduction Chapter 2 – Supply-Side Challenges: Land Acquisition and Securing Title Chapter 3 – Supply-Side Challenges: Land Use – Zoning and Regulations Chapter 4 – Supply-Side Challenges: Funding Affordable Housing Chapter 5 – Supply-Side Challenges: Design Considerations and Construction Costs of Affordable Housing Chapter 6 – Demand-Side Challenges: An Overview Chapter 7 – Recommendations References Ackn
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-028
+    section: "Regulatory"
+    sentence: "A major concern was that large-scale construction targets, such as building 5.8 million homes, could add 100 megatons of greenhouse gas emissions, presenting an environmental policy challenge.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-029
+    section: "Regulatory"
+    sentence: "The analysis also pointed to financial barriers, noting a \"math equation\" for new projects that does not work for developers due to factors like a drop in rents in many areas, stabilized but high construction costs, and high interest rates.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-030
+    section: "Population Subgroups"
+    sentence: "Demand-side interventions designed to assist specific households can inadvertently reduce overall affordability if not carefully targeted and paired with supply increases, according to modeling by the Canada Mortgage and Housing Corporation (CMHC).[9][8][7]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 7
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-031
+    section: "Population Subgroups"
+    sentence: "The estimated economic cost of such an intervention includes $2.7 billion to $4.3 billion in direct spending for the intervention itself and an additional $1.6 billion in unintended increased costs for all homebuyers not supported by it.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-032
+    section: "Population Subgroups"
+    sentence: "This dynamic is particularly critical for first-time buyers and young families, as major urban centers have seen housing costs outpace income growth, pushing homeownership beyond reach for many middle-class Canadians.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-033
+    section: "Population Subgroups"
+    sentence: "Howe Institute notes that this has created significant barriers for first-time buyers.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-034
+    section: "Population Subgroups"
+    sentence: "When a demand-side intervention, such as increasing household income or reducing housing costs, corrects this suppression, the newly enabled demand can put upward pressure on prices if not met with proportionate new supply.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-035
+    section: "Population Subgroups"
+    sentence: "Therefore, CMHC analysis emphasizes that demand-side supports must be targeted and accompanied by sufficient supply to avoid worsening affordability for the broader population.[9][15]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+      - evidence_id: ev_003
+        bibliography_num: 15
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          Title: Good intentions gone rogue: Balancing housing demand & supply URL Source: https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply Markdown Content: # Targeted demand interventions need supply for housing market affordability | CMHC (https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply#maincontent) [![Image 2: CMHC Home](https://assets.cmhc-schl.gc.ca/sites/cmhc/shared/imgs/chevron-en.png?rev=19e0635b-89b7-466b-a1b9-5255bd257bd5&h=142&iar=0&w=300)Canada Mortgage and Ho
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-036
+    section: "Population Subgroups"
+    sentence: "For Indigenous populations, who face distinct housing challenges and represent a disproportionately high share of shelter users at 33% in 2022 while comprising 5% of Canada's population, targeted strategies are also emphasized.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-037
+    section: "Population Subgroups"
+    sentence: "The federal government committed an additional $4.3 billion towards the Urban, Rural and Northern Indigenous Housing Strategy, aiming to establish a \u2018for Indigenous, by Indigenous\u2019 National Housing Centre.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-038
+    section: "Population Subgroups"
+    sentence: "This follows previous federal partnership that created almost 22,000 new or repaired homes on-reserve through distinctions-based approaches.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-039
+    section: "Population Subgroups"
+    sentence: "CMHC\u2019s modeling shows that a demand-side intervention can increase house prices by 0.6% for every homebuyer who does not qualify for the new support.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-040
+    section: "Population Subgroups"
+    sentence: "The Government of Canada\u2019s housing plan acknowledges the need to help Canadians who can\u2019t afford a home.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-041
+    section: "Long-term Outcomes"
+    sentence: "The \"filtering\" process, where housing becomes more affordable over time, occurs unevenly and can stall in tight markets, indicating that supply growth must be paired with the preservation of existing lower-cost homes to achieve lasting affordability.[6]"
+    cited_evidence:
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-042
+    section: "Long-term Outcomes"
+    sentence: "In the United States, a cumulative housing shortfall of 3 million to 5 million units has built up since 2008, contributing to affordability challenges, with building permits per capita in 2024 at 4.3 per 1,000 people, which is 35% below the 1960-2000 historical average.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-043
+    section: "Long-term Outcomes"
+    sentence: "Demographic shifts compound these supply challenges, as average U.S. household size has fallen 23.7% since 1965, from 3.37 to 2.57 persons per household, structurally increasing the number of housing units needed for a given population.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-044
+    section: "Long-term Outcomes"
+    sentence: "This dynamic creates a delicate balance, as the basic rule of supply and demand dictates that increasing demand without increased supply will raise prices, though demand-side interventions are often favored for their more immediate, measurable impact compared to the years-long timeline for new construction.[8]"
+    cited_evidence:
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-045
+    section: "Long-term Outcomes"
+    sentence: "In Canada, the scale of the challenge is recognized in ambitions to build millions of homes, with one task force focused on building 5.8 million homes within a short period, though concerns exist that such large-scale construction could add 100 megatons of greenhouse gas emissions.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-046
+    section: "Long-term Outcomes"
+    sentence: "Historical precedent suggests such efforts are possible, as Canada's postwar national effort created a generation of housing through government and private industry partnership to meet rapid population growth.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-047
+    section: "Long-term Outcomes"
+    sentence: "A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes.[6]"
+    cited_evidence:
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-048
+    section: "Long-term Outcomes"
+    sentence: "Vacancy rates are at historic lows, with rental vacancy at 6.8% and homeowner vacancy at just 0.95% in 2024, signaling intense competition for limited stock and giving landlords and sellers significant pricing power.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-049
+    section: "Long-term Outcomes"
+    sentence: "Without careful targeting and a matching increase in housing supply, demand-side measures can end up increasing costs for a broader group of households.[8]"
+    cited_evidence:
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-050
+    section: "Long-term Outcomes"
+    sentence: "For Indigenous communities in Canada, federal partnership has been critical, with more than $10.7 billion creating almost 22,000 new or repaired homes on-reserve.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-051
+    section: "Long-term Outcomes"
+    sentence: "Ultimately, without a sufficient and sustained increase in housing supply, affordability trends will remain under pressure, as low vacancies create a market where competition is intense and the lowest-income households are most vulnerable.[5][6]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence

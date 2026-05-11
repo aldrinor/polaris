@@ -1,0 +1,170 @@
+Independent Tier-1 audit of 7 Q4 Canadian housing supply claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q4-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CMHC supply targets, BC/ON municipal upzoning timelines, federal Housing Accelerator Fund dollars, mortgage qualification stress test rates)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q4 batch 3: claims 15-21
+schema_version: tier1_v2
+claims:
+  - claim_id: Q4-T1-015
+    section: "Comparative"
+    sentence: "The current challenge is exacerbated by a significant mismatch between housing supply and population needs in major urban centers, where costs have dramatically outpaced income growth.[11]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-016
+    section: "Comparative"
+    sentence: "One analysis of the U.S. market, which faces analogous supply constraints, notes that building permits per capita stood at just 4.3 per 1,000 people in 2024, which is 35% below the 1960-2000 historical average, contributing to a cumulative housing shortfall estimated between 3 million and 5 million units since 2008.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-017
+    section: "Comparative"
+    sentence: "This undersupply is reflected in vacancy rates at historic lows, with homeowner vacancy at just 0.95% in 2024, signaling intense competition for limited stock.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-018
+    section: "Comparative"
+    sentence: "Therefore, while targeted demand-side measures can help specific households, their effectiveness is inherently limited and can be counterproductive without concurrent, aggressive supply-side action to address the core shortage.[9][11]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+      - evidence_id: ev_015
+        bibliography_num: 11
+        url: "https://cdhowe.org/publication/housing-policy-for-a-growing-canada/"
+        tier: T4
+        span: '0-500'
+        title: "Housing Policy for a Growing Canada - Toronto - C.D. Howe Institute"
+        span_text: |
+          [Home](https://cdhowe.org/) / [Publications](https://cdhowe.org/publication/) / [Research](https://cdhowe.org/publication-type/public-policy-research/) / Housing Policy for a Growing Canada - [Media Releases](https://cdhowe.org/media-releases/) - Research - | Housing Policy for a Growing Canada Summary: | Citation | . 2025. Housing Policy for a Growing Canada. ###. Toronto: C.D. Howe Institute. | | Page Title: | Housing Policy for a Growing Canada – C.D. Howe Institute | | Article Title: | Housing Policy for a Growing Canada | | URL: | https://cdhowe.org/publication/housing-policy-for-a-growin
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-019
+    section: "Comparative"
+    sentence: "This occurs because high prices suppress household formation, creating pent-up demand; when an intervention enables this suppressed demand to enter the market, it can reduce affordability.[9]"
+    cited_evidence:
+      - evidence_id: ev_020
+        bibliography_num: 9
+        url: "https://www.cmhc-schl.gc.ca/observer/2026/why-demand-side-interventions-need-to-be-targeted-and-offset-with-supply"
+        tier: T4
+        span: '0-500'
+        title: "Targeted demand interventions need supply for housing market ..."
+        span_text: |
+          When addressing a housing affordability crisis, there is always a tug-of-war between demand- and supply-side housing interventions. Demand-side interventions, which directly help households secure housing, are often favoured because of their more immediate impact. The results are easier to see and measure compared to building new homes, which take years to deliver. A basic principle of supply and demand shows that if demand increases without proportionate supply, prices will increase. New modeling by CMHC shows that this dynamic occurs with housing demand-side interventions. Over time, they ma
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-020
+    section: "Regulatory"
+    sentence: "The Government of Canada's national housing plan frames the current affordability challenge as a crisis requiring a historic building effort, stating \"we need to build them by the millions\" and drawing parallels to post-war construction efforts.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-021
+    section: "Regulatory"
+    sentence: "This plan outlines a multi-pronged approach, including building more homes, making it easier to rent or own, and helping Canadians who cannot afford a home.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.

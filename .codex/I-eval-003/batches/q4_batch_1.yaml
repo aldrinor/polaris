@@ -1,0 +1,120 @@
+# Q4 batch 1: claims 1-7
+schema_version: tier1_v2
+claims:
+  - claim_id: Q4-T1-001
+    section: "Efficacy"
+    sentence: "Evidence on the efficacy of zoning reform is contested, with one analysis of U.S. cities concluding zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period.[1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analys
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-002
+    section: "Efficacy"
+    sentence: "Critics of that study argue meaningful zoning reforms can increase housing supply by 1 to 2.5 percent per year, a fundamentally different magnitude of effect.[2][1]"
+    cited_evidence:
+      - evidence_id: ev_018
+        bibliography_num: 1
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          How much does zoning reform actually increase housing supply? That question is at the center of a growing debate and matters enormously for policy. In an [Urban Affairs](https://journals.sagepub.com/doi/10.1177/00420980231161562) paper, researchers affiliated with the Urban Institute use machine learning and newspaper coverage to construct a dataset of land-use reforms across U.S. cities. They conclude that zoning reform has only modest effects, increasing housing supply by about cumulatively 0.8 percent over a three- to eight-year period. We questioned their findings based on our prior analys
+      - evidence_id: ev_000
+        bibliography_num: 2
+        url: "https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/"
+        tier: T4
+        span: '0-500'
+        title: "The Urban Institute's Zoning Study Doesn't Hold Up Under Scrutiny"
+        span_text: |
+          Title: The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny URL Source: https://www.aei.org/articles/the-urban-institutes-zoning-study-doesnt-hold-up-under-scrutiny/ Markdown Content: # The Urban Institute’s Zoning Study Doesn’t Hold Up Under Scrutiny | AEI * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donate/) [![Image 2: American Enterprise Institute – AEI](https://www.aei.org/wp-content/uploads/2025/12/aei-blue-logo.svg?x97961)](https://www.aei.org/) Search for: * [Subscribe](https://www.aei.org/newsletters/) * [Donate](https://www.aei.org/donat
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-003
+    section: "Efficacy"
+    sentence: "The federal government has attempted to incentivize municipal zoning reform by tying it to federal transfers, though one report notes such deregulation allowed an eight-unit row house development to proceed \"without public debate or deliberation at city council\".[3]"
+    cited_evidence:
+      - evidence_id: ev_012
+        bibliography_num: 3
+        url: "https://canadiandimension.com/articles/view/zoning-deregulation-wont-fix-the-housing-crisis"
+        tier: T4
+        span: '0-500'
+        title: "Zoning deregulation won't fix the housing crisis - Canadian Dimension"
+        span_text: |
+          Zoning deregulation won’t fix the housing crisis Single-family detached zoning is a problem, but real estate profiteers are not the solution A garden once thrived at the corner of 89th Street and 92nd Avenue in Edmonton. Every spring residents of the city’s Strathearn neighbourhood planted root vegetables in long rows and grew tomatoes out of old tires while rain barrels collected water. Every fall the community gathered to share in the bounty. Last year the garden was uprooted. The lot the garden stood on was sold for almost $600,000. Immediately after the sale local developer Platinum Living
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-004
+    section: "Efficacy"
+    sentence: "A broader economic perspective notes that upzoning alone can create windfall gains for existing landowners and potentially encourage development delays without complementary policies like land value taxes to capture increased value and incentivize quicker construction.[4]"
+    cited_evidence:
+      - evidence_id: ev_004
+        bibliography_num: 4
+        url: "https://www.brookings.edu/articles/to-improve-housing-affordability-we-need-better-alignment-of-zoning-taxes-and-subsidies/"
+        tier: T4
+        span: '0-500'
+        title: "To improve housing affordability, we need better alignment of zoning ..."
+        span_text: |
+          Housing affordability is a financial stress on American families Housing costs are rising faster than incomes, putting greater financial stress on U.S. families. In 2017, [nearly half](https://www.jchs.harvard.edu/sites/default/files/Harvard_JCHS_State_of_the_Nations_Housing_2019.pdf) of renter households spent more than 30 percent of their income on rent, meeting the Department of Housing and Urban Development’s (HUD) definition of being “[cost-burdened](https://www.huduser.gov/portal/pdredge/pdr_edge_featd_article_092214.html).” While affordability has long been a problem for [poor](https://
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-005
+    section: "Efficacy"
+    sentence: "Analysis of the general supply-side challenge indicates the U.S. is building less housing per person than historically, with permits per capita at 4.3 per 1,000 in 2024, which is 35% below the 1960-2000 average, contributing to a cumulative estimated shortfall of 3 million to 5 million units since 2008.[5]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-006
+    section: "Efficacy"
+    sentence: "The efficacy of new supply in improving affordability operates through filtering and vacancy chains, but research underscores that supply growth alone cannot reach extremely low-income renters, making sustained public subsidy indispensable.[6]"
+    cited_evidence:
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-007
+    section: "Efficacy"
+    sentence: "CMHC modeling cautions that demand-side interventions without a matching increase in supply can end up increasing costs for a broader group of households.[7][8]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 7
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+      - evidence_id: ev_019
+        bibliography_num: 8
+        url: "https://finance.yahoo.com/news/why-demand-side-interventions-paired-140000953.html"
+        tier: T6
+        span: '0-500'
+        title: "Why demand-side interventions need to be paired with housing supply"
+        span_text: |
+          OTTAWA, ON, April 15, 2026 /CNW/ - New analysis from Canada Mortgage and Housing Corporation (CMHC) explores how housing supply and housing demand interventions need to work together to address the housing affordability crisis. Demand-side interventions, which directly support households in attaining a home, are often favoured because of their more immediate impact. The results can be measured more quickly than the creation of new supply, which take years to deliver. It is a delicate balance, since the basic rule of supply and demand dictates that if demand increases without increased supply, 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+

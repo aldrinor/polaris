@@ -1,0 +1,295 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1892-3697-7342-84eb-5eac3131a157
+--------
+user
+Independent Tier-1 audit of 7 Q3 GenAI Workforce claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q3-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., GenAI displacement %, white-collar workforce share, productivity multipliers, automation timelines)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q3 batch 6: claims 36-42
+schema_version: tier1_v2
+claims:
+  - claim_id: Q3-T1-036
+    section: "Comparative"
+    sentence: "GDP by about $2.48 trillion by 2030.[3]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 3
+        url: "https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/"
+        tier: T4
+        span: '0-500'
+        title: "AI, Productivity, and Labor Markets: A Review of the ..."
+        span_text: |
+          AI, Productivity, and Labor Markets: A Review of the Empirical Evidence Executive Summary Generative artificial intelligence (AI) has diffused with unusual speed since late 2022. By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet. That rapid uptake has sharpened two policy questions: whether AI will generate measurable gains in output and productivity at the aggregate level, and whether the adjustment process will produce labor-market disruption large enough to justify new regulatory interven
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-037
+    section: "Comparative"
+    sentence: "In contrast, a Canadian analysis notes that while AI adoption is rising, with nearly 45% of Canadian businesses using generative AI, early labour market disruption from AI has been limited, with employment trends more influenced by cyclical normalization than by AI-driven displacement.[6][5]"
+    cited_evidence:
+      - evidence_id: ev_006
+        bibliography_num: 5
+        url: "https://www.cfib-fcei.ca/en/research-economic-analysis/ai-adoption"
+        tier: T4
+        span: '0-500'
+        title: "AI Adoption and Workforce Training Investment in Canada"
+        span_text: |
+          AI is reshaping how firms operate, raising questions about how businesses invest in their workforce as these technologies are adopted. This blog shows that Canadian businesses investing in AI are more likely to invest in employee training, aligning AI adoption with ongoing investment in skills. Summary - AI adoption is rising: Nearly 45% of Canadian businesses use GenAI in their operations, increasing sharply with firm size. - AI is creating additional skill needs: Businesses that invest in AI are 5.4 percentage points more likely to invest in employee training. - People remain the priority: N
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-038
+    section: "Comparative"
+    sentence: "Occupational exposure patterns show similarities, with U.S. estimates indicating office and administrative support (75.5% task exposure), business and financial operations (68.4%), and computer and mathematical occupations (62.6%) are among the most exposed.[4]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 4
+        url: "https://budgetmodel.wharton.upenn.edu/p/2025-09-08-the-projected-impact-of-generative-ai-on-future-productivity-growth/"
+        tier: T4
+        span: '0-500'
+        title: "The Projected Impact of Generative AI on Future ..."
+        span_text: |
+          The Projected Impact of Generative AI on Future Productivity Growth
+          The Projected Impact of Generative AI on Future Productivity Growth
+          We estimate that AI will increase productivity and GDP by 1.5% by 2035, nearly 3% by 2055, and 3.7% by 2075. AI’s boost to annual productivity growth is strongest in the early 2030s but eventually fades, with a permanent effect of less than 0.04 percentage points due to sectoral shifts.
+          Key Points
+          -
+          We estimate that 40 percent of current GDP could be substantially affected by generative AI. Occupations around the 80th percentile of earnings are the most expose
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-039
+    section: "Comparative"
+    sentence: "Canadian research, using a different index, also identifies a significant portion of the workforce as highly exposed, with roughly 60% potentially highly exposed to AI, though about half of those workers may benefit from complementarity.[8]"
+    cited_evidence:
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.linkedin.com/posts/marc-frenette-ph-d-19752a224_ai-genai-futureofwork-activity-7422271124887056386-iAAH"
+        tier: T4
+        span: '0-500'
+        title: "AI's Impact on Canada's Labour Market: Early Evidence"
+        span_text: |
+          Is AI substantially reshaping Canada’s labour market? Our new study says: not yet… The widespread availability of ChatGPT starting in November 2022 — and the rapid adoption of GenAI tools since then — has fuelled both excitement and concern about the future of human labour. Our previous work suggested that roughly 60% of the workforce is potentially highly exposed to AI, but that about half of those workers may actually benefit from AI. However, that earlier study did not examine how employment trends were evolving over time. In a newly released Statistics Canada article authored by [Tahsin Me
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-040
+    section: "Comparative"
+    sentence: "Similarly, in Canada, employment in occupations at higher risk of AI displacement has shown resilience, with both nations exhibiting steady job creation in roles complementary to AI usage.[6]"
+    cited_evidence:
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-041
+    section: "Comparative"
+    sentence: "One U.S. study found that 35.9% of U.S. workers used generative AI by December 2025 and reported small positive wage effects with no statistically significant declines in job openings in exposed occupations.[3]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 3
+        url: "https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/"
+        tier: T4
+        span: '0-500'
+        title: "AI, Productivity, and Labor Markets: A Review of the ..."
+        span_text: |
+          AI, Productivity, and Labor Markets: A Review of the Empirical Evidence Executive Summary Generative artificial intelligence (AI) has diffused with unusual speed since late 2022. By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet. That rapid uptake has sharpened two policy questions: whether AI will generate measurable gains in output and productivity at the aggregate level, and whether the adjustment process will produce labor-market disruption large enough to justify new regulatory interven
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-042
+    section: "Comparative"
+    sentence: "In Canada, youth wages in AI-complementary roles are growing at a faster pace than in other roles.[6]"
+    cited_evidence:
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.
+
+codex
+records:
+  - claim_id: Q3-T1-036
+    claim_type: economic
+    materiality: critical
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span is about AI diffusion and aggregate output questions and mentions nearly 40% of U.S. adults by late 2024, but it does not mention $2.48 trillion or 2030 GDP."
+    reviewer_confidence: 0.95
+  - claim_id: Q3-T1-037
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "The spans explicitly state that nearly 45% of Canadian businesses use GenAI and that Canada's labour-demand normalization is more cyclical than AI-driven."
+    reviewer_confidence: 0.94
+  - claim_id: Q3-T1-038
+    claim_type: epidemiology
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span discusses GenAI productivity and says 40 percent of GDP could be affected, but it does not show the occupational categories or the 75.5%, 68.4%, and 62.6% exposure figures."
+    reviewer_confidence: 0.96
+  - claim_id: Q3-T1-039
+    claim_type: epidemiology
+    materiality: critical
+    citation_context_match: yes
+    verdict: PARTIAL
+    rationale: "The span explicitly says roughly 60% of the workforce is potentially highly exposed and about half may benefit, but it does not substantiate the 'different index' framing."
+    reviewer_confidence: 0.87
+  - claim_id: Q3-T1-040
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "The span directly states that Canadian employment in higher-risk occupations is more resilient and that both nations show steady job creation in AI-complementary roles."
+    reviewer_confidence: 0.99
+  - claim_id: Q3-T1-041
+    claim_type: economic
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span mentions nearly 40% of U.S. adults ages 18-64 using AI tools by late 2024, but not 35.9%, December 2025, wage effects, or job-opening declines."
+    reviewer_confidence: 0.97
+  - claim_id: Q3-T1-042
+    claim_type: economic
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span only shows the beginning of a sentence that youth wages in AI-complementary roles in the U.S. and Canada are growing at, but it does not visibly include the faster-than-other-roles comparison."
+    reviewer_confidence: 0.78
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 2, PARTIAL: 1, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 3, partial: 4, no: 0}
+  notable: ["Q3-T1-039 has explicit exposure figures but an unsupported 'different index' framing.", "Q3-T1-042 is limited by a truncated visible span before the key wage-comparison phrase."]
+tokens used
+8,702
+records:
+  - claim_id: Q3-T1-036
+    claim_type: economic
+    materiality: critical
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span is about AI diffusion and aggregate output questions and mentions nearly 40% of U.S. adults by late 2024, but it does not mention $2.48 trillion or 2030 GDP."
+    reviewer_confidence: 0.95
+  - claim_id: Q3-T1-037
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "The spans explicitly state that nearly 45% of Canadian businesses use GenAI and that Canada's labour-demand normalization is more cyclical than AI-driven."
+    reviewer_confidence: 0.94
+  - claim_id: Q3-T1-038
+    claim_type: epidemiology
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span discusses GenAI productivity and says 40 percent of GDP could be affected, but it does not show the occupational categories or the 75.5%, 68.4%, and 62.6% exposure figures."
+    reviewer_confidence: 0.96
+  - claim_id: Q3-T1-039
+    claim_type: epidemiology
+    materiality: critical
+    citation_context_match: yes
+    verdict: PARTIAL
+    rationale: "The span explicitly says roughly 60% of the workforce is potentially highly exposed and about half may benefit, but it does not substantiate the 'different index' framing."
+    reviewer_confidence: 0.87
+  - claim_id: Q3-T1-040
+    claim_type: economic
+    materiality: major
+    citation_context_match: yes
+    verdict: VERIFIED
+    rationale: "The span directly states that Canadian employment in higher-risk occupations is more resilient and that both nations show steady job creation in AI-complementary roles."
+    reviewer_confidence: 0.99
+  - claim_id: Q3-T1-041
+    claim_type: economic
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span mentions nearly 40% of U.S. adults ages 18-64 using AI tools by late 2024, but not 35.9%, December 2025, wage effects, or job-opening declines."
+    reviewer_confidence: 0.97
+  - claim_id: Q3-T1-042
+    claim_type: economic
+    materiality: major
+    citation_context_match: partial
+    verdict: UNSUPPORTED
+    rationale: "The span only shows the beginning of a sentence that youth wages in AI-complementary roles in the U.S. and Canada are growing at, but it does not visibly include the faster-than-other-roles comparison."
+    reviewer_confidence: 0.78
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 2, PARTIAL: 1, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 3, partial: 4, no: 0}
+  notable: ["Q3-T1-039 has explicit exposure figures but an unsupported 'different index' framing.", "Q3-T1-042 is limited by a truncated visible span before the key wage-comparison phrase."]

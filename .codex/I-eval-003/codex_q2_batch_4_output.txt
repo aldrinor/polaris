@@ -1,0 +1,294 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e188d-89a8-76b2-89fb-63ca3c57c07e
+--------
+user
+Independent Tier-1 audit of 7 Q2 Canada-US CUSMA claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q2-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CUSMA July-2026 review trigger, USMCA dispute counts, tariff schedules, federal procurement thresholds)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q2 batch 4: claims 22-28
+schema_version: tier1_v2
+claims:
+  - claim_id: Q2-T1-022
+    section: "Long-term Outcomes"
+    sentence: "One analysis notes the range of possible outcomes is wide, from an extension of CUSMA with limited changes for a new 16-year term\u2014the base-case assumption that reduces uncertainty\u2014to significant renegotiation or even member withdrawal.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-023
+    section: "Long-term Outcomes"
+    sentence: "A significant renegotiation could make trade more expensive through measures like stricter rules of origin or reduced tariff preferences, increasing effective trade costs, though some sectoral tariff rates could concurrently be lowered.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-024
+    section: "Long-term Outcomes"
+    sentence: "The most severe long-term scenario would be a U.S. withdrawal from the agreement, which it has the right to do by giving six months\u2019 notice under Article 34.6, effectively terminating CUSMA even if Canada and Mexico remain.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-025
+    section: "Long-term Outcomes"
+    sentence: "Such an outcome could result in a significant increase in trade barriers, with one source noting it would be hugely disruptive to the U.S. economy itself but must be factored in as a possible scenario.[9][5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-026
+    section: "Long-term Outcomes"
+    sentence: "Concurrently, the imposition of retaliatory counter-tariffs, supply chain disruptions, and a weaker Canadian dollar would push up consumer prices, though softer demand would dampen them.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-027
+    section: "Long-term Outcomes"
+    sentence: "This process, designed to give the U.S. side maximum leverage, could see the agreement used as a platform to address non-trade issues such as migration, drug trafficking, and continental defense, shaping the region\u2019s economic future for decades.[1]"
+    cited_evidence:
+      - evidence_id: ev_009
+        bibliography_num: 1
+        url: "https://www.csis.org/analysis/usmca-review-2026"
+        tier: T4
+        span: '0-500'
+        title: "USMCA Review 2026 - CSIS"
+        span_text: |
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-028
+    section: "Long-term Outcomes"
+    sentence: "The long-term consequence of a confrontational negotiation could be a weakened institutional framework for dispute resolution, though the USMCA\u2019s standing list of preapproved independent trade experts was designed to address the flaws of the old NAFTA system.[1]"
+    cited_evidence:
+      - evidence_id: ev_009
+        bibliography_num: 1
+        url: "https://www.csis.org/analysis/usmca-review-2026"
+        tier: T4
+        span: '0-500'
+        title: "USMCA Review 2026 - CSIS"
+        span_text: |
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.
+
+codex
+```yaml
+- claim_id: Q2-T1-022
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The span says CUSMA is up for review in 2026 and that the review could lead to many possible outcomes with wide impacts, but it does not show the 16-year extension, base-case assumption, renegotiation, or withdrawal endpoints."
+  reviewer_confidence: 0.86
+- claim_id: Q2-T1-023
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The span is about uncertainty around the CUSMA review and wide possible impacts, but it does not mention stricter rules of origin, reduced tariff preferences, effective trade costs, or lowered sectoral tariff rates."
+  reviewer_confidence: 0.88
+- claim_id: Q2-T1-024
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: no
+  verdict: UNSUPPORTED
+  rationale: "The cited span only shows CGAI article metadata and an introduction mentioning a 25 percent tariff threat, not Article 34.6, six months' notice, U.S. withdrawal, or termination of CUSMA."
+  reviewer_confidence: 0.93
+- claim_id: Q2-T1-025
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The Bank of Canada span supports that CUSMA review outcomes could have a wide range of impacts, and the CGAI span mentions a 25 percent tariff threat, but neither visible span states that withdrawal would be hugely disruptive to the U.S. economy."
+  reviewer_confidence: 0.82
+- claim_id: Q2-T1-026
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The span describes the CUSMA review as an important risk with many possible economic impacts, but it does not mention retaliatory counter-tariffs, supply chains, the Canadian dollar, consumer prices, or softer demand."
+  reviewer_confidence: 0.9
+- claim_id: Q2-T1-027
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The CSIS span explicitly says the USMCA review starts in July 2026 and lists headings on risks, leverage, disputes, demands, and deal-breakers, but it does not show migration, drug trafficking, continental defense, or decades-long economic effects."
+  reviewer_confidence: 0.84
+- claim_id: Q2-T1-028
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The CSIS span is on the USMCA review and mentions disputes and risks in headings, but it does not support the specific claim about a weakened dispute-resolution framework or a standing list of preapproved independent trade experts."
+  reviewer_confidence: 0.89
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 0, PARTIAL: 3, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 0, partial: 6, no: 1}
+  notable: ["No claim is fully verified from the visible span_text; most cited spans are truncated introductions or table-of-contents text missing the specific asserted details."]
+```
+tokens used
+5,908
+```yaml
+- claim_id: Q2-T1-022
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The span says CUSMA is up for review in 2026 and that the review could lead to many possible outcomes with wide impacts, but it does not show the 16-year extension, base-case assumption, renegotiation, or withdrawal endpoints."
+  reviewer_confidence: 0.86
+- claim_id: Q2-T1-023
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The span is about uncertainty around the CUSMA review and wide possible impacts, but it does not mention stricter rules of origin, reduced tariff preferences, effective trade costs, or lowered sectoral tariff rates."
+  reviewer_confidence: 0.88
+- claim_id: Q2-T1-024
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: no
+  verdict: UNSUPPORTED
+  rationale: "The cited span only shows CGAI article metadata and an introduction mentioning a 25 percent tariff threat, not Article 34.6, six months' notice, U.S. withdrawal, or termination of CUSMA."
+  reviewer_confidence: 0.93
+- claim_id: Q2-T1-025
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The Bank of Canada span supports that CUSMA review outcomes could have a wide range of impacts, and the CGAI span mentions a 25 percent tariff threat, but neither visible span states that withdrawal would be hugely disruptive to the U.S. economy."
+  reviewer_confidence: 0.82
+- claim_id: Q2-T1-026
+  claim_type: economic
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The span describes the CUSMA review as an important risk with many possible economic impacts, but it does not mention retaliatory counter-tariffs, supply chains, the Canadian dollar, consumer prices, or softer demand."
+  reviewer_confidence: 0.9
+- claim_id: Q2-T1-027
+  claim_type: regulatory
+  materiality: critical
+  citation_context_match: partial
+  verdict: PARTIAL
+  rationale: "The CSIS span explicitly says the USMCA review starts in July 2026 and lists headings on risks, leverage, disputes, demands, and deal-breakers, but it does not show migration, drug trafficking, continental defense, or decades-long economic effects."
+  reviewer_confidence: 0.84
+- claim_id: Q2-T1-028
+  claim_type: regulatory
+  materiality: major
+  citation_context_match: partial
+  verdict: UNSUPPORTED
+  rationale: "The CSIS span is on the USMCA review and mentions disputes and risks in headings, but it does not support the specific claim about a weakened dispute-resolution framework or a standing list of preapproved independent trade experts."
+  reviewer_confidence: 0.89
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: 0, PARTIAL: 3, UNSUPPORTED: 4, FABRICATED: 0, UNREACHABLE: 0}
+  per_context_match: {yes: 0, partial: 6, no: 1}
+  notable: ["No claim is fully verified from the visible span_text; most cited spans are truncated introductions or table-of-contents text missing the specific asserted details."]
+```

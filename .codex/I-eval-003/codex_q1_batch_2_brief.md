@@ -1,0 +1,167 @@
+Independent Tier-1 audit of 7 Q1 AI Sovereignty claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q1-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., $2B Budget-2024 over 5y, 100MW data centre threshold, CAD $700M AI Compute Challenge, US CLOUD Act applicability)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q1 batch 2: claims 8-14
+schema_version: tier1_v2
+claims:
+  - claim_id: Q1-T1-008
+    section: "Regulatory"
+    sentence: "The strategy comprises complementary elements, including mobilizing private sector investment by allocating up to CAD $700 million through an AI Compute Challenge for commercial data-centre solutions.[1]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 1
+        url: "https://oecd.ai/en/dashboards/policy-initiatives/canadian-sovereign-ai-compute-strategy"
+        tier: T4
+        span: '0-500'
+        title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
+        span_text: |
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-009
+    section: "Comparative"
+    sentence: "In contrast, reliance on US hyperscalers like Microsoft Azure, AWS, and Google Cloud\u2014which operate Canadian data centres in Toronto, Montreal, and the ca-central-1 region\u2014does not confer data sovereignty because the US CLOUD Act can compel these US-headquartered companies or their foreign subsidiaries to produce data, regardless of its physical storage location in Canada.[5]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 5
+        url: "https://www.faradaymachines.com/canadian-ai-sovereignty/"
+        tier: T4
+        span: '0-500'
+        title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
+        span_text: |
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-010
+    section: "Comparative"
+    sentence: "Operationally, the Canadian sovereign AI ecosystem is described as thinner than US offerings, with model quality trailing frontier models, shorter context windows, and narrower feature sets.[5]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 5
+        url: "https://www.faradaymachines.com/canadian-ai-sovereignty/"
+        tier: T4
+        span: '0-500'
+        title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
+        span_text: |
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-011
+    section: "Comparative"
+    sentence: "Economically, Scale AI reports a co-investment model with industry committing USD 299 million (CAD 409 million) toward a total project portfolio of USD 492 million (CAD 673 million), which is expected to generate USD 5.1 billion (CAD 7 billion) in direct economic value by 2030.[6]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 6
+        url: "https://www.oecd.org/en/publications/science-technology-and-innovation-policy-case-studies_089a31c7-en/scale-ai-canada_cd1e2c76-en.html"
+        tier: T4
+        span: '0-500'
+        title: "Scale AI (Canada)"
+        span_text: |
+          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem par
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-012
+    section: "Comparative"
+    sentence: "Furthermore, 100% of the IP created in the first 100 Scale AI-funded projects was Canadian-owned, with over 95% commercially deployed by Canadian firms as of March 2025.[6]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 6
+        url: "https://www.oecd.org/en/publications/science-technology-and-innovation-policy-case-studies_089a31c7-en/scale-ai-canada_cd1e2c76-en.html"
+        tier: T4
+        span: '0-500'
+        title: "Scale AI (Canada)"
+        span_text: |
+          Scale AI is a public–private partnership supported by Innovation, Science and Economic Development Canada (ISED) through the Global Innovation Clusters (GIC) initiative. Based in Montréal, Scale AI supports a national ecosystem of industry leaders, SMEs, researchers, and training institutions to accelerate the integration of artificial intelligence in supply chains and related applications. Through international partnerships, Scale AI positions Canada as a global leader in AI-driven supply chain innovation, fostering collaboration with world-class research institutions and global ecosystem par
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-013
+    section: "Comparative"
+    sentence: "The broader hyperscale data center sector is characterized by massive infrastructure consuming power equivalent to entire neighborhoods, driven by soaring demand for compute as a commodity.[7][8]"
+    cited_evidence:
+      - evidence_id: ev_000
+        bibliography_num: 7
+        url: "https://thelogic.co/news/event/canada-ai-compute-event/"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The true cost of Canada's sovereign AI ambitions - The Logic"
+        span_text: |
+          Presented by:
+          The race for AI dominance isn’t just about code; it’s about processing power. As the ambition of the industry soars, there’s never been more demand for the infrastructure to support it.
+          As a result, compute has become the hot commodity in AI. It’s why tech giants and asset managers are proposing and building data centres that consume as much power as entire neighbourhoods. It’s also why companies like Nvidia, whose GPUs are used to help run and train AI models, are soaring in value.
+          In Canada and across the world, governments and businesses are trying to grab a piece of the compu
+      - evidence_id: ev_003
+        bibliography_num: 8
+        url: "https://www.facebook.com/groups/157936343987907/posts/807875675660634/"
+        tier: T6
+        span: '0-500'
+        title: "ai insights on hyperscale data centers - Facebook"
+        span_text: |
+          Title: Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook URL Source: https://www.facebook.com/groups/157936343987907/posts/807875675660634/ Markdown Content: # Mt. Orab Anti-Establishment Network. | When straight talk is scarce, AI tells us what we need to know about hyperscale data centers. | Facebook [Log In](https://www.facebook.com/login/device-based/regular/login/?login_attempt=1&next=https%3A%2F%2Fwww.facebook.com%2Fgroups%2F157936343987907%2Fposts%2F807875675660634%2F) [Forgot Account?](https:/
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-014
+    section: "Comparative"
+    sentence: "On-premises AI deployment is argued to be the only complete solution for sovereignty at the architectural level, where data never reaches a US-connected network.[5]"
+    cited_evidence:
+      - evidence_id: ev_001
+        bibliography_num: 5
+        url: "https://www.faradaymachines.com/canadian-ai-sovereignty/"
+        tier: T4
+        span: '0-500'
+        title: "Why Canadian Businesses Can't Afford to Depend on US Cloud AI"
+        span_text: |
+          Why Canadian Businesses Can't Afford to Depend on US Cloud AI The CLOUD Act gives US agencies access to your AI data — even when it's stored in Canada. ChatGPT, Claude, and Copilot all fall under US jurisdiction. Quebec's Law 25 fines reach $25M. The only architecture that keeps Canadian data under Canadian law is on-premises. Data Residency Is Not Data Sovereignty Many Canadian organizations believe they've solved the sovereignty problem by choosing cloud providers with Canadian data centres. Microsoft Azure has regions in Toronto and Quebec. AWS operates in Montreal. Google Cloud runs in ca-
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.

@@ -1,0 +1,114 @@
+# Q3 batch 6: claims 36-42
+schema_version: tier1_v2
+claims:
+  - claim_id: Q3-T1-036
+    section: "Comparative"
+    sentence: "GDP by about $2.48 trillion by 2030.[3]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 3
+        url: "https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/"
+        tier: T4
+        span: '0-500'
+        title: "AI, Productivity, and Labor Markets: A Review of the ..."
+        span_text: |
+          AI, Productivity, and Labor Markets: A Review of the Empirical Evidence Executive Summary Generative artificial intelligence (AI) has diffused with unusual speed since late 2022. By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet. That rapid uptake has sharpened two policy questions: whether AI will generate measurable gains in output and productivity at the aggregate level, and whether the adjustment process will produce labor-market disruption large enough to justify new regulatory interven
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-037
+    section: "Comparative"
+    sentence: "In contrast, a Canadian analysis notes that while AI adoption is rising, with nearly 45% of Canadian businesses using generative AI, early labour market disruption from AI has been limited, with employment trends more influenced by cyclical normalization than by AI-driven displacement.[6][5]"
+    cited_evidence:
+      - evidence_id: ev_006
+        bibliography_num: 5
+        url: "https://www.cfib-fcei.ca/en/research-economic-analysis/ai-adoption"
+        tier: T4
+        span: '0-500'
+        title: "AI Adoption and Workforce Training Investment in Canada"
+        span_text: |
+          AI is reshaping how firms operate, raising questions about how businesses invest in their workforce as these technologies are adopted. This blog shows that Canadian businesses investing in AI are more likely to invest in employee training, aligning AI adoption with ongoing investment in skills. Summary - AI adoption is rising: Nearly 45% of Canadian businesses use GenAI in their operations, increasing sharply with firm size. - AI is creating additional skill needs: Businesses that invest in AI are 5.4 percentage points more likely to invest in employee training. - People remain the priority: N
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-038
+    section: "Comparative"
+    sentence: "Occupational exposure patterns show similarities, with U.S. estimates indicating office and administrative support (75.5% task exposure), business and financial operations (68.4%), and computer and mathematical occupations (62.6%) are among the most exposed.[4]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 4
+        url: "https://budgetmodel.wharton.upenn.edu/p/2025-09-08-the-projected-impact-of-generative-ai-on-future-productivity-growth/"
+        tier: T4
+        span: '0-500'
+        title: "The Projected Impact of Generative AI on Future ..."
+        span_text: |
+          The Projected Impact of Generative AI on Future Productivity Growth
+          The Projected Impact of Generative AI on Future Productivity Growth
+          We estimate that AI will increase productivity and GDP by 1.5% by 2035, nearly 3% by 2055, and 3.7% by 2075. AI’s boost to annual productivity growth is strongest in the early 2030s but eventually fades, with a permanent effect of less than 0.04 percentage points due to sectoral shifts.
+          Key Points
+          -
+          We estimate that 40 percent of current GDP could be substantially affected by generative AI. Occupations around the 80th percentile of earnings are the most expose
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-039
+    section: "Comparative"
+    sentence: "Canadian research, using a different index, also identifies a significant portion of the workforce as highly exposed, with roughly 60% potentially highly exposed to AI, though about half of those workers may benefit from complementarity.[8]"
+    cited_evidence:
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.linkedin.com/posts/marc-frenette-ph-d-19752a224_ai-genai-futureofwork-activity-7422271124887056386-iAAH"
+        tier: T4
+        span: '0-500'
+        title: "AI's Impact on Canada's Labour Market: Early Evidence"
+        span_text: |
+          Is AI substantially reshaping Canada’s labour market? Our new study says: not yet… The widespread availability of ChatGPT starting in November 2022 — and the rapid adoption of GenAI tools since then — has fuelled both excitement and concern about the future of human labour. Our previous work suggested that roughly 60% of the workforce is potentially highly exposed to AI, but that about half of those workers may actually benefit from AI. However, that earlier study did not examine how employment trends were evolving over time. In a newly released Statistics Canada article authored by [Tahsin Me
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-040
+    section: "Comparative"
+    sentence: "Similarly, in Canada, employment in occupations at higher risk of AI displacement has shown resilience, with both nations exhibiting steady job creation in roles complementary to AI usage.[6]"
+    cited_evidence:
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-041
+    section: "Comparative"
+    sentence: "One U.S. study found that 35.9% of U.S. workers used generative AI by December 2025 and reported small positive wage effects with no statistically significant declines in job openings in exposed occupations.[3]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 3
+        url: "https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/"
+        tier: T4
+        span: '0-500'
+        title: "AI, Productivity, and Labor Markets: A Review of the ..."
+        span_text: |
+          AI, Productivity, and Labor Markets: A Review of the Empirical Evidence Executive Summary Generative artificial intelligence (AI) has diffused with unusual speed since late 2022. By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet. That rapid uptake has sharpened two policy questions: whether AI will generate measurable gains in output and productivity at the aggregate level, and whether the adjustment process will produce labor-market disruption large enough to justify new regulatory interven
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q3-T1-042
+    section: "Comparative"
+    sentence: "In Canada, youth wages in AI-complementary roles are growing at a faster pace than in other roles.[6]"
+    cited_evidence:
+      - evidence_id: ev_003
+        bibliography_num: 6
+        url: "https://economics.td.com/ca-labour-market-mirroring-americans-ai-impact"
+        tier: T4
+        span: '0-500'
+        title: "Is Canada's Labour Market Mirroring American's AI Impact?"
+        span_text: |
+          Highlights - AI adoption within U.S. labour markets is broader than in Canada, though the lack of a global standardized definition complicates cross-border comparisons. - Canadian employment in occupations at higher risk of AI displacement is more resilient, but both nations are exhibiting steady job creation in roles complementary to AI usage. - The normalization of Canada’s labour demand is more a function of cyclical factors rather than AI, although some AI related productivity relationships are loosely emerging. - Youth wages in AI-complementary roles in the U.S. and Canada are growing at 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+

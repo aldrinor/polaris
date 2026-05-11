@@ -1,0 +1,41 @@
+# Q4 batch 8: claims 50-51
+schema_version: tier1_v2
+claims:
+  - claim_id: Q4-T1-050
+    section: "Long-term Outcomes"
+    sentence: "For Indigenous communities in Canada, federal partnership has been critical, with more than $10.7 billion creating almost 22,000 new or repaired homes on-reserve.[10]"
+    cited_evidence:
+      - evidence_id: ev_011
+        bibliography_num: 10
+        url: "https://housing-infrastructure.canada.ca/housing-logement/housing-plan-report-rapport-plan-logement-eng.html"
+        tier: T3
+        span: '0-500'
+        title: "Solving the Housing Crisis: Canada's Housing Plan"
+        span_text: |
+          Solving the Housing Crisis: Canada's Housing Plan On this page - The Housing Crisis of our Past - The Housing Crisis of Today - Solving the Housing Crisis - 1: Building More Homes - 2: Making it Easier to Rent or Own a Home - 3: Helping Canadians Who Can’t Afford a Home - Conclusion - Who's in Charge of What: List of Responsibilities in Housing by Order of Government We need to build more homes in Canada, and we need to build them by the millions. The good news – we can. The proof is in our history. The Housing Crisis of our Past At the end of the Second World War, our country reached a defini
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q4-T1-051
+    section: "Long-term Outcomes"
+    sentence: "Ultimately, without a sufficient and sustained increase in housing supply, affordability trends will remain under pressure, as low vacancies create a market where competition is intense and the lowest-income households are most vulnerable.[5][6]"
+    cited_evidence:
+      - evidence_id: ev_002
+        bibliography_num: 5
+        url: "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge"
+        tier: UNKNOWN
+        span: '0-500'
+        title: "The Supply Side of the U.S. Housing Challenge | St. Louis Fed"
+        span_text: |
+          America Underbuilt Inc.: The Supply Side of the U.S. Housing Challenge
+          In a recent post, we documented how housing prices have dramatically outpaced income growth across most U.S. counties over the past two decades. One of the key drivers identified was inelastic housing supply—the inability of new construction to respond adequately to rising demand. This companion post examines the supply side of the equation: How much housing is the U.S. building, and is it enough?
+          Building Permits: A Long-Term Perspective
+          To understand housing supply, we start with building permits—the first step in the con
+      - evidence_id: ev_005
+        bibliography_num: 6
+        url: "https://www.novoco.com/notes-from-novogradac/how-new-housing-affects-affordability-evidence-limits-and-policy-implications"
+        tier: T4
+        span: '0-500'
+        title: "How New Housing Affects Affordability: Evidence, Limits and Policy ..."
+        span_text: |
+          How New Housing Affects Affordability: Evidence, Limits and Policy Implications Recent Insights Key Takeaways A growing body of empirical research finds that new market-rate housing can affect broader affordability conditions through household moves, while also underscoring that market outcomes alone are insufficient to meet needs at very low incomes. - New market rate construction expands mobility through vacancy chains, easing rent pressures even in high cost markets by opening more homes. - Filtering and market wide affordability gains occur unevenly, slowing or stalling in tight markets, u
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence

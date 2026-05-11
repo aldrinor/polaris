@@ -1,0 +1,172 @@
+Independent Tier-1 audit of 7 Q2 Canada-US CUSMA claims. Output YAML records only.
+
+You are populating Tier-1 audit fields for each claim in the BATCH below.
+
+# Tier-1 schema (per claim)
+
+```yaml
+- claim_id: Q2-T1-NNN
+  claim_type: efficacy | safety | diagnostic | dosing | regulatory | mechanism | epidemiology | economic | guideline | background
+  materiality: critical | major | minor | background
+  citation_context_match: yes | partial | no
+  verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+  rationale: "one sentence quoting or paraphrasing the span_text"
+  reviewer_confidence: 0.0 - 1.0
+```
+
+# Decision rules
+
+- **citation_context_match: yes** iff the decimal/year/range/figure in the claim is EXPLICITLY present in the cited span_text. **partial** if the span is on-topic and broadly consistent but the specific decimal is not in the visible span. **no** if the span is about a different topic.
+- **materiality**:
+  - critical = the headline policy-decision number (e.g., CUSMA July-2026 review trigger, USMCA dispute counts, tariff schedules, federal procurement thresholds)
+  - major = supporting policy-decision-grade decimal
+  - minor = supporting context decimal that policy decision would not turn on; ALSO repeated facts already cited elsewhere
+  - background = pure framing
+- **verdict**: VERIFIED requires citation_context_match=yes AND the claim is consistent with the span. PARTIAL covers framing/attribution issues even when decimals match. UNSUPPORTED covers cases where the span doesn't support the claim.
+- **reviewer_confidence < 0.7 → flag for human deferral**.
+
+# Banned shortcuts
+
+- Do NOT skip a claim. ALL 7 must have records.
+- Do NOT auto-VERIFIED just because a span exists. Read the span_text and confirm the decimal is there.
+- Do NOT exceed one paragraph of rationale per claim.
+
+# Batch (the claims to audit are below; each has cited_evidence with span_text inline)
+
+# Q2 batch 3: claims 15-21
+schema_version: tier1_v2
+claims:
+  - claim_id: Q2-T1-015
+    section: "Population Subgroups"
+    sentence: "For metals importers, a critical change was the shift to applying tariffs on the full imported value of goods, rather than only the metal content, which can fundamentally change the tariff exposure for derivative products.[6]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 6
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/us-tariffs-steel-aluminum-copper-imports-2026.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: US tariffs on steel, aluminum and copper imports from ..."
+        span_text: |
+          April 22, 2026 Issue 2026-17 On April 2, 2026, US President Donald Trump signed a proclamation1 under section 232 of the US Trade Expansion Act of 1962 to strengthen existing tariffs on steel and aluminum imports into the United States and expand the scope of these measures to include copper articles and derivatives for the first time. Effective April 6, 2026, the proclamation establishes a revised tariff structure that:2 These developments build on prior proclamations, which are discussed in our previously released Tax Insights.3 The April 2, 2026 proclamation significantly increases the cost
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-016
+    section: "Population Subgroups"
+    sentence: "The agreement itself faces uncertainty, with a mandatory joint review beginning July 1, 2026, under Article 34.7, a process designed to give the U.S. side maximum leverage.[5][8]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/preparing-cusma-2026-review.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: Preparing for the CUSMA 2026 review US trade ... - PwC"
+        span_text: |
+          Issue 2026-16 In brief What happened? The Canada‑United States‑Mexico Agreement (CUSMA) will have its first mandatory joint review on July 1, 2026, six years after its entry into force. While the review is not a comprehensive renegotiation of the agreement, it provides an opportunity for the parties to assess how CUSMA is functioning, consider recommendations for potential updates and influence how the agreement is administered and enforced, including whether targeted changes or commitments are pursued. On March 31, 2026, the Office of the United States Trade Representative (USTR) released its
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-017
+    section: "Population Subgroups"
+    sentence: "A proclamation signed in April 2026 strengthened existing tariffs on steel and aluminum imports and expanded their scope to include copper articles and derivatives for the first time.[6]"
+    cited_evidence:
+      - evidence_id: ev_015
+        bibliography_num: 6
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/us-tariffs-steel-aluminum-copper-imports-2026.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: US tariffs on steel, aluminum and copper imports from ..."
+        span_text: |
+          April 22, 2026 Issue 2026-17 On April 2, 2026, US President Donald Trump signed a proclamation1 under section 232 of the US Trade Expansion Act of 1962 to strengthen existing tariffs on steel and aluminum imports into the United States and expand the scope of these measures to include copper articles and derivatives for the first time. Effective April 6, 2026, the proclamation establishes a revised tariff structure that:2 These developments build on prior proclamations, which are discussed in our previously released Tax Insights.3 The April 2, 2026 proclamation significantly increases the cost
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-018
+    section: "Population Subgroups"
+    sentence: "The broader trade relationship is under strain, with President Trump having threatened to impose 25 percent tariffs on all Canadian and Mexican imports, a move that contravenes U.S. obligations under CUSMA and the WTO Agreement.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-019
+    section: "Population Subgroups"
+    sentence: "The U.S. will almost certainly use the process to apply maximum pressure on Canada, for example by demanding concessions to address the U.S. trade imbalance with Canada.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-020
+    section: "Population Subgroups"
+    sentence: "Protecting integrated supply chains is a key Canadian priority, with one analysis noting Canada already supplies many minerals deemed critical by the United States, with bilateral mineral trade valued at $95.6 billion in 2020.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-021
+    section: "Population Subgroups"
+    sentence: "Consequently, the impact of trade policy on supply chains is a factor in the CUSMA review process.[5][8]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+      - evidence_id: ev_004
+        bibliography_num: 8
+        url: "https://www.pwc.com/ca/en/services/tax/publications/tax-insights/preparing-cusma-2026-review.html"
+        tier: T5
+        span: '0-500'
+        title: "Tax Insights: Preparing for the CUSMA 2026 review US trade ... - PwC"
+        span_text: |
+          Issue 2026-16 In brief What happened? The Canada‑United States‑Mexico Agreement (CUSMA) will have its first mandatory joint review on July 1, 2026, six years after its entry into force. While the review is not a comprehensive renegotiation of the agreement, it provides an opportunity for the parties to assess how CUSMA is functioning, consider recommendations for potential updates and influence how the agreement is administered and enforced, including whether targeted changes or commitments are pursued. On March 31, 2026, the Office of the United States Trade Representative (USTR) released its
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+
+
+# Output
+
+Single YAML block. List of records in claim_id order. Then a summary:
+
+```yaml
+- claim_id: ...
+  ...
+- claim_id: ...
+  ...
+
+batch_summary:
+  total: 7
+  per_verdict: {VERIFIED: N, PARTIAL: N, UNSUPPORTED: N, FABRICATED: N, UNREACHABLE: N}
+  per_context_match: {yes: N, partial: N, no: N}
+  notable: ["..."]
+```
+
+Output the YAML directly. No commentary outside.

@@ -1,0 +1,109 @@
+# Q2 batch 4: claims 22-28
+schema_version: tier1_v2
+claims:
+  - claim_id: Q2-T1-022
+    section: "Long-term Outcomes"
+    sentence: "One analysis notes the range of possible outcomes is wide, from an extension of CUSMA with limited changes for a new 16-year term\u2014the base-case assumption that reduces uncertainty\u2014to significant renegotiation or even member withdrawal.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-023
+    section: "Long-term Outcomes"
+    sentence: "A significant renegotiation could make trade more expensive through measures like stricter rules of origin or reduced tariff preferences, increasing effective trade costs, though some sectoral tariff rates could concurrently be lowered.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-024
+    section: "Long-term Outcomes"
+    sentence: "The most severe long-term scenario would be a U.S. withdrawal from the agreement, which it has the right to do by giving six months\u2019 notice under Article 34.6, effectively terminating CUSMA even if Canada and Mexico remain.[5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-025
+    section: "Long-term Outcomes"
+    sentence: "Such an outcome could result in a significant increase in trade barriers, with one source noting it would be hugely disruptive to the U.S. economy itself but must be factored in as a possible scenario.[9][5]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 5
+        url: "https://www.cgai.ca/canadas_cusma_conundrum"
+        tier: T4
+        span: '0-500'
+        title: "Canada's CUSMA Conundrum - Canadian Global Affairs Institute"
+        span_text: |
+          Image credit: Twitter/ @JustinTrudeau by [Lawrence L. Herman](Lawrence_Herman) December 2024 Table of Contents [Introduction](#Introduction)[End of the Special Relationship](#Relationship)[CUSMA Scenarios](#Scenarios)[Can CUSMA Be Kept in Play?](#CUSMA)[Bilateral Trade Outside of CUSMA](#Outside)[Conclusions – Avoiding the Cutting Room Floor](#Conclusions)[End Notes](#Endnotes)[About the Author](#Author)[Canadian Global Affairs Institute](#CGAI) Introduction Donald Trump’s egregious threat to impose 25 percent tariffs on all Canadian and Mexican imports shows the world that his administration 
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-026
+    section: "Long-term Outcomes"
+    sentence: "Concurrently, the imposition of retaliatory counter-tariffs, supply chain disruptions, and a weaker Canadian dollar would push up consumer prices, though softer demand would dampen them.[9]"
+    cited_evidence:
+      - evidence_id: ev_008
+        bibliography_num: 9
+        url: "https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/in-focus-2/"
+        tier: T4
+        span: '0-500'
+        title: "The review of the Canada\u2013United States\u2013Mexico Agreement"
+        span_text: |
+          Monetary Policy Report—January 2026—In focus The future of Canada’s trade agreement with the United States and Mexico is unclear. A review of the agreement could lead to many possible outcomes, and these can have a wide range of impacts on the Canadian economy. The Canada-United States-Mexico Agreement (CUSMA) is a trilateral trade deal that came into effect in 2020. The agreement is up for review in 2026.[1](#footnote-if2-1) The outcome of the review is an important risk to the outlook (see the [Risks](https://www.bankofcanada.ca/publications/mpr/mpr-2026-01-28/risks/) section). The range of 
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-027
+    section: "Long-term Outcomes"
+    sentence: "This process, designed to give the U.S. side maximum leverage, could see the agreement used as a platform to address non-trade issues such as migration, drug trafficking, and continental defense, shaping the region\u2019s economic future for decades.[1]"
+    cited_evidence:
+      - evidence_id: ev_009
+        bibliography_num: 1
+        url: "https://www.csis.org/analysis/usmca-review-2026"
+        tier: T4
+        span: '0-500'
+        title: "USMCA Review 2026 - CSIS"
+        span_text: |
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q2-T1-028
+    section: "Long-term Outcomes"
+    sentence: "The long-term consequence of a confrontational negotiation could be a weakened institutional framework for dispute resolution, though the USMCA\u2019s standing list of preapproved independent trade experts was designed to address the flaws of the old NAFTA system.[1]"
+    cited_evidence:
+      - evidence_id: ev_009
+        bibliography_num: 1
+        url: "https://www.csis.org/analysis/usmca-review-2026"
+        tier: T4
+        span: '0-500'
+        title: "USMCA Review 2026 - CSIS"
+        span_text: |
+          USMCA Review 2026 Table of Contents - The Issue - Introduction - The USMCA at Five - President Trump’s Reindustrialization Drive Through Tariffs - Understanding the 2026 Review Clause: Pathways, Risks, and Leverage - Mapping Six Possible Pathways for the USMCA - What Will Be on the Table: Disputes, Demands, and Deal-Breakers - Keeping Sights High: Options to Deepen Cooperation Under the USMCA Available Downloads The Issue The United States–Mexico–Canada Agreement (USMCA), the backbone of North America’s competitiveness, will undergo a formal review starting in July 2026. What was once expected
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+

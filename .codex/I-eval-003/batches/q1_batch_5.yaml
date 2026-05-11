@@ -1,0 +1,44 @@
+# Q1 batch 5: claims 29-31
+schema_version: tier1_v2
+claims:
+  - claim_id: Q1-T1-029
+    section: "Dose Response"
+    sentence: "The anticipated outcome of this scaled investment is to enable breakthroughs in key sectors like health care and advanced manufacturing, strengthen global competitiveness, and ensure secure, reliable access to critical digital infrastructure.[9]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 9
+        url: "https://www.canada.ca/en/innovation-science-economic-development/news/2026/04/canada-launches-national-initiative-to-build-large-scale-ai-supercomputing-capacity.html"
+        tier: T3
+        span: '0-500'
+        title: "Canada launches national initiative to build large-scale AI ..."
+        span_text: |
+          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-030
+    section: "Dose Response"
+    sentence: "The Government of Canada's sovereign AI compute strategy addresses a recognized gap in affordable, domestic computing resources.[1]"
+    cited_evidence:
+      - evidence_id: ev_013
+        bibliography_num: 1
+        url: "https://oecd.ai/en/dashboards/policy-initiatives/canadian-sovereign-ai-compute-strategy"
+        tier: T4
+        span: '0-500'
+        title: "Canadian Sovereign AI Compute Strategy - OECD.AI"
+        span_text: |
+          Initiative overview The Canadian Sovereign AI Compute Strategy responds to a recognised gap in affordable, domestic computing resources for Canadian AI researchers, businesses and innovators. During a public consultation conducted over the summer of 2024, more than 1,000 stakeholders from research, industry and civil society highlighted the high cost of compute resources and the limited availability of domestic capacity as key barriers. The strategy is guided by the findings of this consultation, published in a What We Heard Report, and is designed to safeguard Canadian data and intellectual p
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
+
+  - claim_id: Q1-T1-031
+    section: "Dose Response"
+    sentence: "This national effort aims to build large-scale AI compute infrastructure to form a core part of Canada\u2019s digital backbone.[9]"
+    cited_evidence:
+      - evidence_id: ev_007
+        bibliography_num: 9
+        url: "https://www.canada.ca/en/innovation-science-economic-development/news/2026/04/canada-launches-national-initiative-to-build-large-scale-ai-supercomputing-capacity.html"
+        tier: T3
+        span: '0-500'
+        title: "Canada launches national initiative to build large-scale AI ..."
+        span_text: |
+          Canada launches national initiative to build large-scale AI supercomputing capacity News release Applications to develop Canada’s sovereign AI supercomputing infrastructure now open April 15, 2026 – Ottawa, Ontario Canada is launching a national effort to build one of the most advanced artificial Intelligence (AI) supercomputing systems, ensuring Canadian researchers, innovators and institutions have the computing power they need to innovate, compete and lead. The Government of Canada is launching the call for applications for the [AI Sovereign Compute Infrastructure Program](https://ised-isde
+    # tier1_to_fill: claim_type, materiality, citation_context_match, verdict, rationale, reviewer_confidence
