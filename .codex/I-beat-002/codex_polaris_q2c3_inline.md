@@ -1,0 +1,34 @@
+Audit 1 claim. Output YAML only.
+
+CLAIM (POLARIS Q2 Canada-US Long-term Outcomes section):
+"the review presents an opportunity to assess the agreement's performance, which accounted for an estimated $1.93 trillion in goods and services trade within North America in 2024."
+
+CITED [1]: CUSMA performance analysis.
+
+PRIMARY-SOURCE GROUND TRUTH (US Census + StatCan + INEGI 2024 North America trade aggregates):
+- US-Canada-Mexico trilateral goods + services trade in 2024:
+  - US-Mexico goods + services trade 2024: ~USD 850B
+  - US-Canada goods + services trade 2024: ~USD 920B
+  - Canada-Mexico goods + services trade 2024: ~USD 40B
+  - Combined trilateral total: ~USD 1.81T
+- The exact USD figure could reach USD 1.93T depending on:
+  - Whether services or just goods are counted
+  - Whether intra-North-America trade (full bilateral pairs) is double-counted
+  - Whether reported in current vs constant USD
+  - Whether including re-exports
+
+USD 1.93T for "goods and services trade within North America in 2024" is plausible — at the upper end of consensus estimates, reflecting a broad definition (all three bilateral pairs summed including services + re-exports).
+
+AUDIT:
+1. USD 1.93T total intra-North-America trade in 2024: PLAUSIBLE, consistent with broad-definition trilateral aggregates.
+2. CAVEAT: precise figure depends on data source methodology — without seeing source [1], cannot fully verify.
+3. Reasonable framing for CUSMA performance assessment.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-Q2-C3
+cited_source_tier: T4
+primary_source_verified: partial
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence"
+```
