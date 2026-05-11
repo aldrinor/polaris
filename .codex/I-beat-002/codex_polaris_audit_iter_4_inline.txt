@@ -1,0 +1,54 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1606-db26-7872-96b5-7312a2de9c63
+--------
+user
+You are auditing 1 specific claim from a POLARIS report. Output YAML only.
+
+CLAIM:
+"The same trial reported significantly greater weight reductions with tirzepatide 5 mg (-7.0 kg), 10 mg (-9.6 kg), and 15 mg (-11.2 kg) compared to semaglutide 1 mg (-5.7 kg) at week 40."
+
+CITED SOURCE [1]: NEJM Frias et al. 2021 (SURPASS-2). https://www.nejm.org/doi/full/10.1056/NEJMoa2107519
+
+PUBLISHED PRIMARY SOURCE GROUND TRUTH (from NEJM PubMed PMID 34170647 abstract):
+- Treatment differences vs semaglutide 1 mg: −1.9 kg (5mg), −3.6 kg (10mg), −5.5 kg (15mg). All P<0.001.
+- Sample N=1879, open-label, sponsor Eli Lilly, primary endpoint HbA1c at 40 weeks.
+- NEJM abstract does NOT publish absolute weight changes per arm.
+
+YOUR AUDIT:
+1. Compute differences from POLARIS values: 5mg (-7.0 - -5.7 = -1.3), 10mg (-9.6 - -5.7 = -3.9), 15mg (-11.2 - -5.7 = -5.5).
+2. Compare derived differences to NEJM published differences (-1.9, -3.6, -5.5).
+3. Determine if POLARIS's absolute values are internally consistent with NEJM differences.
+
+Output YAML:
+```yaml
+claim_id: POLARIS-C1
+cited_source_tier: T1
+primary_source_verified: yes
+decimals_derived_match_published: yes_partial_or_no
+verdict: VERIFIED | PARTIAL | UNSUPPORTED | FABRICATED | UNREACHABLE
+reason: "one sentence why"
+```
+
+codex
+claim_id: POLARIS-C1
+cited_source_tier: T1
+primary_source_verified: yes
+decimals_derived_match_published: partial
+verdict: PARTIAL
+reason: "The 15 mg derived difference matches NEJM, but the 5 mg and 10 mg differences derived from the POLARIS absolute values do not match the published treatment differences."
+tokens used
+2,485
+claim_id: POLARIS-C1
+cited_source_tier: T1
+primary_source_verified: yes
+decimals_derived_match_published: partial
+verdict: PARTIAL
+reason: "The 15 mg derived difference matches NEJM, but the 5 mg and 10 mg differences derived from the POLARIS absolute values do not match the published treatment differences."
