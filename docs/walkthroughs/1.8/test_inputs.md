@@ -1,7 +1,7 @@
 # Phase 1 Walkthrough — 17-Input Adversarial Corpus (Phase-1-PARTIAL bar)
 
 > **Scope (post halt-condition #4 resolution path 3 — 2026-05-02):** F1 (scope
-> discovery, 5 inputs) + F2 (BPEI ambiguity, 5 inputs) + F3 (document upload
+> discovery, 5 inputs) + F2 (ambiguity, 5 inputs) + F3 (document upload
 > endpoint contract, 4 inputs) + F15 (audit bundle export, 3 inputs) = **17
 > inputs**. Crown-jewel surface checks (Inspector, frame coverage,
 > contradictions, two-family disagreement) are Phase 2A-B features
@@ -20,7 +20,7 @@ Use this script in order. For each input: paste, observe, narrate.
 4. **Multi-word ambiguous**: type `quantum computing impact` → expect at least 2 templates (defense / AI sovereignty / climate) suggested; user picks.
 5. **French language**: type `bois d'œuvre canadien` → expect either Trade template suggested, or refusal with "supported language: English" message. NOT acceptable: silent acceptance of mangled-French response.
 
-## Block B — F2 BPEI ambiguity (5 inputs)
+## Block B — F2 ambiguity (5 inputs)
 
 6. **Classic BPEI test**: type `What is BPEI?` → expect modal with at least 3 candidate meanings (e.g., Beth Israel Deaconess, biopsychosocial, business process, etc.). NOT acceptable: silent answer.
 7. **Acronym with one strong meaning**: type `What is FDA?` → expect single-candidate flow (no modal, FDA is unambiguous).

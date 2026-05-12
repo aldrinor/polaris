@@ -16,7 +16,7 @@
 3. Type the template's golden query (see below per template).
 4. Verify: `POST /scope/check` returns within 200ms; in-scope template
    surfaced inline.
-5. If query has BPEI ambiguity (template's BPEI input below): `POST
+5. If query has ambiguity (template's BPEI input below): `POST
    /ambiguity` returns modal candidates within 1s; pick clarification.
 6. **Phase-2C-PARTIAL substitution**: rather than submit-and-wait-for-
    cluster, navigate directly to the golden-fixture Inspector page for
@@ -62,7 +62,7 @@
 | Template | Golden run ID | Inspector URL | Expected ambiguity? |
 |---|---|---|---|
 | Clinical | `golden_clinical_001` | `/inspector/golden_clinical_001` | No |
-| Climate | `golden_climate_005` | `/inspector/golden_climate_005` | YES — BPEI ambiguity (test `/ambiguity` endpoint with the golden query) |
+| Climate | `golden_climate_005` | `/inspector/golden_climate_005` | YES — ambiguity (test `/ambiguity` endpoint with the golden query) |
 | Trade / Defense | `golden_defense_004` | `/inspector/golden_defense_004` | No |
 
 (Trade template currently uses the defense golden fixture; trade-specific
@@ -73,7 +73,7 @@ fixture authoring is Phase-2C+ work.)
 | Template | Query | Notes |
 |---|---|---|
 | Clinical | "What is the FDA-approved efficacy of tirzepatide for type 2 diabetes?" | exercises `POST /scope/check` + Inspector golden render |
-| Climate | "What is the BPEI for net-zero pathways in Canadian electricity?" | exercises `POST /ambiguity` (BPEI ambiguity expected) |
+| Climate | "What is the BPEI for net-zero pathways in Canadian electricity?" | exercises `POST /ambiguity` (ambiguity expected) |
 | Defense (placeholder for Trade) | "Has CUSMA Chapter 31 dispute on softwood lumber concluded?" | exercises `POST /scope/check` + Inspector golden render |
 
 ## Browser matrix

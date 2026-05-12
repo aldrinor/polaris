@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from polaris_v6.bpei.ambiguity_detector import (
+from polaris_v6.ambiguity_detector import (
     CandidateSnippet,
     detect_ambiguity,
 )

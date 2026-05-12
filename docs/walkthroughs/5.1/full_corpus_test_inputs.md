@@ -19,7 +19,7 @@
 ### 3. Housing
 **Query:** "What is the BPEI methodology for evaluating affordable housing supply gaps in Canadian census metropolitan areas?"
 **Expected sources:** CMHC, Statistics Canada, OECD housing affordability reports
-**Expected ambiguity:** YES — BPEI ambiguity should fire (modal asks if user means biopsychosocial / business process / etc.)
+**Expected ambiguity:** YES — ambiguity detector should fire (modal asks if user means biopsychosocial / business process / etc.)
 
 ### 4. Defense
 **Query:** "What CVE-2024 vulnerabilities affect critical Canadian defense infrastructure SCADA systems, and what is NATO's coordinated response?"

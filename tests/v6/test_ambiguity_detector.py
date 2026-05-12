@@ -1,13 +1,14 @@
 """Tests for the F2 ambiguity detector.
 
-Per memory bpei_phantom_completion_lessons.md, the BPEI failure pattern
-must be reproducible as a regression test: a short acronym question with
+Per memory bpei_phantom_completion_lessons.md (commemoratively named
+after the 2026-04-30 probe incident), the failure pattern must be
+reproducible as a regression test: a short acronym question with
 candidate snippets covering 2+ unrelated meanings → is_ambiguous=True.
 """
 
 from __future__ import annotations
 
-from polaris_v6.bpei.ambiguity_detector import (
+from polaris_v6.ambiguity_detector import (
     AmbiguityResult,
     CandidateSnippet,
     detect_ambiguity,

@@ -1,4 +1,4 @@
-"""Intake orchestrator — wires the front half of the BPEI spine end-to-end.
+"""Intake orchestrator — wires the front half of the research pipeline end-to-end.
 
 Per slice 001 architecture proposal §"Implementation order PR 6". The
 function process_intake() is the single entry point that transforms a

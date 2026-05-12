@@ -173,7 +173,7 @@ python -m pytest tests/v6/test_code_executor_sovereignty.py -v
 
 - **Live LLM → tirzepatide-vs-semaglutide auto-table from real evidence retrieval.**
   Substrate exists (chart builders + provenance contract + click-through + sandbox)
-  but the production wiring from BPEI question → retrieval → spec generation → UI
+  but the production wiring from ambiguity-checked question → retrieval → spec generation → UI
   render is not yet end-to-end. Tracked in v6 Phase 1..3 milestones.
 - **Real evidence_id resolution from sovereign Canadian retrieval pipeline.** Demo
   uses a frontend-only `SOURCE_REGISTRY`; production fetches from a backend route.

@@ -265,7 +265,7 @@ phase_0:
     dependencies: ["task_0_5"]
 
 # ============================================================
-# PHASE 1 — BPEI spine + Evidence Contract Gate (May 13-31)
+# PHASE 1 — research pipeline + Evidence Contract Gate (May 13-31)
 # ============================================================
 # Filled out 2026-05-02 per Plan v13 §K Step 0b. Tasks 1.1-1.7 substrate already
 # shipped pre-bootstrap (cycle-11 lock); they receive synthetic APPROVE verdicts via
@@ -296,22 +296,22 @@ phase_1:
     blocking_consequence: "Phase 2A inspector cannot link to scope panel"
 
   task_1_2:
-    title: "F2 — BPEI ambiguity detector (substrate)"
+    title: "F2 — ambiguity detector (substrate)"
     owner: "claude"
     status: "COMPLETED 2026-05-01 (cycle-11 lock substrate)"
     estimate_hours: 16
     green_criteria:
-      - "src/polaris_v6/bpei/ambiguity_detector.py — heuristic + clustering substrate"
+      - "src/polaris_v6/ambiguity_detector/ambiguity_detector.py — heuristic + clustering substrate"
       - "src/polaris_v6/api/ambiguity.py — FastAPI route"
       - "web/app/dashboard — ambiguity modal wired"
       - "9+ tests passing (heuristic + integration)"
       - "HDBSCAN swap deferred to cluster (Task 0.3) — substrate complete"
     required_artifacts:
-      - "src/polaris_v6/bpei/ambiguity_detector.py"
+      - "src/polaris_v6/ambiguity_detector/ambiguity_detector.py"
       - "src/polaris_v6/api/ambiguity.py"
       - "tests/v6/test_ambiguity_*.py"
     changed_files_glob:
-      - "src/polaris_v6/bpei/**"
+      - "src/polaris_v6/ambiguity_detector/**"
       - "src/polaris_v6/api/ambiguity.py"
     blocking_consequence: "Phase 2A inspector ambiguity surfacing blocked"
 

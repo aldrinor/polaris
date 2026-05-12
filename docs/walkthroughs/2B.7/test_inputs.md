@@ -44,4 +44,4 @@
 17. New session → previous memory still searchable
 18. Two workspaces → memories isolated (no cross-pollution)
 19. Memory size limit reached → eviction policy visible (LRU? user-configurable?)
-20. Search "BPEI" in memory → returns prior runs that referenced BPEI ambiguity detector
+20. Search "BPEI" in memory → returns prior runs that referenced ambiguity detector

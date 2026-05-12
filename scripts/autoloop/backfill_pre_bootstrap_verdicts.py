@@ -67,15 +67,15 @@ PRE_BOOTSTRAP_COMPLETED = {
         ],
         "rationale": "OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental + semconv 1.36.0+ + 4 contract tests.",
     },
-    # Phase 1 — BPEI spine substrate (cycle-11 lock)
+    # Phase 1 — research-pipeline substrate (cycle-11 lock)
     "1.1": {
         "title": "F1 scope discovery substrate",
         "evidence": ["src/polaris_v6/scope/decision.py", "src/polaris_v6/api/scope.py", "web/app/dashboard/page.tsx"],
         "rationale": "Scope decision logic + FastAPI route + dashboard panel + 5 tests; LLM-augment deferred to cluster.",
     },
     "1.2": {
-        "title": "F2 BPEI ambiguity detector substrate",
-        "evidence": ["src/polaris_v6/bpei/ambiguity_detector.py", "src/polaris_v6/api/ambiguity.py"],
+        "title": "F2 ambiguity detector substrate",
+        "evidence": ["src/polaris_v6/ambiguity_detector/ambiguity_detector.py", "src/polaris_v6/api/ambiguity.py"],
         "rationale": "Heuristic + clustering substrate + FastAPI route + 9 tests; HDBSCAN swap deferred to cluster.",
     },
     "1.3": {

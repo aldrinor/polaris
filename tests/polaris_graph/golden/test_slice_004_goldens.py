@@ -103,7 +103,7 @@ def _stub_sign(payload: bytes) -> bytes:
 
 
 def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, VerifiedReport]:
-    """Build the BPEI chain inputs from a golden test spec."""
+    """Build the research chain inputs from a golden test spec."""
     iso = datetime.now(timezone.utc)
     decision = ScopeDecision(
         decision_id=spec["decision_id"],

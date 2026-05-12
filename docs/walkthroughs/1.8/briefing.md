@@ -3,7 +3,7 @@
 **Task:** `1.8` per `docs/task_acceptance_matrix.yaml`
 **Substrate-prep:** `1.8_prep_briefing_pack` (orchestrator-completed 2026-05-02)
 **Walkthrough deadline:** 2026-06-04 (latest, per Plan v13 §G #7)
-**Scope:** Phase 1 BPEI spine + Evidence Contract Gate (features F1, F2, F3, F15)
+**Scope:** Phase 1 research pipeline + Evidence Contract Gate (features F1, F2, F3, F15)
 
 > **Phase-1-PARTIAL bar (post halt-condition #4 resolution path 3 — 2026-05-02).**
 > The walkthrough exercises Phase-1 substrate that has already shipped to HEAD
@@ -20,7 +20,7 @@
 | Feature | What it does | What to test |
 |---|---|---|
 | **F1 Scope discovery** | Dashboard surfaces 8 templates with in-scope examples; live template suggestion as user types | Type "tirzepatide" → expect Clinical drug audit suggestion within 200ms |
-| **F2 BPEI ambiguity** | When a query has multiple plausible meanings, modal asks which entity user means | Type "What is BPEI?" → expect modal with at least 3 candidate meanings (syndrome/institute/chemical) |
+| **F2 ambiguity** | When a query has multiple plausible meanings, modal asks which entity user means | Type "What is BPEI?" → expect modal with at least 3 candidate meanings (syndrome/institute/chemical) |
 | **F3a/F3b Document upload** | Drag-and-drop PDF; backend `/upload` accepts the file and returns a `document_id` (endpoint contract). Full parser + chunk + tier-assignment + cite-uploaded-doc loop is **Phase 1+** (see known-gaps below). | Drop a PDF, see upload progress + document_id returned. Citing the uploaded doc in a query is **out of scope** for this walkthrough — observe behavior if surfaced, do not fail. |
 | **F15 Audit bundle export** | `GET /runs/{run_id}/bundle` returns the **EvidenceContract v1.0 JSON** for that run; frontend's "Export bundle" button calls `downloadBundleAsJson` and saves a single `.json` file. Phase 1 substrate at `src/polaris_v6/api/bundle.py` serves this from the golden-fixture suite. | Click export → single JSON file downloads; open it in any text editor and verify `contract_version: "1.0"`, `evidence_pool`, `verified_sentences`, and `family_segregation_passed` fields are present. |
 
@@ -46,7 +46,7 @@ What the build operator pre-stages (must be online before walkthrough):
 These are deferred-with-explicit-disclosure per Plan v13 §F (no SILENT fallback):
 
 - **Live LLM cluster**: §G #3 pending. Backend may run with stub LLM responses
-  for Block A (template suggestion) and Block B (BPEI ambiguity); the LLM-
+  for Block A (template suggestion) and Block B (ambiguity); the LLM-
   augmented disambiguation is fully exercised only after cluster online.
 - **F3 upload-as-evidence loop** (parser → chunking → tier T7 assignment →
   cite uploaded doc in next query): Phase-1-END behavior, **not** Phase-1-PARTIAL.
@@ -78,7 +78,7 @@ These are deferred-with-explicit-disclosure per Plan v13 §F (no SILENT fallback
 ## What POLARIS is supposed to do (so you know when something's broken)
 
 - F1 template browse: <200ms suggestion latency
-- F2 BPEI ambiguity: modal appears within 1s of submit; offers 2-5 candidate meanings; refusing to disambiguate is not allowed (POLARIS must ask, not silently guess)
+- F2 ambiguity: modal appears within 1s of submit; offers 2-5 candidate meanings; refusing to disambiguate is not allowed (POLARIS must ask, not silently guess)
 - F3 upload (endpoint contract only — Phase-1-PARTIAL): PDF up to **25 MB** accepts (`src/polaris_v6/api/upload.py` `MAX_BYTES = 25 * 1024 * 1024`); successful upload returns **HTTP 201 Created** with an `UploadResponse` body containing `document_id`, `filename`, `bytes`, `sha256`, `classification`, `parse_status`, `chunk_preview`. Parser + full chunk listing + tier-T7 assignment + cite-uploaded-doc-in-next-query are **Phase-1-END**, deferred per known-gaps. (HEAD ships only the endpoint contract; `parse_status` may be `"queued"` and `chunk_preview` may be empty.)
 - F15 export: JSON downloads within 5s; the file is a single `EvidenceContract v1.0` artifact served by `GET /runs/{run_id}/bundle` (see `src/polaris_v6/api/bundle.py`, `response_model=EvidenceContract`). All 15 required top-level fields per `src/polaris_v6/schemas/evidence_contract.py` lines 86-105 must be present: `contract_version` (literal `"1.0"`), `run_id`, `template`, `question`, `queued_at`, `finished_at`, `pipeline_status`, `evidence_pool`, `verified_sentences`, `frame_coverage`, `contradictions`, `cost_usd`, `generator_model`, `verifier_model`, `family_segregation_passed`. **No ZIP / no `report.md` / no `evidence/` folder** — those are Phase-1-END artifacts not yet shipped.
 
