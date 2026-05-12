@@ -1,0 +1,148 @@
+{
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "section:safety",
+          "type": "section",
+          "label": "Safety",
+          "section_title": "Safety"
+        }
+      },
+      {
+        "data": {
+          "id": "section:efficacy",
+          "type": "section",
+          "label": "Efficacy",
+          "section_title": "Efficacy"
+        }
+      },
+      {
+        "data": {
+          "id": "src:ev_001",
+          "type": "source",
+          "label": "NEJM 2024 trial",
+          "tier": "T1",
+          "source_url": "https://example.com/nejm-2024"
+        }
+      },
+      {
+        "data": {
+          "id": "src:ev_002",
+          "type": "source",
+          "label": "Cochrane 2023 review",
+          "tier": "T2",
+          "source_url": "https://example.com/cochrane-2023"
+        }
+      },
+      {
+        "data": {
+          "id": "src:ev_003",
+          "type": "source",
+          "label": "FDA label",
+          "tier": "T1",
+          "source_url": "https://example.com/fda-label"
+        }
+      },
+      {
+        "data": {
+          "id": "sent:Safety:0",
+          "type": "sentence",
+          "label": "Sentence about safety profile.",
+          "sentence_text": "Sentence about safety profile."
+        }
+      },
+      {
+        "data": {
+          "id": "sent:Safety:1",
+          "type": "sentence",
+          "label": "Adverse events sentence.",
+          "sentence_text": "Adverse events sentence."
+        }
+      },
+      {
+        "data": {
+          "id": "sent:Efficacy:0",
+          "type": "sentence",
+          "label": "Efficacy sentence.",
+          "sentence_text": "Efficacy sentence."
+        }
+      },
+      {
+        "data": {
+          "id": "frame:efficacy_endpoint",
+          "type": "frame",
+          "label": "efficacy_endpoint",
+          "frame_status": "pass"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "membersec:Safety:0:section:safety",
+          "source": "sent:Safety:0",
+          "target": "section:safety",
+          "edge_type": "section_member"
+        }
+      },
+      {
+        "data": {
+          "id": "membersec:Safety:1:section:safety",
+          "source": "sent:Safety:1",
+          "target": "section:safety",
+          "edge_type": "section_member"
+        }
+      },
+      {
+        "data": {
+          "id": "membersec:Efficacy:0:section:efficacy",
+          "source": "sent:Efficacy:0",
+          "target": "section:efficacy",
+          "edge_type": "section_member"
+        }
+      },
+      {
+        "data": {
+          "id": "cite:Safety:0:0:ev_001",
+          "source": "sent:Safety:0",
+          "target": "src:ev_001",
+          "edge_type": "cites"
+        }
+      },
+      {
+        "data": {
+          "id": "cite:Safety:1:0:ev_002",
+          "source": "sent:Safety:1",
+          "target": "src:ev_002",
+          "edge_type": "cites"
+        }
+      },
+      {
+        "data": {
+          "id": "cite:Efficacy:0:0:ev_003",
+          "source": "sent:Efficacy:0",
+          "target": "src:ev_003",
+          "edge_type": "cites"
+        }
+      },
+      {
+        "data": {
+          "id": "contra:1:ev_001:ev_003",
+          "source": "src:ev_001",
+          "target": "src:ev_003",
+          "edge_type": "contradicts"
+        }
+      }
+    ]
+  },
+  "run_id": "test_fixture_001",
+  "elements_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "diagnostics": {
+    "bibliography_count": 3,
+    "fallback_source_count": 0,
+    "missing_reference_occurrence_count": 0,
+    "referenced_unknown_evidence_ids": []
+  },
+  "schema_version": "1.0"
+}

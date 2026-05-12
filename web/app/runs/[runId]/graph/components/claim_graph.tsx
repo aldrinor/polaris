@@ -46,6 +46,7 @@ interface ClaimGraphProps {
   searchQuery: string;
   snowballHighlightIds: Set<string> | null;
   setSelectedNodeId: (id: string | null) => void;
+  onCyReady?: (cy: cytoscape.Core | null) => void;
 }
 
 export function ClaimGraph({
@@ -54,8 +55,13 @@ export function ClaimGraph({
   searchQuery,
   snowballHighlightIds,
   setSelectedNodeId,
+  onCyReady,
 }: ClaimGraphProps) {
-  const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
+  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
+  const setCyInstance = (cy: cytoscape.Core | null) => {
+    _setCyInstance(cy);
+    onCyReady?.(cy);
+  };
   const [hover, setHover] = useState<HoverState | null>(null);
 
   const { elements, layout } = useMemo(() => {

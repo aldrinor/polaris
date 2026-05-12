@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getRunGraph, type GraphPayload } from "@/lib/api";
 
+import type cytoscape from "cytoscape";
+
 import { AccessibleGraphList } from "./components/accessible_graph_list";
 import { ClaimGraph } from "./components/claim_graph";
+import { GraphExportButtons } from "./components/graph_export_buttons";
 import { snowballNeighbors } from "./components/snowball";
 import { useGraphState } from "./components/use_graph_state";
 
@@ -99,6 +102,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
   const [state, adjacency, actions] = useGraphState(payload);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const [cy, setCy] = useState<cytoscape.Core | null>(null);
   const inspectorHref = (id: string) =>
     `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
 
@@ -150,6 +154,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
             Clear ({state.snowball_highlight_ids.size} nodes)
           </Button>
         )}
+        <GraphExportButtons cy={cy} payload={payload} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <ClaimGraph
@@ -158,6 +163,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
           searchQuery={state.search_query}
           snowballHighlightIds={state.snowball_highlight_ids}
           setSelectedNodeId={actions.setSelectedNodeId}
+          onCyReady={setCy}
         />
         <AccessibleGraphList
           payload={payload}
