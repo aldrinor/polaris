@@ -1,0 +1,429 @@
+diff --git a/web/app/runs/[runId]/graph/components/claim_graph.tsx b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+index 16b07df5..2dd3f90d 100644
+--- a/web/app/runs/[runId]/graph/components/claim_graph.tsx
++++ b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+@@ -46,6 +46,7 @@ interface ClaimGraphProps {
+   searchQuery: string;
+   snowballHighlightIds: Set<string> | null;
+   setSelectedNodeId: (id: string | null) => void;
++  onCyReady?: (cy: cytoscape.Core | null) => void;
+ }
+ 
+ export function ClaimGraph({
+@@ -54,8 +55,13 @@ export function ClaimGraph({
+   searchQuery,
+   snowballHighlightIds,
+   setSelectedNodeId,
++  onCyReady,
+ }: ClaimGraphProps) {
+-  const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
++  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
++  const setCyInstance = (cy: cytoscape.Core | null) => {
++    _setCyInstance(cy);
++    onCyReady?.(cy);
++  };
+   const [hover, setHover] = useState<HoverState | null>(null);
+ 
+   const { elements, layout } = useMemo(() => {
+diff --git a/web/app/runs/[runId]/graph/components/graph_export.ts b/web/app/runs/[runId]/graph/components/graph_export.ts
+new file mode 100644
+index 00000000..b396e887
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/graph_export.ts
+@@ -0,0 +1,76 @@
++/**
++ * graph_export — browser-side PNG + JSON downloads for ClaimGraph.
++ *
++ * `exportPNG(cy)` returns a Promise<Blob> via cytoscape's `cy.png({...,
++ * output: 'blob-promise'})`. 4x scale for retina-grade output.
++ *
++ * `exportJSON(payload)` produces a Blob whose body is the canonicalized
++ * elements JSON: positions stripped, nodes+edges sorted by id, keys
++ * recursively sorted, no whitespace. Mirrors backend
++ * `src/polaris_graph/api/graph_route.py:206-216` (modulo Python
++ * `ensure_ascii=True` vs JSON.stringify; consumer hashes the canonical
++ * form, so non-ASCII characters serialized differently between Python
++ * and JS will not byte-match. Documented; OK for v1 since labels are
++ * latin-1 by convention).
++ *
++ * `triggerDownload(blob, filename)` uses URL.createObjectURL + temp
++ * `<a download>` click, then revokes the URL after the click is
++ * dispatched.
++ */
++
++import type cytoscape from "cytoscape";
++
++import type { GraphPayload } from "@/lib/api";
++
++export async function exportPNG(
++  cy: cytoscape.Core | null,
++): Promise<Blob | null> {
++  if (!cy) return null;
++  const result = await cy.png({
++    full: true,
++    scale: 4,
++    output: "blob-promise",
++  });
++  return result as Blob;
++}
++
++function sortKeys(value: unknown): unknown {
++  if (Array.isArray(value)) return value.map(sortKeys);
++  if (value && typeof value === "object") {
++    const sorted: Record<string, unknown> = {};
++    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
++      sorted[k] = sortKeys((value as Record<string, unknown>)[k]);
++    }
++    return sorted;
++  }
++  return value;
++}
++
++export function exportJSON(payload: GraphPayload): Blob {
++  const nodes = payload.elements.nodes
++    .map((n) => {
++      // eslint-disable-next-line @typescript-eslint/no-unused-vars
++      const { position: _drop, ...rest } = n;
++      return rest;
++    })
++    .sort((a, b) =>
++      a.data.id < b.data.id ? -1 : a.data.id > b.data.id ? 1 : 0,
++    );
++  const edges = [...payload.elements.edges].sort((a, b) =>
++    a.data.id < b.data.id ? -1 : a.data.id > b.data.id ? 1 : 0,
++  );
++  const canonical = JSON.stringify(sortKeys({ nodes, edges }));
++  return new Blob([canonical], { type: "application/json" });
++}
++
++export function triggerDownload(blob: Blob, filename: string): void {
++  const url = URL.createObjectURL(blob);
++  const a = document.createElement("a");
++  a.href = url;
++  a.download = filename;
++  document.body.appendChild(a);
++  a.click();
++  document.body.removeChild(a);
++  // Revoke after the click has been dispatched to free memory.
++  setTimeout(() => URL.revokeObjectURL(url), 0);
++}
+diff --git a/web/app/runs/[runId]/graph/components/graph_export_buttons.tsx b/web/app/runs/[runId]/graph/components/graph_export_buttons.tsx
+new file mode 100644
+index 00000000..e6803372
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/graph_export_buttons.tsx
+@@ -0,0 +1,46 @@
++"use client";
++
++import type cytoscape from "cytoscape";
++
++import { Button } from "@/components/ui/button";
++import type { GraphPayload } from "@/lib/api";
++
++import { exportJSON, exportPNG, triggerDownload } from "./graph_export";
++
++interface GraphExportButtonsProps {
++  cy: cytoscape.Core | null;
++  payload: GraphPayload;
++}
++
++export function GraphExportButtons({ cy, payload }: GraphExportButtonsProps) {
++  const onExportPng = async () => {
++    const blob = await exportPNG(cy);
++    if (!blob) return;
++    triggerDownload(blob, `graph-${payload.run_id}.png`);
++  };
++  const onExportJson = () => {
++    const blob = exportJSON(payload);
++    triggerDownload(blob, `graph-${payload.run_id}.json`);
++  };
++  return (
++    <>
++      <Button
++        data-testid="graph-export-png"
++        variant="outline"
++        size="sm"
++        disabled={!cy}
++        onClick={onExportPng}
++      >
++        Download PNG
++      </Button>
++      <Button
++        data-testid="graph-export-json"
++        variant="outline"
++        size="sm"
++        onClick={onExportJson}
++      >
++        Download JSON
++      </Button>
++    </>
++  );
++}
+diff --git a/web/app/runs/[runId]/graph/page.tsx b/web/app/runs/[runId]/graph/page.tsx
+index 5a0a4864..a0446f6e 100644
+--- a/web/app/runs/[runId]/graph/page.tsx
++++ b/web/app/runs/[runId]/graph/page.tsx
+@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+ import { getRunGraph, type GraphPayload } from "@/lib/api";
+ 
++import type cytoscape from "cytoscape";
++
+ import { AccessibleGraphList } from "./components/accessible_graph_list";
+ import { ClaimGraph } from "./components/claim_graph";
++import { GraphExportButtons } from "./components/graph_export_buttons";
+ import { snowballNeighbors } from "./components/snowball";
+ import { useGraphState } from "./components/use_graph_state";
+ 
+@@ -99,6 +102,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+   const [state, adjacency, actions] = useGraphState(payload);
+   const searchInputRef = useRef<HTMLInputElement>(null);
+   const router = useRouter();
++  const [cy, setCy] = useState<cytoscape.Core | null>(null);
+   const inspectorHref = (id: string) =>
+     `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+ 
+@@ -150,6 +154,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+             Clear ({state.snowball_highlight_ids.size} nodes)
+           </Button>
+         )}
++        <GraphExportButtons cy={cy} payload={payload} />
+       </div>
+       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+         <ClaimGraph
+@@ -158,6 +163,7 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+           searchQuery={state.search_query}
+           snowballHighlightIds={state.snowball_highlight_ids}
+           setSelectedNodeId={actions.setSelectedNodeId}
++          onCyReady={setCy}
+         />
+         <AccessibleGraphList
+           payload={payload}
+diff --git a/web/tests/e2e/graph_page_smoke.spec.ts b/web/tests/e2e/graph_page_smoke.spec.ts
+new file mode 100644
+index 00000000..b4cb65d6
+--- /dev/null
++++ b/web/tests/e2e/graph_page_smoke.spec.ts
+@@ -0,0 +1,66 @@
++/**
++ * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
++ *
++ * Mocks the backend `/api/runs/<id>/graph` endpoint with a deterministic
++ * fixture so the test is hermetic and does not depend on a live FastAPI
++ * server.
++ */
++
++import { test, expect } from "@playwright/test";
++import fixture from "../fixtures/graph_payload.json";
++
++test.describe("Claim graph page (I-snowball-006)", () => {
++  test.beforeEach(async ({ page }) => {
++    await page.route("**/api/runs/*/graph", (route) => {
++      route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify(fixture),
++      });
++    });
++  });
++
++  test("loads page and renders graph canvas", async ({ page }) => {
++    await page.goto("/runs/test_fixture_001/graph");
++    await expect(page.getByTestId("graph-page")).toBeVisible();
++    await expect(page.getByTestId("claim-graph")).toBeVisible();
++  });
++
++  test("search filters AccessibleGraphList", async ({ page }) => {
++    await page.goto("/runs/test_fixture_001/graph");
++    await page.getByPlaceholder(/Search nodes/).fill("safety");
++    await expect(
++      page.getByTestId("graph-list-row-section:safety"),
++    ).toBeVisible();
++    await expect(
++      page.getByTestId("graph-list-row-frame:efficacy_endpoint"),
++    ).toHaveCount(0);
++  });
++
++  test("PNG download triggers", async ({ page }) => {
++    await page.goto("/runs/test_fixture_001/graph");
++    // Wait for cytoscape mount (Download PNG enables once cy is ready).
++    const pngButton = page.getByTestId("graph-export-png");
++    await expect(pngButton).toBeEnabled({ timeout: 10_000 });
++    const downloadPromise = page.waitForEvent("download");
++    await pngButton.click();
++    const download = await downloadPromise;
++    expect(download.suggestedFilename()).toMatch(/\.png$/);
++  });
++
++  test("JSON download triggers", async ({ page }) => {
++    await page.goto("/runs/test_fixture_001/graph");
++    const downloadPromise = page.waitForEvent("download");
++    await page.getByTestId("graph-export-json").click();
++    const download = await downloadPromise;
++    expect(download.suggestedFilename()).toMatch(/\.json$/);
++  });
++
++  test("404 backend → error UI", async ({ page }) => {
++    await page.route("**/api/runs/no_such_run/graph", (route) =>
++      route.fulfill({ status: 404, body: "run not found" }),
++    );
++    await page.goto("/runs/no_such_run/graph");
++    await expect(page.getByRole("alert")).toContainText("Failed to load graph");
++  });
++});
+diff --git a/web/tests/fixtures/graph_payload.json b/web/tests/fixtures/graph_payload.json
+new file mode 100644
+index 00000000..dfb118ae
+--- /dev/null
++++ b/web/tests/fixtures/graph_payload.json
+@@ -0,0 +1,148 @@
++{
++  "elements": {
++    "nodes": [
++      {
++        "data": {
++          "id": "section:safety",
++          "type": "section",
++          "label": "Safety",
++          "section_title": "Safety"
++        }
++      },
++      {
++        "data": {
++          "id": "section:efficacy",
++          "type": "section",
++          "label": "Efficacy",
++          "section_title": "Efficacy"
++        }
++      },
++      {
++        "data": {
++          "id": "src:ev_001",
++          "type": "source",
++          "label": "NEJM 2024 trial",
++          "tier": "T1",
++          "source_url": "https://example.com/nejm-2024"
++        }
++      },
++      {
++        "data": {
++          "id": "src:ev_002",
++          "type": "source",
++          "label": "Cochrane 2023 review",
++          "tier": "T2",
++          "source_url": "https://example.com/cochrane-2023"
++        }
++      },
++      {
++        "data": {
++          "id": "src:ev_003",
++          "type": "source",
++          "label": "FDA label",
++          "tier": "T1",
++          "source_url": "https://example.com/fda-label"
++        }
++      },
++      {
++        "data": {
++          "id": "sent:Safety:0",
++          "type": "sentence",
++          "label": "Sentence about safety profile.",
++          "sentence_text": "Sentence about safety profile."
++        }
++      },
++      {
++        "data": {
++          "id": "sent:Safety:1",
++          "type": "sentence",
++          "label": "Adverse events sentence.",
++          "sentence_text": "Adverse events sentence."
++        }
++      },
++      {
++        "data": {
++          "id": "sent:Efficacy:0",
++          "type": "sentence",
++          "label": "Efficacy sentence.",
++          "sentence_text": "Efficacy sentence."
++        }
++      },
++      {
++        "data": {
++          "id": "frame:efficacy_endpoint",
++          "type": "frame",
++          "label": "efficacy_endpoint",
++          "frame_status": "pass"
++        }
++      }
++    ],
++    "edges": [
++      {
++        "data": {
++          "id": "membersec:Safety:0:section:safety",
++          "source": "sent:Safety:0",
++          "target": "section:safety",
++          "edge_type": "section_member"
++        }
++      },
++      {
++        "data": {
++          "id": "membersec:Safety:1:section:safety",
++          "source": "sent:Safety:1",
++          "target": "section:safety",
++          "edge_type": "section_member"
++        }
++      },
++      {
++        "data": {
++          "id": "membersec:Efficacy:0:section:efficacy",
++          "source": "sent:Efficacy:0",
++          "target": "section:efficacy",
++          "edge_type": "section_member"
++        }
++      },
++      {
++        "data": {
++          "id": "cite:Safety:0:0:ev_001",
++          "source": "sent:Safety:0",
++          "target": "src:ev_001",
++          "edge_type": "cites"
++        }
++      },
++      {
++        "data": {
++          "id": "cite:Safety:1:0:ev_002",
++          "source": "sent:Safety:1",
++          "target": "src:ev_002",
++          "edge_type": "cites"
++        }
++      },
++      {
++        "data": {
++          "id": "cite:Efficacy:0:0:ev_003",
++          "source": "sent:Efficacy:0",
++          "target": "src:ev_003",
++          "edge_type": "cites"
++        }
++      },
++      {
++        "data": {
++          "id": "contra:1:ev_001:ev_003",
++          "source": "src:ev_001",
++          "target": "src:ev_003",
++          "edge_type": "contradicts"
++        }
++      }
++    ]
++  },
++  "run_id": "test_fixture_001",
++  "elements_hash": "0000000000000000000000000000000000000000000000000000000000000000",
++  "diagnostics": {
++    "bibliography_count": 3,
++    "fallback_source_count": 0,
++    "missing_reference_occurrence_count": 0,
++    "referenced_unknown_evidence_ids": []
++  },
++  "schema_version": "1.0"
++}
+
+# canonical-diff-sha256: be3159105dbc577463706677921af79c6d9ec47da07003e7ff853a7c7aa03dcc
