@@ -83,3 +83,44 @@ PR-F (execute Issue #1): blocked on PR-E
 - Mark TaskCreate items completed without verifiable evidence
 - Add "while we're at it" polish to scoped PRs
 - Emit STATUS blocks or recap text mid-batch
+
+## 2026-05-11 status update (post BEAT-BOTH + I-hygiene-001)
+
+### BEAT-BOTH §-1.1 line-by-line audit complete (GH#400 / GH#431)
+
+Q1-Q5 §-1.1 audited claim-by-claim against fetched source content. Result per Codex deep-reasoning verdict:
+
+**`BEAT_GEMINI_CHATGPT_UNAUDITABLE`** — POLARIS dramatically beat Gemini on the measured Q1 apples-to-apples (96.8% V vs 8.6% V). Gemini Q1-Q5 aggregate 12.1% V on 414 claims with one source-misattribution fabrication (Q4 GM-T1-038: CHBA "over 18,000" Ontario jobs reattributed to "Toronto housing starts plummeting per month"). ChatGPT Pro DR substrate+submission-blocked (sealed React Web Component + silent DR-mode failure on Q2+Q3 retries).
+
+POLARIS Q2-Q5 not run this session (cost: ~$30 + 2hrs DeepSeek live). Q1 anchor + architectural extrapolation only — `polaris_q2_q5_extrapolation_assessment: speculative` per Codex.
+
+Master report: `outputs/beat_both_master_report.md`. Per-Q reports: `.codex/I-eval-{004..008}/q{1..5}_beat_both_final.md`. Cross-review verdicts: `.codex/I-eval-{005..008}/claude_cross_review_q{2..5}.md`. Codex final verdict: `.codex/I-eval-004/beat_both_final_verdict_output.txt`.
+
+### I-hygiene-001 root cleanup complete (GH#432)
+
+POLARIS root + `.codex/` archived per Codex iter-4 APPROVE'd plan + iter-1 APPROVE'd diff:
+- 372/376 planned moves succeeded.
+- 230 historical `.codex/` artifacts archived → `archive/2026-05-11-root-hygiene/codex_historical/` (m28-m63 audit briefs, v17-v30 plan/audit briefs, phase_c/d, pr_b/d/e review files, continuous/, deep_dive_round_*/, walkthrough_*/, etc).
+- `.gitignore` hardened with anchored patterns (`/tmp*/`, `/codex_tmp_*/`, `/manual_*/`, `/dashboard_probe_*/`, etc).
+- **91 Windows-ACL-locked root dirs** could not be moved (shutil + Move-Item -Force + attrib -R + takeown all returned Access Denied). They are now `.gitignored` (git-invisible). User-level admin elevation or post-reboot retry required to physically remove. List at `state/polaris_restart/i_hygiene_001_force_move_failures.txt`.
+
+### Post-reboot follow-up (user)
+
+After next reboot OR via elevated PowerShell:
+```powershell
+# Remove the 91 perm-locked dirs (all .gitignored, no git impact)
+Get-Content state\polaris_restart\i_hygiene_001_force_move_failures.txt | ForEach-Object {
+    $path = ($_ -split ' : ')[0]
+    if (Test-Path $path) {
+        try { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning "Failed: $path -- $($_.Exception.Message)" }
+    }
+}
+```
+
+### Outstanding (per `state/polaris_restart/issue_breakdown.md`)
+
+- **GH#90 I-phase0-009** — OVH Canada BHS H200 invoice + provisioning (HARD GATE; blocks GH#199-202 sovereign migration)
+- **GH#85** (Vast.ai US dev cluster), **GH#86** (backend modernization), **GH#87** (DeepSeek hardware path), **GH#88** (SGLang vs vLLM bakeoff), **GH#89** (Gemma 4 31B verify), **GH#91** (Gemma 4 license sign-off)
+- **GH#199-202** (sovereign vLLM migration + segregation re-verify) — blocked on hardware
+- **GH#203** (migration findings), **GH#204** (final walkthrough), **GH#205** (handover package), **GH#206** (Carney office demo) — final phase

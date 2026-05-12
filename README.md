@@ -4,6 +4,11 @@ High-integrity research pipeline: turns a plain-language research
 question into a grounded, per-sentence-verified markdown report with
 bibliography, corpus-approval gate, and a separate-family evaluator.
 
+## 2026-05-11 latest
+
+- **BEAT-BOTH §-1.1 line-by-line audit (GH#400/#431):** POLARIS Q1 96.8% V vs Gemini Ultra DR 12.1% V aggregate Q1-Q5 (414 claims, 1 fabrication caught). ChatGPT Pro DR substrate+submission-blocked. Codex verdict: `BEAT_GEMINI_CHATGPT_UNAUDITABLE`. See `outputs/beat_both_master_report.md` + `.codex/I-eval-004/beat_both_final_verdict_output.txt`.
+- **I-hygiene-001 root cleanup (GH#432):** 230 historical `.codex/` artifacts archived to `archive/2026-05-11-root-hygiene/`; `.gitignore` hardened with anchored patterns. Codex APPROVE on plan (iter 4) and diff (iter 1). 91 Windows-ACL-locked dirs pending post-reboot/elevated-admin removal per `state/polaris_restart/i_hygiene_001_force_move_failures.txt`.
+
 ## v6.2 mission state (2026-05-04)
 
 POLARIS is shipping toward a **Sep 6, 2026 tracer demo for incoming PM

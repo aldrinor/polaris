@@ -3908,3 +3908,18 @@
 - EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
 - STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
 - NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+
+[2026-05-11 22:30:00]
+- ACTION: I-hygiene-001 — surgical POLARIS root + .codex/ cleanup (GH#432).
+- RATIONALE: 6 weeks of pytest temp dirs, Codex review scratch, manual probe dirs accumulated at POLARIS root (~146 entries). `.codex/` had ~230 historical review outputs / round briefs / phase plan briefs predating issue-driven workflow. User directive 2026-05-11: surgical clean up + CLAUDE.md §4.1 snake_case enforcement + archive everything old/temp/obsolete + Codex must approve deliverable. Per §-1.2 standard debug workflow: GH issue first, comprehensive scan, brief Codex with plan, execute on approve, brief Codex with diff, approve, then docs.
+- DOCS/RESEARCH: CLAUDE.md §4.1 (snake_case), §-1.2 (standard debug workflow), §3.0 (issue-driven), §8.3.1 (Codex 5-cap).
+- SYNC: GH#432 created. Branch `bot/I-hygiene-001-root-folder-cleanup` cut from `bot/I-eval-004-q1-beat-both-real` (preserves untracked BEAT-BOTH artifacts).
+- AFFECTED_FILES (commit 9348deaa, 190 files):
+  - NEW: scripts/inventory_root_hygiene.py, inventory_codex_hygiene.py, i_hygiene_001_execute.py, i_hygiene_001_force_move.ps1
+  - NEW: state/polaris_restart/i_hygiene_001_{inventory,codex_inventory,cleanup_manifest,reference_sweep}.md, force_move_failures.txt
+  - NEW: .codex/I-hygiene-001/codex_plan_brief.md + iter_{2..4}.md + verdict_iter_{1..4}.txt + codex_diff_brief.md + codex_diff_verdict_iter_1.txt
+  - DELETED (181): 230 `.codex/` historical entries archived to `archive/2026-05-11-root-hygiene/codex_historical/` (m28-m63 audit briefs, v17-v30 plan/audit briefs, phase_c/d plans, pr_b/d/e review files, shippable_plan_*, test_failure_triage_*, walkthrough_*, continuous/, deep_dive_round_*/, round_*/, slices retained per Codex iter-1 P1).
+  - MODIFIED: .gitignore (anchored patterns for `/tmp*/`, `/codex_tmp_*/`, `/manual_*/`, `/dashboard_probe_*/`, etc).
+- EVIDENCE/FINDINGS: Codex plan iter 4 APPROVE (0 P0/P1, accept_remaining). Codex diff iter 1 APPROVE (0 P0/P1, P2 deferred to docs-update). Execution: 372/376 planned moves succeeded; 91 root dirs Windows-ACL-locked (gitignored, documented for user-elevated cleanup); 0 hard failures. `pytest --collect-only` reaches 4,547 tests (1 pre-existing GPG WinError). 230 `.codex/` deletions + 9 new files staged + committed cleanly. POLARIS root: 181 entries → 35 essential + 91 perm-locked (gitignored).
+- STATUS: I-hygiene-001 cleanup PR committed (9348deaa) on bot/I-hygiene-001-root-folder-cleanup. Docs-update step in progress (this entry + handover + issue_breakdown + README + file_directory). After docs, push branch + create PR.
+- NEXT_STEP: Complete docs updates; push branch; create PR; user merge.

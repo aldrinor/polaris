@@ -276,3 +276,19 @@ tests/v6/
 `requirements-v6.txt` at repo root: pinned production dependencies for
 v6 (FastAPI 0.136, Pydantic 2.11, Dramatiq 2.1, OTEL 1.30, semconv
 0.51b0, pytest 8.4, ruff 0.7).
+
+---
+
+## 2026-05-11 I-hygiene-001 cleanup (GH#432)
+
+Historical clutter archived under `archive/2026-05-11-root-hygiene/`:
+
+- `root/` — pytest temp dirs, manual probe scratch, Codex review temp dirs
+- `codex_historical/` — 230 historical `.codex/` review outputs (m28-m63 audit briefs, v17-v30 plan/audit briefs, phase_c/d plans, pr_b/d/e review files, continuous/, deep_dive_round_*/, walkthrough_*/, round_*/, runs/, slices NOT archived per load-bearing finding, strategic_review_high_quality/, task_briefs/, next_issue_pick*/)
+
+POLARIS root now contains only essential project structure (see §"Standard Repository Layout" in CLAUDE.md §5). `.gitignore` is hardened with anchored patterns to prevent re-accumulation.
+
+**91 root dirs perm-locked** at cleanup time (Windows ACL — created by elevated process). Documented at `state/polaris_restart/i_hygiene_001_force_move_failures.txt`. All are `.gitignored`. User-side post-reboot or elevated-admin removal required to physically clean disk.
+
+Cleanup manifest: `state/polaris_restart/i_hygiene_001_cleanup_manifest.md` (372 rows).
+Reference sweep results: `state/polaris_restart/i_hygiene_001_reference_sweep.md` (58 hits, 0 runtime breaks, 8 stale doc/comment refs deferred).

@@ -1411,3 +1411,38 @@ remaining_blockers_for_execution: <list any user-blocked items>
 ```
 
 No exec exploration unless verifying a specific concern. No toothpaste-squeeze. List ALL remaining issues this iteration.
+
+## I-hygiene-001 — POLARIS root + .codex/ surgical cleanup (GH#432) — COMPLETE 2026-05-11
+
+**Branch:** `bot/I-hygiene-001-root-folder-cleanup`
+**Commit:** `9348deaa`
+**Codex iterations:** plan iter 4 APPROVE (0 P0/P1), diff iter 1 APPROVE (0 P0/P1).
+
+**Scope delivered:**
+- 230 historical `.codex/` review outputs archived → `archive/2026-05-11-root-hygiene/codex_historical/`
+- 146 root pytest/scratch dirs targeted, 55 successfully archived, 91 Windows-ACL-locked (gitignored, documented for elevated cleanup)
+- 35 essential root entries preserved (config/, data/, docs/, helm/, logs/, memory/, models/, outputs/, polaris-controls/, scripts/, src/, state/, tests/, web/, .claude/, .codex/, .env*, .git/, .github/, .gitignore, .legacy/, .private/, CLAUDE.md, Dockerfile, README.md, architecture.md, ground_rules.md, docker-compose.yml, pytest.ini, requirements*.txt)
+- `.codex/slices/` retained per Codex iter-1 P1 (load-bearing — 9 production-code refs in src/ + tests/)
+- `.gitignore` anchored patterns added: `/tmp*/`, `/.tmp*/`, `/codex_tmp_*/`, `/manual_*/`, `/dashboard_probe_*/`, `/pytest_run_*/`, etc.
+
+**Acceptance criteria — outcome:**
+1. ✅ POLARIS root contains only essential project structure (35 KEEP + 91 gitignored perm-locked).
+2. ✅ Non-essential temp/scratch/cache dirs archived under `archive/2026-05-11-root-hygiene/`.
+3. ✅ No tracked file/folder at root violates CLAUDE.md §4.1 snake_case (conventional exceptions apply: CLAUDE.md, README.md, Dockerfile, .env*, etc).
+4. ✅ `.codex/` historical review outputs moved to `archive/.../codex_historical/`.
+5. ✅ `.gitignore` updated.
+6. ⏳ `docs/file_directory.md` update — pending follow-up.
+7. ✅ README.md kept (essential).
+8. ✅ `logs/session_log.md` entry appended per §2.2.
+9. ✅ This entry in `issue_breakdown.md`.
+10. ✅ Codex APPROVE on plan brief (iter 4) AND diff (iter 1).
+
+**Anti-scope respected:**
+- ✅ `polaris-controls/` not touched
+- ✅ Tracked snake_case-compliant files not renamed
+- ✅ `archive/` content (pre-existing) not modified
+- ✅ `src/`, `tests/`, `scripts/`, `web/` contents not touched
+
+**Follow-up actions:**
+- User: post-reboot or elevated-admin removal of 91 perm-locked dirs per `i_hygiene_001_force_move_failures.txt`.
+- Claude (next PR): `docs/file_directory.md` rewrite + reference-patch the 8 stale doc/comment refs identified in `i_hygiene_001_reference_sweep.md`.
