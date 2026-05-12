@@ -1,4 +1,4 @@
-"""Intake — user-question entry point for the BPEI spine.
+"""Intake — user-question entry point for the research pipeline.
 
 Slice 001 introduces:
     - question_normalizer: deterministic pre-processing of raw user input

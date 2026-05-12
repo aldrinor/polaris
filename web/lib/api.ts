@@ -824,7 +824,7 @@ export class AuditBundleError extends Error {
 }
 
 /**
- * Build + download a GPG-signed audit bundle for the given BPEI chain.
+ * Build + download a GPG-signed audit bundle for the given research chain.
  *
  * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
  * with a structured error body, throws AuditBundleError with the .code

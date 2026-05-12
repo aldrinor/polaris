@@ -391,7 +391,7 @@ export default function DashboardPage() {
             >
               <CardHeader>
                 <CardDescription className="text-xs tracking-widest uppercase">
-                  Disambiguation needed (BPEI guard)
+                  Disambiguation needed (ambiguity guard)
                 </CardDescription>
                 <CardTitle className="text-base">
                   {ambiguity.clusters.length} possible meanings detected

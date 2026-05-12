@@ -1,7 +1,7 @@
 """Scope decision schema + assembly.
 
 Per slice 001 architecture proposal §"Data shapes". Defines the canonical
-Pydantic types that flow through the front half of the BPEI spine:
+Pydantic types that flow through the front half of the research pipeline:
 
     NormalizedQuestion (intake)
         ↓

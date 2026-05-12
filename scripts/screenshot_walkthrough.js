@@ -1,5 +1,5 @@
 // Headless browser walkthrough — captures screenshots at each stage of
-// the BPEI chain. Reproducible end-to-end fitness check.
+// the research chain. Reproducible end-to-end fitness check.
 //
 // Prerequisites:
 //   1. Backend up:   PYTHONPATH=src python -c "from dotenv import load_dotenv; load_dotenv(); import uvicorn; uvicorn.run('polaris_v6.api.app:app', host='127.0.0.1', port=8000)"

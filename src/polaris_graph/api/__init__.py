@@ -1,4 +1,4 @@
-"""API — public entry points for the BPEI spine.
+"""API — public entry points for the research pipeline.
 
 Slice 001: intake.py orchestrates intake → classify → ambiguity → decision.
 Slice 002+: retrieval, generator, audit endpoints will live here.

@@ -60,7 +60,7 @@ def get_sign_fn() -> SignFn | None:
 class AuditBundleRequest(BaseModel):
     """POST body for /api/audit-bundle.
 
-    Carries the full BPEI chain (decision + pool + report). The route
+    Carries the full research chain (decision + pool + report). The route
     re-validates the FK chain consistency before building.
     """
 

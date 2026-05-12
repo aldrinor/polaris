@@ -58,7 +58,7 @@ export default function GenerationPage() {
             Verified clinical research, end-to-end
           </h1>
           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-            POLARIS chains the full BPEI spine: scope discovery (slice 001),
+            POLARIS chains the full research pipeline: scope discovery (slice 001),
             retrieval against verified clinical sources (slice 002), and
             generation with strict-verify (slice 003). Every shipped sentence
             carries a provenance token of the form{" "}
@@ -88,7 +88,7 @@ export default function GenerationPage() {
 
       <footer className="border-border bg-background border-t">
         <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
-          <span>POLARIS v6.2 — Slice 003 (BPEI generator + strict-verify)</span>
+          <span>POLARIS v6.2 — Slice 003 (generator + strict-verify)</span>
           <span>Sovereign Canadian deep research</span>
         </div>
       </footer>

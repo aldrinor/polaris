@@ -31,14 +31,14 @@ sign-off after Phase 4.
 
 ---
 
-## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31)
+## Phase 1 — research pipeline + Evidence Contract Gate (May 13-31)
 
 All 7 buildable subtasks shipped substrate-complete with tests:
 
 | # | Task | Tests | Lib + Endpoint |
 |---|---|---|---|
 | 1.1 | F1 scope discovery panel | 5 | `src/polaris_v6/scope/decision.py` + `api/scope.py` |
-| 1.2 | F2 ambiguity detector + endpoint | 9 (5 lib + 4 API) | `src/polaris_v6/bpei/ambiguity_detector.py` + `api/ambiguity.py` (BPEI regression test PASS) |
+| 1.2 | F2 ambiguity detector + endpoint | 9 (5 lib + 4 API) | `src/polaris_v6/ambiguity_detector/ambiguity_detector.py` + `api/ambiguity.py` (BPEI regression test PASS) |
 | 1.3 | F3a evidence pool merger (graph_v4.py:149 fix) | 6 | `src/polaris_v6/adapters/evidence_pool_merger.py` |
 | 1.4 | Evidence Contract Gate | 13 (10 schema + 3 fixtures) | `src/polaris_v6/schemas/evidence_contract.py` + 6 golden fixtures (clinical, contradiction, abort, defense, climate, ai_sovereignty) |
 | 1.5 | F3b upload backend | 7 | `src/polaris_v6/api/upload.py` (extension whitelist + 25 MB cap + classification + sha256) + frontend dropzone wired |

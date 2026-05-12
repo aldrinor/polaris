@@ -68,7 +68,7 @@ class IntakeSuccessResponse(BaseModel):
     response_model=None,  # union response — let FastAPI emit either shape
 )
 def post_intake(req: IntakeRequest) -> IntakeSuccessResponse | IntakeErrorResponse:
-    """Run a question through the BPEI front-half pipeline.
+    """Run a question through the scope + intake pipeline.
 
     Returns ScopeDecision on success (HTTP 200) or IntakeError shape
     (HTTP 400) when the question is malformed.

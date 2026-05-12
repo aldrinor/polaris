@@ -279,7 +279,7 @@ Same 10 tasks as v5, plus:
 - 0.11: Substrate audit verification (this doc) reviewed by Codex
 - 0.12: Anti-sycophancy CI suite scaffold (paired prompts neutral/leading/opposite-frame)
 
-### Phase 1 — BPEI spine + Evidence Contract Gate (3 weeks, May 13-31)
+### Phase 1 — research pipeline + Evidence Contract Gate (3 weeks, May 13-31)
 F1, F2, F3 (upload), F15 (audit bundle), Evidence Contract Gate (Task 1.4 from v5.1).
 
 ### Phase 2A — Core inspection (3 weeks, June 1 - June 21)

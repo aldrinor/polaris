@@ -92,7 +92,7 @@ class BundleManifest(BaseModel):
     bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bundle_version: Literal["1.0"] = BUNDLE_VERSION
 
-    # Foreign keys back through the BPEI spine
+    # Foreign keys back through the research pipeline
     decision_id: str = Field(min_length=1, description="slice 001 ScopeDecision id")
     pool_id: str = Field(min_length=1, description="slice 002 EvidencePool id")
     report_id: str = Field(min_length=1, description="slice 003 VerifiedReport id")

@@ -76,7 +76,7 @@ export default function RetrievalPage() {
 
       <footer className="border-border bg-background border-t">
         <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
-          <span>POLARIS v6.2 — Slice 002 (BPEI retrieval half)</span>
+          <span>POLARIS v6.2 — Slice 002 (retrieval)</span>
           <span>Sovereign Canadian deep research</span>
         </div>
       </footer>

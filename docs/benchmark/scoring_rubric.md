@@ -86,7 +86,7 @@ frames_present = extract_named_entities(response.response_text) ∩ expected_fra
 score = |frames_present| / |expected_frames|
 ```
 
-Phase 0 ships scoring scaffold; Phase 3 wires NER (using `src/polaris_v6/bpei/` extractors).
+Phase 0 ships scoring scaffold; Phase 3 wires NER (using `src/polaris_v6/ambiguity_detector/` extractors).
 
 ### D4 — Contradiction handling
 

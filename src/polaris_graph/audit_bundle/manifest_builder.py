@@ -2,7 +2,7 @@
 
 Per `.codex/slices/slice_004/architecture_proposal.md` §"manifest_builder".
 
-Given a ScopeDecision + EvidencePool + VerifiedReport (the BPEI chain
+Given a ScopeDecision + EvidencePool + VerifiedReport (the research chain
 output), serializes each to canonical JSON, snapshots cited source
 texts, and assembles a BundleManifest with SHA256 anchors over every
 content file.
