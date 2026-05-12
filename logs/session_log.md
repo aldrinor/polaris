@@ -3908,3 +3908,17 @@
 - EVIDENCE/FINDINGS: GitHub state — closed 3 I-bug-* w/ merged PRs (106, 123, 193). Created 24 new issues (15 follow-ups + 9 retroactive [SHIPPED]). Closed 9 retroactive immediately + 85 stale-open feature issues whose work shipped via merged PRs (PRs #220-325 verified via git log). Net open: 122 → 34. Local task list mirrors all 34 open GH issues as Tasks #238-#271 with GH#NNN prefix for traceability.
 - STATUS: Standards enshrined; backlog reflects reality. Pending: 15 active code-work tasks (I-bug-093..111, I-tests-001, I-bakeoff-A-001, I-decompose-001), 4 template/eval tasks (I-bench-002, I-tpl-006/7/8), 7 hardware tasks (I-phase0-003..010, user-procurement-blocked), 4 sovereign-migration tasks (I-sov-001..004, hardware-dependent), 4 final-phase tasks (I-buf-001, I-hand-001..003).
 - NEXT_STEP: Await user assignment per CLAUDE.md §10. Recommended first execution: GH#352 I-bug-093 (warn-mode demo run on entailment judge) — completes the entailment-judge story before tackling the synthesis [N] root cause work.
+
+[2026-05-12 08:15:00]
+- ACTION: Carney plan v6.2 audit + F-snowball library decision + 8 implementation issues opened
+- RATIONALE: User asked (a) "calm down, study original plan and ask Codex to study, cross-check with GH issues, identify completed vs missed"; (b) research snowball/citation-graph viz libs; (c) Codex-approve a library pick "no halfass"; (d) "update GH issue list, task list, todo list, handover etc, then start."
+- DOCS/RESEARCH: Carney plan v6.2 (canonical pinned), GH issues 1-446, web research on Reagraph / react-force-graph / Sigma.js / Cytoscape.js / G6 / D3, repo stats via gh API, npm version pages
+- SYNC: state/active_issue.json now points at I-snowball-002 active; canonical_pin.txt reconciled via PR #447; halt_20260512T065049Z_canonical_pin_drift.md remedied
+- AFFECTED_FILES: state/active_issue.json, docs/canonical_pin.txt, .codex/I-audit-002/* (new), .codex/I-snowball-001/* (new), state/halt_20260512T065049Z_canonical_pin_drift.md (new)
+- EVIDENCE/FINDINGS:
+  • I-audit-002 (GH#445) closed — 0 features missed (T4 defense + T5 climate templates ARE shipped in config/v6_templates/); only real gaps are hardware-chain (15 OPEN issues) + BEAT-BOTH Q2-Q5 closure (2 OPEN) + 1 P2 north-star UI gap (snowball graph viz) + 1 P3 tracker drift
+  • I-snowball-001 (GH#446) closed — Codex APPROVE iter 4 on cytoscape.js + react-cytoscapejs + cytoscape-fcose + cytoscape-dagre + cytoscape-expand-collapse (all MIT runtime). 4 iters of Codex caught ~10 real spec errors before any code written (SVG-export GPLv3, BFS code-correctness bugs, schema-shape error). Decision in .codex/I-snowball-001/DECISION.md.
+  • 8 implementation Issues opened: I-snowball-002..006b at GH#448-455. Total estimated 1,430 LOC, all ≤200 LOC per CHARTER §3 cap.
+  • PR #447 opened: canonical pin reconciliation (1-line maintenance).
+- STATUS: Active = I-snowball-002 (backend graph endpoint + server-side fcose pre-layout). Pin-reconcile PR awaiting user merge. Hardware chain (GH#85-91 + 199-206) remains blocked but deprioritized below F-snowball per 2026-05-12 user directive.
+- NEXT_STEP: Create branch bot/I-snowball-002-graph-endpoint, author Codex brief, fire Codex iter 1 review.
