@@ -9,7 +9,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from polaris_graph.api import graph_route
 from polaris_graph.api.graph_route import build_graph_payload, router
 
 
@@ -30,8 +29,12 @@ def app(monkeypatch: pytest.MonkeyPatch, small_ir: SimpleNamespace) -> FastAPI:
     def _load(_: Path) -> SimpleNamespace:
         return small_ir
 
-    monkeypatch.setattr(graph_route, "find_run_by_id", _find)
-    monkeypatch.setattr(graph_route, "load_audit_ir", _load)
+    # Patch the source modules (graph_route lazy-imports them inside the
+    # route handler per Codex diff iter 1 P1 fix).
+    from polaris_graph.audit_ir import registry as _registry
+    from polaris_graph.audit_ir import loader as _loader
+    monkeypatch.setattr(_registry, "find_run_by_id", _find)
+    monkeypatch.setattr(_loader, "load_audit_ir", _load)
     return a
 
 
@@ -47,7 +50,8 @@ def test_422_on_audit_ir_load_failure(
     def _raise(_: Path) -> SimpleNamespace:
         raise ValueError("synthetic load failure")
 
-    monkeypatch.setattr(graph_route, "load_audit_ir", _raise)
+    from polaris_graph.audit_ir import loader as _loader
+    monkeypatch.setattr(_loader, "load_audit_ir", _raise)
     client = TestClient(app)
     r = client.get(f"/api/runs/{small_ir.run_id}/graph")
     assert r.status_code == 422

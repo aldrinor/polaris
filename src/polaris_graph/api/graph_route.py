@@ -15,13 +15,20 @@ import json
 import re
 from typing import Literal
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from polaris_graph.audit_ir.loader import AuditIR, load_audit_ir
-from polaris_graph.audit_ir.registry import find_run_by_id
+if TYPE_CHECKING:
+    from polaris_graph.audit_ir.loader import AuditIR
 
 router = APIRouter(tags=["graph"])
+
+# Lazy imports for audit_ir.{registry,loader} live inside `get_run_graph`
+# (Codex diff iter 1 P1): module-level imports trigger src/__init__.py →
+# .env load → optional real-backend wiring, which makes app startup +
+# this module's import non-hermetic. Keep graph_route import cheap.
 
 # ---------------------------------------------------------------------------
 # Type literals
@@ -114,7 +121,7 @@ def _normalize_frame_status(raw: str) -> FrameStatus | None:
 # Builder (pure function — easy to test)
 # ---------------------------------------------------------------------------
 
-def build_graph_payload(ir: AuditIR) -> GraphPayload:
+def build_graph_payload(ir: "AuditIR") -> GraphPayload:
     """Transform AuditIR into cytoscape-format GraphPayload (deterministic)."""
     # 1. Bibliography source nodes
     bib_ids: set[str] = set()
@@ -227,6 +234,11 @@ def build_graph_payload(ir: AuditIR) -> GraphPayload:
 @router.get("/runs/{run_id}/graph", response_model=GraphPayload)
 def get_run_graph(run_id: str) -> GraphPayload:
     """Return cytoscape-format graph payload for a completed run."""
+    # Lazy import (Codex diff iter 1 P1): avoid loading audit_ir + .env at
+    # module load / app startup time.
+    from polaris_graph.audit_ir.loader import load_audit_ir
+    from polaris_graph.audit_ir.registry import find_run_by_id
+
     summary = find_run_by_id(run_id)
     if summary is None:
         raise HTTPException(status_code=404, detail="run not found")
