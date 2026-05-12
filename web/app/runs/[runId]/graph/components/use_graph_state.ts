@@ -17,6 +17,7 @@ export interface GraphState {
   selected_node_id: string | null;
   search_query: string;
   visible_node_ids: Set<string>;
+  snowball_highlight_ids: Set<string> | null;
 }
 
 export interface GraphAdjacency {
@@ -29,6 +30,7 @@ export interface GraphAdjacency {
 export interface GraphActions {
   setSelectedNodeId: (id: string | null) => void;
   setSearchQuery: (q: string) => void;
+  setSnowballHighlight: (ids: Set<string> | null) => void;
 }
 
 /** Shared search predicate used by list filter AND canvas highlight (Codex iter-2 P2-1.5). */
@@ -46,6 +48,8 @@ export function useGraphState(
 ): [GraphState, GraphAdjacency, GraphActions] {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [snowballHighlight, setSnowballHighlight] =
+    useState<Set<string> | null>(null);
 
   const visibleNodeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -75,8 +79,9 @@ export function useGraphState(
       selected_node_id: selectedNodeId,
       search_query: searchQuery,
       visible_node_ids: visibleNodeIds,
+      snowball_highlight_ids: snowballHighlight,
     },
     adjacency,
-    { setSelectedNodeId, setSearchQuery },
+    { setSelectedNodeId, setSearchQuery, setSnowballHighlight },
   ];
 }

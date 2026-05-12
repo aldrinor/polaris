@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { getRunGraph, type GraphPayload } from "@/lib/api";
 
 import { AccessibleGraphList } from "./components/accessible_graph_list";
 import { ClaimGraph } from "./components/claim_graph";
+import { snowballNeighbors } from "./components/snowball";
 import { useGraphState } from "./components/use_graph_state";
 
 interface GraphPageProps {
@@ -96,10 +98,13 @@ interface GraphSurfaceProps {
 function GraphSurface({ payload, runId }: GraphSurfaceProps) {
   const [state, adjacency, actions] = useGraphState(payload);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const inspectorHref = (id: string) =>
+    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           ref={searchInputRef}
           type="search"
@@ -112,13 +117,46 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
         <span className="text-muted-foreground text-xs">
           {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
         </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (state.selected_node_id)
+              router.push(inspectorHref(state.selected_node_id));
+          }}
+        >
+          Open Inspector
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (!state.selected_node_id) return;
+            actions.setSnowballHighlight(
+              snowballNeighbors(payload, state.selected_node_id, 2),
+            );
+          }}
+        >
+          Expand snowball (2 hops)
+        </Button>
+        {state.snowball_highlight_ids && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.setSnowballHighlight(null)}
+          >
+            Clear ({state.snowball_highlight_ids.size} nodes)
+          </Button>
+        )}
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <ClaimGraph
           payload={payload}
-          runId={runId}
           selectedNodeId={state.selected_node_id}
           searchQuery={state.search_query}
+          snowballHighlightIds={state.snowball_highlight_ids}
           setSelectedNodeId={actions.setSelectedNodeId}
         />
         <AccessibleGraphList
