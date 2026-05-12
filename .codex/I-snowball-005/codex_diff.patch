@@ -1,0 +1,281 @@
+diff --git a/web/app/runs/[runId]/graph/components/claim_graph.tsx b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+index 237100ea..16b07df5 100644
+--- a/web/app/runs/[runId]/graph/components/claim_graph.tsx
++++ b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+@@ -11,7 +11,6 @@
+ import cytoscape from "cytoscape";
+ import fcose from "cytoscape-fcose";
+ import dynamic from "next/dynamic";
+-import { useRouter } from "next/navigation";
+ import { useEffect, useMemo, useState } from "react";
+ 
+ import type { GraphPayload } from "@/lib/api";
+@@ -43,20 +42,19 @@ interface HoverState {
+ 
+ interface ClaimGraphProps {
+   payload: GraphPayload;
+-  runId: string;
+   selectedNodeId: string | null;
+   searchQuery: string;
++  snowballHighlightIds: Set<string> | null;
+   setSelectedNodeId: (id: string | null) => void;
+ }
+ 
+ export function ClaimGraph({
+   payload,
+-  runId,
+   selectedNodeId,
+   searchQuery,
++  snowballHighlightIds,
+   setSelectedNodeId,
+ }: ClaimGraphProps) {
+-  const router = useRouter();
+   const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
+   const [hover, setHover] = useState<HoverState | null>(null);
+ 
+@@ -78,15 +76,13 @@ export function ClaimGraph({
+     };
+   }, [payload]);
+ 
+-  // Idempotent event registration (Codex iter-1 P1-1.1 fix).
++  // Idempotent event registration (I-snowball-004 iter-1 P1 fix).
++  // I-snowball-005 iter-1 P1 fix: tap is SELECT-only, no navigation
++  // (page-level "Open Inspector" button now owns Inspector routing).
+   useEffect(() => {
+     if (!cyInstance) return;
+     const onTap = (evt: cytoscape.EventObject) => {
+-      const id = evt.target.id();
+-      setSelectedNodeId(id);
+-      router.push(
+-        `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`,
+-      );
++      setSelectedNodeId(evt.target.id());
+     };
+     const onMouseover = (evt: cytoscape.EventObject) => {
+       const node = evt.target;
+@@ -111,7 +107,18 @@ export function ClaimGraph({
+       cyInstance.off("mouseover", "node", onMouseover);
+       cyInstance.off("mouseout", "node", onMouseout);
+     };
+-  }, [cyInstance, runId, router, setSelectedNodeId]);
++  }, [cyInstance, setSelectedNodeId]);
++
++  // Snowball-neighbor highlight (I-snowball-005).
++  useEffect(() => {
++    if (!cyInstance) return;
++    cyInstance.nodes().removeClass("snowball-neighbor");
++    if (!snowballHighlightIds) return;
++    cyInstance
++      .nodes()
++      .filter((n) => snowballHighlightIds.has(n.id()))
++      .addClass("snowball-neighbor");
++  }, [cyInstance, snowballHighlightIds]);
+ 
+   // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
+   // use the same `nodeMatchesQuery` helper as the list filter).
+diff --git a/web/app/runs/[runId]/graph/components/graph_styles.ts b/web/app/runs/[runId]/graph/components/graph_styles.ts
+index 9c0ae631..f7a51561 100644
+--- a/web/app/runs/[runId]/graph/components/graph_styles.ts
++++ b/web/app/runs/[runId]/graph/components/graph_styles.ts
+@@ -84,6 +84,14 @@ export const STYLESHEET: cytoscape.StylesheetStyle[] = [
+       "border-color": "#0ea5e9",
+     },
+   },
++  {
++    selector: "node.snowball-neighbor",
++    style: {
++      "border-width": 3,
++      "border-color": "#3b82f6",
++      "background-opacity": 0.95,
++    },
++  },
+   {
+     selector: "edge[edge_type='cites']",
+     style: {
+diff --git a/web/app/runs/[runId]/graph/components/snowball.ts b/web/app/runs/[runId]/graph/components/snowball.ts
+new file mode 100644
+index 00000000..b46eb630
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/snowball.ts
+@@ -0,0 +1,56 @@
++/**
++ * snowballNeighbors — BFS frontier walk on the loaded GraphPayload.
++ *
++ * Pure function. Walks semantic edges only (cites + contradicts; NEVER
++ * section_member or frame_member, which are styling-only per
++ * I-snowball-002 brief iter 5 + I-snowball-001 DECISION.md).
++ *
++ * Undirected traversal (matches `cy.elements().bfs()` default and the
++ * approved DECISION.md caveat). v1 scope per I-snowball-005 brief iter 2:
++ * no `includeCoCites` parameter — current GraphEdgeType schema doesn't
++ * include `co_cites_default_off`. Add it back when co-citation edges
++ * land in a future PR.
++ */
++
++import type { GraphEdgeType, GraphPayload } from "@/lib/api";
++
++const SEMANTIC_EDGE_TYPES: ReadonlySet<GraphEdgeType> = new Set([
++  "cites",
++  "contradicts",
++]);
++
++export function snowballNeighbors(
++  payload: GraphPayload,
++  targetId: string,
++  maxHops: number,
++): Set<string> {
++  if (maxHops < 0) return new Set();
++  // Build undirected adjacency on semantic edges only.
++  const adj = new Map<string, Set<string>>();
++  for (const n of payload.elements.nodes) {
++    adj.set(n.data.id, new Set());
++  }
++  for (const e of payload.elements.edges) {
++    if (!SEMANTIC_EDGE_TYPES.has(e.data.edge_type)) continue;
++    adj.get(e.data.source)?.add(e.data.target);
++    adj.get(e.data.target)?.add(e.data.source);
++  }
++  if (!adj.has(targetId)) return new Set();
++  // BFS frontier walk
++  const visited = new Set<string>([targetId]);
++  let frontier: Set<string> = new Set([targetId]);
++  for (let hop = 0; hop < maxHops; hop++) {
++    const next = new Set<string>();
++    for (const id of frontier) {
++      for (const neighbor of adj.get(id) ?? []) {
++        if (!visited.has(neighbor)) {
++          visited.add(neighbor);
++          next.add(neighbor);
++        }
++      }
++    }
++    if (next.size === 0) break;
++    frontier = next;
++  }
++  return visited;
++}
+diff --git a/web/app/runs/[runId]/graph/components/use_graph_state.ts b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+index a0ed97c1..0d01ab69 100644
+--- a/web/app/runs/[runId]/graph/components/use_graph_state.ts
++++ b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+@@ -17,6 +17,7 @@ export interface GraphState {
+   selected_node_id: string | null;
+   search_query: string;
+   visible_node_ids: Set<string>;
++  snowball_highlight_ids: Set<string> | null;
+ }
+ 
+ export interface GraphAdjacency {
+@@ -29,6 +30,7 @@ export interface GraphAdjacency {
+ export interface GraphActions {
+   setSelectedNodeId: (id: string | null) => void;
+   setSearchQuery: (q: string) => void;
++  setSnowballHighlight: (ids: Set<string> | null) => void;
+ }
+ 
+ /** Shared search predicate used by list filter AND canvas highlight (Codex iter-2 P2-1.5). */
+@@ -46,6 +48,8 @@ export function useGraphState(
+ ): [GraphState, GraphAdjacency, GraphActions] {
+   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+   const [searchQuery, setSearchQuery] = useState<string>("");
++  const [snowballHighlight, setSnowballHighlight] =
++    useState<Set<string> | null>(null);
+ 
+   const visibleNodeIds = useMemo(() => {
+     const ids = new Set<string>();
+@@ -75,8 +79,9 @@ export function useGraphState(
+       selected_node_id: selectedNodeId,
+       search_query: searchQuery,
+       visible_node_ids: visibleNodeIds,
++      snowball_highlight_ids: snowballHighlight,
+     },
+     adjacency,
+-    { setSelectedNodeId, setSearchQuery },
++    { setSelectedNodeId, setSearchQuery, setSnowballHighlight },
+   ];
+ }
+diff --git a/web/app/runs/[runId]/graph/page.tsx b/web/app/runs/[runId]/graph/page.tsx
+index a87574ab..5a0a4864 100644
+--- a/web/app/runs/[runId]/graph/page.tsx
++++ b/web/app/runs/[runId]/graph/page.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import Link from "next/link";
++import { useRouter } from "next/navigation";
+ import { use, useEffect, useRef, useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+@@ -9,6 +10,7 @@ import { getRunGraph, type GraphPayload } from "@/lib/api";
+ 
+ import { AccessibleGraphList } from "./components/accessible_graph_list";
+ import { ClaimGraph } from "./components/claim_graph";
++import { snowballNeighbors } from "./components/snowball";
+ import { useGraphState } from "./components/use_graph_state";
+ 
+ interface GraphPageProps {
+@@ -96,10 +98,13 @@ interface GraphSurfaceProps {
+ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+   const [state, adjacency, actions] = useGraphState(payload);
+   const searchInputRef = useRef<HTMLInputElement>(null);
++  const router = useRouter();
++  const inspectorHref = (id: string) =>
++    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+ 
+   return (
+     <div className="flex flex-col gap-3">
+-      <div className="flex items-center gap-2">
++      <div className="flex flex-wrap items-center gap-2">
+         <Input
+           ref={searchInputRef}
+           type="search"
+@@ -112,13 +117,46 @@ function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+         <span className="text-muted-foreground text-xs">
+           {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
+         </span>
++        <Button
++          variant="outline"
++          size="sm"
++          disabled={!state.selected_node_id}
++          onClick={() => {
++            if (state.selected_node_id)
++              router.push(inspectorHref(state.selected_node_id));
++          }}
++        >
++          Open Inspector
++        </Button>
++        <Button
++          variant="outline"
++          size="sm"
++          disabled={!state.selected_node_id}
++          onClick={() => {
++            if (!state.selected_node_id) return;
++            actions.setSnowballHighlight(
++              snowballNeighbors(payload, state.selected_node_id, 2),
++            );
++          }}
++        >
++          Expand snowball (2 hops)
++        </Button>
++        {state.snowball_highlight_ids && (
++          <Button
++            variant="ghost"
++            size="sm"
++            onClick={() => actions.setSnowballHighlight(null)}
++          >
++            Clear ({state.snowball_highlight_ids.size} nodes)
++          </Button>
++        )}
+       </div>
+       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+         <ClaimGraph
+           payload={payload}
+-          runId={runId}
+           selectedNodeId={state.selected_node_id}
+           searchQuery={state.search_query}
++          snowballHighlightIds={state.snowball_highlight_ids}
+           setSelectedNodeId={actions.setSelectedNodeId}
+         />
+         <AccessibleGraphList
+
+# canonical-diff-sha256: c4c531e1a1086528abdfe87163b64d2479583ea871a71d7046ecd4eaac388371
