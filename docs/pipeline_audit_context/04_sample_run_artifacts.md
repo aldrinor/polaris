@@ -67,4 +67,4 @@ Key round summaries:
 - Round 4: NFKD + combining-mark strip for diacritic homoglyphs
 - Round 5: READY verdict — all prior invariants verified, no new blockers
 
-Full loop state: `.codex/loop_state.json`.
+Full loop state: `archive/2026-05-11-root-hygiene/codex_historical/loop_state.json` (decommissioned 2026-05-11 by I-hygiene-001 GH#432; preserved in archive).

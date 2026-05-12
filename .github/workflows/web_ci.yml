@@ -145,7 +145,8 @@ jobs:
       # Visual baselines are *-chromium-win32.png (locally captured on Win).
       # On Linux CI the snapshot file resolves to a different name and will
       # be missing; skip visual.spec until Linux baselines are added.
-      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+      # See `archive/2026-05-11-root-hygiene/codex_historical/continuous/2057fac_2c2_visual_regression.md` P0
+      # (relocated by I-hygiene-001 GH#432, 2026-05-11).
 
       - name: upload_playwright_traces_on_failure
         if: failure()

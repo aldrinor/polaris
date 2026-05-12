@@ -1111,9 +1111,9 @@ phase_5:
       - "All sweeps APPROVE"
     required_artifacts:
       - "outputs/audits/verdicts/5.2/iter_*.json"
-      - ".codex/task_briefs/v6_phase_0_1_substrate_round_3_review_brief.md (extended for crown-jewel sweep)"
+      - "archive/2026-05-11-root-hygiene/codex_historical/task_briefs/v6_phase_0_1_substrate_round_3_review_brief.md (HISTORICAL; relocated by I-hygiene-001 GH#432 2026-05-11)"
     changed_files_glob:
-      - ".codex/task_briefs/**"
+      - "archive/2026-05-11-root-hygiene/codex_historical/task_briefs/**"
     blocking_consequence: "Carney handover unverified"
 
   task_5_3:

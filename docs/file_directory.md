@@ -204,11 +204,13 @@ deployment plans, survey docs, etc.) archived to
 | Path | Purpose |
 |------|---------|
 | `.codex/LOOP_PROTOCOL.md` | Loop state machine and anti-circle-jerk rules |
-| `.codex/REVIEW_BRIEF.md` | Round-1 initial brief (template for others) |
-| `.codex/ROUND_N_BRIEF_TEMPLATE.md` | Per-round brief template |
+| `.codex/AUDIT_CYCLE_PROTOCOL.md` | Audit cycle protocol (current) |
+| `.codex/REVIEW_BRIEF_FORMAT.md` / `_v2.md` | Current per-Issue review brief templates |
+| `.codex/codex_red_team_checklist.md` | Red-team checklist (current) |
 | `.codex/config.toml` | Project-local Codex config (inherits OAuth) |
-| `.codex/loop_state.json` | Persistent loop state |
-| `.codex/round_{2,3,4,5}/BRIEF.md` | Per-round briefs |
+| `.codex/I-<prefix>-NNN/` | Per-Issue dirs (issue-driven workflow — `.codex/I-eval-*`, `.codex/I-bug-*`, etc.) |
+| `.codex/slices/` | Slice 001-005 architecture proposals + golden fixtures (load-bearing — referenced by tests) |
+| `archive/2026-05-11-root-hygiene/codex_historical/` | Historical pre-issue-driven .codex artifacts (REVIEW_BRIEF.md, ROUND_N_BRIEF_TEMPLATE.md, loop_state.json, round_{2,3,4,5}/, continuous/, deep_dive_round_*/, m28..m63, v17..v30, etc.) — relocated by I-hygiene-001 GH#432 |
 | `outputs/codex_findings/round_{1..5}/findings.md` | Codex output (verdict + findings) |
 | `outputs/codex_findings/round_{1..5}/claude_response.md` | Claude's response |
 

@@ -37,7 +37,7 @@ fi
 echo ""
 echo "=== Step 2: launch Codex DEEP content audit in background ==="
 mkdir -p outputs/codex_findings/v28_deep_content_audit
-codex exec --full-auto "$(cat .codex/v28_deep_content_audit_brief.md)" \
+codex exec --full-auto "$(cat archive/2026-05-11-root-hygiene/codex_historical/v28_deep_content_audit_brief.md)" \
   > outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt 2>&1 &
 CODEX_PID=$!
 echo "[ok] Codex DEEP content audit PID: $CODEX_PID"

@@ -16,8 +16,10 @@ emits a dict, even on parse failure, so the loop orchestrator can
 decide what to do with malformed Codex output.
 
 Usage:
-    python scripts/codex_loop_parse.py .codex/round_3/findings.md
-    python scripts/codex_loop_parse.py .codex/round_3/findings.md --out .codex/round_3/verdict.json
+    python scripts/codex_loop_parse.py <findings.md>
+    python scripts/codex_loop_parse.py <findings.md> --out <verdict.json>
+(Historical `.codex/round_*/` paths archived by I-hygiene-001 GH#432; use
+the issue-driven `.codex/I-<prefix>-NNN/` layout for new findings.)
 """
 from __future__ import annotations
 
