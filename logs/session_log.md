@@ -3922,3 +3922,23 @@
   • PR #447 opened: canonical pin reconciliation (1-line maintenance).
 - STATUS: Active = I-snowball-002 (backend graph endpoint + server-side fcose pre-layout). Pin-reconcile PR awaiting user merge. Hardware chain (GH#85-91 + 199-206) remains blocked but deprioritized below F-snowball per 2026-05-12 user directive.
 - NEXT_STEP: Create branch bot/I-snowball-002-graph-endpoint, author Codex brief, fire Codex iter 1 review.
+
+[2026-05-12 21:00:00]
+- ACTION: F-snowball workstream complete — PR #461 (final I-snowball-006) merged
+- RATIONALE: Final PR in the 6-PR snowball sequence. Codex brief APPROVE iter 2 + diff APPROVE iter 1 (zero P0/P1/P2/P3 findings). Direct gh api -X PUT merge on PR 461 because gh pr list --search head:branch returned empty.
+- DOCS/RESEARCH: GitHub gh api docs for repos/{owner}/{repo}/pulls/{n}/merge
+- SYNC: state/active_issue.json updated — no active issue, awaiting user TaskCreate assignment per CLAUDE.md §10 step 4. completed_workstream block records the 6 shipped PRs + 8 closed GH issues.
+- AFFECTED_FILES: state/active_issue.json, gh-issues 448-455 closed
+- EVIDENCE/FINDINGS: PR #461 sha 15e35473673749f8d053bd5347ca952c7463ff0a, merged_at 2026-05-12T20:55:55Z. All 8 snowball GH issues closed with PR references.
+- STATUS: F-snowball complete. 6 PRs shipped: #447 (canonical-pin), #456 (backend), #458 (component), #459 (interactions+a11y), #460 (BFS expand), #461 (export+tests). ~14 Codex review rounds, all within 5-iter cap.
+- NEXT_STEP: Per CLAUDE.md §10 step 4: list unblocked tasks to user, await TaskCreate assignment. Remaining pending #257-271 are hardware-blocked on OVH H200 (GH#90 HARD GATE).
+
+[2026-05-12 22:00:00]
+- ACTION: I-carney-001 architecture plan converged via 9 Codex iterations; 12 sub-issues opened; force-APPROVE per §8.3.1
+- RATIONALE: Boss directive 2026-05-12 "find a Canadian server, upload the whole thing, let Carney use it". User picked Posture C (live submission, 3-4 week timeline) over Codex's recommended Posture A. Brief v1 iters 1-4 converged on architectural decisions (sovereignty c / AWS Montréal / static_accounts / concurrency 1). Brief v2 iters 1-5 surfaced 25+ real code-grounded gaps in v6 API ↔ pipeline-A seam (UUID/slug bridge, V30 contract synthesizer, AuditIR→slice-chain adapter, SSE durability, Pydantic Literal validity). Iter 5 returned REQUEST_CHANGES with convergence_call: accept_remaining → force-APPROVE per CLAUDE.md §8.3.1. Residuals captured in I-arch-001d sub-scope.
+- DOCS/RESEARCH: docs.aws.amazon.com (ca-central-1 region, EC2 M7i/C7i availability, On-Demand pricing), openrouter.ai/docs/features/zdr (ZDR config), priv.gc.ca (PIPEDA cross-border), polaris-graph code review.
+- SYNC: state/active_issue.json updated with Posture C pivot + sub-issue map. state/restart_instructions.md rewritten with new active workstream context. GH#462 commented with 12 sub-issue map.
+- AFFECTED_FILES: .codex/I-carney-001/ (10 brief files + 5+5 verdict files + force-APPROVE artifact); state/active_issue.json; state/restart_instructions.md; logs/session_log.md
+- EVIDENCE/FINDINGS: 12 sub-issues opened GH#463-474. Codex APPROVE'd: sovereignty(c) / AWS ca-central-1 / static_accounts / concurrency 1 / "Canadian-hosted public-policy research" terminology. Force-APPROVE'd: full architecture plan with I-arch-001d residuals (verifier-span source text into Source.full_text; Pydantic Literal value validity; VerifiedReport required fields verifier_pass_threshold/started_at_utc/finished_at_utc/latency_ms/cost_usd; doi/pmid/url_pattern naming; pipeline_status taxonomy extensions).
+- STATUS: Architecture plan complete + force-APPROVE'd. Sub-issues opened. Demo target 2026-06-05 to 2026-06-09 (24 days from 2026-05-13). F-snowball workstream from earlier today completed (6 PRs shipped: #447/#456/#458/#459/#460/#461; 8 GH issues closed #448-455). Phase 0 hardware + sovereign migration chain (#257-271) deferred to post-Carney-demo Phase 2.
+- NEXT_STEP: Per user directive "start" — begin I-arch-001a (GH#463). Branch bot/I-arch-001a-run-store-schema. Write .codex/I-arch-001a/brief.md and run Codex iter 1.

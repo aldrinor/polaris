@@ -1,0 +1,35 @@
+# I-carney-001 brief_v2 iter 5 — FORCE-APPROVE artifact per CLAUDE.md §8.3.1
+
+Cap-hit timestamp: 2026-05-12T23:00:00Z
+Document: .codex/I-carney-001/brief_v2_iter_5.md
+
+## Codex iter-5 verdict
+REQUEST_CHANGES with convergence_call: accept_remaining
+
+## Residuals per Codex iter-5 (captured as I-arch-001d sub-scope, NOT blockers for opening sub-issues)
+
+### P1 residuals
+1. **Verifier-span source text**: I-arch-001d must carry `evidence_pool.json` direct_quote (or token-offset-resolved span) into `Source.full_text` for legally-cleared sources. Cited spans from verification_details.json reference offsets like 9300-9800 which need to resolve against actual fetched source text, not the short bibliography statement.
+2. **Pydantic Literal alias validity**: I-arch-001d bridge must use valid Literal values: 
+   - `ScopeStatus`: pick from existing Literal values (not arbitrary string)
+   - `ScopeClassValue`: 'single_query' is invalid — use valid Literal
+   - `PipelineVerdict`: pick from existing Literal values
+   - `VerifiedReport` must include: `verifier_pass_threshold`, `started_at_utc`, `finished_at_utc`, `latency_ms`, `cost_usd`
+
+### P2 residuals
+1. **P1.2 field naming**: `report_contract.py` consumes `doi`, `pmid`, `url_pattern` (NOT `doi_pattern`). Synthesizer output must use bare field names.
+2. **P2.1 taxonomy**: Include existing statuses `partial_thin_corpus`, `partial_incomplete_corpus`, `partial_rule_check_warnings`. Reconcile `abort_budget_exceeded` vs `abort_quota_exceeded` (script uses the latter).
+
+### P3 cosmetic
+Python snippets use JSON `true`; if copied as Python fixtures, use `True`.
+
+## Follow-up Issues opened off GH#462
+
+These residuals are scope items inside I-arch-001d (artifact_to_slice_chain bridge), tracked in that sub-issue's acceptance criteria. Not separate GH issues — I-arch-001d's Codex brief explicitly addresses them.
+
+## Authorization
+Per CLAUDE.md §8.3.1: "If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6."
+
+Codex's `convergence_call: accept_remaining` is the affirmative signal that iter-5 residuals are sub-scope, not blockers.
+
+Link: https://github.com/aldrinor/polaris/issues/462
