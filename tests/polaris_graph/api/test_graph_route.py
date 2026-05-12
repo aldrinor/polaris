@@ -117,8 +117,18 @@ def test_frame_status_normalization(small_ir: SimpleNamespace) -> None:
     assert statuses["frame:safety_endpoint"] == "fail"  # fail_min_fields → fail
 
 
-def test_graph_route_mounted_in_create_app() -> None:
-    """Smoke: graph route must be mounted in the serving FastAPI app."""
+def test_graph_route_mounted_in_create_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Smoke: graph route must be mounted in the serving FastAPI app.
+
+    Blank real-backend env vars before importing create_app so the mount
+    check doesn't accidentally trigger GPG / Serper / OpenRouter wiring
+    (Codex diff iter 2 P1).
+    """
+    monkeypatch.setenv("POLARIS_GPG_KEY_ID", "")
+    monkeypatch.setenv("SERPER_API_KEY", "")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("POLARIS_BENCHMARK_RESULTS_DIR", "")
+
     from polaris_v6.api.app import create_app
 
     app = create_app()
