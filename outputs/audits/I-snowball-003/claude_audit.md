@@ -1,6 +1,6 @@
-# Claude architect audit — I-snowball-003a (GH#449)
+# Claude architect audit — I-snowball-003 (GH#449)
 
-**Branch:** `bot/I-snowball-003a-claim-graph-component`
+**Branch:** `bot/I-snowball-003-claim-graph-component`
 **HEAD:** `ca781cbf60eedc6818fa7b00b6adc29ff1936675`
 **Base:** `2feac0978e78c1ad99102f29a67114d298fe55ff` (polaris)
 **Canonical PR diff SHA256:** `90e10e5aba9f7f313162ac6719dce3a045e91f788b95039df3a37d452c61b6e5`
