@@ -1,0 +1,2024 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1dca-71b8-7c40-8fd3-667b7dd2c858
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-snowball-004 — graph interaction + a11y (hover/click/list/keyboard/search)
+
+Combines original 004a + 004b scope per DECISION.md (CI regex `[0-9]{3}` forces letter-suffix collapse; matches I-snowball-003 precedent).
+
+Builds on I-snowball-003 (merged at sha `a47dcda9`). Branch `bot/I-snowball-004-graph-interaction-a11y`.
+
+## Scope
+
+1. **Hover on graph node** → existing F6 `<EvidenceTooltip>` shows tier + label + source_url
+2. **Click on graph node** → opens existing F5 Inspector Sheet at `/inspector/[runId]?focused_node=<id>` (router push, not new component)
+3. **`<AccessibleGraphList>`** — `<ol aria-label="Claim graph">` parallel surface mirroring the canvas; one `<li>` per node + "Open Inspector" button; state-synced with canvas via `useGraphState`
+4. **Keyboard nav** — `Tab` cycles nodes in deterministic order (section then provenance); `Enter` opens Inspector; `Esc` clears selection; `/` focuses search; arrow keys traverse edges
+5. **Search** — `/` focuses input; typing filters `<AccessibleGraphList>` AND highlights matching nodes in canvas via cytoscape `:matches` style toggle
+6. **`useGraphState` hook** — single source of truth: `selected_node_id`, `search_query`, `visible_node_ids`
+
+LOC ≤200 per file.
+
+## Files I have ALSO checked and they're clean:
+
+- `web/components/ui/evidence-tooltip.tsx` — existing F6 hover-card; `<EvidenceTooltip>` props: `evidenceId`, `sourceUrl`, `spanText`, `sourceTier ("T1"|"T2"|"T3")`, `publishedDate`. Note tier is only T1-T3 here vs T1-T7 in our graph schema — we'll pass-through T1-T3 and skip T4-T7 in the tooltip (UI gracefully degrades).
+- `web/app/inspector/[runId]/page.tsx` — existing F5 Inspector route. Click handler will use Next.js `router.push(\`/inspector/${runId}?focused_node=\${id}\`)`. Inspector page itself may not yet read `focused_node` query param — that's a future enhancement (I-snowball-007), NOT in this PR's scope. v1 just navigates.
+- `src/polaris_graph/api/graph_route.py` — `NodeData.id` is kind-prefixed (`sent:`, `src:`, `section:`, `frame:`); cytoscape event payload uses these IDs throughout
+- `web/app/runs/[runId]/graph/components/claim_graph.tsx` — existing component from I-snowball-003; extend with `cy.on('tap', ...)`, `cy.on('mouseover', ...)`, `cy.on('mouseout', ...)` handlers via `cy={(cy) => { ... }}` callback prop on `<CytoscapeComponent>`
+- `web/lib/api.ts` — `GraphPayload` types already exported (I-snowball-003)
+
+## Proposed file structure
+
+```
+web/app/runs/[runId]/graph/components/
+  use_graph_state.ts                NEW ~50 LOC  (custom hook)
+  accessible_graph_list.tsx         NEW ~120 LOC (a11y parallel `<ol>`)
+  claim_graph.tsx                   MODIFIED +60 LOC (cytoscape event handlers, search-highlight)
+web/app/runs/[runId]/graph/
+  page.tsx                          MODIFIED +30 LOC (mount hook + AccessibleGraphList + search input)
+```
+
+Per-file under 200 LOC.
+
+## `useGraphState` hook spec
+
+```ts
+export interface GraphState {
+  selected_node_id: string | null;
+  search_query: string;
+  visible_node_ids: Set<string>;     // filtered by search; null query means all visible
+}
+export interface GraphActions {
+  setSelectedNodeId: (id: string | null) => void;
+  setSearchQuery: (q: string) => void;
+}
+export function useGraphState(payload: GraphPayload): [GraphState, GraphActions] {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const visible = useMemo(() => {
+    if (!query.trim()) return new Set(payload.elements.nodes.map(n => n.data.id));
+    const q = query.toLowerCase();
+    return new Set(
+      payload.elements.nodes
+        .filter(n => n.data.label.toLowerCase().includes(q) || n.data.id.toLowerCase().includes(q))
+        .map(n => n.data.id)
+    );
+  }, [payload, query]);
+  return [{ selected_node_id: selected, search_query: query, visible_node_ids: visible }, { setSelectedNodeId: setSelected, setSearchQuery: setQuery }];
+}
+```
+
+## `<AccessibleGraphList>` spec
+
+- `<ol role="region" aria-label="Claim graph" tabIndex={0}>` — keyboard handler attached here
+- One `<li>` per node ordered deterministically: section nodes first, then sentence nodes (grouped by section in section order), then source nodes (sorted by tier T1-T7 then id), then frame nodes
+- Each `<li>` has:
+  - `<span>` with tier badge (if source) + label + node type icon
+  - "Open Inspector" `<Button>` that calls `setSelectedNodeId(n.data.id)` + `router.push`
+- Hidden when `visible_node_ids` doesn't include it (filter by search)
+- Tab order respects DOM order; current selection has `aria-current="true"`
+- Arrow keys handled at `<ol>` level: ArrowDown moves selection to next visible node; ArrowUp prev; Enter opens Inspector; Esc clears
+
+## Cytoscape integration in `claim_graph.tsx`
+
+```ts
+const cyRef = useRef<cytoscape.Core | null>(null);
+const handleCyInit = useCallback((cy: cytoscape.Core) => {
+  cyRef.current = cy;
+  cy.on("tap", "node", (evt) => {
+    setSelectedNodeId(evt.target.id());
+    router.push(`/inspector/${runId}?focused_node=${encodeURIComponent(evt.target.id())}`);
+  });
+  cy.on("mouseover", "node", (evt) => setHoverNode(evt.target.data()));
+  cy.on("mouseout", "node", () => setHoverNode(null));
+}, [setSelectedNodeId, router, runId]);
+
+// search highlight
+useEffect(() => {
+  const cy = cyRef.current; if (!cy) return;
+  cy.nodes().removeClass("search-hit");
+  if (!searchQuery.trim()) return;
+  const q = searchQuery.toLowerCase();
+  cy.nodes().filter((n) => n.data("label").toLowerCase().includes(q)).addClass("search-hit");
+}, [searchQuery]);
+```
+
+Add to stylesheet:
+```ts
+{ selector: "node.search-hit", style: { "border-width": 3, "border-color": "#facc15" } },
+```
+
+The `<EvidenceTooltip>` rendered at the page level reads `hoverNode` from state.
+
+## Direct questions for Codex iter 1
+
+1. `EvidenceTooltip` accepts `sourceTier: "T1"|"T2"|"T3"` but graph nodes carry T1-T7. Two options:
+   - (a) Widen `EvidenceTooltip` type to T1-T7 (separate PR)
+   - (b) v1: pass tier through only when in T1-T3, else undefined (graceful degrade; no compile error)
+   I'd pick (b). Agree?
+2. `cy.on('tap', 'node', ...)` plus `router.push` triggers a Next.js client-nav. Is that the right pattern, or should the click be intercepted to prevent multi-tab confusion?
+3. Tab order in `<AccessibleGraphList>` — section / sentence / source / frame — is that the canonical deterministic order for a11y, or should it be section-grouped with sources interleaved per-section?
+4. Search filter on `label.toLowerCase().includes(q)` — fast enough for 200 sentences × 100 sources? My estimate: O(n) per keystroke, n=~400, <1ms. Acceptable.
+5. The `Tab cycles nodes` requirement: in HTML, Tab cycles through focusable elements (the Open-Inspector buttons inside each `<li>`). That's a freebie if the `<li>` contains a `<button>`. Acceptable, or do you want explicit `tabIndex` on each `<li>`?
+6. LOC estimate per file: use_graph_state ~50, accessible_graph_list ~120, claim_graph add +60, page add +30. All under 200.
+7. Anything else genuinely blocking?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers: [...]
+```
+
+codex
+I’ll inspect the current graph page and component contracts before answering, so the verdict is grounded in the repo rather than the proposal text alone.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "export interface GraphPayload|type GraphPayload|interface GraphPayload|EvidenceTooltip|function ClaimGraph|export function ClaimGraph|CytoscapeComponent|sourceTier|focused_node" web src -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web/app/runs web/components web/lib src/polaris_graph | rg \"(claim_graph|graph/page|evidence-tooltip|api\\.ts|graph_route|inspector)\"" in C:\POLARIS
+ succeeded in 1497ms:
+web\lib\api.ts:1106:export interface GraphPayload {
+web\components\ui\evidence-tooltip.tsx:6:interface EvidenceTooltipProps {
+web\components\ui\evidence-tooltip.tsx:10:  sourceTier?: "T1" | "T2" | "T3";
+web\components\ui\evidence-tooltip.tsx:45:export function EvidenceTooltip({
+web\components\ui\evidence-tooltip.tsx:49:  sourceTier,
+web\components\ui\evidence-tooltip.tsx:55:}: EvidenceTooltipProps) {
+web\components\ui\evidence-tooltip.tsx:164:              {sourceTier && ` · tier ${sourceTier}`}
+web\components\ui\evidence-tooltip.tsx:198:export const EvidenceTooltipProvider = Tooltip.Provider;
+web\app\sentence_hover_test\_demo_perf.tsx:6:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_perf.tsx:7:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_perf.tsx:92:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_perf.tsx:104:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_perf.tsx:108:            sourceTier="T1"
+web\app\sentence_hover_test\_demo_perf.tsx:114:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_perf.tsx:131:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:13:export function EvidenceTooltipEdgesHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:15:    <EvidenceTooltipProvider delay={0}>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:19:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:25:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:29:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:37:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:41:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:49:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx:52:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:4:  EvidenceTooltip,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:5:  EvidenceTooltipProvider,
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:9: * I-f6-001 harness: minimal page exercising EvidenceTooltip with a
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:14:export function EvidenceTooltipHarness() {
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:16:    <EvidenceTooltipProvider delay={300}>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:26:          <EvidenceTooltip
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:29:            sourceTier="T1"
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:34:          </EvidenceTooltip>
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:38:    </EvidenceTooltipProvider>
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:1:import { EvidenceTooltipEdgesHarness } from "../_demo_evidence_tooltip_edges";
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:3:export default function EvidenceTooltipEdgesPage() {
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx:4:  return <EvidenceTooltipEdgesHarness />;
+web\app\inspector\[runId]\page.tsx:14:import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+web\app\inspector\[runId]\page.tsx:341:      <EvidenceTooltip
+web\app\inspector\[runId]\page.tsx:346:        sourceTier={span?.source_tier}
+web\app\inspector\[runId]\page.tsx:350:      </EvidenceTooltip>,
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:1:import { EvidenceTooltipHarness } from "../_demo_evidence_tooltip";
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:3:export default function EvidenceTooltipPage() {
+web\app\sentence_hover_test\evidence_tooltip\page.tsx:4:  return <EvidenceTooltipHarness />;
+web\app\runs\[runId]\graph\page.tsx:7:import { getRunGraph, type GraphPayload } from "@/lib/api";
+web\app\runs\[runId]\graph\components\claim_graph.tsx:18:const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:128:export function ClaimGraph({ payload }: ClaimGraphProps) {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:154:        <CytoscapeComponent
+web\tests\e2e\evidence_tooltip_perf.spec.ts:3:test("100x EvidenceTooltip mount cycles all render under 100ms", async ({
+web\tests\e2e\performance_hover.spec.ts:12: * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+web\tests\e2e\performance_hover.spec.ts:28:  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+
+ succeeded in 1817ms:
+## bot/I-snowball-004-graph-interaction-a11y
+?? .claude/hooks/__pycache__/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_1.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_2.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_3.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_4.txt
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-snowball-001/
+?? .codex/I-snowball-004/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_scope_gate_tmp2/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_iter3_verify_run/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-3f9s08mh/': Permission denied
+warning: could not open directory 'pytest-cache-files-dysodq4d/': Permission denied
+warning: could not open directory 'pytest-cache-files-jdgz67tr/': Permission denied
+warning: could not open directory 'pytest-cache-files-kds8u4s5/': Permission denied
+warning: could not open directory 'pytest-cache-files-lgffjwll/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-szrlm1db/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest-cache-files-z1miwcyi/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp3jencwbw/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpa3ivn9br/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+
+ succeeded in 2053ms:
+web/lib\api.ts
+web/components\ui\evidence-tooltip.tsx
+web/app/runs\[runId]\graph\components\claim_graph.tsx
+src/polaris_graph\api\graph_route.py
+src/polaris_graph\audit_ir\inspector_router.py
+
+codex
+The branch is already checked out. I’m reading the graph page/component and the exported API shape now; the main things to verify are whether the proposed state contract matches real payload data and whether the keyboard/search behavior can be implemented without breaking the existing client/server boundary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/claim_graph.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'src/polaris_graph/api/graph_route.py'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/api.ts' -TotalCount 1145 | Select-Object -Last 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/ui/evidence-tooltip.tsx'" in C:\POLARIS
+ succeeded in 2411ms:
+"use client";
+
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { getRunGraph, type GraphPayload } from "@/lib/api";
+
+import { ClaimGraph } from "./components/claim_graph";
+
+interface GraphPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default function GraphPage({ params }: GraphPageProps) {
+  const { runId } = use(params);
+  const [payload, setPayload] = useState<GraphPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunGraph(runId)
+      .then((p) => {
+        if (!cancelled) setPayload(p);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS — F-snowball
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Claim graph: {runId}
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="graph-page"
+        className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-6 py-6"
+      >
+        {error && (
+          <div
+            role="alert"
+            className="border-destructive text-destructive rounded-md border p-4"
+          >
+            Failed to load graph: {error}
+          </div>
+        )}
+
+        {!payload && !error && (
+          <div
+            role="status"
+            className="text-muted-foreground flex items-center gap-2"
+          >
+            <span
+              aria-hidden
+              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+            />
+            Loading graph for run {runId}…
+          </div>
+        )}
+
+        {payload && <ClaimGraph payload={payload} />}
+      </main>
+    </div>
+  );
+}
+
+ succeeded in 2946ms:
+"use client";
+
+import cytoscape from "cytoscape";
+import fcose from "cytoscape-fcose";
+import dynamic from "next/dynamic";
+import { useMemo } from "react";
+
+import type { GraphPayload } from "@/lib/api";
+
+// Idempotent fcose registration (guards against double-register on HMR).
+const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
+if (!_cy._fcoseRegistered) {
+  cytoscape.use(fcose);
+  _cy._fcoseRegistered = true;
+}
+
+// `react-cytoscapejs` is SSR-unsafe; dynamic-import as client-only.
+const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+  ssr: false,
+});
+
+interface ClaimGraphProps {
+  payload: GraphPayload;
+}
+
+const STYLESHEET: cytoscape.StylesheetStyle[] = [
+  {
+    selector: "node[type='sentence']",
+    style: {
+      "background-color": "#3b82f6",
+      width: 18,
+      height: 18,
+      label: "data(label)",
+      "font-size": 8,
+      color: "#1e293b",
+      "text-valign": "bottom",
+      "text-halign": "center",
+      "text-margin-y": 4,
+    },
+  },
+  {
+    selector: "node[type='source']",
+    style: {
+      "background-color": "#22c55e",
+      width: 26,
+      height: 26,
+      label: "data(label)",
+      "font-size": 9,
+      color: "#1e293b",
+      "text-valign": "bottom",
+      "text-halign": "center",
+      "text-margin-y": 4,
+      "text-max-width": "180px",
+      "text-wrap": "ellipsis",
+    },
+  },
+  {
+    selector: "node[type='section']",
+    style: {
+      "background-color": "#a3a3a3",
+      width: 30,
+      height: 30,
+      label: "data(label)",
+      "font-weight": "bold" as never,
+      "font-size": 10,
+      color: "#0f172a",
+    },
+  },
+  {
+    selector: "node[type='frame']",
+    style: {
+      "background-color": "#f59e0b",
+      width: 22,
+      height: 22,
+      label: "data(label)",
+      "font-size": 9,
+      color: "#1e293b",
+    },
+  },
+  {
+    selector: "node.bibliography_missing",
+    style: {
+      "background-color": "#9ca3af",
+      "border-style": "dashed",
+      "border-width": 1,
+      "border-color": "#6b7280",
+    },
+  },
+  {
+    selector: "edge[edge_type='cites']",
+    style: {
+      "line-color": "#60a5fa",
+      width: 1,
+      "curve-style": "bezier",
+    },
+  },
+  {
+    selector: "edge[edge_type='contradicts']",
+    style: {
+      "line-color": "#ef4444",
+      width: 2,
+      "curve-style": "bezier",
+      "line-style": "solid",
+    },
+  },
+  {
+    selector: "edge[edge_type='section_member']",
+    style: {
+      "line-color": "#d4d4d4",
+      "line-style": "dashed",
+      width: 1,
+      opacity: 0.5,
+    },
+  },
+];
+
+const LAYOUT_FCOSE = {
+  name: "fcose",
+  randomize: false,
+  quality: "proof",
+  animate: false,
+  nodeSeparation: 75,
+  idealEdgeLength: 50,
+} as unknown as cytoscape.LayoutOptions;
+
+const LAYOUT_PRESET: cytoscape.LayoutOptions = { name: "preset" };
+
+export function ClaimGraph({ payload }: ClaimGraphProps) {
+  const { elements, layout } = useMemo(() => {
+    const hasPositions =
+      payload.elements.nodes.length > 0 &&
+      payload.elements.nodes.every((n) => n.position != null);
+
+    const cyNodes = payload.elements.nodes.map((n) => ({
+      data: n.data,
+      position: n.position ?? undefined,
+      classes: n.data.classes ?? undefined,
+    }));
+    const cyEdges = payload.elements.edges.map((e) => ({ data: e.data }));
+
+    return {
+      elements: [...cyNodes, ...cyEdges],
+      layout: hasPositions ? LAYOUT_PRESET : LAYOUT_FCOSE,
+    };
+  }, [payload]);
+
+  return (
+    <section
+      aria-label="Claim graph"
+      data-testid="claim-graph"
+      className="border-border flex w-full flex-col overflow-hidden rounded-md border"
+    >
+      <div className="h-[600px] w-full">
+        <CytoscapeComponent
+          elements={elements}
+          style={{ width: "100%", height: "100%" }}
+          layout={layout}
+          stylesheet={STYLESHEET}
+        />
+      </div>
+      <p className="text-muted-foreground border-border border-t p-2 text-xs">
+        {payload.elements.nodes.length} nodes · {payload.elements.edges.length}{" "}
+        edges · hash {payload.elements_hash.slice(0, 12)}…
+      </p>
+    </section>
+  );
+}
+
+ succeeded in 3309ms:
+"""FastAPI route for F-snowball claim-graph endpoint.
+
+`GET /api/runs/{run_id}/graph` returns a cytoscape-format `GraphPayload`
+built from the V30 AuditIR for one run. Server returns elements + a
+canonical content hash; the client computes layout positions in a Web
+Worker (DECISION.md Option B; positions are not populated server-side).
+
+Per I-snowball-002 brief APPROVE'd by Codex iter 5 (2026-05-12).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from typing import Literal
+
+from typing import TYPE_CHECKING
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from polaris_graph.audit_ir.loader import AuditIR
+
+router = APIRouter(tags=["graph"])
+
+# Lazy imports for audit_ir.{registry,loader} live inside `get_run_graph`
+# (Codex diff iter 1 P1): module-level imports trigger src/__init__.py →
+# .env load → optional real-backend wiring, which makes app startup +
+# this module's import non-hermetic. Keep graph_route import cheap.
+
+# ---------------------------------------------------------------------------
+# Type literals
+# ---------------------------------------------------------------------------
+
+NodeType = Literal["sentence", "source", "section", "frame"]
+EdgeType = Literal["cites", "contradicts", "section_member"]
+Tier = Literal["T1", "T2", "T3", "T4", "T5", "T6", "T7"]
+FrameStatus = Literal["pass", "partial", "fail"]
+
+_VALID_TIERS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+class NodeData(BaseModel):
+    id: str = Field(min_length=1, max_length=300)
+    type: NodeType
+    label: str = Field(min_length=1, max_length=500)
+    tier: Tier | None = None
+    sentence_text: str | None = None
+    source_url: str | None = None
+    section_title: str | None = None
+    frame_status: FrameStatus | None = None
+    classes: str | None = None
+
+
+class Position(BaseModel):
+    x: float
+    y: float
+
+
+class ClaimNode(BaseModel):
+    data: NodeData
+    position: Position | None = None  # Option B: None server-side; client populates
+
+
+class EdgeData(BaseModel):
+    id: str = Field(min_length=1, max_length=400)
+    source: str
+    target: str
+    edge_type: EdgeType
+
+
+class ClaimEdge(BaseModel):
+    data: EdgeData
+
+
+class GraphElements(BaseModel):
+    nodes: list[ClaimNode]
+    edges: list[ClaimEdge]
+
+
+class GraphDiagnostics(BaseModel):
+    bibliography_count: int
+    fallback_source_count: int  # unique evidence_ids referenced but absent from bibliography
+    missing_reference_occurrence_count: int  # total references (with duplicates)
+    referenced_unknown_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class GraphPayload(BaseModel):
+    elements: GraphElements
+    run_id: str = Field(min_length=1, max_length=200)
+    elements_hash: str = Field(min_length=64, max_length=64)
+    diagnostics: GraphDiagnostics
+    schema_version: Literal["1.0"] = "1.0"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:80] or "section"
+
+
+def _normalize_frame_status(raw: str) -> FrameStatus | None:
+    if raw == "pass":
+        return "pass"
+    if raw == "partial":
+        return "partial"
+    if raw.startswith("fail"):
+        return "fail"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Builder (pure function — easy to test)
+# ---------------------------------------------------------------------------
+
+def build_graph_payload(ir: "AuditIR") -> GraphPayload:
+    """Transform AuditIR into cytoscape-format GraphPayload (deterministic)."""
+    # 1. Bibliography source nodes
+    bib_ids: set[str] = set()
+    nodes: list[ClaimNode] = []
+    for entry in ir.bibliography:
+        bib_ids.add(entry.evidence_id)
+        tier = entry.tier if entry.tier in _VALID_TIERS else None
+        label = (entry.statement or entry.evidence_id)[:200]
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"src:{entry.evidence_id}", type="source", label=label,
+            tier=tier, source_url=entry.url or None,
+        )))
+
+    # 2. Collect all referenced evidence_ids from sentence tokens + contradictions
+    referenced_occurrences: list[str] = []
+    for section in ir.verified_report.sections:
+        for sent in section.sentences:
+            if sent.is_verified:
+                for tok in sent.tokens:
+                    referenced_occurrences.append(tok.evidence_id)
+    for cluster in ir.contradictions:
+        for claim in cluster.claims:
+            referenced_occurrences.append(claim.evidence_id)
+    referenced_unique = set(referenced_occurrences)
+
+    # 3. Fallback source nodes for referenced-but-missing-from-bibliography
+    missing_unique = sorted(referenced_unique - bib_ids)
+    for eid in missing_unique:
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"src:{eid}", type="source", label=eid, classes="bibliography_missing",
+        )))
+    valid_source_ids = bib_ids | set(missing_unique)
+
+    # 4. Section nodes
+    for section in ir.verified_report.sections:
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"section:{_slug(section.title)}", type="section",
+            label=section.title, section_title=section.title,
+        )))
+
+    # 5. Frame nodes (FrameCoverageReport.entries per AuditIR schema)
+    for entry in ir.frame_coverage.entries:
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"frame:{entry.entity_id}", type="frame", label=entry.entity_id,
+            frame_status=_normalize_frame_status(entry.status),
+        )))
+
+    # 6. Sentence nodes + section_member + cites edges
+    edges: list[ClaimEdge] = []
+    for section in ir.verified_report.sections:
+        sec_id = f"section:{_slug(section.title)}"
+        for sent in section.sentences:
+            if not sent.is_verified:
+                continue
+            sent_id = f"sent:{sent.claim_id}"
+            nodes.append(ClaimNode(data=NodeData(
+                id=sent_id, type="sentence",
+                label=sent.text[:100], sentence_text=sent.text,
+            )))
+            edges.append(ClaimEdge(data=EdgeData(
+                id=f"membersec:{sent.claim_id}:{_slug(section.title)}",
+                source=sent_id, target=sec_id, edge_type="section_member",
+            )))
+            for ord_, tok in enumerate(sent.tokens):
+                if tok.evidence_id not in valid_source_ids:
+                    continue  # defensive — should not happen given fallback creation
+                edges.append(ClaimEdge(data=EdgeData(
+                    id=f"cite:{sent.claim_id}:{ord_}:{tok.evidence_id}",
+                    source=sent_id, target=f"src:{tok.evidence_id}", edge_type="cites",
+                )))
+
+    # 7. Contradicts edges (pairwise within each cluster; skip self-contradictions)
+    for cluster in ir.contradictions:
+        evidence_ids = sorted({c.evidence_id for c in cluster.claims if c.evidence_id in valid_source_ids})
+        for i, a in enumerate(evidence_ids):
+            for b in evidence_ids[i + 1:]:
+                edges.append(ClaimEdge(data=EdgeData(
+                    id=f"contra:{cluster.cluster_id}:{a}:{b}",
+                    source=f"src:{a}", target=f"src:{b}", edge_type="contradicts",
+                )))
+
+    # 8. Canonical content hash (position-stripped, sorted by id)
+    elements_dict = GraphElements(nodes=nodes, edges=edges).model_dump(mode="json")
+    elements_dict["nodes"].sort(key=lambda n: n["data"]["id"])
+    elements_dict["edges"].sort(key=lambda e: e["data"]["id"])
+    for n in elements_dict["nodes"]:
+        n.pop("position", None)
+    canonical = json.dumps(elements_dict, sort_keys=True, separators=(",", ":"))
+    elements_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    return GraphPayload(
+        elements=GraphElements(nodes=nodes, edges=edges),
+        run_id=ir.run_id,
+        elements_hash=elements_hash,
+        diagnostics=GraphDiagnostics(
+            bibliography_count=len(bib_ids),
+            fallback_source_count=len(missing_unique),
+            missing_reference_occurrence_count=sum(
+                1 for eid in referenced_occurrences if eid not in bib_ids
+            ),
+            referenced_unknown_evidence_ids=missing_unique,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Route
+# ---------------------------------------------------------------------------
+
+@router.get("/runs/{run_id}/graph", response_model=GraphPayload)
+def get_run_graph(run_id: str) -> GraphPayload:
+    """Return cytoscape-format graph payload for a completed run."""
+    # Lazy import (Codex diff iter 1 P1): avoid loading audit_ir + .env at
+    # module load / app startup time.
+    from polaris_graph.audit_ir.loader import load_audit_ir
+    from polaris_graph.audit_ir.registry import find_run_by_id
+
+    summary = find_run_by_id(run_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    try:
+        ir = load_audit_ir(summary.artifact_dir)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=422, detail=f"audit IR load failed: {exc}")
+    return build_graph_payload(ir)
+
+ succeeded in 3812ms:
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import * as React from "react";
+
+interface EvidenceTooltipProps {
+  evidenceId: string;
+  sourceUrl?: string;
+  spanText?: string;
+  sourceTier?: "T1" | "T2" | "T3";
+  /**
+   * I-f6-001: optional publication-date string surfaced in the popup
+   * as `Published: <date>`. When undefined/null, the line is omitted.
+   */
+  publishedDate?: string | null;
+  /**
+   * I-f6-002: requested popup side. Default "top" (back-compat). Base UI
+   * Positioner applies flip+shift collision avoidance automatically when
+   * the requested side would clip the viewport.
+   */
+  side?: "top" | "right" | "bottom" | "left";
+  /**
+   * I-f6-005: opt-in perf-test override. When defined, drives Tooltip.Root's
+   * `open` directly, bypassing the internal hover/focus/touch state machine.
+   * Default `undefined` → no behavior change for existing callers.
+   */
+  openOverride?: boolean;
+  onClickToInspect?: () => void;
+  children: React.ReactNode;
+}
+
+const HOVER_DEBOUNCE_MS = 300;
+const TOUCH_AUTO_CLOSE_MS = 3000;
+
+/**
+ * F6 citation overlay (Phase 2B Task 2B.1) — hover-card preview of the
+ * source span behind a provenance token. Click still triggers the right-
+ * pane Inspector view; hover shows a quick preview.
+ *
+ * I-f6-003: fully-controlled Tooltip with explicit hover/focus/touch open
+ * semantics. Touch tap opens the popup with a 3-second auto-close timer
+ * (Base UI's `closeOnClick={false}` prevents the referencePress dismiss
+ * from cancelling our touch-open in the same event).
+ */
+export function EvidenceTooltip({
+  evidenceId,
+  sourceUrl,
+  spanText,
+  sourceTier,
+  publishedDate,
+  side = "top",
+  openOverride,
+  onClickToInspect,
+  children,
+}: EvidenceTooltipProps) {
+  const [open, setOpen] = React.useState(false);
+  const hoverDebounceRef = React.useRef<number | null>(null);
+  const touchAutoCloseRef = React.useRef<number | null>(null);
+  const touchSessionRef = React.useRef(false);
+
+  const clearHoverDebounce = React.useCallback(() => {
+    if (hoverDebounceRef.current !== null) {
+      window.clearTimeout(hoverDebounceRef.current);
+      hoverDebounceRef.current = null;
+    }
+  }, []);
+
+  const clearTouchAutoClose = React.useCallback(() => {
+    if (touchAutoCloseRef.current !== null) {
+      window.clearTimeout(touchAutoCloseRef.current);
+      touchAutoCloseRef.current = null;
+    }
+  }, []);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) {
+        clearHoverDebounce();
+        clearTouchAutoClose();
+        touchSessionRef.current = false;
+      }
+      setOpen(next);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  React.useEffect(
+    () => () => {
+      clearHoverDebounce();
+      clearTouchAutoClose();
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    hoverDebounceRef.current = window.setTimeout(() => {
+      hoverDebounceRef.current = null;
+      setOpen(true);
+    }, HOVER_DEBOUNCE_MS);
+  }, [clearHoverDebounce]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    clearHoverDebounce();
+    setOpen(false);
+  }, [clearHoverDebounce]);
+
+  const handleFocus = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(true);
+  }, []);
+
+  const handleBlur = React.useCallback(() => {
+    if (touchSessionRef.current) return;
+    setOpen(false);
+  }, []);
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType !== "touch") return;
+      touchSessionRef.current = true;
+      clearHoverDebounce();
+      clearTouchAutoClose();
+      setOpen(true);
+      touchAutoCloseRef.current = window.setTimeout(() => {
+        touchAutoCloseRef.current = null;
+        touchSessionRef.current = false;
+        setOpen(false);
+      }, TOUCH_AUTO_CLOSE_MS);
+    },
+    [clearHoverDebounce, clearTouchAutoClose],
+  );
+
+  const final_open = openOverride ?? open;
+  return (
+    <Tooltip.Root open={final_open} onOpenChange={handleOpenChange}>
+      <Tooltip.Trigger
+        closeOnClick={false}
+        render={
+          <button
+            type="button"
+            onClick={onClickToInspect}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onPointerDown={handlePointerDown}
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+          />
+        }
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6} side={side}>
+          <Tooltip.Popup
+            data-testid="evidence-tooltip-popup"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <p className="text-muted-foreground font-mono text-[11px]">
+              {evidenceId}
+              {sourceTier && ` · tier ${sourceTier}`}
+            </p>
+            {sourceUrl && (
+              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+                {sourceUrl}
+              </p>
+            )}
+            {publishedDate && (
+              <p
+                data-testid="evidence-tooltip-published"
+                className="text-muted-foreground mt-1 text-[11px]"
+              >
+                Published: {publishedDate}
+              </p>
+            )}
+            {spanText && (
+              <p className="text-foreground mt-2 text-xs leading-snug">
+                &ldquo;
+                {spanText.length > 240
+                  ? spanText.slice(0, 240) + "…"
+                  : spanText}
+                &rdquo;
+              </p>
+            )}
+            <p className="text-muted-foreground mt-2 text-[11px] italic">
+              Click to pin in Evidence pane
+            </p>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export const EvidenceTooltipProvider = Tooltip.Provider;
+
+ succeeded in 4199ms:
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// F-snowball graph (I-snowball-002 backend + I-snowball-003a frontend).
+// Cytoscape-format graph payload mirroring src/polaris_graph/api/graph_route.py.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "sentence" | "source" | "section" | "frame";
+export type GraphEdgeType = "cites" | "contradicts" | "section_member";
+export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+export type GraphFrameStatus = "pass" | "partial" | "fail";
+
+export interface GraphNodeData {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  tier?: GraphTier;
+  sentence_text?: string;
+  source_url?: string;
+  section_title?: string;
+  frame_status?: GraphFrameStatus;
+  classes?: string;
+}
+
+export interface GraphPosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNode {
+  data: GraphNodeData;
+  position?: GraphPosition | null;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: GraphEdgeType;
+}
+
+export interface GraphEdge {
+  data: GraphEdgeData;
+}
+
+export interface GraphDiagnostics {
+  bibliography_count: number;
+  fallback_source_count: number;
+  missing_reference_occurrence_count: number;
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await fetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/ui/button.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/app/runs/[runId]/graph/components' -Force | Select-Object Name,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"node\\[type|GraphTier|GraphNodeData|bibliography_missing|ClaimGraph\" web -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/package.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "ClaimGraph|Claim graph|graph-page|getRunGraph|runs/.*/graph" web/tests web/app -n' in C:\POLARIS
+ succeeded in 1686ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 2129ms:
+
+[32;1mName           [0m[32;1m Length[0m
+[32;1m----           [0m [32;1m------[0m
+claim_graph.tsx   4258
+
+
+ succeeded in 2512ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 3018ms:
+web\lib\api.ts:1063:export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+web\lib\api.ts:1066:export interface GraphNodeData {
+web\lib\api.ts:1070:  tier?: GraphTier;
+web\lib\api.ts:1084:  data: GraphNodeData;
+web\app\runs\[runId]\graph\page.tsx:9:import { ClaimGraph } from "./components/claim_graph";
+web\app\runs\[runId]\graph\page.tsx:82:        {payload && <ClaimGraph payload={payload} />}
+web\app\runs\[runId]\graph\components\claim_graph.tsx:22:interface ClaimGraphProps {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:28:    selector: "node[type='sentence']",
+web\app\runs\[runId]\graph\components\claim_graph.tsx:42:    selector: "node[type='source']",
+web\app\runs\[runId]\graph\components\claim_graph.tsx:58:    selector: "node[type='section']",
+web\app\runs\[runId]\graph\components\claim_graph.tsx:70:    selector: "node[type='frame']",
+web\app\runs\[runId]\graph\components\claim_graph.tsx:81:    selector: "node.bibliography_missing",
+web\app\runs\[runId]\graph\components\claim_graph.tsx:128:export function ClaimGraph({ payload }: ClaimGraphProps) {
+
+ succeeded in 3473ms:
+web/app\runs\[runId]\graph\page.tsx:7:import { getRunGraph, type GraphPayload } from "@/lib/api";
+web/app\runs\[runId]\graph\page.tsx:9:import { ClaimGraph } from "./components/claim_graph";
+web/app\runs\[runId]\graph\page.tsx:22:    getRunGraph(runId)
+web/app\runs\[runId]\graph\page.tsx:43:              Claim graph: {runId}
+web/app\runs\[runId]\graph\page.tsx:57:        data-testid="graph-page"
+web/app\runs\[runId]\graph\page.tsx:82:        {payload && <ClaimGraph payload={payload} />}
+web/app\runs\[runId]\graph\components\claim_graph.tsx:22:interface ClaimGraphProps {
+web/app\runs\[runId]\graph\components\claim_graph.tsx:128:export function ClaimGraph({ payload }: ClaimGraphProps) {
+web/app\runs\[runId]\graph\components\claim_graph.tsx:149:      aria-label="Claim graph"
+
+codex
+One material concern is emerging around hover: Cytoscape nodes are canvas objects, while the existing tooltip is a React trigger-wrapper. I’m checking whether the proposed “page-level tooltip reads hover state” has enough anchoring data to actually display at the hovered node.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"props\\.cy|cy\\(\" web/node_modules/react-cytoscapejs -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "componentDidMount|componentDidUpdate|cy:" web/node_modules/react-cytoscapejs -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/node_modules/react-cytoscapejs' -Force | Select-Object Name,Length" in C:\POLARIS
+ succeeded in 1595ms:
+web/node_modules/react-cytoscapejs\README.md:310:### `cy()`
+web/node_modules/react-cytoscapejs\src\component.js:87:      newProps.cy(cy);
+web/node_modules/react-cytoscapejs\src\types.js:208:   * cy(cyRef)
+
+ succeeded in 1874ms:
+web/node_modules/react-cytoscapejs\test\component.js:40:   * ReactCytoscape via componentDidUpdate(props).
+web/node_modules/react-cytoscapejs\test\immutable-component.js:53:   * ReactCytoscape via componentDidUpdate(props).
+web/node_modules/react-cytoscapejs\test\rendering-hints.js:48:   * ReactCytoscape via componentDidUpdate(props).
+web/node_modules/react-cytoscapejs\src\types.js:213:  cy: func,
+web/node_modules/react-cytoscapejs\src\component.js:46:  componentDidMount() {
+web/node_modules/react-cytoscapejs\src\component.js:91:  componentDidUpdate(prevProps) {
+
+ succeeded in 2212ms:
+
+[32;1mName                       [0m[32;1m Length[0m
+[32;1m----                       [0m [32;1m------[0m
+.github                     
+dist                        
+src                         
+test                        
+.eslintignore               18
+.eslintrc.json              205
+demo.html                   2311
+LICENSE                     1076
+package.json                2258
+react-cytoscapejs-2.0.0.tgz 27551
+README.md                   11760
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/node_modules/react-cytoscapejs/src/component.js' -TotalCount 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/node_modules/react-cytoscapejs/README.md' -TotalCount 340 | Select-Object -Last 60" in C:\POLARIS
+ succeeded in 1261ms:
+```
+
+The default is:
+
+```js
+const toJson = (object) => object;
+```
+
+### `diff(objectA, objectB)`
+
+Return whether the two objects have equal value. This is used to determine if and where Cytoscape needs to be patched. E.g.:
+
+```js
+const diff = (objectA, objectB) => objectA !== objectB; // immutable creates new objects for each operation
+```
+
+The default is a shallow equality check over the fields of each object. This means that if you use the default `diff()`, you should not use arrays or objects in an element's `data` or `scratch` fields.
+
+Immutable benefits performance here by reducing the total number of `diff()` calls needed. For example, an unchanged `element` requires only one diff with Immutable whereas it would require many diffs with the default JSON `diff()` implementation. Basically, Immutable make diffs minimal-depth searches.
+
+### `forEach(list, iterator)`
+
+Call `iterator` on each element in the `list`, in order. E.g.:
+
+```js
+const forEach = (list, iterator) => list.forEach(iterator); // same for immutable and js arrays
+```
+
+The above example is the same as the default `forEach()`.
+
+## Reference props
+
+### `cy()`
+
+The `cy` prop allows for getting a reference to the `cy` Cytoscape object, e.g.:
+
+```jsx
+<CytoscapeComponent cy={(cy) => { myCyRef = cy }} />
+```
+
+## Change log
+
+- v2.0.0
+  - BREAKING: Move `cytoscape` to peer dependencies for easier use in other packages. In particular, since you frequently need to explicitly call cytoscape functionality in your larger project, this helps ensure only one copy of it is loaded.
+  - Change from `webpack` to `microbundle` (`rollup` based)
+  - Update dependencies and lint configurations
+- v1.2.1
+  - When patching, apply layout outside of batching.
+- v1.2.0
+  - Add support for `headless`, `styleEnabled` and the following (canvas renderer) rendering hints: `hideEdgesOnViewport`, `textureOnViewport`, `motionBlur`, `motionBlurOpacity`, `wheelSensitivity`, `pixelRatio`
+  - Add setup and version explanation to README
+  - Add a default React displayName
+- v1.1.0
+  - Add `Component.normalizeElements()` utility function
+  - Update style prop docs
+- v1.0.1
+  - Update style attribute in docs example to use idiomatic React style object
+  - Add npmignore
+- v1.0.0
+  - Initial release
+
+ succeeded in 1555ms:
+import React from 'react';
+import { types } from './types';
+import { defaults } from './defaults';
+import Cytoscape from 'cytoscape';
+import { patch } from './patch';
+
+/**
+ * The `CytoscapeComponent` is a React component that allows for the declarative creation
+ * and modification of a Cytoscape instance, a graph visualisation.
+ */
+export default class CytoscapeComponent extends React.Component {
+  static get propTypes() {
+    return types;
+  }
+
+  static get defaultProps() {
+    return defaults;
+  }
+
+  static normalizeElements(elements) {
+    const isArray = elements.length != null;
+
+    if (isArray) {
+      return elements;
+    } else {
+      let { nodes, edges } = elements;
+
+      if (nodes == null) {
+        nodes = [];
+      }
+
+      if (edges == null) {
+        edges = [];
+      }
+
+      return nodes.concat(edges);
+    }
+  }
+
+  constructor(props) {
+    super(props);
+    this.displayName = 'CytoscapeComponent';
+    this.containerRef = React.createRef();
+  }
+
+  componentDidMount() {
+    const container = this.containerRef.current;
+
+    const {
+      global,
+      headless,
+      styleEnabled,
+      hideEdgesOnViewport,
+      textureOnViewport,
+      motionBlur,
+      motionBlurOpacity,
+      wheelSensitivity,
+      pixelRatio,
+    } = this.props;
+
+    const cy = (this._cy = new Cytoscape({
+      container,
+      headless,
+      styleEnabled,
+      hideEdgesOnViewport,
+      textureOnViewport,
+      motionBlur,
+      motionBlurOpacity,
+      wheelSensitivity,
+      pixelRatio,
+    }));
+
+    if (global) {
+      window[global] = cy;
+    }
+
+    this.updateCytoscape(null, this.props);
+  }
+
+  updateCytoscape(prevProps, newProps) {
+    const cy = this._cy;
+    const { diff, toJson, get, forEach } = newProps;
+
+    patch(cy, prevProps, newProps, diff, toJson, get, forEach);
+
+    if (newProps.cy != null) {
+      newProps.cy(cy);
+    }
+  }
+
+  componentDidUpdate(prevProps) {
+    this.updateCytoscape(prevProps, this.props);
+  }
+
+  componentWillUnmount() {
+    this._cy.destroy();
+  }
+
+  render() {
+    const { id, className, style } = this.props;
+
+    return React.createElement('div', {
+      ref: this.containerRef,
+      id,
+      className,
+      style,
+    });
+  }
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/claim_graph.tsx').Count" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"role=\\\"region\\\"|aria-current|onKeyDown|ArrowDown|ArrowUp|focused_node|search\" web/app web/components -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(Get-Content -LiteralPath 'web/app/runs/[runId]/graph/page.tsx').Count" in C:\POLARIS
+ succeeded in 1651ms:
+167
+
+2026-05-12T20:06:11.123859Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2 seconds
+Output:
+rg: regex parse error:
+    (?:role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 2017ms:
+rg: regex parse error:
+    (?:role=\)
+    ^
+error: unclosed group
+
+ succeeded in 2398ms:
+86
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+
+p1:
+  - "claim_graph.tsx: proposed cy={(cy) => cy.on(...)} is not idempotent. react-cytoscapejs calls the cy prop on every update, so hover/search/selection rerenders will stack duplicate tap/mouseover/mouseout handlers, causing repeated router.push/setState. Bind once with cleanup/guard."
+  - "Hover tooltip plan is under-specified for Cytoscape canvas nodes. EvidenceTooltip is a React trigger wrapper; setting hoverNode alone will not anchor/open it on a canvas node. Store rendered cursor/node position and drive EvidenceTooltip with openOverride plus a real positioned anchor, or add supported virtual-anchor/custom-trigger behavior."
+  - "Keyboard scope says arrow keys traverse edges, but AccessibleGraphList spec only does linear ArrowUp/ArrowDown previous/next visible node. Define and implement deterministic adjacency traversal from payload.elements.edges, respecting visible_node_ids."
+
+p2:
+  - "LOC estimate is off: claim_graph.tsx is already 167 lines, so +60 would exceed the 200 LOC cap. Split stylesheet/layout/event logic into another file or keep the graph component thinner."
+  - "Search predicate must be shared. useGraphState filters label OR id, but the proposed canvas highlight only checks label, so id-only matches appear in the list without canvas highlighting."
+  - "Do not put role='region' directly on ol; that can override list semantics. Use a wrapper region/section and keep <ol aria-label='Claim graph'>."
+  - "Tab-through-buttons is acceptable only if each node button onFocus sets selected_node_id so canvas/list state stays synced. Avoid explicit tabIndex on each li unless implementing a proper roving tabindex."
+  - "Use encodeURIComponent or URLSearchParams for focused_node in both canvas and list navigation."
+  - "Q1: agree with option b for v1: pass T1-T3 through, omit T4-T7."
+  - "Q2: router.push on node tap is the right pattern; no special multi-tab interception needed."
+  - "Q3: section/sentence/source/frame order is acceptable; do not interleave sources per section because sources can be shared."
+  - "Q4: O(n) search per keystroke for ~400 nodes is fine."
+
+p3_cosmetic:
+  - "Existing EvidenceTooltip copy says 'Click to pin in Evidence pane'; that is mildly misleading when graph click opens Inspector."
+  - "The ':matches' wording is implementation noise; class toggling with node.search-hit is fine."
+
+convergence_call: continue
+remaining_blockers:
+  - "Make Cytoscape event registration idempotent/cleaned up."
+  - "Add a real EvidenceTooltip anchor/open strategy for canvas hover."
+  - "Implement arrow-key edge traversal, not only linear list navigation."
+```
+tokens used
+55,358
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+
+p1:
+  - "claim_graph.tsx: proposed cy={(cy) => cy.on(...)} is not idempotent. react-cytoscapejs calls the cy prop on every update, so hover/search/selection rerenders will stack duplicate tap/mouseover/mouseout handlers, causing repeated router.push/setState. Bind once with cleanup/guard."
+  - "Hover tooltip plan is under-specified for Cytoscape canvas nodes. EvidenceTooltip is a React trigger wrapper; setting hoverNode alone will not anchor/open it on a canvas node. Store rendered cursor/node position and drive EvidenceTooltip with openOverride plus a real positioned anchor, or add supported virtual-anchor/custom-trigger behavior."
+  - "Keyboard scope says arrow keys traverse edges, but AccessibleGraphList spec only does linear ArrowUp/ArrowDown previous/next visible node. Define and implement deterministic adjacency traversal from payload.elements.edges, respecting visible_node_ids."
+
+p2:
+  - "LOC estimate is off: claim_graph.tsx is already 167 lines, so +60 would exceed the 200 LOC cap. Split stylesheet/layout/event logic into another file or keep the graph component thinner."
+  - "Search predicate must be shared. useGraphState filters label OR id, but the proposed canvas highlight only checks label, so id-only matches appear in the list without canvas highlighting."
+  - "Do not put role='region' directly on ol; that can override list semantics. Use a wrapper region/section and keep <ol aria-label='Claim graph'>."
+  - "Tab-through-buttons is acceptable only if each node button onFocus sets selected_node_id so canvas/list state stays synced. Avoid explicit tabIndex on each li unless implementing a proper roving tabindex."
+  - "Use encodeURIComponent or URLSearchParams for focused_node in both canvas and list navigation."
+  - "Q1: agree with option b for v1: pass T1-T3 through, omit T4-T7."
+  - "Q2: router.push on node tap is the right pattern; no special multi-tab interception needed."
+  - "Q3: section/sentence/source/frame order is acceptable; do not interleave sources per section because sources can be shared."
+  - "Q4: O(n) search per keystroke for ~400 nodes is fine."
+
+p3_cosmetic:
+  - "Existing EvidenceTooltip copy says 'Click to pin in Evidence pane'; that is mildly misleading when graph click opens Inspector."
+  - "The ':matches' wording is implementation noise; class toggling with node.search-hit is fine."
+
+convergence_call: continue
+remaining_blockers:
+  - "Make Cytoscape event registration idempotent/cleaned up."
+  - "Add a real EvidenceTooltip anchor/open strategy for canvas hover."
+  - "Implement arrow-key edge traversal, not only linear list navigation."
+```
