@@ -1,0 +1,782 @@
+diff --git a/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx b/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx
+new file mode 100644
+index 00000000..f691a5a3
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx
+@@ -0,0 +1,179 @@
++"use client";
++
++/**
++ * AccessibleGraphList — `<ol>` parallel to the cytoscape canvas.
++ *
++ * Canonical a11y surface (canvas is decorative-equivalent). Order: section
++ * nodes first, then sentence nodes (grouped by section), then source nodes
++ * (sorted by tier then id), then frame nodes. Each row has an "Open
++ * Inspector" button that fires the router push.
++ *
++ * Keyboard nav (handled at outer wrapper): ArrowRight=outgoing edge target,
++ * ArrowLeft=incoming, ArrowUp/Down=prev/next visible in list order,
++ * Enter=open Inspector, Esc=clear selection, `/`=focus search.
++ */
++
++import Link from "next/link";
++import { useRouter } from "next/navigation";
++import { useMemo, type KeyboardEvent, type RefObject } from "react";
++
++import { Button } from "@/components/ui/button";
++import type { GraphNode, GraphPayload } from "@/lib/api";
++
++import type { GraphAdjacency, GraphState } from "./use_graph_state";
++
++interface AccessibleGraphListProps {
++  payload: GraphPayload;
++  state: GraphState;
++  adjacency: GraphAdjacency;
++  runId: string;
++  searchInputRef: RefObject<HTMLInputElement | null>;
++  setSelectedNodeId: (id: string | null) => void;
++}
++
++const TYPE_ORDER: Record<string, number> = {
++  section: 0,
++  sentence: 1,
++  source: 2,
++  frame: 3,
++};
++
++const TIER_ORDER: Record<string, number> = {
++  T1: 0,
++  T2: 1,
++  T3: 2,
++  T4: 3,
++  T5: 4,
++  T6: 5,
++  T7: 6,
++};
++
++function orderedNodes(payload: GraphPayload): GraphNode[] {
++  return [...payload.elements.nodes].sort((a, b) => {
++    const ta = TYPE_ORDER[a.data.type] ?? 99;
++    const tb = TYPE_ORDER[b.data.type] ?? 99;
++    if (ta !== tb) return ta - tb;
++    if (a.data.type === "source" && b.data.type === "source") {
++      const ka = TIER_ORDER[a.data.tier ?? ""] ?? 99;
++      const kb = TIER_ORDER[b.data.tier ?? ""] ?? 99;
++      if (ka !== kb) return ka - kb;
++    }
++    return a.data.id.localeCompare(b.data.id);
++  });
++}
++
++export function AccessibleGraphList({
++  payload,
++  state,
++  adjacency,
++  runId,
++  searchInputRef,
++  setSelectedNodeId,
++}: AccessibleGraphListProps) {
++  const router = useRouter();
++  const ordered = useMemo(() => orderedNodes(payload), [payload]);
++  const visibleOrdered = useMemo(
++    () => ordered.filter((n) => state.visible_node_ids.has(n.data.id)),
++    [ordered, state.visible_node_ids],
++  );
++
++  const inspectorHref = (id: string) =>
++    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
++
++  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
++    if (e.key === "/" && document.activeElement?.tagName !== "INPUT") {
++      e.preventDefault();
++      searchInputRef.current?.focus();
++      return;
++    }
++    if (e.key === "Escape") {
++      e.preventDefault();
++      setSelectedNodeId(null);
++      return;
++    }
++    // Enter opens Inspector on the SELECTED node (Codex diff iter-1 P1 fix:
++    // selection-vs-focus desync; navigate by state, not focused link).
++    if (e.key === "Enter" && state.selected_node_id) {
++      e.preventDefault();
++      router.push(inspectorHref(state.selected_node_id));
++      return;
++    }
++    if (!state.selected_node_id) return;
++    const idx = visibleOrdered.findIndex(
++      (n) => n.data.id === state.selected_node_id,
++    );
++    if (e.key === "ArrowDown") {
++      e.preventDefault();
++      const next = visibleOrdered[Math.min(idx + 1, visibleOrdered.length - 1)];
++      if (next) setSelectedNodeId(next.data.id);
++    } else if (e.key === "ArrowUp") {
++      e.preventDefault();
++      const prev = visibleOrdered[Math.max(idx - 1, 0)];
++      if (prev) setSelectedNodeId(prev.data.id);
++    } else if (e.key === "ArrowRight") {
++      e.preventDefault();
++      const outs = adjacency.out.get(state.selected_node_id) ?? [];
++      const target = outs.find((t) => state.visible_node_ids.has(t));
++      if (target) setSelectedNodeId(target);
++    } else if (e.key === "ArrowLeft") {
++      e.preventDefault();
++      const ins = adjacency.in.get(state.selected_node_id) ?? [];
++      const source = ins.find((t) => state.visible_node_ids.has(t));
++      if (source) setSelectedNodeId(source);
++    }
++  };
++
++  return (
++    <section
++      role="region"
++      aria-label="Claim graph"
++      onKeyDown={onKeyDown}
++      tabIndex={-1}
++      className="border-border flex max-h-[600px] flex-col overflow-y-auto rounded-md border"
++    >
++      <ol aria-label="Graph nodes" className="divide-border divide-y">
++        {visibleOrdered.map((n) => {
++          const isSelected = state.selected_node_id === n.data.id;
++          return (
++            <li
++              key={n.data.id}
++              data-testid={`graph-list-row-${n.data.id}`}
++              aria-current={isSelected ? "true" : undefined}
++              className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${
++                isSelected ? "bg-accent" : ""
++              }`}
++            >
++              <div className="flex min-w-0 flex-1 items-center gap-2">
++                <span className="text-muted-foreground font-mono text-[10px] uppercase">
++                  {n.data.type}
++                </span>
++                {n.data.tier && (
++                  <span className="rounded bg-green-100 px-1 text-[10px] font-medium text-green-800">
++                    {n.data.tier}
++                  </span>
++                )}
++                <span className="truncate" title={n.data.label}>
++                  {n.data.label}
++                </span>
++              </div>
++              <Button
++                variant="ghost"
++                size="sm"
++                onFocus={() => setSelectedNodeId(n.data.id)}
++                nativeButton={false}
++                render={<Link href={inspectorHref(n.data.id)} />}
++              >
++                Inspect
++              </Button>
++            </li>
++          );
++        })}
++        {visibleOrdered.length === 0 && (
++          <li className="text-muted-foreground p-3 text-xs">
++            No nodes match the search filter.
++          </li>
++        )}
++      </ol>
++    </section>
++  );
++}
+diff --git a/web/app/runs/[runId]/graph/components/claim_graph.tsx b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+index 838f5668..237100ea 100644
+--- a/web/app/runs/[runId]/graph/components/claim_graph.tsx
++++ b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+@@ -1,12 +1,24 @@
+ "use client";
+ 
++/**
++ * ClaimGraph — cytoscape canvas component (I-snowball-003 + I-snowball-004).
++ *
++ * Stylesheet + layout constants extracted to graph_styles.ts to keep file
++ * under 200 LOC after adding hover + click + search-highlight + selection
++ * sync handlers (I-snowball-004 brief iter 2 P2-1.4).
++ */
++
+ import cytoscape from "cytoscape";
+ import fcose from "cytoscape-fcose";
+ import dynamic from "next/dynamic";
+-import { useMemo } from "react";
++import { useRouter } from "next/navigation";
++import { useEffect, useMemo, useState } from "react";
+ 
+ import type { GraphPayload } from "@/lib/api";
+ 
++import { LAYOUT_FCOSE, LAYOUT_PRESET, STYLESHEET } from "./graph_styles";
++import { nodeMatchesQuery } from "./use_graph_state";
++
+ // Idempotent fcose registration (guards against double-register on HMR).
+ const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
+ if (!_cy._fcoseRegistered) {
+@@ -19,113 +31,35 @@ const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+   ssr: false,
+ });
+ 
++interface HoverState {
++  id: string;
++  type: string;
++  label: string;
++  tier?: string;
++  source_url?: string;
++  x: number;
++  y: number;
++}
++
+ interface ClaimGraphProps {
+   payload: GraphPayload;
++  runId: string;
++  selectedNodeId: string | null;
++  searchQuery: string;
++  setSelectedNodeId: (id: string | null) => void;
+ }
+ 
+-const STYLESHEET: cytoscape.StylesheetStyle[] = [
+-  {
+-    selector: "node[type='sentence']",
+-    style: {
+-      "background-color": "#3b82f6",
+-      width: 18,
+-      height: 18,
+-      label: "data(label)",
+-      "font-size": 8,
+-      color: "#1e293b",
+-      "text-valign": "bottom",
+-      "text-halign": "center",
+-      "text-margin-y": 4,
+-    },
+-  },
+-  {
+-    selector: "node[type='source']",
+-    style: {
+-      "background-color": "#22c55e",
+-      width: 26,
+-      height: 26,
+-      label: "data(label)",
+-      "font-size": 9,
+-      color: "#1e293b",
+-      "text-valign": "bottom",
+-      "text-halign": "center",
+-      "text-margin-y": 4,
+-      "text-max-width": "180px",
+-      "text-wrap": "ellipsis",
+-    },
+-  },
+-  {
+-    selector: "node[type='section']",
+-    style: {
+-      "background-color": "#a3a3a3",
+-      width: 30,
+-      height: 30,
+-      label: "data(label)",
+-      "font-weight": "bold" as never,
+-      "font-size": 10,
+-      color: "#0f172a",
+-    },
+-  },
+-  {
+-    selector: "node[type='frame']",
+-    style: {
+-      "background-color": "#f59e0b",
+-      width: 22,
+-      height: 22,
+-      label: "data(label)",
+-      "font-size": 9,
+-      color: "#1e293b",
+-    },
+-  },
+-  {
+-    selector: "node.bibliography_missing",
+-    style: {
+-      "background-color": "#9ca3af",
+-      "border-style": "dashed",
+-      "border-width": 1,
+-      "border-color": "#6b7280",
+-    },
+-  },
+-  {
+-    selector: "edge[edge_type='cites']",
+-    style: {
+-      "line-color": "#60a5fa",
+-      width: 1,
+-      "curve-style": "bezier",
+-    },
+-  },
+-  {
+-    selector: "edge[edge_type='contradicts']",
+-    style: {
+-      "line-color": "#ef4444",
+-      width: 2,
+-      "curve-style": "bezier",
+-      "line-style": "solid",
+-    },
+-  },
+-  {
+-    selector: "edge[edge_type='section_member']",
+-    style: {
+-      "line-color": "#d4d4d4",
+-      "line-style": "dashed",
+-      width: 1,
+-      opacity: 0.5,
+-    },
+-  },
+-];
+-
+-const LAYOUT_FCOSE = {
+-  name: "fcose",
+-  randomize: false,
+-  quality: "proof",
+-  animate: false,
+-  nodeSeparation: 75,
+-  idealEdgeLength: 50,
+-} as unknown as cytoscape.LayoutOptions;
+-
+-const LAYOUT_PRESET: cytoscape.LayoutOptions = { name: "preset" };
+-
+-export function ClaimGraph({ payload }: ClaimGraphProps) {
++export function ClaimGraph({
++  payload,
++  runId,
++  selectedNodeId,
++  searchQuery,
++  setSelectedNodeId,
++}: ClaimGraphProps) {
++  const router = useRouter();
++  const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
++  const [hover, setHover] = useState<HoverState | null>(null);
++
+   const { elements, layout } = useMemo(() => {
+     const hasPositions =
+       payload.elements.nodes.length > 0 &&
+@@ -144,19 +78,109 @@ export function ClaimGraph({ payload }: ClaimGraphProps) {
+     };
+   }, [payload]);
+ 
++  // Idempotent event registration (Codex iter-1 P1-1.1 fix).
++  useEffect(() => {
++    if (!cyInstance) return;
++    const onTap = (evt: cytoscape.EventObject) => {
++      const id = evt.target.id();
++      setSelectedNodeId(id);
++      router.push(
++        `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`,
++      );
++    };
++    const onMouseover = (evt: cytoscape.EventObject) => {
++      const node = evt.target;
++      const data = node.data();
++      const rendered = node.renderedPosition();
++      setHover({
++        id: data.id,
++        type: data.type,
++        label: data.label,
++        tier: data.tier,
++        source_url: data.source_url,
++        x: rendered.x,
++        y: rendered.y,
++      });
++    };
++    const onMouseout = () => setHover(null);
++    cyInstance.on("tap", "node", onTap);
++    cyInstance.on("mouseover", "node", onMouseover);
++    cyInstance.on("mouseout", "node", onMouseout);
++    return () => {
++      cyInstance.off("tap", "node", onTap);
++      cyInstance.off("mouseover", "node", onMouseover);
++      cyInstance.off("mouseout", "node", onMouseout);
++    };
++  }, [cyInstance, runId, router, setSelectedNodeId]);
++
++  // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
++  // use the same `nodeMatchesQuery` helper as the list filter).
++  useEffect(() => {
++    if (!cyInstance) return;
++    cyInstance.nodes().removeClass("search-hit");
++    if (!searchQuery.trim()) return;
++    cyInstance
++      .nodes()
++      .filter((n) =>
++        nodeMatchesQuery(
++          {
++            data: {
++              id: n.data("id") as string,
++              type: n.data("type") as
++                | "sentence"
++                | "source"
++                | "section"
++                | "frame",
++              label: n.data("label") as string,
++            },
++          },
++          searchQuery,
++        ),
++      )
++      .addClass("search-hit");
++  }, [cyInstance, searchQuery]);
++
++  // Selection sync — selected node gets a halo via .selected class.
++  useEffect(() => {
++    if (!cyInstance) return;
++    cyInstance.nodes().removeClass("selected");
++    if (selectedNodeId) {
++      cyInstance.getElementById(selectedNodeId).addClass("selected");
++    }
++  }, [cyInstance, selectedNodeId]);
++
+   return (
+     <section
+-      aria-label="Claim graph"
++      aria-label="Claim graph canvas"
+       data-testid="claim-graph"
+-      className="border-border flex w-full flex-col overflow-hidden rounded-md border"
++      className="border-border relative flex w-full flex-col overflow-hidden rounded-md border"
+     >
+-      <div className="h-[600px] w-full">
++      <div className="relative h-[600px] w-full">
+         <CytoscapeComponent
+           elements={elements}
+           style={{ width: "100%", height: "100%" }}
+           layout={layout}
+           stylesheet={STYLESHEET}
++          cy={(cy) => setCyInstance(cy)}
+         />
++        {hover && (
++          <div
++            role="tooltip"
++            className="bg-popover text-popover-foreground border-border pointer-events-none absolute z-50 max-w-xs rounded-md border px-3 py-2 text-xs shadow-md"
++            style={{ left: hover.x + 12, top: hover.y + 12 }}
++          >
++            <div className="font-medium">{hover.label}</div>
++            <div className="text-muted-foreground">{hover.type}</div>
++            {hover.tier && (
++              <div className="text-muted-foreground">{hover.tier}</div>
++            )}
++            {hover.source_url && (
++              <div className="text-muted-foreground truncate">
++                {hover.source_url}
++              </div>
++            )}
++          </div>
++        )}
+       </div>
+       <p className="text-muted-foreground border-border border-t p-2 text-xs">
+         {payload.elements.nodes.length} nodes · {payload.elements.edges.length}{" "}
+diff --git a/web/app/runs/[runId]/graph/components/graph_styles.ts b/web/app/runs/[runId]/graph/components/graph_styles.ts
+new file mode 100644
+index 00000000..9c0ae631
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/graph_styles.ts
+@@ -0,0 +1,124 @@
++/**
++ * Cytoscape stylesheet + layout constants for ClaimGraph.
++ *
++ * Extracted from claim_graph.tsx in I-snowball-004 to keep the component
++ * under 200 LOC after adding event handlers + hover card + a11y list.
++ */
++
++import type cytoscape from "cytoscape";
++
++export const STYLESHEET: cytoscape.StylesheetStyle[] = [
++  {
++    selector: "node[type='sentence']",
++    style: {
++      "background-color": "#3b82f6",
++      width: 18,
++      height: 18,
++      label: "data(label)",
++      "font-size": 8,
++      color: "#1e293b",
++      "text-valign": "bottom",
++      "text-halign": "center",
++      "text-margin-y": 4,
++    },
++  },
++  {
++    selector: "node[type='source']",
++    style: {
++      "background-color": "#22c55e",
++      width: 26,
++      height: 26,
++      label: "data(label)",
++      "font-size": 9,
++      color: "#1e293b",
++      "text-valign": "bottom",
++      "text-halign": "center",
++      "text-margin-y": 4,
++      "text-max-width": "180px",
++      "text-wrap": "ellipsis",
++    },
++  },
++  {
++    selector: "node[type='section']",
++    style: {
++      "background-color": "#a3a3a3",
++      width: 30,
++      height: 30,
++      label: "data(label)",
++      "font-weight": "bold" as never,
++      "font-size": 10,
++      color: "#0f172a",
++    },
++  },
++  {
++    selector: "node[type='frame']",
++    style: {
++      "background-color": "#f59e0b",
++      width: 22,
++      height: 22,
++      label: "data(label)",
++      "font-size": 9,
++      color: "#1e293b",
++    },
++  },
++  {
++    selector: "node.bibliography_missing",
++    style: {
++      "background-color": "#9ca3af",
++      "border-style": "dashed",
++      "border-width": 1,
++      "border-color": "#6b7280",
++    },
++  },
++  {
++    selector: "node.search-hit",
++    style: {
++      "border-width": 3,
++      "border-color": "#facc15",
++    },
++  },
++  {
++    selector: "node.selected",
++    style: {
++      "border-width": 4,
++      "border-color": "#0ea5e9",
++    },
++  },
++  {
++    selector: "edge[edge_type='cites']",
++    style: {
++      "line-color": "#60a5fa",
++      width: 1,
++      "curve-style": "bezier",
++    },
++  },
++  {
++    selector: "edge[edge_type='contradicts']",
++    style: {
++      "line-color": "#ef4444",
++      width: 2,
++      "curve-style": "bezier",
++      "line-style": "solid",
++    },
++  },
++  {
++    selector: "edge[edge_type='section_member']",
++    style: {
++      "line-color": "#d4d4d4",
++      "line-style": "dashed",
++      width: 1,
++      opacity: 0.5,
++    },
++  },
++];
++
++export const LAYOUT_FCOSE = {
++  name: "fcose",
++  randomize: false,
++  quality: "proof",
++  animate: false,
++  nodeSeparation: 75,
++  idealEdgeLength: 50,
++} as unknown as cytoscape.LayoutOptions;
++
++export const LAYOUT_PRESET: cytoscape.LayoutOptions = { name: "preset" };
+diff --git a/web/app/runs/[runId]/graph/components/use_graph_state.ts b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+new file mode 100644
+index 00000000..a0ed97c1
+--- /dev/null
++++ b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+@@ -0,0 +1,82 @@
++/**
++ * useGraphState — single source of truth for ClaimGraph interaction state.
++ *
++ * Holds selected node + search query; exposes a memoized `visible_node_ids`
++ * set (filtered by search) and an `adjacency` map for arrow-key edge
++ * traversal. Both ClaimGraph (canvas) and AccessibleGraphList (parallel
++ * `<ol>`) consume this hook to stay in sync.
++ *
++ * I-snowball-004 (combined 004a + 004b scope per DECISION.md).
++ */
++
++import { useMemo, useState } from "react";
++
++import type { GraphNode, GraphPayload } from "@/lib/api";
++
++export interface GraphState {
++  selected_node_id: string | null;
++  search_query: string;
++  visible_node_ids: Set<string>;
++}
++
++export interface GraphAdjacency {
++  /** Outgoing semantic-edge targets, excluding `section_member`. */
++  out: Map<string, string[]>;
++  /** Incoming semantic-edge sources, excluding `section_member`. */
++  in: Map<string, string[]>;
++}
++
++export interface GraphActions {
++  setSelectedNodeId: (id: string | null) => void;
++  setSearchQuery: (q: string) => void;
++}
++
++/** Shared search predicate used by list filter AND canvas highlight (Codex iter-2 P2-1.5). */
++export function nodeMatchesQuery(node: GraphNode, query: string): boolean {
++  if (!query.trim()) return true;
++  const q = query.toLowerCase();
++  return (
++    node.data.label.toLowerCase().includes(q) ||
++    node.data.id.toLowerCase().includes(q)
++  );
++}
++
++export function useGraphState(
++  payload: GraphPayload,
++): [GraphState, GraphAdjacency, GraphActions] {
++  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
++  const [searchQuery, setSearchQuery] = useState<string>("");
++
++  const visibleNodeIds = useMemo(() => {
++    const ids = new Set<string>();
++    for (const n of payload.elements.nodes) {
++      if (nodeMatchesQuery(n, searchQuery)) ids.add(n.data.id);
++    }
++    return ids;
++  }, [payload, searchQuery]);
++
++  const adjacency = useMemo<GraphAdjacency>(() => {
++    const out = new Map<string, string[]>();
++    const inc = new Map<string, string[]>();
++    for (const n of payload.elements.nodes) {
++      out.set(n.data.id, []);
++      inc.set(n.data.id, []);
++    }
++    for (const e of payload.elements.edges) {
++      if (e.data.edge_type === "section_member") continue;
++      out.get(e.data.source)?.push(e.data.target);
++      inc.get(e.data.target)?.push(e.data.source);
++    }
++    return { out, in: inc };
++  }, [payload]);
++
++  return [
++    {
++      selected_node_id: selectedNodeId,
++      search_query: searchQuery,
++      visible_node_ids: visibleNodeIds,
++    },
++    adjacency,
++    { setSelectedNodeId, setSearchQuery },
++  ];
++}
+diff --git a/web/app/runs/[runId]/graph/page.tsx b/web/app/runs/[runId]/graph/page.tsx
+index 90dfaa1d..a87574ab 100644
+--- a/web/app/runs/[runId]/graph/page.tsx
++++ b/web/app/runs/[runId]/graph/page.tsx
+@@ -1,12 +1,15 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import { use, useEffect, useState } from "react";
++import { use, useEffect, useRef, useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
+ import { getRunGraph, type GraphPayload } from "@/lib/api";
+ 
++import { AccessibleGraphList } from "./components/accessible_graph_list";
+ import { ClaimGraph } from "./components/claim_graph";
++import { useGraphState } from "./components/use_graph_state";
+ 
+ interface GraphPageProps {
+   params: Promise<{ runId: string }>;
+@@ -34,7 +37,7 @@ export default function GraphPage({ params }: GraphPageProps) {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
++        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+           <div className="flex flex-col">
+             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+               POLARIS — F-snowball
+@@ -55,7 +58,7 @@ export default function GraphPage({ params }: GraphPageProps) {
+ 
+       <main
+         data-testid="graph-page"
+-        className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-6 py-6"
++        className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+       >
+         {error && (
+           <div
+@@ -79,8 +82,54 @@ export default function GraphPage({ params }: GraphPageProps) {
+           </div>
+         )}
+ 
+-        {payload && <ClaimGraph payload={payload} />}
++        {payload && <GraphSurface payload={payload} runId={runId} />}
+       </main>
+     </div>
+   );
+ }
++
++interface GraphSurfaceProps {
++  payload: GraphPayload;
++  runId: string;
++}
++
++function GraphSurface({ payload, runId }: GraphSurfaceProps) {
++  const [state, adjacency, actions] = useGraphState(payload);
++  const searchInputRef = useRef<HTMLInputElement>(null);
++
++  return (
++    <div className="flex flex-col gap-3">
++      <div className="flex items-center gap-2">
++        <Input
++          ref={searchInputRef}
++          type="search"
++          placeholder="Search nodes (press / to focus)…"
++          value={state.search_query}
++          onChange={(e) => actions.setSearchQuery(e.target.value)}
++          className="max-w-md"
++          aria-label="Search graph nodes"
++        />
++        <span className="text-muted-foreground text-xs">
++          {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
++        </span>
++      </div>
++      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
++        <ClaimGraph
++          payload={payload}
++          runId={runId}
++          selectedNodeId={state.selected_node_id}
++          searchQuery={state.search_query}
++          setSelectedNodeId={actions.setSelectedNodeId}
++        />
++        <AccessibleGraphList
++          payload={payload}
++          state={state}
++          adjacency={adjacency}
++          runId={runId}
++          searchInputRef={searchInputRef}
++          setSelectedNodeId={actions.setSelectedNodeId}
++        />
++      </div>
++    </div>
++  );
++}
+
+# canonical-diff-sha256: 430b0447397923694c9574f93fff86c187c183418dff255e88d5bffaec2e253f
