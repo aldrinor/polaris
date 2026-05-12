@@ -190,3 +190,44 @@ outputs/codex_findings/round_*/last_message.txt
 
 # --- Canonical pin (TRACKED) ---
 !docs/canonical_pin.txt
+
+# --- I-hygiene-001 root-clutter prevention (2026-05-11, GH#432) ---
+# Anchored patterns per Codex I-hygiene-001 plan iter-4 APPROVE'd.
+# Pytest temp / scratch dirs (mkdtemp + manual)
+/tmp*/
+/.tmp*/
+/POLARIS.tmppytest/
+/POLARIStmp_pytest*/
+/pytest-cache-files-*/
+/pytest_basetemp*/
+/pytest_run_*/
+/py_pytest_*/
+/.pytest-cache*/
+/.pytest_cache*/
+/.pytest_scope_gate_tmp*/
+/.pytest_tmp*/
+/manual_pytest_*/
+/manual_review_scratch*/
+/manual_tmp_*/
+/md3_pytest*/
+/md3_round*_tmp/
+# Codex review temp dirs
+/.codex-tmp/
+/.codex_tmp*/
+/.codex_pytest_tmp/
+/.codex_review_workforce/
+/codex_cache_*/
+/codex_review_tmp_*/
+/codex_tmp_*/
+# Manual milestone scratch
+/m8_*/
+/m9_*/
+/m9v*/
+/m10v*/
+/m_int_*_manual_*/
+/m_live_*/
+# UI probes
+/dashboard_probe_*/
+/python_mode_*_probe/
+# .codex/ historical walkthrough screenshots (regenerated when needed)
+/.codex/walkthrough_screenshots*/
