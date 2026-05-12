@@ -524,3 +524,5 @@ index 00000000..686817a7
 +    paths = [getattr(r, "path", "") for r in app.routes]
 +    assert any("/api/runs/{run_id}/graph" in p for p in paths), \
 +        f"graph route not mounted; paths sample: {[p for p in paths if '/api/runs' in p][:5]}"
+
+# canonical-diff-sha256: 652fefbabd0c6cf5b42dd848dc97d80eed4e3e95713ff671dee3ee8f91cbecd6
