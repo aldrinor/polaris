@@ -14,6 +14,7 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, type KeyboardEvent, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function AccessibleGraphList({
   searchInputRef,
   setSelectedNodeId,
 }: AccessibleGraphListProps) {
+  const router = useRouter();
   const ordered = useMemo(() => orderedNodes(payload), [payload]);
   const visibleOrdered = useMemo(
     () => ordered.filter((n) => state.visible_node_ids.has(n.data.id)),
@@ -87,6 +89,13 @@ export function AccessibleGraphList({
     if (e.key === "Escape") {
       e.preventDefault();
       setSelectedNodeId(null);
+      return;
+    }
+    // Enter opens Inspector on the SELECTED node (Codex diff iter-1 P1 fix:
+    // selection-vs-focus desync; navigate by state, not focused link).
+    if (e.key === "Enter" && state.selected_node_id) {
+      e.preventDefault();
+      router.push(inspectorHref(state.selected_node_id));
       return;
     }
     if (!state.selected_node_id) return;

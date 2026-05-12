@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GraphPayload } from "@/lib/api";
 
 import { LAYOUT_FCOSE, LAYOUT_PRESET, STYLESHEET } from "./graph_styles";
+import { nodeMatchesQuery } from "./use_graph_state";
 
 // Idempotent fcose registration (guards against double-register on HMR).
 const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
@@ -112,18 +113,29 @@ export function ClaimGraph({
     };
   }, [cyInstance, runId, router, setSelectedNodeId]);
 
-  // Search-highlight (Codex iter-2 P2-1.5: shared predicate, label OR id).
+  // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
+  // use the same `nodeMatchesQuery` helper as the list filter).
   useEffect(() => {
     if (!cyInstance) return;
     cyInstance.nodes().removeClass("search-hit");
     if (!searchQuery.trim()) return;
-    const q = searchQuery.toLowerCase();
     cyInstance
       .nodes()
-      .filter(
-        (n) =>
-          (n.data("label") as string).toLowerCase().includes(q) ||
-          (n.data("id") as string).toLowerCase().includes(q),
+      .filter((n) =>
+        nodeMatchesQuery(
+          {
+            data: {
+              id: n.data("id") as string,
+              type: n.data("type") as
+                | "sentence"
+                | "source"
+                | "section"
+                | "frame",
+              label: n.data("label") as string,
+            },
+          },
+          searchQuery,
+        ),
       )
       .addClass("search-hit");
   }, [cyInstance, searchQuery]);
