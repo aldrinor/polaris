@@ -85,6 +85,14 @@ export const STYLESHEET: cytoscape.StylesheetStyle[] = [
     },
   },
   {
+    selector: "node.snowball-neighbor",
+    style: {
+      "border-width": 3,
+      "border-color": "#3b82f6",
+      "background-opacity": 0.95,
+    },
+  },
+  {
     selector: "edge[edge_type='cites']",
     style: {
       "line-color": "#60a5fa",

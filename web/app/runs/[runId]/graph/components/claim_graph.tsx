@@ -11,7 +11,6 @@
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import type { GraphPayload } from "@/lib/api";
@@ -43,20 +42,19 @@ interface HoverState {
 
 interface ClaimGraphProps {
   payload: GraphPayload;
-  runId: string;
   selectedNodeId: string | null;
   searchQuery: string;
+  snowballHighlightIds: Set<string> | null;
   setSelectedNodeId: (id: string | null) => void;
 }
 
 export function ClaimGraph({
   payload,
-  runId,
   selectedNodeId,
   searchQuery,
+  snowballHighlightIds,
   setSelectedNodeId,
 }: ClaimGraphProps) {
-  const router = useRouter();
   const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
 
@@ -78,15 +76,13 @@ export function ClaimGraph({
     };
   }, [payload]);
 
-  // Idempotent event registration (Codex iter-1 P1-1.1 fix).
+  // Idempotent event registration (I-snowball-004 iter-1 P1 fix).
+  // I-snowball-005 iter-1 P1 fix: tap is SELECT-only, no navigation
+  // (page-level "Open Inspector" button now owns Inspector routing).
   useEffect(() => {
     if (!cyInstance) return;
     const onTap = (evt: cytoscape.EventObject) => {
-      const id = evt.target.id();
-      setSelectedNodeId(id);
-      router.push(
-        `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`,
-      );
+      setSelectedNodeId(evt.target.id());
     };
     const onMouseover = (evt: cytoscape.EventObject) => {
       const node = evt.target;
@@ -111,7 +107,18 @@ export function ClaimGraph({
       cyInstance.off("mouseover", "node", onMouseover);
       cyInstance.off("mouseout", "node", onMouseout);
     };
-  }, [cyInstance, runId, router, setSelectedNodeId]);
+  }, [cyInstance, setSelectedNodeId]);
+
+  // Snowball-neighbor highlight (I-snowball-005).
+  useEffect(() => {
+    if (!cyInstance) return;
+    cyInstance.nodes().removeClass("snowball-neighbor");
+    if (!snowballHighlightIds) return;
+    cyInstance
+      .nodes()
+      .filter((n) => snowballHighlightIds.has(n.id()))
+      .addClass("snowball-neighbor");
+  }, [cyInstance, snowballHighlightIds]);
 
   // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
   // use the same `nodeMatchesQuery` helper as the list filter).
