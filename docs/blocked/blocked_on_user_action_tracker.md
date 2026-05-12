@@ -226,3 +226,29 @@ concrete step is documented in each section's "Exit criteria" line.
 This tracker is the SINGLE source of truth for blocked-on-user-action
 state. When state changes, update this file rather than scattering
 status across 11 individual issue threads.
+
+---
+
+## F-snowball workstream (2026-05-12, active)
+
+Per user directive 2026-05-12: F-snowball claim-graph view prioritized ABOVE
+the hardware-blocked chain. Library decision Codex APPROVE iter 4 (cytoscape.js
+ecosystem). 8 implementation Issues opened GH#448-455 (I-snowball-002..006b).
+
+NOT blocked on user action — proceeds via standard Codex-APPROVE-per-Issue flow.
+User merges PRs via `git log` morning routine per Plan §7.B LOCKED B1.
+
+| Issue | GH | Scope | Status |
+|---|---|---|---|
+| I-snowball-002 | #448 | Backend graph endpoint + server-side fcose pre-layout | active |
+| I-snowball-003a | #449 | ClaimGraph component + preset rendering | queued |
+| I-snowball-003b | #450 | Compound nodes + tier + edge-type styling | queued |
+| I-snowball-004a | #451 | Hover/click + AccessibleGraphList | queued |
+| I-snowball-004b | #452 | Keyboard nav + search + useGraphState | queued |
+| I-snowball-005 | #453 | Snowball BFS + expand-collapse + F13 diff | queued |
+| I-snowball-006a | #454 | PNG (4x) + JSON dual-export + audit bundle | queued |
+| I-snowball-006b | #455 | Playwright e2e + axe-core + perf gate | queued |
+
+**Hardware chain (15 issues GH#85-91 + 199-206) remains blocked on
+GH#90 OVH H200 procurement.** Sequence: hardware → sovereign migration →
+buffer → handover. Currently deprioritized below F-snowball.

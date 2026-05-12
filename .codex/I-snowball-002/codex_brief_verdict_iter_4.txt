@@ -1,0 +1,3469 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1d48-ffb9-75f3-81a2-0e02b8109214
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-snowball-002 — brief iter 4 (P1 fixes from iter 3)
+
+Iter 3 status: AGREED on V30 AuditIR source, schema, drop unverified sentences, drop self-contradiction, frame_coverage.entries field name confirmed. 2 P1 + 1 P2-status-enum left.
+
+## P1 fixes
+
+### P1-3.1 — Dangling edge endpoints on canonical V30 run
+
+Codex finding: V30 canonical data has token `evidence_id`s and contradiction-claim `evidence_id`s that are NOT in `bibliography`. Building cites/contradicts edges with `target=src:<missing_evidence_id>` produces dangling edges.
+
+**Resolution: fallback source nodes for every referenced evidence_id.**
+
+Strategy: collect the set of evidence_ids referenced by (a) sentence tokens, (b) contradiction-claim evidence_ids. For any evidence_id NOT in `bibliography`, create a stub source node:
+
+```python
+def _build_source_nodes(ir: AuditIR) -> tuple[list[ClaimNode], set[str]]:
+    """Returns (source nodes, set of all source_ids in graph)."""
+    in_bib_ids: set[str] = set()
+    nodes: list[ClaimNode] = []
+    for entry in ir.bibliography:
+        in_bib_ids.add(entry.evidence_id)
+        tier = entry.tier if entry.tier in {"T1","T2","T3","T4","T5","T6","T7"} else None
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"src:{entry.evidence_id}",
+            type="source",
+            label=(entry.statement or entry.evidence_id)[:200],
+            tier=tier,
+            source_url=entry.url or None,
+            classes=None,
+        )))
+    # collect all referenced evidence_ids
+    referenced: set[str] = set()
+    for section in ir.verified_report.sections:
+        for sent in section.sentences:
+            if sent.is_verified:
+                for tok in sent.tokens:
+                    referenced.add(tok.evidence_id)
+    for cluster in ir.contradictions:
+        for claim in cluster.claims:
+            referenced.add(claim.evidence_id)
+    # fallback stubs for any referenced but not in bibliography
+    missing = referenced - in_bib_ids
+    for eid in sorted(missing):
+        nodes.append(ClaimNode(data=NodeData(
+            id=f"src:{eid}",
+            type="source",
+            label=eid,                # use evidence_id as label fallback
+            tier=None,
+            source_url=None,
+            classes="bibliography_missing",   # CSS hook for grey/dashed rendering
+        )))
+    return nodes, in_bib_ids | missing
+```
+
+The set `in_bib_ids | missing` is then used to validate every cites/contradicts edge endpoint exists before emission. If an edge endpoint still doesn't resolve (impossible given construction above, but defensive), emit `dropped_edges_count` in `GraphPayload.diagnostics`:
+
+```python
+class GraphDiagnostics(BaseModel):
+    bibliography_count: int
+    fallback_source_count: int          # how many bibliography_missing stubs we created
+    dropped_edges_count: int = 0        # always 0 with current logic; defensive
+    referenced_unknown_evidence_ids: list[str] = Field(default_factory=list)
+
+class GraphPayload(BaseModel):
+    elements: GraphElements
+    run_id: str
+    elements_hash: str
+    diagnostics: GraphDiagnostics
+    schema_version: Literal["1.0"] = "1.0"
+```
+
+This surfaces the data anomaly via API (consumers can warn "98 sources referenced but not in bibliography") and the UI renders stubs greyed out so a Carney-grade reviewer sees them as "missing-from-bibliography" not "phantom citations."
+
+**ADD** to `NodeData`:
+```python
+class NodeData(BaseModel):
+    # ... existing fields ...
+    classes: str | None = None     # cytoscape CSS class hook
+```
+
+### P1-3.2 — Mount router in serving app
+
+Per Codex: `src/polaris_v6/api/app.py` is where slice routers are mounted (audit_bundle, intake, retrieval, generation, etc.).
+
+**Resolution:** the diff adds one import + one mount line to `app.py`:
+
+```python
+# src/polaris_v6/api/app.py — appended near other slice mounts
+from src.polaris_graph.api.graph_route import router as graph_router
+app.include_router(graph_router, prefix="/api")
+```
+
+(I'll verify the existing mount conventions for prefix when writing the diff; if existing routes use `prefix=""` and the route file already has `/runs/...` etc., I'll match the surrounding pattern.)
+
+## P2 fix
+
+### P2-3.1 — FrameStatus enum widened
+
+V30 canonical has `fail_min_fields` (not just `fail`). Two options:
+- (chosen) **Map `fail_*` → `fail` in API enum**: simplest, UI doesn't care about sub-types in v1.
+- Widen enum: `Literal["pass", "partial", "fail", "fail_min_fields", "fail_no_evidence", ...]` — exposes V30's exact taxonomy.
+
+Going with map-to-fail for v1 simplicity:
+
+```python
+def _normalize_frame_status(raw: str) -> Literal["pass", "partial", "fail"] | None:
+    if raw == "pass":
+        return "pass"
+    if raw == "partial":
+        return "partial"
+    if raw.startswith("fail"):
+        return "fail"
+    return None
+```
+
+If UI later wants the sub-type, add `frame_status_detail: str | None` (= raw V30 status) as a separate field.
+
+## Final implementation file structure (no LOC changes; same as iter 3 + the additions above)
+
+```
+src/polaris_graph/api/graph_route.py        # NEW ~210 LOC (router + builder + helpers)
+src/polaris_v6/api/app.py                   # MODIFIED +2 lines (import + include_router)
+tests/polaris_graph/api/test_graph_route.py # NEW ~150 LOC (fixture + 8 cases)
+tests/polaris_graph/api/conftest.py         # NEW ~40 LOC (V30 canonical AuditIR fixture)
+```
+
+Per-file LOC all ≤200. Total ≈ 402 LOC across 4 files.
+
+## Test cases (concrete)
+
+1. `test_404_for_missing_run` — non-existent run_id → 404
+2. `test_422_on_audit_ir_load_failure` — exception from load_audit_ir → 422
+3. `test_canonical_run_returns_payload_with_diagnostics` — clinical_tirzepatide_t2dm fixture → payload with non-zero bibliography_count + fallback_source_count matching the 98 referenced-not-in-bib evidence_ids Codex flagged
+4. `test_no_dangling_edges_canonical` — every cites/contradicts edge endpoint resolves to a source node (in_bib OR fallback)
+5. `test_deterministic_byte_equal` — two consecutive `build_graph_payload(ir)` produce identical `elements_hash`
+6. `test_section_member_edges_match_kept_sentences` — every verified sentence has exactly one section_member edge to its parent section
+7. `test_self_contradiction_skipped` — V30 fixture with cluster having single-evidence_id claims emits zero contradicts edges
+8. `test_frame_status_normalization` — `fail_min_fields` → `fail` in normalized output
+
+## Files I have ALSO checked and they're clean (re-verified iter 4)
+
+- `src/polaris_graph/audit_ir/loader.py:163-188` (FrameCoverageEntry, status field is string)
+- `src/polaris_graph/audit_ir/registry.py:44-58` (RunSummary), `:179` (find_run_by_id)
+- `src/polaris_v6/api/app.py` (mount point for new router — actual file read happens in diff stage)
+- `src/polaris_graph/api/audit_bundle_route.py` (router-mount precedent)
+
+## Direct questions for Codex iter 4
+
+1. **Fallback source node strategy** — is "bibliography_missing" classes hook + GraphDiagnostics counter the right way to handle V30 dangling-evidence-ids? Or do you want a different approach (e.g., drop the offending edges entirely with a counter)?
+2. **Router mount location** — `src/polaris_v6/api/app.py` with `prefix="/api"` — confirm this matches existing slice-router precedent?
+3. **FrameStatus map-to-fail** — acceptable for v1, or do you require widened enum from the start?
+4. **Anything else genuinely blocking?**
+
+## Output schema (terse)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers: [...]
+```
+
+codex
+I’ll verify the actual route mounting and model shapes against the repo before giving the iter verdict. I’m focusing only on execution blockers, not style churn.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/app.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/loader.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/api/audit_bundle_route.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/registry.py' in C:\POLARIS
+ succeeded in 1234ms:
+"""Load a V30 Phase-2 run artifact directory into a canonical AuditIR object.
+
+The AuditIR is the single source of truth for the Evidence Inspector and
+all derivative renderers. It joins:
+- manifest.json (run metadata, frame_coverage_report, corpus tier fractions,
+  evaluator gate, v30 warnings, retrieval stats)
+- report.md (the rendered markdown report with [N] inline citations)
+- bibliography.json (the [N] -> evidence_id -> source mapping)
+- contradictions.json (the 14 tier-labeled disagreement clusters with severity)
+- verification_details.json (per-section sentences + evidence-span tokens —
+  this is the foundation for Evidence Inspector View 1 click-to-inspect)
+
+into a single immutable object with lookup methods.
+
+Per FINAL_PLAN.md (jointly Claude+Codex agreed):
+- The audit graph IR is canonical (NOT the report)
+- Evidence Inspector is the primary renderer
+- All other outputs are derivative projections with back-links to claim IDs
+
+Fail-loud semantics: missing or malformed required schema blocks raise
+loudly. There is no silent zero-fill on canonical structures. This is the
+audit-grade discipline applied to the IR itself.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
+
+# Bumped on schema-breaking changes. Renderers should check this and refuse
+# to render IR they don't know how to project.
+IR_SCHEMA_VERSION = "1.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Bibliography
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BibliographyEntry:
+    """A single source in the bibliography — the [N] -> source mapping."""
+
+    num: int
+    evidence_id: str
+    statement: str
+    tier: str
+    url: str
+
+
+# ---------------------------------------------------------------------------
+# Verified report (verification_details.json)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EvidenceSpanToken:
+    """A `[#ev:<evidence_id>:<start>-<end>]` token bound to a sentence."""
+
+    evidence_id: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class ReportSentence:
+    """One sentence in the verified report — kept or dropped.
+
+    `claim_id` is stable for the same artifact_dir: `<section>:<status>:<idx>`.
+    Renderers (Evidence Inspector view 1) overlay these IDs onto the rendered
+    `report.md` prose and use them as the click-to-inspect handle.
+    """
+
+    claim_id: str
+    section: str
+    text: str
+    tokens: tuple[EvidenceSpanToken, ...]
+    is_verified: bool
+    failure_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReportSection:
+    """One section in the verified report — title plus all its sentences."""
+
+    title: str
+    kept_count: int
+    dropped_count: int
+    total_in: int
+    dropped_due_to_failure: int
+    sentences: tuple[ReportSentence, ...]
+
+
+@dataclass(frozen=True)
+class VerifiedReport:
+    """The full per-sentence verified report.
+
+    `drop_reason_counts` is a read-only mapping from reason -> count.
+    """
+
+    sections: tuple[ReportSection, ...]
+    sentences_verified: int
+    sentences_dropped: int
+    drop_reason_counts: Mapping[str, int]
+
+
+# ---------------------------------------------------------------------------
+# Contradictions
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ContradictionClaim:
+    """One claim inside a contradiction cluster."""
+
+    evidence_id: str
+    subject: str
+    predicate: str
+    arm: str
+    dose: str
+    value: float
+    unit: str
+    source_tier: str
+    source_url: str
+    context_snippet: str
+    endpoint_phrase: str
+
+
+@dataclass(frozen=True)
+class ContradictionCluster:
+    """A tier-labeled disagreement cluster — extended with severity + action."""
+
+    cluster_id: int
+    subject: str
+    predicate: str
+    severity: str
+    absolute_difference: float
+    relative_difference: float
+    recommended_action: str
+    claims: tuple[ContradictionClaim, ...]
+
+
+# ---------------------------------------------------------------------------
+# Frame coverage
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RetrievalAttempt:
+    """One retrieval attempt against an external source — frozen leaf."""
+
+    attempt_index: int
+    source: str
+    url: str
+    outcome: str
+    http_status: int | None
+
+
+@dataclass(frozen=True)
+class FrameCoverageEntry:
+    """One contract-slot entity in the frame coverage report.
+
+    Includes section / slot_id / subsection_title (back-link into report
+    structure) and min_fields_for_completion / human_curated_provenance
+    (operator-completion workflow inputs).
+    """
+
+    entity_id: str
+    entity_type: str
+    section: str
+    slot_id: str
+    subsection_title: str
+    status: str
+    doi: str | None
+    pmid: str | None
+    failure_reason: str | None
+    available_artifacts: tuple[str, ...]
+    required_fields: tuple[str, ...]
+    min_fields_for_completion: int
+    provenance_class: str
+    human_completion_eligible: bool
+    human_curated_provenance: str | None
+    is_pipeline_fault: bool
+    retrieval_attempt_log: tuple[RetrievalAttempt, ...]
+
+
+@dataclass(frozen=True)
+class FrameCoverageReport:
+    """Frame coverage for the whole run.
+
+    `semantics_warning` preserves the V30 disclaimer that current
+    `frame_coverage_report` reflects retrieval success, NOT verified-report
+    coverage. Inspector view 3 must surface this.
+    """
+
+    pass_count: int
+    partial_count: int
+    frame_gap_count: int
+    pipeline_fault_count: int
+    total_entities: int
+    total_slots: int
+    research_question: str
+    schema_version: str
+    semantics_warning: str | None
+    entries: tuple[FrameCoverageEntry, ...]
+
+
+# ---------------------------------------------------------------------------
+# Model & rule provenance (Codex M-1 v2 review fix: View 4 prerequisites)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RuleCheck:
+    """One pre-commit rule check from evaluator_rule_checks.json."""
+
+    item_id: str
+    name: str
+    passed: bool
+    details: str
+
+
+@dataclass(frozen=True)
+class ModelProvenance:
+    """Model and rule-check provenance for the Methods + Provenance Bundle.
+
+    Sources:
+      - evaluator_rule_checks.json: generator_family/model, evaluator_family/model,
+        and the per-rule pass/fail audit trail
+      - qwen_judge_output.json: judge model + parse_ok + I/O token counts
+
+    The two-family invariant (generator and evaluator from different lineages)
+    is captured here for Inspector View 4 to surface.
+    """
+
+    generator_family: str
+    generator_model: str
+    evaluator_family: str
+    evaluator_model: str
+    judge_model: str
+    judge_parse_ok: bool
+    judge_input_tokens: int
+    judge_output_tokens: int
+    contradictions_disclosed: int
+    contradictions_missing: tuple[str, ...]
+    rule_checks: tuple[RuleCheck, ...]
+
+
+# ---------------------------------------------------------------------------
+# Protocol metadata (research question, criteria, tier expectations)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TierExpectation:
+    """Expected fraction band for a single tier from the scope protocol."""
+
+    tier: str
+    min_fraction: float
+    max_fraction: float
+    rationale: str
+
+
+@dataclass(frozen=True)
+class ProtocolMetadata:
+    """Research-question protocol — created_at + tier expectations + scope decision.
+
+    Inspector View 5 (Source Tier Mix) uses `expected_tier_distribution` to
+    show expected vs actual tier bands. View 4 surfaces created_at_iso for
+    the audit-bundle header.
+    """
+
+    research_question: str
+    created_at_iso: str
+    created_at_unix: float
+    scope_decision: str
+    expected_tier_distribution: tuple[TierExpectation, ...]
+
+
+# ---------------------------------------------------------------------------
+# Tier mix
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TierMix:
+    """Tier distribution across the corpus.
+
+    `fractions` is a read-only Mapping[str, float]; mutation is rejected.
+    """
+
+    fractions: Mapping[str, float]
+    corpus_count: int
+    approved: bool
+    material_deviation: bool
+
+
+# ---------------------------------------------------------------------------
+# Adequacy / Approval gates (Codex M-6 review fix: non-evaluator gate detail)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdequacyGate:
+    """Corpus adequacy gate verdict (manifest.adequacy)."""
+
+    decision: str
+    findings_ok: int
+    findings_total: int
+    critical_count: int
+
+
+@dataclass(frozen=True)
+class CorpusApprovalGate:
+    """Corpus approval gate (corpus_approval.json).
+
+    Captures the operator/auto approval decision + counts. Per V30
+    audit-grade discipline, a corpus with material tier deviation plus
+    a rubber-stamp note aborts before generation.
+    """
+
+    approved: bool
+    decision_at_iso: str
+    user_note: str
+    approved_count: int
+    rejected_count: int
+
+
+# ---------------------------------------------------------------------------
+# Evaluator gate
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EvaluatorGate:
+    """The evaluator gate verdict — extended with reasons + rule blockers."""
+
+    gate_class: str
+    release_allowed: bool
+    reasons: tuple[str, ...]
+    rule_blockers: tuple[str, ...]
+    qwen_critical_axes: tuple[str, ...]
+    qwen_parse_ok: bool
+
+
+# ---------------------------------------------------------------------------
+# Retrieval stats
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RetrievalStats:
+    """Top-level retrieval counts for the run.
+
+    `queries` lists the canonical retrieval query strings issued during
+    the sweep (Codex M-6 review fix: surface retrieval queries, not just
+    counts). Empty if the run did not persist them.
+    """
+
+    pre_filter: int
+    fetched: int
+    failed: int
+    by_provider: Mapping[str, int]
+    queries: tuple[str, ...]
+
+
+# ---------------------------------------------------------------------------
+# Run manifest
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RunManifest:
+    """Top-level run metadata — the audit-bundle header."""
+
+    run_id: str
+    slug: str
+    status: str
+    question: str
+    protocol_sha256: str
+    cost_usd: float
+    budget_cap_usd: float
+    word_count: int
+    sentences_verified: int
+    sentences_dropped: int
+    contradictions_found: int
+    completeness_percent: float
+    evaluator_gate: EvaluatorGate
+    release_allowed: bool
+    v30_enabled: bool
+    v30_warnings: tuple[str, ...]
+    retrieval_stats: RetrievalStats | None
+
+
+# ---------------------------------------------------------------------------
+# Top-level AuditIR
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AuditIR:
+    """The canonical audit graph IR for one V30 Phase-2 run.
+
+    All renderers (Evidence Inspector views 1-5, PDF, DOCX, CSV, charts,
+    brief, deck) project from this object and retain back-links to its
+    claim IDs.
+
+    `ir_schema_version` lets future runs (V31, V32, V34) declare schema
+    changes; renderers should check it and refuse unknown major versions.
+    """
+
+    ir_schema_version: str
+    run_id: str
+    artifact_dir: Path
+    report_md: str
+    manifest: RunManifest
+    bibliography: tuple[BibliographyEntry, ...]
+    contradictions: tuple[ContradictionCluster, ...]
+    frame_coverage: FrameCoverageReport
+    tier_mix: TierMix
+    verified_report: VerifiedReport
+    model_provenance: ModelProvenance | None
+    protocol: ProtocolMetadata | None
+    adequacy: AdequacyGate | None
+    corpus_approval: CorpusApprovalGate | None
+
+    def get_bibliography_by_num(self, num: int) -> BibliographyEntry | None:
+        for entry in self.bibliography:
+            if entry.num == num:
+                return entry
+        return None
+
+    def get_bibliography_by_evidence_id(
+        self, evidence_id: str
+    ) -> BibliographyEntry | None:
+        for entry in self.bibliography:
+            if entry.evidence_id == evidence_id:
+                return entry
+        return None
+
+    def get_contradictions_for_evidence(
+        self, evidence_id: str
+    ) -> tuple[ContradictionCluster, ...]:
+        out = []
+        for cluster in self.contradictions:
+            if any(c.evidence_id == evidence_id for c in cluster.claims):
+                out.append(cluster)
+        return tuple(out)
+
+    def get_frame_coverage_for_entity(
+        self, entity_id: str
+    ) -> FrameCoverageEntry | None:
+        for entry in self.frame_coverage.entries:
+            if entry.entity_id == entity_id:
+                return entry
+        return None
+
+    def get_tier_counts(self) -> dict[str, int]:
+        return {
+            tier: int(round(frac * self.tier_mix.corpus_count))
+            for tier, frac in self.tier_mix.fractions.items()
+        }
+
+    def get_sentence_by_claim_id(self, claim_id: str) -> ReportSentence | None:
+        """Foundation lookup for Evidence Inspector view 1 (Report click-to-inspect)."""
+        for section in self.verified_report.sections:
+            for sentence in section.sentences:
+                if sentence.claim_id == claim_id:
+                    return sentence
+        return None
+
+    def get_evidence_spans_for_claim(
+        self, claim_id: str
+    ) -> tuple[EvidenceSpanToken, ...]:
+        sentence = self.get_sentence_by_claim_id(claim_id)
+        return sentence.tokens if sentence is not None else ()
+
+
+# ---------------------------------------------------------------------------
+# Loader internals
+# ---------------------------------------------------------------------------
+
+
+class AuditIRSchemaError(ValueError):
+    """Raised when an artifact directory violates the canonical schema."""
+
+
+def _read_json(path: Path) -> Any:
+    if not path.exists():
+        raise FileNotFoundError(f"Required artifact missing: {path}")
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _read_text(path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"Required artifact missing: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def _require_keys(d: Mapping[str, Any], keys: tuple[str, ...], where: str) -> None:
+    missing = [k for k in keys if k not in d]
+    if missing:
+        raise AuditIRSchemaError(
+            f"{where}: required keys missing: {missing}"
+        )
+
+
+def _parse_bibliography(raw: list[dict[str, Any]]) -> tuple[BibliographyEntry, ...]:
+    if not isinstance(raw, list):
+        raise AuditIRSchemaError("bibliography.json: expected a list")
+    out = []
+    for i, entry in enumerate(raw):
+        _require_keys(entry, ("num", "evidence_id"), f"bibliography[{i}]")
+        out.append(
+            BibliographyEntry(
+                num=int(entry["num"]),
+                evidence_id=str(entry["evidence_id"]),
+                statement=str(entry.get("statement", "")),
+                tier=str(entry.get("tier", "UNKNOWN")),
+                url=str(entry.get("url", "")),
+            )
+        )
+    return tuple(out)
+
+
+def _parse_contradiction_claim(
+    raw: Mapping[str, Any], where: str
+) -> ContradictionClaim:
+    _require_keys(raw, ("evidence_id", "predicate", "value"), where)
+    return ContradictionClaim(
+        evidence_id=str(raw["evidence_id"]),
+        subject=str(raw.get("subject", "")),
+        predicate=str(raw["predicate"]),
+        arm=str(raw.get("arm", "")),
+        dose=str(raw.get("dose", "")),
+        value=float(raw["value"]),
+        unit=str(raw.get("unit", "")),
+        source_tier=str(raw.get("source_tier", "UNKNOWN")),
+        source_url=str(raw.get("source_url", "")),
+        context_snippet=str(raw.get("context_snippet", "")),
+        endpoint_phrase=str(raw.get("endpoint_phrase", "")),
+    )
+
+
+def _parse_contradictions(
+    raw: list[dict[str, Any]],
+) -> tuple[ContradictionCluster, ...]:
+    if not isinstance(raw, list):
+        raise AuditIRSchemaError("contradictions.json: expected a list")
+    clusters = []
+    for idx, raw_cluster in enumerate(raw):
+        where = f"contradictions[{idx}]"
+        _require_keys(raw_cluster, ("predicate", "claims"), where)
+        claims_raw = raw_cluster["claims"]
+        if not isinstance(claims_raw, list) or len(claims_raw) < 2:
+            raise AuditIRSchemaError(
+                f"{where}: 'claims' must be a list of >=2 entries"
+            )
+        claims = tuple(
+            _parse_contradiction_claim(c, f"{where}.claims[{j}]")
+            for j, c in enumerate(claims_raw)
+        )
+        clusters.append(
+            ContradictionCluster(
+                cluster_id=idx,
+                subject=str(raw_cluster.get("subject", "")),
+                predicate=str(raw_cluster["predicate"]),
+                severity=str(raw_cluster.get("severity", "unknown")),
+                absolute_difference=float(raw_cluster.get("absolute_difference", 0.0)),
+                relative_difference=float(raw_cluster.get("relative_difference", 0.0)),
+                recommended_action=str(raw_cluster.get("recommended_action", "")),
+                claims=claims,
+            )
+        )
+    return tuple(clusters)
+
+
+def _parse_retrieval_attempt(raw: Mapping[str, Any]) -> RetrievalAttempt:
+    return RetrievalAttempt(
+        attempt_index=int(raw.get("attempt_index", 0)),
+        source=str(raw.get("source", "")),
+        url=str(raw.get("url", "")),
+        outcome=str(raw.get("outcome", "")),
+        http_status=(int(raw["http_status"]) if raw.get("http_status") is not None else None),
+    )
+
+
+def _parse_frame_coverage_entry(
+    raw: Mapping[str, Any], where: str
+) -> FrameCoverageEntry:
+    _require_keys(raw, ("entity_id", "status"), where)
+    return FrameCoverageEntry(
+        entity_id=str(raw["entity_id"]),
+        entity_type=str(raw.get("entity_type", "")),
+        section=str(raw.get("section", "")),
+        slot_id=str(raw.get("slot_id", "")),
+        subsection_title=str(raw.get("subsection_title", "")),
+        status=str(raw["status"]),
+        doi=raw.get("doi"),
+        pmid=raw.get("pmid"),
+        failure_reason=raw.get("failure_reason"),
+        available_artifacts=tuple(raw.get("available_artifacts", [])),
+        required_fields=tuple(raw.get("required_fields", [])),
+        min_fields_for_completion=int(raw.get("min_fields_for_completion", 0)),
+        provenance_class=str(raw.get("provenance_class", "")),
+        human_completion_eligible=bool(raw.get("human_completion_eligible", False)),
+        human_curated_provenance=raw.get("human_curated_provenance"),
+        is_pipeline_fault=bool(raw.get("is_pipeline_fault", False)),
+        retrieval_attempt_log=tuple(
+            _parse_retrieval_attempt(r)
+            for r in raw.get("retrieval_attempt_log", [])
+        ),
+    )
+
+
+def _parse_frame_coverage(
+    raw: Mapping[str, Any] | None, v30_warnings: tuple[str, ...]
+) -> FrameCoverageReport:
+    if not isinstance(raw, Mapping):
+        raise AuditIRSchemaError(
+            "manifest.frame_coverage_report: required block missing or not a dict"
+        )
+    _require_keys(raw, ("entries", "by_status"), "manifest.frame_coverage_report")
+    entries = tuple(
+        _parse_frame_coverage_entry(e, f"frame_coverage_report.entries[{i}]")
+        for i, e in enumerate(raw["entries"])
+    )
+    by_status = raw["by_status"]
+    semantics_warning = None
+    for warning in v30_warnings:
+        if "frame_coverage_report" in warning or "phase1_retrieval_coverage_only" in warning:
+            semantics_warning = warning
+            break
+    return FrameCoverageReport(
+        pass_count=int(by_status.get("pass", 0)),
+        partial_count=int(by_status.get("partial", 0)),
+        frame_gap_count=int(raw.get("frame_gap_count", 0)),
+        pipeline_fault_count=int(raw.get("pipeline_fault_count", 0)),
+        total_entities=int(raw.get("total_entities", 0)),
+        total_slots=int(raw.get("total_slots", 0)),
+        research_question=str(raw.get("research_question", "")),
+        schema_version=str(raw.get("schema_version", "1.0")),
+        semantics_warning=semantics_warning,
+        entries=entries,
+    )
+
+
+def _parse_tier_mix(corpus: Mapping[str, Any] | None) -> TierMix:
+    if not isinstance(corpus, Mapping):
+        raise AuditIRSchemaError("manifest.corpus: required block missing or not a dict")
+    _require_keys(corpus, ("tier_fractions", "count"), "manifest.corpus")
+    fractions = {str(k): float(v) for k, v in corpus["tier_fractions"].items()}
+    return TierMix(
+        fractions=MappingProxyType(fractions),
+        corpus_count=int(corpus["count"]),
+        approved=bool(corpus.get("approved", False)),
+        material_deviation=bool(corpus.get("material_deviation", False)),
+    )
+
+
+def _parse_evaluator_gate(raw: Any) -> EvaluatorGate:
+    if not isinstance(raw, Mapping):
+        # Some legacy artifacts stored evaluator_gate as a string class.
+        return EvaluatorGate(
+            gate_class=str(raw) if raw else "unknown",
+            release_allowed=False,
+            reasons=(),
+            rule_blockers=(),
+            qwen_critical_axes=(),
+            qwen_parse_ok=False,
+        )
+    return EvaluatorGate(
+        gate_class=str(raw.get("gate_class", "unknown")),
+        release_allowed=bool(raw.get("release_allowed", False)),
+        reasons=tuple(str(r) for r in raw.get("reasons", [])),
+        rule_blockers=tuple(str(r) for r in raw.get("rule_blockers", [])),
+        qwen_critical_axes=tuple(str(a) for a in raw.get("qwen_critical_axes", [])),
+        qwen_parse_ok=bool(raw.get("qwen_parse_ok", False)),
+    )
+
+
+def _parse_retrieval_stats(raw: Any) -> RetrievalStats | None:
+    if not isinstance(raw, Mapping):
+        return None
+    api_calls = raw.get("api_calls", {})
+    if not isinstance(api_calls, Mapping):
+        api_calls = {}
+    by_provider: dict[str, int] = {}
+    for k, v in api_calls.items():
+        try:
+            by_provider[str(k)] = int(v)
+        except (TypeError, ValueError):
+            continue
+    queries_raw = raw.get("queries") or raw.get("query_log") or []
+    queries: list[str] = []
+    if isinstance(queries_raw, list):
+        for q in queries_raw:
+            if isinstance(q, str):
+                queries.append(q)
+            elif isinstance(q, Mapping) and "query" in q:
+                queries.append(str(q["query"]))
+    return RetrievalStats(
+        pre_filter=int(raw.get("pre_filter", 0)),
+        fetched=int(raw.get("fetched", 0)),
+        failed=int(raw.get("failed", 0)),
+        by_provider=MappingProxyType(by_provider),
+        queries=tuple(queries),
+    )
+
+
+def _parse_adequacy(raw: Any) -> AdequacyGate | None:
+    if not isinstance(raw, Mapping):
+        return None
+    return AdequacyGate(
+        decision=str(raw.get("decision", "")),
+        findings_ok=int(raw.get("findings_ok", 0)),
+        findings_total=int(raw.get("findings_total", 0)),
+        critical_count=int(raw.get("critical_count", 0)),
+    )
+
+
+def _parse_corpus_approval(raw: Any) -> CorpusApprovalGate | None:
+    """Load corpus_approval.json. Returns None if file is absent."""
+    if not isinstance(raw, Mapping):
+        return None
+    return CorpusApprovalGate(
+        approved=bool(raw.get("approved", False)),
+        decision_at_iso=str(raw.get("decision_at_iso", "")),
+        user_note=str(raw.get("user_note", "")),
+        approved_count=len(raw.get("approved_source_urls") or []),
+        rejected_count=len(raw.get("rejected_source_urls") or []),
+    )
+
+
+def _parse_completeness_percent(raw: Any) -> float:
+    """Compute completeness as a percentage, 0.0–100.0.
+
+    V30 manifests use either:
+      - {covered_fraction: 0.0–1.0}
+      - {total_covered: int, total_applicable: int}
+      - older keys: {covered_topics, total_topics} or {covered, total}
+
+    Codex M-1 review caught that the old code looked for keys that don't
+    exist in the V30 schema, returning 0.0 for a 7/7 manifest.
+    """
+    if not isinstance(raw, Mapping):
+        return 0.0
+    if "covered_fraction" in raw:
+        try:
+            return float(raw["covered_fraction"]) * 100.0
+        except (TypeError, ValueError):
+            pass
+    for cov_key, tot_key in (
+        ("total_covered", "total_applicable"),
+        ("covered_topics", "total_topics"),
+        ("covered", "total"),
+    ):
+        if cov_key in raw and tot_key in raw:
+            try:
+                cov = float(raw[cov_key])
+                tot = float(raw[tot_key])
+                if tot > 0:
+                    return (cov / tot) * 100.0
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def _parse_manifest(raw: Mapping[str, Any]) -> RunManifest:
+    _require_keys(
+        raw,
+        (
+            "run_id",
+            "slug",
+            "status",
+            "question",
+            "protocol_sha256",
+            "evaluator_gate",
+            "completeness",
+        ),
+        "manifest.json",
+    )
+    generator = raw.get("generator", {})
+    if not isinstance(generator, Mapping):
+        generator = {}
+    return RunManifest(
+        run_id=str(raw["run_id"]),
+        slug=str(raw["slug"]),
+        status=str(raw["status"]),
+        question=str(raw["question"]),
+        protocol_sha256=str(raw["protocol_sha256"]),
+        cost_usd=float(raw.get("cost_usd", 0.0)),
+        budget_cap_usd=float(raw.get("budget_cap_usd", 0.0)),
+        word_count=int(generator.get("words", 0)),
+        sentences_verified=int(generator.get("sentences_verified", 0)),
+        sentences_dropped=int(generator.get("sentences_dropped", 0)),
+        contradictions_found=int(raw.get("contradictions_found", 0)),
+        completeness_percent=_parse_completeness_percent(raw["completeness"]),
+        evaluator_gate=_parse_evaluator_gate(raw["evaluator_gate"]),
+        release_allowed=bool(raw.get("release_allowed", False)),
+        v30_enabled=bool(raw.get("v30_enabled", False)),
+        v30_warnings=tuple(str(w) for w in raw.get("v30_warnings", [])),
+        retrieval_stats=_parse_retrieval_stats(raw.get("retrieval")),
+    )
+
+
+def _parse_verification_token(raw: Mapping[str, Any]) -> EvidenceSpanToken:
+    return EvidenceSpanToken(
+        evidence_id=str(raw.get("evidence_id", "")),
+        start=int(raw.get("start", 0)),
+        end=int(raw.get("end", 0)),
+    )
+
+
+def _parse_verification_sentence(
+    raw: Mapping[str, Any], section_title: str, status: str, idx: int
+) -> ReportSentence:
+    return ReportSentence(
+        claim_id=f"{section_title}:{status}:{idx}",
+        section=section_title,
+        text=str(raw.get("sentence", "")),
+        tokens=tuple(
+            _parse_verification_token(t) for t in raw.get("tokens", [])
+        ),
+        is_verified=(status == "kept"),
+        failure_reasons=tuple(str(r) for r in raw.get("failure_reasons", [])),
+    )
+
+
+def _parse_verified_report(raw: Mapping[str, Any]) -> VerifiedReport:
+    _require_keys(raw, ("sections", "totals"), "verification_details.json")
+    if not isinstance(raw["sections"], list):
+        raise AuditIRSchemaError("verification_details.json: 'sections' must be a list")
+    sections: list[ReportSection] = []
+    for sec in raw["sections"]:
+        title = str(sec.get("title", ""))
+        kept_raw = sec.get("kept", []) or []
+        dropped_raw = sec.get("dropped", []) or []
+        sentences = list(
+            _parse_verification_sentence(s, title, "kept", i)
+            for i, s in enumerate(kept_raw)
+        )
+        sentences.extend(
+            _parse_verification_sentence(s, title, "dropped", i)
+            for i, s in enumerate(dropped_raw)
+        )
+        sections.append(
+            ReportSection(
+                title=title,
+                kept_count=int(sec.get("total_kept", len(kept_raw))),
+                dropped_count=int(sec.get("total_dropped", len(dropped_raw))),
+                total_in=int(sec.get("total_in", 0)),
+                dropped_due_to_failure=int(sec.get("dropped_due_to_failure", 0)),
+                sentences=tuple(sentences),
+            )
+        )
+    totals = raw.get("totals", {}) or {}
+    drop_counts = raw.get("drop_reason_counts", {}) or {}
+    return VerifiedReport(
+        sections=tuple(sections),
+        sentences_verified=int(totals.get("sentences_verified", 0)),
+        sentences_dropped=int(totals.get("sentences_dropped", 0)),
+        drop_reason_counts=MappingProxyType(
+            {str(k): int(v) for k, v in drop_counts.items()}
+        ),
+    )
+
+
+def _parse_rule_check(raw: Mapping[str, Any]) -> RuleCheck:
+    return RuleCheck(
+        item_id=str(raw.get("item_id", "")),
+        name=str(raw.get("name", "")),
+        passed=bool(raw.get("passed", False)),
+        details=str(raw.get("details", "")),
+    )
+
+
+def _parse_model_provenance(
+    eval_rules_raw: Mapping[str, Any] | None,
+    qwen_judge_raw: Mapping[str, Any] | None,
+) -> ModelProvenance | None:
+    """Codex M-1 v2 review fix: load model/version provenance from runtime artifacts.
+
+    Returns None if BOTH files are absent (legacy runs predate them).
+    Raises AuditIRSchemaError if exactly one is present, since partial
+    provenance silently zero-filling the missing half violates audit-grade
+    discipline (Codex M-1 v3 review edge case).
+    """
+    if eval_rules_raw is None and qwen_judge_raw is None:
+        return None
+    if eval_rules_raw is None or qwen_judge_raw is None:
+        present = "evaluator_rule_checks.json" if eval_rules_raw else "qwen_judge_output.json"
+        missing = "qwen_judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
+        raise AuditIRSchemaError(
+            f"Partial model provenance: {present} present but {missing} missing. "
+            f"Both must be present together or both absent."
+        )
+    rule_checks = tuple(
+        _parse_rule_check(rc) for rc in eval_rules_raw.get("rule_checks", [])
+    )
+    return ModelProvenance(
+        generator_family=str(eval_rules_raw.get("generator_family", "")),
+        generator_model=str(eval_rules_raw.get("generator_model", "")),
+        evaluator_family=str(eval_rules_raw.get("evaluator_family", "")),
+        evaluator_model=str(eval_rules_raw.get("evaluator_model", "")),
+        judge_model=str(qwen_judge_raw.get("model", "")),
+        judge_parse_ok=bool(qwen_judge_raw.get("parse_ok", False)),
+        judge_input_tokens=int(qwen_judge_raw.get("input_tokens", 0)),
+        judge_output_tokens=int(qwen_judge_raw.get("output_tokens", 0)),
+        contradictions_disclosed=int(eval_rules_raw.get("contradictions_disclosed", 0)),
+        contradictions_missing=tuple(
+            str(c) for c in eval_rules_raw.get("contradictions_missing", [])
+        ),
+        rule_checks=rule_checks,
+    )
+
+
+def _parse_tier_expectation(raw: Mapping[str, Any]) -> TierExpectation:
+    return TierExpectation(
+        tier=str(raw.get("tier", "")),
+        min_fraction=float(raw.get("min_fraction", 0.0)),
+        max_fraction=float(raw.get("max_fraction", 1.0)),
+        rationale=str(raw.get("rationale", "")),
+    )
+
+
+def _parse_protocol(raw: Mapping[str, Any] | None) -> ProtocolMetadata | None:
+    """Load protocol.json. Returns None if file is absent."""
+    if raw is None:
+        return None
+    expected_tiers = tuple(
+        _parse_tier_expectation(t)
+        for t in raw.get("expected_tier_distribution", [])
+    )
+    return ProtocolMetadata(
+        research_question=str(raw.get("research_question", "")),
+        created_at_iso=str(raw.get("created_at_iso", "")),
+        created_at_unix=float(raw.get("created_at_unix", 0.0)),
+        scope_decision=str(raw.get("scope_decision", "")),
+        expected_tier_distribution=expected_tiers,
+    )
+
+
+def _read_optional_json(path: Path) -> Any:
+    """Read a JSON file but return None if it doesn't exist (vs failing loud)."""
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
+    """Load a V30 Phase-2 run artifact directory into a canonical AuditIR.
+
+    Required files in artifact_dir:
+        manifest.json
+        report.md
+        bibliography.json
+        contradictions.json
+        verification_details.json
+
+    Raises
+    ------
+    NotADirectoryError
+        If `artifact_dir` is not an existing directory.
+    FileNotFoundError
+        If any required file is missing.
+    AuditIRSchemaError
+        If any required schema block is missing or malformed. The IR fails
+        loud at load-time per audit-grade discipline; renderers should not
+        have to defensively fill in missing data.
+    """
+    artifact_dir = Path(artifact_dir)
+    if not artifact_dir.is_dir():
+        raise NotADirectoryError(f"artifact_dir is not a directory: {artifact_dir}")
+
+    manifest_raw = _read_json(artifact_dir / "manifest.json")
+    if not isinstance(manifest_raw, Mapping):
+        raise AuditIRSchemaError("manifest.json: top-level must be a JSON object")
+    report_md = _read_text(artifact_dir / "report.md")
+    bibliography_raw = _read_json(artifact_dir / "bibliography.json")
+    contradictions_raw = _read_json(artifact_dir / "contradictions.json")
+    verification_raw = _read_json(artifact_dir / "verification_details.json")
+
+    # Optional provenance files — present in V30 Phase-2 runs, absent in legacy.
+    eval_rules_raw = _read_optional_json(artifact_dir / "evaluator_rule_checks.json")
+    qwen_judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
+    protocol_raw = _read_optional_json(artifact_dir / "protocol.json")
+    corpus_approval_raw = _read_optional_json(artifact_dir / "corpus_approval.json")
+
+    manifest = _parse_manifest(manifest_raw)
+    bibliography = _parse_bibliography(bibliography_raw)
+    contradictions = _parse_contradictions(contradictions_raw)
+    frame_coverage = _parse_frame_coverage(
+        manifest_raw.get("frame_coverage_report"),
+        manifest.v30_warnings,
+    )
+    tier_mix = _parse_tier_mix(manifest_raw.get("corpus"))
+    verified_report = _parse_verified_report(verification_raw)
+    model_provenance = _parse_model_provenance(eval_rules_raw, qwen_judge_raw)
+    protocol = _parse_protocol(protocol_raw)
+    adequacy = _parse_adequacy(manifest_raw.get("adequacy"))
+    corpus_approval = _parse_corpus_approval(corpus_approval_raw)
+
+    return AuditIR(
+        ir_schema_version=IR_SCHEMA_VERSION,
+        run_id=manifest.run_id,
+        artifact_dir=artifact_dir,
+        report_md=report_md,
+        manifest=manifest,
+        bibliography=bibliography,
+        contradictions=contradictions,
+        frame_coverage=frame_coverage,
+        tier_mix=tier_mix,
+        verified_report=verified_report,
+        model_provenance=model_provenance,
+        protocol=protocol,
+        adequacy=adequacy,
+        corpus_approval=corpus_approval,
+    )
+
+ succeeded in 1342ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+ succeeded in 1532ms:
+"""FastAPI route for slice 004 audit-bundle export.
+
+POST /api/audit-bundle — accepts a {decision, pool, report} triple
+(typically the slice 001 + 002 + 003 chain output) and streams back
+a GPG-signed audit_<bundle_id>.tar.gz file.
+
+Mounted alongside the other slice routes in polaris_v6.api.app.
+"""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+from typing import Any, Callable
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from polaris_graph.audit_bundle.bundle_builder import (
+    SignFn,
+    build_audit_bundle,
+)
+from polaris_graph.audit_bundle.bundle_schema import ContentType
+from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+PREVIEW_CONTENT_TYPES: tuple[ContentType, ...] = (
+    "scope_decision",
+    "evidence_pool",
+    "verified_report",
+    "source_snapshot",
+    "metadata",
+)
+
+router = APIRouter(tags=["audit-bundle"])
+
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+def get_sign_fn() -> SignFn | None:
+    """Returns the active GPG signer or None.
+
+    None signals the orchestrator's sentinel default which raises and is
+    caught by the route -> HTTP 503. Tests override this dep; production
+    binds to a real GPGSigner via app.dependency_overrides at startup
+    when POLARIS_GPG_KEY_ID is set.
+    """
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class AuditBundleRequest(BaseModel):
+    """POST body for /api/audit-bundle.
+
+    Carries the full BPEI chain (decision + pool + report). The route
+    re-validates the FK chain consistency before building.
+    """
+
+    decision: ScopeDecision = Field(description="slice 001 ScopeDecision")
+    pool: EvidencePool = Field(description="slice 002 EvidencePool")
+    report: VerifiedReport = Field(
+        description="slice 003 VerifiedReport (verdict=success required)"
+    )
+
+
+class AuditBundleErrorResponse(BaseModel):
+    """Body returned with HTTP 4xx/5xx when bundle cannot be assembled."""
+
+    error: bool = True
+    code: str  # 'fk_chain_mismatch' | 'verdict_not_success' |
+               # 'cited_span_unreachable_after_snapshot' |
+               # 'copyrighted_span_in_bundle' |
+               # 'gpg_unavailable' | 'sign_failed'
+    message: str
+    report_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@router.post("/audit-bundle")
+def post_audit_bundle(
+    req: AuditBundleRequest,
+    sign_fn: SignFn | None = Depends(get_sign_fn),
+) -> Any:
+    """Build + return a GPG-signed audit bundle as application/gzip.
+
+    Returns the .tar.gz file as a streaming download.
+    """
+    if sign_fn is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": True,
+                "code": "gpg_unavailable",
+                "message": (
+                    "GPG signer not configured. Set POLARIS_GPG_KEY_ID in env "
+                    "and ensure the corresponding key is in the gpg keyring."
+                ),
+                "report_id": req.report.report_id,
+            },
+        )
+
+    # Build into a temp dir; FileResponse copies it to the wire.
+    tmp_dir = Path(tempfile.mkdtemp(prefix="polaris_audit_"))
+    try:
+        bundle_path = build_audit_bundle(
+            req.decision,
+            req.pool,
+            req.report,
+            output_dir=tmp_dir,
+            sign_fn=sign_fn,
+        )
+    except ValueError as exc:
+        # FK chain mismatch, verdict != success, cited-span unreachable, or copyrighted span
+        msg = str(exc)
+        if "copyrighted span" in msg:
+            code = "copyrighted_span_in_bundle"
+        elif "cited span unreachable" in msg:
+            code = "cited_span_unreachable_after_snapshot"
+        elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
+            code = "fk_chain_mismatch"
+        else:
+            code = "verdict_not_success"
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": code,
+                "message": msg,
+                "report_id": req.report.report_id,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": True,
+                "code": "sign_failed",
+                "message": str(exc),
+                "report_id": req.report.report_id,
+            },
+        )
+
+    return FileResponse(
+        path=str(bundle_path),
+        filename=bundle_path.name,
+        media_type="application/gzip",
+    )
+
+
+@router.post("/audit-bundle/preview")
+def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
+    """Build the manifest only and return it for preview (no GPG, no tar)."""
+    if req.report.pool_id != req.pool.pool_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": "fk_chain_mismatch",
+                "message": (
+                    f"FK chain mismatch: report.pool_id={req.report.pool_id!r}"
+                    f" != pool.pool_id={req.pool.pool_id!r}"
+                ),
+                "report_id": req.report.report_id,
+            },
+        )
+    if req.report.decision_id != req.decision.decision_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": "fk_chain_mismatch",
+                "message": (
+                    f"FK chain mismatch: report.decision_id="
+                    f"{req.report.decision_id!r} != decision.decision_id="
+                    f"{req.decision.decision_id!r}"
+                ),
+                "report_id": req.report.report_id,
+            },
+        )
+    try:
+        manifest, _files_bytes = build_manifest_and_files(
+            req.decision, req.pool, req.report
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "copyrighted span" in msg:
+            code = "copyrighted_span_in_bundle"
+        elif "cited span unreachable" in msg:
+            code = "cited_span_unreachable_after_snapshot"
+        else:
+            code = "verdict_not_success"
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": code,
+                "message": msg,
+                "report_id": req.report.report_id,
+            },
+        )
+    breakdown = {ct: {"count": 0, "bytes": 0} for ct in PREVIEW_CONTENT_TYPES}
+    for entry in manifest.files:
+        slot = breakdown[entry.content_type]
+        slot["count"] += 1
+        slot["bytes"] += entry.size_bytes
+    return {
+        "preview_bundle_id": manifest.bundle_id,
+        "generator_model": manifest.generator_model,
+        "polaris_version": manifest.polaris_version,
+        "file_count": len(manifest.files),
+        "total_bytes": manifest.total_bytes(),
+        "content_type_breakdown": breakdown,
+    }
+
+
+@router.get("/audit-bundle/health")
+def get_audit_bundle_health(
+    sign_fn: SignFn | None = Depends(get_sign_fn),
+) -> dict[str, Any]:
+    """Liveness probe + slice 004 backend version info.
+
+    signing_backend reflects ACTUAL state via the Depends-injected sign_fn:
+    - 'sentinel' if no signer is wired (POST will 503 — LAW II fail-loud)
+    - 'gpg' if a real GPGSigner is bound via app.dependency_overrides
+    """
+    return {
+        "status": "ok",
+        "slice": "slice_004_audit_bundle_export",
+        "pipeline_stages": [
+            "validate_fk_chain",
+            "build_manifest",
+            "snapshot_sources",
+            "serialize_yaml",
+            "gpg_sign",
+            "pack_tarball",
+        ],
+        "signing_backend": "gpg" if sign_fn is not None else "sentinel",
+    }
+
+ succeeded in 1760ms:
+"""Discover available V30 Phase-2 audit artifacts.
+
+Phase A scope discipline (per Codex M-2 review): the registry exposes
+ONLY a curated allowlist of canonical artifacts that successfully load
+through the strict AuditIR loader. The previous broad `outputs/**/manifest.json`
+scan picked up 90 directories with 9 slug collisions and 75 of them
+failed `load_audit_ir()`'s strict schema. Phase A returns exactly the
+curated set; Phase B/C will replace this with a per-workspace database-
+backed registry.
+
+Each registered run is identified by both:
+  - `run_id`: the canonical unique identifier (used for routing)
+  - `slug`: a friendly slug derived from artifact_dir (URL-safe label)
+
+`run_id` is the unique key. `slug` may collide if Phase B operators
+load multiple runs with the same template; the registry detects this
+at startup and raises.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+OUTPUTS_DIR = REPO_ROOT / "outputs"
+
+# Canonical Phase A demo: V30 Phase-2 run-14 (PHASE2_CHECKPOINT ship).
+CANONICAL_DEMO_SLUG = "clinical_tirzepatide_t2dm"
+CANONICAL_DEMO_DIR = (
+    OUTPUTS_DIR
+    / "full_scale_v30_phase2_run14"
+    / "clinical"
+    / "clinical_tirzepatide_t2dm"
+)
+
+# Phase A curated allowlist. Each entry is an absolute artifact directory.
+# Phase B replaces this with a database-backed per-workspace registry.
+_PHASE_A_ALLOWLIST: tuple[Path, ...] = (CANONICAL_DEMO_DIR,)
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    """Lightweight summary used by the run-list view (no full IR load)."""
+
+    slug: str
+    run_id: str
+    domain: str
+    status: str
+    artifact_dir: Path
+    cost_usd: float
+    word_count: int
+    contradictions_found: int
+    release_allowed: bool
+    created_at_iso: str | None
+
+
+class RegistryError(RuntimeError):
+    """Raised when the curated allowlist contains a malformed or duplicate run."""
+
+
+def _load_run_summary(artifact_dir: Path) -> RunSummary | None:
+    """Read just manifest.json + protocol.json for the lightweight summary.
+
+    Returns None if the directory cannot be summarized — but for a curated
+    allowlist this should never happen (and the caller raises).
+    """
+    manifest_path = artifact_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    created_at = None
+    protocol_path = artifact_dir / "protocol.json"
+    if protocol_path.exists():
+        try:
+            with protocol_path.open("r", encoding="utf-8") as f:
+                protocol = json.load(f)
+            created_at = protocol.get("created_at_iso")
+        except (OSError, json.JSONDecodeError):
+            created_at = None
+
+    generator = manifest.get("generator", {}) or {}
+    slug = str(manifest.get("slug") or artifact_dir.name)
+    domain = artifact_dir.parent.name if artifact_dir.parent != OUTPUTS_DIR else ""
+    return RunSummary(
+        slug=slug,
+        run_id=str(manifest.get("run_id", "")),
+        domain=domain,
+        status=str(manifest.get("status", "")),
+        artifact_dir=artifact_dir,
+        cost_usd=float(manifest.get("cost_usd", 0.0)),
+        word_count=int(generator.get("words", 0)),
+        contradictions_found=int(manifest.get("contradictions_found", 0)),
+        release_allowed=bool(manifest.get("release_allowed", False)),
+        created_at_iso=created_at,
+    )
+
+
+def _validate_loadable(artifact_dir: Path) -> None:
+    """Verify the artifact loads through the strict AuditIR loader.
+
+    Raises RegistryError if loading fails. Done at registry init time
+    so the inspector router never lists a run it can't actually serve.
+    Imported lazily to avoid a circular import with loader.py.
+    """
+    from src.polaris_graph.audit_ir.loader import (
+        AuditIRSchemaError,
+        load_audit_ir,
+    )
+    try:
+        load_audit_ir(artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError, NotADirectoryError) as exc:
+        raise RegistryError(
+            f"Allowlisted artifact failed strict load: {artifact_dir}: {exc}"
+        ) from exc
+
+
+def _build_runs() -> tuple[RunSummary, ...]:
+    """Build the registry by validating each allowlisted artifact."""
+    summaries: list[RunSummary] = []
+    seen_slugs: dict[str, str] = {}
+    seen_run_ids: set[str] = set()
+
+    for artifact_dir in _PHASE_A_ALLOWLIST:
+        if not artifact_dir.is_dir():
+            raise RegistryError(
+                f"Allowlisted artifact directory missing: {artifact_dir}"
+            )
+        _validate_loadable(artifact_dir)
+        summary = _load_run_summary(artifact_dir)
+        if summary is None:
+            raise RegistryError(
+                f"Allowlisted artifact failed lightweight summary: {artifact_dir}"
+            )
+        if summary.run_id in seen_run_ids:
+            raise RegistryError(
+                f"Duplicate run_id in allowlist: {summary.run_id}"
+            )
+        if summary.slug in seen_slugs and seen_slugs[summary.slug] != summary.run_id:
+            raise RegistryError(
+                f"Duplicate slug across distinct run_ids: {summary.slug} "
+                f"({seen_slugs[summary.slug]} vs {summary.run_id})"
+            )
+        seen_slugs[summary.slug] = summary.run_id
+        seen_run_ids.add(summary.run_id)
+        summaries.append(summary)
+
+    summaries.sort(key=lambda r: (r.created_at_iso or "", r.slug), reverse=True)
+    return tuple(summaries)
+
+
+# Built once at module import. If the curated allowlist is malformed, this
+# raises immediately and the inspector route fails to mount — which is what
+# we want (fail loud, not silent).
+_RUNS: tuple[RunSummary, ...] = _build_runs()
+
+
+def list_available_runs() -> list[RunSummary]:
+    """Return every Phase-A-allowlisted V30 audit artifact (already validated)."""
+    return list(_RUNS)
+
+
+def find_run_by_slug(slug: str) -> RunSummary | None:
+    """Find a run by slug. Slugs are guaranteed unique within the registry."""
+    if not slug:
+        return None
+    for run in _RUNS:
+        if run.slug == slug:
+            return run
+    return None
+
+
+def find_run_by_id(run_id: str) -> RunSummary | None:
+    """Find a run by its canonical unique run_id."""
+    if not run_id:
+        return None
+    for run in _RUNS:
+        if run.run_id == run_id:
+            return run
+    return None
+
+codex
+The app already mounts all slice routers with `prefix="/api"`, so the mount point is right. One important detail surfaced: `app.py` imports those routers via `polaris_graph...`, not `src.polaris_graph...`, so the new import needs to follow that convention.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"from src\\.polaris_graph|import src\\.polaris_graph|from polaris_graph\\.api\" -n src tests | Select-Object -First 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "__init__.py" src | Select-Object -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"include_router\\(.*prefix=\\\"/api\\\"|APIRouter\\(tags\" -n src/polaris_v6/api src/polaris_graph/api | Select-Object -First 160" in C:\POLARIS
+ succeeded in 1036ms:
+tests\v3\test_synthesize.py:18:from src.polaris_graph.contracts_v3 import (
+tests\v3\test_synthesize.py:51:        from src.polaris_graph.nodes.synthesize import write_verified_section
+tests\v3\test_synthesize.py:88:        from src.polaris_graph.nodes.synthesize import write_verified_section
+tests\v3\test_synthesize.py:156:        from src.polaris_graph.nodes.synthesize import _prioritize_evidence
+tests\v3\test_synthesize.py:171:        from src.polaris_graph.nodes.synthesize import _prioritize_evidence
+tests\v3\test_synthesize.py:189:        from src.polaris_graph.nodes.synthesize import _build_previous_context
+tests\v3\test_synthesize.py:213:        from src.polaris_graph.nodes.synthesize import _build_previous_context
+tests\v3\test_synthesize.py:229:        from src.polaris_graph.nodes.synthesize import write_verified_section
+tests\v3\test_synthesize.py:269:        from src.polaris_graph.nodes.synthesize import run_synthesis_phase
+tests\v3\test_synthesize.py:311:        from src.polaris_graph.nodes.synthesize import run_synthesis_phase
+tests\v3\test_synthesize.py:347:        from src.polaris_graph.nodes.synthesize import run_synthesis_phase
+tests\v3\test_search.py:13:from src.polaris_graph.contracts_v3 import (
+tests\v3\test_search.py:28:        from src.polaris_graph.nodes.search import _check_convergence
+tests\v3\test_search.py:41:        from src.polaris_graph.nodes.search import _check_convergence
+tests\v3\test_search.py:51:        from src.polaris_graph.nodes.search import _should_continue_searching
+tests\v3\test_search.py:66:        from src.polaris_graph.nodes.search import _should_continue_searching
+tests\v3\test_search.py:80:        from src.polaris_graph.nodes.search import _should_continue_searching
+tests\v3\test_search.py:94:        from src.polaris_graph.nodes.search import _should_continue_searching
+tests\v3\test_search.py:108:        from src.polaris_graph.nodes.search import _should_continue_searching
+tests\v3\test_search.py:124:        from src.polaris_graph.nodes.search import _detect_declining_convergence
+tests\v3\test_search.py:142:        from src.polaris_graph.nodes.search import _execute_search_round
+tests\v3\test_search.py:171:        from src.polaris_graph.nodes.search import _distill_reflections
+tests\v3\test_search.py:202:        from src.polaris_graph.nodes.search import _fallback_reflections
+tests\v3\test_search.py:253:        from src.polaris_graph.nodes.search import run_search_phase
+tests\v3\test_scope.py:12:from src.polaris_graph.contracts_v3 import (
+tests\v3\test_scope.py:28:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:52:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:81:        from src.polaris_graph.nodes.scope import _check_question_diversity
+tests\v3\test_scope.py:98:        from src.polaris_graph.nodes.scope import _check_question_diversity
+tests\v3\test_scope.py:122:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:162:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:202:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:235:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:255:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_scope.py:272:        from src.polaris_graph.nodes.scope import run_scope
+tests\v3\test_reuse_components.py:18:        from src.polaris_graph.agents.planner import (
+tests\v3\test_reuse_components.py:28:        from src.polaris_graph.agents.planner import _fallback_queries
+tests\v3\test_reuse_components.py:34:        from src.polaris_graph.agents.planner import _generate_diversity_queries
+tests\v3\test_reuse_components.py:44:        from src.polaris_graph.retrieval.crag_retriever import (
+tests\v3\test_reuse_components.py:53:        from src.polaris_graph.retrieval.crag_retriever import CRAGConfig
+tests\v3\test_reuse_components.py:63:        from src.polaris_graph.retrieval.source_registry import (
+tests\v3\test_reuse_components.py:70:        from src.polaris_graph.retrieval.source_registry import SourceRegistry
+tests\v3\test_reuse_components.py:83:        from src.polaris_graph.retrieval.source_registry import SourceRegistry
+tests\v3\test_reuse_components.py:94:        from src.polaris_graph.retrieval.content_quality_gate import score_content_quality
+tests\v3\test_reuse_components.py:98:        from src.polaris_graph.retrieval.content_quality_gate import score_content_quality
+tests\v3\test_reuse_components.py:122:        from src.polaris_graph.agents.nli_verifier import (
+tests\v3\test_reuse_components.py:134:        from src.polaris_graph.synthesis.citation_mapper import (
+tests\v3\test_reuse_components.py:143:        from src.polaris_graph.synthesis.citation_mapper import resolve_citations
+tests\v3\test_react_live.py:20:from src.polaris_graph.contracts_v3 import AnalysisEntry
+tests\v3\test_react_live.py:21:from src.polaris_graph.tools.analysis_notebook import AnalysisNotebook
+tests\v3\test_react_live.py:22:from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_live.py:23:from src.polaris_graph.tools.tool_registry import ToolResult, build_default_registry
+tests\v3\test_react_live.py:519:    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+tests\v3\test_react_live.py:838:    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+tests\v3\test_react_live.py:839:    from src.polaris_graph.tools.react_agent import ReactDecision
+tests\v6\test_code_executor_sovereignty.py:13:from src.polaris_graph.tools.code_executor import (
+tests\v3\test_react_agent.py:23:from src.polaris_graph.contracts_v3 import AnalysisEntry
+tests\v3\test_react_agent.py:24:from src.polaris_graph.tools.analysis_notebook import AnalysisNotebook, AnalysisStep
+tests\v3\test_react_agent.py:25:from src.polaris_graph.tools.react_agent import (
+tests\v3\test_react_agent.py:31:from src.polaris_graph.tools.tool_registry import (
+tests\v3\test_react_agent.py:238:        import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:851:        import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:977:from src.polaris_graph.tools.react_agent import (
+tests\v3\test_react_agent.py:1845:        import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2206:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2298:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2306:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2330:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2339:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2348:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2376:    import src.polaris_graph.tools.react_agent as ra_mod
+tests\v3\test_react_agent.py:2882:    from src.polaris_graph.tools.analysis_toolkit import (
+tests\v3\test_react_agent.py:2903:    from src.polaris_graph.tools.tool_registry import (
+tests\v3\test_react_agent.py:2965:    from src.polaris_graph.tools.analysis_toolkit import _safe_float
+tests\v3\test_react_agent.py:3008:    from src.polaris_graph.tools.analysis_toolkit import _safe_float
+tests\v3\test_react_agent.py:3240:    from src.polaris_graph.tools.react_agent import _DOMAIN_TERMS
+tests\v3\test_react_agent.py:3363:    from src.polaris_graph.agents.nli_verifier import (
+tests\v3\test_react_agent.py:3386:    import src.polaris_graph.agents.nli_verifier as nli_mod
+tests\v3\test_react_agent.py:3404:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3486:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3499:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3510:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3518:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3603:    import src.polaris_graph.tools.react_agent as mod
+tests\v3\test_react_agent.py:3616:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3625:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3635:    from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+tests\v3\test_react_agent.py:3987:    import src.polaris_graph.agents.nli_verifier as nli_mod
+tests\v3\test_react_agent.py:4026:    import src.polaris_graph.agents.nli_verifier as nli_mod
+tests\v3\test_react_agent.py:5018:    import src.polaris_graph.tools.react_agent as ra_module
+tests\v3\test_react_agent.py:5065:    import src.polaris_graph.tools.react_agent as ra_module
+tests\v3\test_react_agent.py:5256:    import src.polaris_graph.tools.react_agent as ra
+tests\v3\test_react_agent.py:5298:    import src.polaris_graph.tools.react_agent as ra
+tests\v3\test_react_agent.py:5349:    import src.polaris_graph.tools.react_agent as ra
+tests\v3\test_outline.py:11:from src.polaris_graph.contracts_v3 import (
+tests\v3\test_outline.py:28:        from src.polaris_graph.nodes.outline import _enforce_section_evidence_ratio
+tests\v3\test_outline.py:46:        from src.polaris_graph.nodes.outline import _enforce_section_evidence_ratio
+tests\v3\test_outline.py:69:        from src.polaris_graph.nodes.outline import _detect_gaps
+tests\v3\test_outline.py:86:        from src.polaris_graph.nodes.outline import _detect_gaps
+tests\v3\test_outline.py:100:        from src.polaris_graph.nodes.outline import _generate_gap_queries
+tests\v3\test_outline.py:119:        from src.polaris_graph.nodes.outline import _score_outline
+tests\v3\test_outline.py:144:        from src.polaris_graph.nodes.outline import _keep_best_outline
+tests\v3\test_outline.py:159:        from src.polaris_graph.nodes.outline import _keep_best_outline
+tests\v3\test_outline.py:186:        from src.polaris_graph.nodes.outline import generate_outline
+tests\v3\test_outline.py:222:        from src.polaris_graph.nodes.outline import _assign_evidence_to_outline
+tests\v3\test_outline.py:251:        from src.polaris_graph.nodes.outline import _assign_evidence_to_outline
+tests\v3\test_outline.py:282:        from src.polaris_graph.nodes.outline import generate_outline
+tests\v3\test_mock_llm.py:11:from src.polaris_graph.contracts_v3 import (
+tests\v3\test_live_tools.py:145:        from src.polaris_graph.tools.analysis_toolkit import statistical_summary
+tests\v3\test_live_tools.py:175:        from src.polaris_graph.tools.analysis_toolkit import statistical_summary
+tests\v3\test_live_tools.py:197:        from src.polaris_graph.tools.analysis_toolkit import generate_meta_analysis_summary
+tests\v3\test_live_tools.py:225:        from src.polaris_graph.tools.analysis_toolkit import build_comparison_table
+tests\v3\test_live_tools.py:246:        from src.polaris_graph.tools.analysis_toolkit import compute_agreement_score
+tests\v3\test_live_tools.py:278:        from src.polaris_graph.tools.code_executor import execute_analysis_script
+tests\v3\test_live_tools.py:316:        from src.polaris_graph.tools.code_executor import execute_analysis_script
+tests\v3\test_live_tools.py:377:        from src.polaris_graph.tools.code_executor import execute_analysis_script
+tests\v3\test_live_tools.py:423:        from src.polaris_graph.nodes.assemble import _resolve_all_citations
+tests\v3\test_live_tools.py:424:        from src.polaris_graph.contracts_v3 import VerifiedSectionDraft
+tests\v3\test_live_tools.py:479:        from src.polaris_graph.nodes.assemble import _resolve_all_citations
+tests\v3\test_live_tools.py:480:        from src.polaris_graph.contracts_v3 import VerifiedSectionDraft
+
+ succeeded in 1244ms:
+src\__init__.py
+src\utils\__init__.py
+src\tools\__init__.py
+src\state\__init__.py
+src\search\__init__.py
+src\orchestration\__init__.py
+src\llm\__init__.py
+src\schemas\__init__.py
+src\benchmarks\__init__.py
+src\memory\__init__.py
+src\config\__init__.py
+src\quality\__init__.py
+src\providers\__init__.py
+src\auth\__init__.py
+src\polaris_graph\__init__.py
+src\polaris_v6\__init__.py
+src\audit\__init__.py
+src\polaris_v6\followup\__init__.py
+src\polaris_v6\templates\__init__.py
+src\agents\__init__.py
+src\polaris_graph\anti_sycophancy\__init__.py
+src\polaris_graph\api\__init__.py
+src\polaris_graph\audit_ir\__init__.py
+src\polaris_graph\agents\__init__.py
+src\polaris_v6\compare\__init__.py
+src\agents\citefirst\__init__.py
+src\polaris_graph\audit_bundle\__init__.py
+src\polaris_graph\intake\__init__.py
+src\polaris_v6\charts\__init__.py
+src\polaris_graph\evidence_contract\__init__.py
+src\polaris_graph\followup\__init__.py
+src\polaris_graph\retrieval\__init__.py
+src\polaris_graph\memory\__init__.py
+src\polaris_graph\generator\__init__.py
+src\polaris_graph\generator2\__init__.py
+src\polaris_v6\bpei\__init__.py
+src\polaris_graph\export\__init__.py
+src\polaris_graph\evaluator\__init__.py
+src\polaris_v6\benchmark\__init__.py
+src\polaris_graph\sovereignty\__init__.py
+src\polaris_graph\scope\__init__.py
+src\polaris_graph\llm\__init__.py
+src\polaris_graph\nodes\__init__.py
+src\polaris_graph\retrieval2\__init__.py
+src\polaris_graph\synthesis\__init__.py
+src\polaris_graph\benchmark\__init__.py
+src\polaris_v6\api\__init__.py
+src\polaris_v6\regression_lab\__init__.py
+src\polaris_v6\scope\__init__.py
+src\polaris_v6\adapters\__init__.py
+src\polaris_v6\observability\__init__.py
+src\polaris_graph\auto_induction\__init__.py
+src\polaris_v6\schemas\__init__.py
+src\polaris_v6\memory\__init__.py
+src\polaris_v6\replay\__init__.py
+src\polaris_v6\queue\__init__.py
+src\polaris_graph\tools\__init__.py
+src\polaris_v6\queue\middleware\__init__.py
+src\polaris_v6\sycophancy\__init__.py
+src\polaris_v6\anti_sycophancy\__init__.py
+
+2026-05-12T17:43:43.619154Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+rg: regex parse error:
+    (?:include_router\(.*prefix=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1374ms:
+rg: regex parse error:
+    (?:include_router\(.*prefix=\)
+    ^
+error: unclosed group
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "include_router" -n src/polaris_v6/api/app.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "router = APIRouter" -n src/polaris_graph/api' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path src/polaris_graph/api -File | Select-Object -ExpandProperty Name' in C:\POLARIS
+ succeeded in 1031ms:
+80:    app.include_router(health_router)
+81:    app.include_router(runs_router)
+82:    app.include_router(stream_router)
+83:    app.include_router(ambiguity_router)
+84:    app.include_router(bundle_router)
+85:    app.include_router(scope_router)
+86:    app.include_router(upload_router)
+87:    app.include_router(charts_router)
+88:    app.include_router(followup_router)
+89:    app.include_router(compare_router)
+90:    app.include_router(memory_router)
+91:    app.include_router(templates_router)
+94:    app.include_router(slice001_intake_router, prefix="/api")
+110:    app.include_router(slice002_retrieval_router, prefix="/api")
+125:    app.include_router(slice003_generation_router, prefix="/api")
+140:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+159:    app.include_router(slice005_benchmark_router, prefix="/api")
+161:    app.include_router(disambiguation_router, prefix="/api")
+
+ succeeded in 1202ms:
+src/polaris_graph/api\benchmark_route.py:31:router = APIRouter(tags=["benchmark"])
+src/polaris_graph/api\audit_bundle_route.py:38:router = APIRouter(tags=["audit-bundle"])
+src/polaris_graph/api\retrieval_route.py:43:router = APIRouter(tags=["retrieval"])
+src/polaris_graph/api\generation_route.py:38:router = APIRouter(tags=["generation"])
+src/polaris_graph/api\intake_route.py:33:router = APIRouter(tags=["intake"])
+src/polaris_graph/api\disambiguation_route.py:18:router = APIRouter(tags=["disambiguation"])
+
+ succeeded in 1398ms:
+__init__.py
+audit_bundle_route.py
+benchmark_route.py
+disambiguation_route.py
+generation_route.py
+intake_route.py
+intake.py
+retrieval_route.py
+
+codex
+I’m checking packaging now because the import path question is not cosmetic here. In this repo `src` is also a Python package, but the installed/runtime import convention for the app appears to be the bare package names.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "uvicorn|polaris_v6.api.app|PYTHONPATH|package-dir|packages" -n pyproject.toml README* scripts .github src tests | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path pyproject.toml' in C:\POLARIS
+2026-05-12T17:44:22.282986Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+.github\workflows\web_ci.yml:89:          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+.github\workflows\web_ci.yml:214:          PYTHONPATH: src
+tests\polaris_v6\api\test_upload_adversarial.py:19:    from polaris_v6.api.app import create_app
+tests\polaris_v6\api\test_app_slice_route_mount.py:25:    from polaris_v6.api.app import create_app
+.github\workflows\sovereignty.yml.pending_workflow_scope:23:          PYTHONPATH: src
+scripts\autoloop\runner\README.md:15:## Required packages
+tests\unit\test_live_dashboard_playwright.py:14:Requires: playwright, uvicorn, fastapi running on a free port
+tests\v3\test_integration.py:681:    def test_approved_packages_exist(self):
+tests\v3\test_integration.py:682:        from src.polaris_graph.tools.package_installer import get_approved_packages
+tests\v3\test_integration.py:683:        packages = get_approved_packages()
+tests\v3\test_integration.py:684:        assert len(packages) >= 10, f"Only {len(packages)} approved packages"
+tests\v3\test_integration.py:685:        assert "pdfplumber" in packages
+tests\v3\test_integration.py:686:        assert "networkx" in packages
+tests\v3\test_integration.py:687:        assert "scikit-learn" in packages
+tests\v6\test_api_templates.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_stream.py:21:    from polaris_v6.api.app import create_app
+tests\v6\test_api_memory.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_health_and_runs.py:15:    from polaris_v6.api.app import create_app
+tests\v6\test_api_followup_compare.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_charts.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_bundle.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_ambiguity.py:12:    from polaris_v6.api.app import create_app
+src\polaris_graph\tools\__init__.py:32:    get_approved_packages,
+src\polaris_graph\tools\__init__.py:65:    "get_approved_packages",
+src\polaris_graph\tools\package_installer.py:3:Allows the LLM to request Python packages during analysis. Only packages
+src\polaris_graph\tools\package_installer.py:7:The whitelist contains scientific/analysis packages that are safe for research:
+src\polaris_graph\tools\package_installer.py:8:no system-level packages, no network libraries, no code execution tools.
+src\polaris_graph\tools\package_installer.py:18:# Approved packages for research analysis (LAW VI: from env with defaults)
+src\polaris_graph\tools\package_installer.py:34:def get_approved_packages() -> list[str]:
+src\polaris_graph\tools\package_installer.py:35:    """Return the list of approved packages for LLM reference."""
+src\polaris_graph\tools\package_installer.py:46:def safe_install(packages: list[str]) -> dict:
+src\polaris_graph\tools\package_installer.py:47:    """Install packages from the approved whitelist.
+src\polaris_graph\tools\package_installer.py:50:        packages: List of package names to install.
+src\polaris_graph\tools\package_installer.py:69:    for pkg in packages:
+src\polaris_graph\tools\package_installer.py:118:def ensure_available(packages: list[str]) -> bool:
+src\polaris_graph\tools\package_installer.py:119:    """Ensure packages are available, installing if needed. Returns True if all available."""
+src\polaris_graph\tools\package_installer.py:120:    result = safe_install(packages)
+src\polaris_graph\tools\code_executor.py:857:    # Python needs these to find its stdlib and packages
+src\polaris_graph\tools\code_executor.py:858:    for key in ("PATH", "PYTHONPATH", "PYTHONHOME", "SYSTEMROOT", "TEMP", "TMP",
+tests\v6\test_scripts_v6_handover.py:27:    # Inherit the parent env so pip-installed packages (pydantic, etc.) are
+tests\v6\test_scripts_v6_handover.py:28:    # discoverable; override PYTHONPATH so `polaris_v6.*` resolves.
+tests\v6\test_scripts_v6_handover.py:30:    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+tests\v6\test_scope.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_upload.py:14:    from polaris_v6.api.app import create_app
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:315:    # Mock the required src packages
+scripts\demo_smoke.py:17:    PYTHONPATH=src python scripts/demo_smoke.py [-v]
+scripts\demo_smoke.py:30:from polaris_v6.api.app import create_app
+scripts\docker_entrypoint.sh:28:        exec python -m uvicorn scripts.live_server:app --host 0.0.0.0 --port 8000 --workers 1
+scripts\deploy.sh:285:        info "requirements.txt found (${req_count} packages)"
+src\polaris_v6\api\app.py:4:and exposes the ASGI app via `app = create_app()` for uvicorn.
+tests\polaris_graph\test_inspector_browser.py:56:    import uvicorn
+tests\polaris_graph\test_inspector_browser.py:59:    config = uvicorn.Config(
+tests\polaris_graph\test_inspector_browser.py:66:    server = uvicorn.Server(config)
+src\polaris_graph\api\audit_bundle_route.py:7:Mounted alongside the other slice routes in polaris_v6.api.app.
+tests\polaris_graph\test_demo_smoke.py:75:    from polaris_v6.api.app import create_app
+tests\polaris_graph\api\test_disambiguation_route.py:91:    from polaris_v6.api.app import create_app
+tests\polaris_graph\api\test_audit_bundle_route.py:172:    from polaris_v6.api.app import create_app
+src\orchestration\graph.py:1929:    """Finalize node - packages final report and consolidates memory."""
+scripts\live_server.py:37:Zero new dependencies. Uses: FastAPI, uvicorn, sse-starlette, watchfiles, aiofiles.
+scripts\live_server.py:1341:# Shared state -- set during main() before uvicorn starts
+scripts\live_server.py:5273:    import uvicorn
+scripts\live_server.py:5275:    uvicorn.run(
+scripts\seed_demo_benchmark.py:88:    print("  (then reboot uvicorn so create_app() picks up the env var)")
+scripts\screenshot_walkthrough.js:5://   1. Backend up:   PYTHONPATH=src python -c "from dotenv import load_dotenv; load_dotenv(); import uvicorn; uvicorn.run('polaris_v6.api.app:app', host='127.0.0.1', port=8000)"
+scripts\setup_gpg_for_demo.py:159:        "Verify with: PYTHONPATH=src python -c "
+scripts\setup_gpg_for_demo.py:162:        "from polaris_v6.api.app import create_app; "
+scripts\tally_q_audit.py:115:- **Compound-claim PARTIAL:** Gemini packages one supported decimal with multiple unsupported supporting facts in the same sentence; the entire sentence verdicts PARTIAL under strict line-by-line.
+scripts\v28_post_manifest_pipeline.sh:27:   PYTHONPATH=src \
+scripts\verify_audit_bundle_e2e.py:13:    PYTHONPATH=src python scripts/verify_audit_bundle_e2e.py
+scripts\verify_audit_bundle_e2e.py:181:    from polaris_v6.api.app import create_app
+scripts\verify_cage.py:24:repos. No third-party Python packages required.
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: README*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1081ms:
+.github\workflows\web_ci.yml:89:          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+.github\workflows\web_ci.yml:214:          PYTHONPATH: src
+tests\polaris_v6\api\test_upload_adversarial.py:19:    from polaris_v6.api.app import create_app
+tests\polaris_v6\api\test_app_slice_route_mount.py:25:    from polaris_v6.api.app import create_app
+.github\workflows\sovereignty.yml.pending_workflow_scope:23:          PYTHONPATH: src
+scripts\autoloop\runner\README.md:15:## Required packages
+tests\unit\test_live_dashboard_playwright.py:14:Requires: playwright, uvicorn, fastapi running on a free port
+tests\v3\test_integration.py:681:    def test_approved_packages_exist(self):
+tests\v3\test_integration.py:682:        from src.polaris_graph.tools.package_installer import get_approved_packages
+tests\v3\test_integration.py:683:        packages = get_approved_packages()
+tests\v3\test_integration.py:684:        assert len(packages) >= 10, f"Only {len(packages)} approved packages"
+tests\v3\test_integration.py:685:        assert "pdfplumber" in packages
+tests\v3\test_integration.py:686:        assert "networkx" in packages
+tests\v3\test_integration.py:687:        assert "scikit-learn" in packages
+tests\v6\test_api_templates.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_stream.py:21:    from polaris_v6.api.app import create_app
+tests\v6\test_api_memory.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_health_and_runs.py:15:    from polaris_v6.api.app import create_app
+tests\v6\test_api_followup_compare.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_charts.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_bundle.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_ambiguity.py:12:    from polaris_v6.api.app import create_app
+src\polaris_graph\tools\__init__.py:32:    get_approved_packages,
+src\polaris_graph\tools\__init__.py:65:    "get_approved_packages",
+src\polaris_graph\tools\package_installer.py:3:Allows the LLM to request Python packages during analysis. Only packages
+src\polaris_graph\tools\package_installer.py:7:The whitelist contains scientific/analysis packages that are safe for research:
+src\polaris_graph\tools\package_installer.py:8:no system-level packages, no network libraries, no code execution tools.
+src\polaris_graph\tools\package_installer.py:18:# Approved packages for research analysis (LAW VI: from env with defaults)
+src\polaris_graph\tools\package_installer.py:34:def get_approved_packages() -> list[str]:
+src\polaris_graph\tools\package_installer.py:35:    """Return the list of approved packages for LLM reference."""
+src\polaris_graph\tools\package_installer.py:46:def safe_install(packages: list[str]) -> dict:
+src\polaris_graph\tools\package_installer.py:47:    """Install packages from the approved whitelist.
+src\polaris_graph\tools\package_installer.py:50:        packages: List of package names to install.
+src\polaris_graph\tools\package_installer.py:69:    for pkg in packages:
+src\polaris_graph\tools\package_installer.py:118:def ensure_available(packages: list[str]) -> bool:
+src\polaris_graph\tools\package_installer.py:119:    """Ensure packages are available, installing if needed. Returns True if all available."""
+src\polaris_graph\tools\package_installer.py:120:    result = safe_install(packages)
+src\polaris_graph\tools\code_executor.py:857:    # Python needs these to find its stdlib and packages
+src\polaris_graph\tools\code_executor.py:858:    for key in ("PATH", "PYTHONPATH", "PYTHONHOME", "SYSTEMROOT", "TEMP", "TMP",
+tests\v6\test_scripts_v6_handover.py:27:    # Inherit the parent env so pip-installed packages (pydantic, etc.) are
+tests\v6\test_scripts_v6_handover.py:28:    # discoverable; override PYTHONPATH so `polaris_v6.*` resolves.
+tests\v6\test_scripts_v6_handover.py:30:    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+tests\v6\test_scope.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_upload.py:14:    from polaris_v6.api.app import create_app
+tests\polaris_graph\test_regression_pg_lb_sa_02_defects.py:315:    # Mock the required src packages
+scripts\demo_smoke.py:17:    PYTHONPATH=src python scripts/demo_smoke.py [-v]
+scripts\demo_smoke.py:30:from polaris_v6.api.app import create_app
+scripts\docker_entrypoint.sh:28:        exec python -m uvicorn scripts.live_server:app --host 0.0.0.0 --port 8000 --workers 1
+scripts\deploy.sh:285:        info "requirements.txt found (${req_count} packages)"
+src\polaris_v6\api\app.py:4:and exposes the ASGI app via `app = create_app()` for uvicorn.
+tests\polaris_graph\test_inspector_browser.py:56:    import uvicorn
+tests\polaris_graph\test_inspector_browser.py:59:    config = uvicorn.Config(
+tests\polaris_graph\test_inspector_browser.py:66:    server = uvicorn.Server(config)
+src\polaris_graph\api\audit_bundle_route.py:7:Mounted alongside the other slice routes in polaris_v6.api.app.
+tests\polaris_graph\test_demo_smoke.py:75:    from polaris_v6.api.app import create_app
+tests\polaris_graph\api\test_disambiguation_route.py:91:    from polaris_v6.api.app import create_app
+tests\polaris_graph\api\test_audit_bundle_route.py:172:    from polaris_v6.api.app import create_app
+src\orchestration\graph.py:1929:    """Finalize node - packages final report and consolidates memory."""
+scripts\live_server.py:37:Zero new dependencies. Uses: FastAPI, uvicorn, sse-starlette, watchfiles, aiofiles.
+scripts\live_server.py:1341:# Shared state -- set during main() before uvicorn starts
+scripts\live_server.py:5273:    import uvicorn
+scripts\live_server.py:5275:    uvicorn.run(
+scripts\seed_demo_benchmark.py:88:    print("  (then reboot uvicorn so create_app() picks up the env var)")
+scripts\screenshot_walkthrough.js:5://   1. Backend up:   PYTHONPATH=src python -c "from dotenv import load_dotenv; load_dotenv(); import uvicorn; uvicorn.run('polaris_v6.api.app:app', host='127.0.0.1', port=8000)"
+scripts\setup_gpg_for_demo.py:159:        "Verify with: PYTHONPATH=src python -c "
+scripts\setup_gpg_for_demo.py:162:        "from polaris_v6.api.app import create_app; "
+scripts\tally_q_audit.py:115:- **Compound-claim PARTIAL:** Gemini packages one supported decimal with multiple unsupported supporting facts in the same sentence; the entire sentence verdicts PARTIAL under strict line-by-line.
+scripts\v28_post_manifest_pipeline.sh:27:   PYTHONPATH=src \
+scripts\verify_audit_bundle_e2e.py:13:    PYTHONPATH=src python scripts/verify_audit_bundle_e2e.py
+scripts\verify_audit_bundle_e2e.py:181:    from polaris_v6.api.app import create_app
+scripts\verify_cage.py:24:repos. No third-party Python packages required.
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: README*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+2026-05-12T17:44:22.412463Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path pyproject.toml[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.[0m
+
+ exited 1 in 1209ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path pyproject.toml[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python - <<'PY'
+import sys
+from polaris_v6.api.app import create_app
+import polaris_graph.audit_ir.registry as reg
+print('app ok')
+print('registry module', reg.__name__)
+print('src.polaris_graph.audit_ir.loader' in sys.modules)
+print('polaris_graph.audit_ir.loader' in sys.modules)
+PY" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_v6/api/test_app_slice_route_mount.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/api/test_audit_bundle_route.py' in C:\POLARIS
+ succeeded in 1046ms:
+"""Tests that slice 001 + slice 002 routes are mounted in the live app."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _no_real_backend_keys(monkeypatch: pytest.MonkeyPatch):
+    """Ensure tests don't accidentally instantiate real backends.
+
+    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY +
+    POLARIS_GPG_KEY_ID at construction; we monkeypatch all three to
+    empty so sentinel defaults stay in place.
+    """
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("POLARIS_GPG_KEY_ID", raising=False)
+    monkeypatch.delenv("POLARIS_BENCHMARK_RESULTS_DIR", raising=False)
+    yield
+
+
+def _client() -> TestClient:
+    from polaris_v6.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_slice_001_intake_health_mounted():
+    r = _client().get("/api/intake/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_001_clinical_scope_discovery"
+
+
+def test_slice_002_retrieval_health_mounted():
+    r = _client().get("/api/retrieval/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_002_clinical_retrieval"
+
+
+def test_slice_001_intake_post_works():
+    """End-to-end smoke: a real intake call works through the mounted route."""
+    r = _client().post(
+        "/api/intake",
+        json={"question": "Is aspirin effective for headache in adults?"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["error"] is False
+    assert body["decision"]["scope_class"] == "clinical_efficacy"
+
+
+def test_slice_002_retrieval_post_without_serper_key_fails_loudly():
+    """No SERPER_API_KEY -> sentinel default -> 400 fetch_backend_unavailable.
+
+    Verifies LAW II (fail-loud). The route must NOT silently return an
+    empty pool when the backend is unconfigured.
+    """
+    decision_payload = {
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "intervention",
+                "plausible_interpretations": ["aspirin"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "outcome",
+                "plausible_interpretations": ["headache"],
+                "needs_clarification": False,
+            },
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 5,
+    }
+    r = _client().post(
+        "/api/retrieval",
+        json={"decision": decision_payload},
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "fetch_backend_unavailable"
+
+
+def test_slice_001_and_slice_002_share_same_app():
+    """Both routes must be reachable from a single app instance (no
+    create_app() side effect that mounts only the most recent slice)."""
+    client = _client()
+    intake = client.get("/api/intake/health")
+    retrieval = client.get("/api/retrieval/health")
+    assert intake.status_code == 200
+    assert retrieval.status_code == 200
+
+
+def test_slice_003_generation_health_mounted():
+    r = _client().get("/api/generation/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_003_generator_strict_verify"
+
+
+def test_slice_003_generation_post_without_completion_fn_fails_loudly():
+    """No completion_fn injected -> sentinel default -> 400 with
+    completion_backend_unavailable. Verifies LAW II fail-loud behavior."""
+    pool_payload = {
+        "pool_id": "p-1",
+        "decision_id": "d-1",
+        "sources": [
+            {
+                "source_id": "src-1",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "x" * 50,
+                "full_text_available": True,
+                "full_text": "x" * 200,
+                "fetched_at_utc": "2026-05-04T12:00:00+00:00",
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": "2026-05-04T12:00:00+00:00",
+        "retrieval_finished_at_utc": "2026-05-04T12:00:01+00:00",
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/generation",
+        json={"pool": pool_payload, "scope_class": "clinical_efficacy"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "completion_backend_unavailable"
+
+
+def test_all_three_slices_share_same_app():
+    """Smoke: intake + retrieval + generation health all reachable
+    from a single create_app() instance."""
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_004_audit_bundle_health_mounted():
+    r = _client().get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_004_audit_bundle_export"
+
+
+def test_slice_004_audit_bundle_post_without_gpg_returns_503():
+    """No POLARIS_GPG_KEY_ID -> sentinel sign_fn -> 503 (LAW II fail-loud)."""
+    iso = "2026-05-04T12:00:00+00:00"
+    decision = {
+        "decision_id": "dec-1",
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            }
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 0,
+    }
+    pool = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sources": [
+            {
+                "source_id": "src-A",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "snippet",
+                "full_text_available": True,
+                "full_text": "trial",
+                "fetched_at_utc": iso,
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": iso,
+        "retrieval_finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    report = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sections": [
+            {
+                "section_id": "sec_x",
+                "section_title": "X",
+                "verified_sentences": [
+                    {
+                        "section_id": "sec_x",
+                        "sentence_text": "claim [#ev:src-A:0-3].",
+                        "provenance_tokens": ["[#ev:src-A:0-3]"],
+                        "verifier_pass": True,
+                        "drop_reason": None,
+                    }
+                ],
+                "section_verify_pass_rate": 1.0,
+                "section_status": "verified",
+            }
+        ],
+        "overall_verify_pass_rate": 1.0,
+        "pipeline_verdict": "success",
+        "generator_model": "test/m",
+        "evaluator_model": "strict_verify_v1",
+        "verifier_pass_threshold": 0.4,
+        "started_at_utc": iso,
+        "finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/audit-bundle",
+        json={"decision": decision, "pool": pool, "report": report},
+    )
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "gpg_unavailable"
+
+
+def test_all_four_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_005_benchmark_health_mounted():
+    r = _client().get("/api/benchmark/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_005_beat_both_benchmark"
+    # No POLARIS_BENCHMARK_RESULTS_DIR set in test fixture -> empty list
+    assert body["available_benchmarks"] == []
+    assert body["results_root"] is None
+
+
+def test_slice_005_benchmark_scoreboard_503_when_no_results_dir():
+    r = _client().get("/api/benchmark/some_bench/scoreboard")
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "benchmark_results_unavailable"
+
+
+def test_all_five_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
+        "/api/benchmark/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+2026-05-12T17:44:50.345340Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m $env:PYTHONPATH='src'; python - <[36;1m<[0m'PY'[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                  ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing file specification after redirection operator.[0m
+
+ exited 1 in 1310ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m $env:PYTHONPATH='src'; python - <[36;1m<[0m'PY'[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                  ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing file specification after redirection operator.[0m
+
+ succeeded in 1486ms:
+"""Tests for the audit-bundle FastAPI route."""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import tarfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from polaris_graph.api.audit_bundle_route import get_sign_fn, router
+
+
+@pytest.fixture
+def app() -> FastAPI:
+    a = FastAPI()
+    a.include_router(router, prefix="/api")
+    return a
+
+
+def _stub_sign(payload: bytes) -> bytes:
+    digest = hashlib.sha256(payload).hexdigest()
+    return (
+        f"-----BEGIN PGP SIGNATURE-----\n# stub hash={digest}\n-----END PGP SIGNATURE-----\n"
+    ).encode("utf-8")
+
+
+def _override_sign(app: FastAPI):
+    def stub_provider():
+        return _stub_sign
+
+    app.dependency_overrides[get_sign_fn] = stub_provider
+
+
+def _payload(verdict: str = "success", pool_id: str = "pool-1") -> dict:
+    """Build a request body that satisfies the FK chain + verdict."""
+    iso = datetime.now(timezone.utc).isoformat()
+    decision = {
+        "decision_id": "dec-1",
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            }
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 0,
+    }
+    pool = {
+        "pool_id": pool_id,
+        "decision_id": "dec-1",
+        "sources": [
+            {
+                "source_id": "src-A",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "Source",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "snippet",
+                "full_text_available": True,
+                "full_text": "trial of aspirin",
+                "fetched_at_utc": iso,
+                "provenance": {"legal_cleared": True},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": iso,
+        "retrieval_finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    if verdict == "success":
+        sections = [
+            {
+                "section_id": "sec_x",
+                "section_title": "X",
+                "verified_sentences": [
+                    {
+                        "section_id": "sec_x",
+                        "sentence_text": "claim [#ev:src-A:0-3].",
+                        "provenance_tokens": ["[#ev:src-A:0-3]"],
+                        "verifier_pass": True,
+                        "drop_reason": None,
+                    }
+                ],
+                "section_verify_pass_rate": 1.0,
+                "section_status": "verified",
+            }
+        ]
+    else:
+        sections = [
+            {
+                "section_id": "sec_x",
+                "section_title": "X",
+                "verified_sentences": [
+                    {
+                        "section_id": "sec_x",
+                        "sentence_text": "bad",
+                        "provenance_tokens": [],
+                        "verifier_pass": False,
+                        "drop_reason": "no_provenance_token",
+                    }
+                ],
+                "section_verify_pass_rate": 0.0,
+                "section_status": "dropped",
+            }
+        ]
+    report = {
+        "pool_id": pool_id,
+        "decision_id": "dec-1",
+        "sections": sections,
+        "overall_verify_pass_rate": 1.0 if verdict == "success" else 0.0,
+        "pipeline_verdict": verdict,
+        "generator_model": "test/model",
+        "evaluator_model": "strict_verify_v1",
+        "verifier_pass_threshold": 0.4,
+        "started_at_utc": iso,
+        "finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    return {"decision": decision, "pool": pool, "report": report}
+
+
+# ---------- Health ----------
+
+def test_health(app: FastAPI):
+    r = TestClient(app).get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_004_audit_bundle_export"
+    assert "gpg_sign" in body["pipeline_stages"]
+    assert body["signing_backend"] == "sentinel"
+
+
+def test_health_with_signer_override_returns_gpg(app: FastAPI):
+    _override_sign(app)
+    r = TestClient(app).get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    assert r.json()["signing_backend"] == "gpg"
+
+
+def test_health_env_var_drives_signing_backend_via_create_app(monkeypatch):
+    """POLARIS_GPG_KEY_ID set => v6 create_app() wires signer => health reports gpg."""
+    import polaris_graph.audit_bundle.gpg_signer as gpg_mod
+
+    class _StubSigner:
+        def sign(self, _payload: bytes) -> bytes:
+            return b"stub"
+
+    monkeypatch.setattr(gpg_mod, "build_gpg_signer", lambda: _StubSigner())
+    monkeypatch.setenv("POLARIS_GPG_KEY_ID", "test-key-id")
+    monkeypatch.delenv("POLARIS_BENCHMARK_RESULTS_DIR", raising=False)
+
+    from polaris_v6.api.app import create_app
+
+    v6_app = create_app()
+    r = TestClient(v6_app).get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    assert r.json()["signing_backend"] == "gpg"
+
+
+# ---------- 503 (no signer) ----------
+
+def test_post_without_sign_fn_returns_503(app: FastAPI):
+    """No signer dep override -> sentinel default -> HTTP 503 (gpg unavailable)."""
+    r = TestClient(app).post("/api/audit-bundle", json=_payload())
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert detail["code"] == "gpg_unavailable"
+
+
+# ---------- 400 paths ----------
+
+def test_post_pool_id_mismatch_returns_400(app: FastAPI):
+    _override_sign(app)
+    payload = _payload(pool_id="pool-A")
+    payload["report"]["pool_id"] = "pool-B"  # mismatch
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "fk_chain_mismatch"
+
+
+def test_post_decision_id_mismatch_returns_400(app: FastAPI):
+    _override_sign(app)
+    payload = _payload()
+    payload["report"]["decision_id"] = "dec-OTHER"  # mismatch
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "fk_chain_mismatch"
+
+
+def test_post_non_success_verdict_returns_400(app: FastAPI):
+    _override_sign(app)
+    r = TestClient(app).post(
+        "/api/audit-bundle", json=_payload(verdict="abort_no_verified_sections")
+    )
+    # Pydantic validates first; abort+verdict-mismatch may yield 422 or 400
+    assert r.status_code in (400, 422)
+
+
+def test_post_uncleared_source_returns_400_copyrighted_span_in_bundle(app: FastAPI):
+    _override_sign(app)
+    payload = _payload()
+    payload["pool"]["sources"][0]["provenance"] = {}  # strip legal_cleared
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code == 400
+    body = r.json().get("detail", r.json())
+    assert body.get("code") == "copyrighted_span_in_bundle"
+
+
+# ---------- 502 (sign failed) ----------
+
+def test_post_sign_fn_raises_returns_502(app: FastAPI):
+    def boom_provider():
+        def fn(_payload: bytes) -> bytes:
+            raise OSError("simulated gpg crash")
+        return fn
+
+    app.dependency_overrides[get_sign_fn] = boom_provider
+    r = TestClient(app).post("/api/audit-bundle", json=_payload())
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert detail["code"] == "sign_failed"
+
+
+# ---------- Happy path ----------
+
+def test_post_returns_targz(app: FastAPI, tmp_path: Path):
+    _override_sign(app)
+    r = TestClient(app).post("/api/audit-bundle", json=_payload())
+    assert r.status_code == 200
+    # Content-Disposition should set the filename for download
+    cd = r.headers.get("content-disposition", "")
+    assert "audit_" in cd
+    assert ".tar.gz" in cd
+    # Content-Type
+    assert r.headers.get("content-type") == "application/gzip"
+    # Body is a valid tarball
+    assert tarfile.is_tarfile(io.BytesIO(r.content))
+
+
+def test_post_targz_contains_manifest_and_signature(app: FastAPI):
+    _override_sign(app)
+    r = TestClient(app).post("/api/audit-bundle", json=_payload())
+    assert r.status_code == 200
+    with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tar:
+        names = [m.name for m in tar.getmembers()]
+    assert any(n.endswith("manifest.yaml") and not n.endswith(".asc") for n in names)
+    assert any(n.endswith("manifest.yaml.asc") for n in names)
+    assert any(n.endswith("scope_decision.json") for n in names)
+    assert any(n.endswith("evidence_pool.json") for n in names)
+    assert any(n.endswith("verified_report.json") for n in names)
+
+
+# ---------- 422 validation ----------
+
+def test_post_missing_decision_returns_422(app: FastAPI):
+    _override_sign(app)
+    payload = _payload()
+    del payload["decision"]
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code == 422
+
+
+def test_post_malformed_pool_returns_422(app: FastAPI):
+    _override_sign(app)
+    payload = _payload()
+    payload["pool"] = {"decision_id": "x"}  # missing required fields
+    r = TestClient(app).post("/api/audit-bundle", json=payload)
+    assert r.status_code in (400, 422)
+
+codex
+There is one stronger concern than the import line in `app.py`: mounting the new graph route will likely import the audit registry at app startup, and that registry currently contains a `src.polaris_graph...` lazy import. I’m verifying whether that fails outside repo-root execution.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'C:\\POLARIS\\src'; Set-Location C:\\tmp; python -c \"import sys; print(sys.path[:3]); import polaris_graph.audit_ir.registry as r; print('registry ok', len(r.list_available_runs()))\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'C:\\POLARIS\\src'; Set-Location C:\\tmp; python -c \"from polaris_v6.api.app import create_app; app=create_app(); print('app ok')\"" in C:\POLARIS
+2026-05-12T17:46:06.703491Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.9 seconds
+Output:
+['', 'C:\\Users\\msn\\AppData\\Roaming\\Python\\Python313\\site-packages\\_pdbpp_path_hack', 'C:\\POLARIS\\src']
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys; print(sys.path[:3]); import polaris_graph.audit_ir.registry as r; print('registry ok', len(r.list_available_runs()))
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_graph\audit_ir\__init__.py", line 11, in <module>
+    from src.polaris_graph.audit_ir.job_queue import (
+    ...<7 lines>...
+    )
+ModuleNotFoundError: No module named 'src'
+
+ exited 1 in 1873ms:
+['', 'C:\\Users\\msn\\AppData\\Roaming\\Python\\Python313\\site-packages\\_pdbpp_path_hack', 'C:\\POLARIS\\src']
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys; print(sys.path[:3]); import polaris_graph.audit_ir.registry as r; print('registry ok', len(r.list_available_runs()))
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_graph\audit_ir\__init__.py", line 11, in <module>
+    from src.polaris_graph.audit_ir.job_queue import (
+    ...<7 lines>...
+    )
+ModuleNotFoundError: No module named 'src'
+
+2026-05-12T17:46:07.737139Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.9 seconds
+Output:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from polaris_v6.api.app import create_app; app=create_app(); print('app ok')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 38, in <module>
+    from polaris_graph.api.generation_route import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\api\generation_route.py", line 28, in <module>
+    from polaris_graph.generator2.generator import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\generator2\generator.py", line 43, in <module>
+    from polaris_graph.generator2.strict_verify import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\generator2\strict_verify.py", line 126, in <module>
+    from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
+    ...<9 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\llm\__init__.py", line 3, in <module>
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+ModuleNotFoundError: No module named 'src'
+
+ exited 1 in 2904ms:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from polaris_v6.api.app import create_app; app=create_app(); print('app ok')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 38, in <module>
+    from polaris_graph.api.generation_route import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\api\generation_route.py", line 28, in <module>
+    from polaris_graph.generator2.generator import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\generator2\generator.py", line 43, in <module>
+    from polaris_graph.generator2.strict_verify import (
+    ...<2 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\generator2\strict_verify.py", line 126, in <module>
+    from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
+    ...<9 lines>...
+    )
+  File "C:\POLARIS\src\polaris_graph\llm\__init__.py", line 3, in <module>
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+ModuleNotFoundError: No module named 'src'
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -c \"import polaris_graph.audit_ir.registry as r; print('registry ok', len(r.list_available_runs()))\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -c \"from polaris_v6.api.app import create_app; app=create_app(); print('app ok')\"" in C:\POLARIS
+ succeeded in 1967ms:
+registry ok 1
+
+2026-05-12T17:46:24.474788Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5 seconds
+Output:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from polaris_v6.api.app import create_app; app=create_app(); print('app ok')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 166, in <module>
+    app = create_app()
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 134, in create_app
+    _real_signer = build_gpg_signer()
+  File "C:\POLARIS\src\polaris_graph\audit_bundle\gpg_signer.py", line 121, in build_gpg_signer
+    return GPGSigner(config=load_config_from_env())
+  File "<string>", line 4, in __init__
+  File "C:\POLARIS\src\polaris_graph\audit_bundle\gpg_signer.py", line 75, in __post_init__
+    self._gpg = gnupg.GPG(**kwargs)
+                ~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\gnupg.py", line 1167, in __init__
+    raise ValueError('Error invoking gpg: %s: %s' % (p.returncode, result.stderr))
+ValueError: Error invoking gpg: 256:       0 [main] gpg (54060) C:\Program Files\Git\usr\bin\gpg.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+
+ exited 1 in 5014ms:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from polaris_v6.api.app import create_app; app=create_app(); print('app ok')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 166, in <module>
+    app = create_app()
+  File "C:\POLARIS\src\polaris_v6\api\app.py", line 134, in create_app
+    _real_signer = build_gpg_signer()
+  File "C:\POLARIS\src\polaris_graph\audit_bundle\gpg_signer.py", line 121, in build_gpg_signer
+    return GPGSigner(config=load_config_from_env())
+  File "<string>", line 4, in __init__
+  File "C:\POLARIS\src\polaris_graph\audit_bundle\gpg_signer.py", line 75, in __post_init__
+    self._gpg = gnupg.GPG(**kwargs)
+                ~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\gnupg.py", line 1167, in __init__
+    raise ValueError('Error invoking gpg: %s: %s' % (p.returncode, result.stderr))
+ValueError: Error invoking gpg: 256:       0 [main] gpg (54060) C:\Program Files\Git\usr\bin\gpg.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/api/disambiguation_route.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/__init__.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm; Get-ChildItem outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm -Name | Select-Object -First 20' in C:\POLARIS
+ succeeded in 1015ms:
+"""F2 disambiguation route (I-f2-003): cluster + label candidate snippets."""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timezone
+from typing import Any
+
+import httpx
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from polaris_graph.generator2.real_completion import OPENROUTER_ENDPOINT, _extract_text
+from polaris_graph.intake.cluster_labeler import ClusterLabelClient, label_clusters
+from polaris_graph.intake.disambiguation_clusterer import cluster_candidates
+
+router = APIRouter(tags=["disambiguation"])
+
+
+class CandidateSnippet(BaseModel):
+    text: str = Field(min_length=1)
+    embedding: list[float] = Field(min_length=1)
+
+
+class DisambiguationRequest(BaseModel):
+    candidates: list[CandidateSnippet] = Field(min_length=1)
+    min_cluster_size: int = Field(default=2, ge=2)
+    max_snippets_per_cluster: int = Field(default=3, ge=1)
+
+
+class ClusterPayload(BaseModel):
+    cluster_id: int
+    label: str
+    sample_snippets: list[str]
+
+
+class DisambiguationResponse(BaseModel):
+    is_ambiguous: bool
+    num_clusters: int
+    clusters: list[ClusterPayload]
+    server_time_utc: str
+
+
+class _OpenRouterLabelClient:
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key, self.model = api_key, model
+
+    def complete(self, prompt: str, *, max_tokens: int = 50) -> str:
+        body = {"model": self.model, "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0, "max_tokens": max_tokens}
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
+                   "HTTP-Referer": "https://polaris-canada.local",
+                   "X-Title": "POLARIS F2 Disambiguation"}
+        with httpx.Client() as client:
+            r = client.post(OPENROUTER_ENDPOINT, json=body, headers=headers, timeout=30.0)
+            r.raise_for_status()
+        text = _extract_text(r.json())
+        if not text.strip():
+            raise RuntimeError("OpenRouter returned empty disambiguation label")
+        return text
+
+
+def _make_openrouter_label_client() -> ClusterLabelClient | None:
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        return None
+    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
+    return _OpenRouterLabelClient(api_key=key, model=model)
+
+
+def get_label_client() -> ClusterLabelClient | None: return _make_openrouter_label_client()
+
+
+@router.post("/disambiguation", response_model=None)
+def post_disambiguation(req: DisambiguationRequest,
+        client: ClusterLabelClient | None = Depends(get_label_client)) -> DisambiguationResponse:
+    dim = len(req.candidates[0].embedding)
+    if any(len(c.embedding) != dim for c in req.candidates):
+        raise HTTPException(status_code=400, detail={"error": True,
+            "code": "embedding_dim_mismatch",
+            "message": f"All candidate embeddings must have dim={dim}."})
+    embeddings = np.array([c.embedding for c in req.candidates], dtype=np.float64)
+    cr = cluster_candidates(embeddings, min_cluster_size=req.min_cluster_size)
+    now_z = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if cr.num_clusters in (0, 1):
+        return DisambiguationResponse(is_ambiguous=False, num_clusters=cr.num_clusters,
+            clusters=[], server_time_utc=now_z)
+    if client is None:
+        raise HTTPException(status_code=503, detail={"error": True,
+            "code": "label_client_unavailable",
+            "message": "OPENROUTER_API_KEY is unset; cannot label clusters."})
+    labeled = label_clusters(cr, [c.text for c in req.candidates], client,
+        max_snippets_per_cluster=req.max_snippets_per_cluster)
+    return DisambiguationResponse(is_ambiguous=True, num_clusters=cr.num_clusters,
+        clusters=[ClusterPayload(cluster_id=lc.cluster_id, label=lc.label,
+            sample_snippets=lc.sample_snippets) for lc in labeled],
+        server_time_utc=now_z)
+
+
+@router.get("/disambiguation/health")
+def get_disambiguation_health() -> dict[str, Any]:
+    return {"status": "ok", "stages": ["cluster_candidates", "label_clusters"],
+            "label_client": "openrouter" if get_label_client() is not None else "sentinel"}
+
+ succeeded in 1230ms:
+"""Audit Graph IR — canonical claim-evidence-contradiction representation.
+
+The Audit IR is the single source of truth that the Evidence Inspector
+renders. Every derivative renderer (PDF, DOCX, CSV, charts, brief, deck)
+must project from this IR and retain back-links to claim IDs.
+
+This module loads a V30 Phase-2 run artifact directory and emits a
+unified, immutable AuditIR object.
+"""
+
+from src.polaris_graph.audit_ir.job_queue import (
+    ALLOWED_TRANSITIONS,
+    JOB_STATUSES,
+    TERMINAL_STATUSES,
+    Job,
+    JobQueue,
+    JobQueueError,
+    job_to_dict,
+)
+from src.polaris_graph.audit_ir.job_runner import (
+    JobControl,
+    JobRunner,
+    MockJobRunner,
+    get_runner,
+    list_runners,
+    register_runner,
+)
+from src.polaris_graph.audit_ir.job_worker import JobWorker
+from src.polaris_graph.audit_ir.v30_runner import (
+    V30JobRunner,
+    V30RunnerConfig,
+    make_default_v30_runner,
+)
+from src.polaris_graph.audit_ir.template_catalog import (
+    CuratedTemplate,
+    TEMPLATE_CATALOG,
+    get_template,
+    list_catalog,
+)
+from src.polaris_graph.audit_ir.template_classifier import (
+    DEFAULT_FLOOR_HIGH,
+    DEFAULT_FLOOR_REVIEW,
+    RouterConfig,
+    RoutingCandidate,
+    RoutingResult,
+    RoutingVerdict,
+    classify_query,
+)
+from src.polaris_graph.audit_ir.provenance import (
+    PdfSpan,
+    SheetCell,
+    SlideRegion,
+    TextSpan,
+    Timecode,
+    UploadProvenance,
+)
+from src.polaris_graph.audit_ir.workspace_store import (
+    BoundedError,
+    DEFAULT_MAX_DOCS_PER_WORKSPACE,
+    Upload,
+    Workspace,
+    WorkspaceStateError,
+    WorkspaceStore,
+    WorkspaceStoreError,
+    upload_to_dict,
+    workspace_to_dict,
+)
+from src.polaris_graph.audit_ir.parser_runner import (
+    ParserError,
+    ParserRunner,
+    ParseResult,
+    PdfParser,
+    TextParser,
+    select_parser,
+)
+from src.polaris_graph.audit_ir.corpus_retriever import (
+    DEFAULT_TOP_K,
+    DEFAULT_MIN_SCORE,
+    RetrievedChunk,
+    retrieve_chunks,
+)
+from src.polaris_graph.audit_ir.corpus_brief import (
+    BriefCitation,
+    BriefParagraph,
+    CorpusBrief,
+    LlmClient,
+    OpenRouterBriefClient,
+    brief_to_dict,
+    compose_brief,
+)
+from src.polaris_graph.audit_ir.progress_surfaces import (
+    SurfaceBus,
+    SurfaceEvent,
+    SurfaceKind,
+    get_surface_bus,
+)
+from src.polaris_graph.audit_ir.loader import (
+    IR_SCHEMA_VERSION,
+    AdequacyGate,
+    AuditIR,
+    AuditIRSchemaError,
+    BibliographyEntry,
+    ContradictionClaim,
+    ContradictionCluster,
+    CorpusApprovalGate,
+    EvaluatorGate,
+    EvidenceSpanToken,
+    FrameCoverageEntry,
+    FrameCoverageReport,
+    ModelProvenance,
+    ProtocolMetadata,
+    ReportSection,
+    ReportSentence,
+    RetrievalAttempt,
+    RetrievalStats,
+    RuleCheck,
+    RunManifest,
+    TierExpectation,
+    TierMix,
+    VerifiedReport,
+    load_audit_ir,
+)
+
+__all__ = [
+    "ALLOWED_TRANSITIONS",
+    "DEFAULT_FLOOR_HIGH",
+    "DEFAULT_FLOOR_REVIEW",
+    "IR_SCHEMA_VERSION",
+    "JOB_STATUSES",
+    "TEMPLATE_CATALOG",
+    "TERMINAL_STATUSES",
+    "CuratedTemplate",
+    "Job",
+    "JobControl",
+    "JobQueue",
+    "JobQueueError",
+    "JobRunner",
+    "JobWorker",
+    "MockJobRunner",
+    "RouterConfig",
+    "RoutingCandidate",
+    "RoutingResult",
+    "RoutingVerdict",
+    "V30JobRunner",
+    "V30RunnerConfig",
+    "classify_query",
+    "get_template",
+    "list_catalog",
+    "make_default_v30_runner",
+    "get_runner",
+    "job_to_dict",
+    "list_runners",
+    "register_runner",
+    "AdequacyGate",
+    "AuditIR",
+    "AuditIRSchemaError",
+    "BibliographyEntry",
+    "ContradictionClaim",
+    "ContradictionCluster",
+    "CorpusApprovalGate",
+    "EvaluatorGate",
+    "EvidenceSpanToken",
+    "FrameCoverageEntry",
+    "FrameCoverageReport",
+    "ModelProvenance",
+    "ProtocolMetadata",
+    "ReportSection",
+    "ReportSentence",
+    "RetrievalAttempt",
+    "RetrievalStats",
+    "RuleCheck",
+    "RunManifest",
+    "TierExpectation",
+    "TierMix",
+    "VerifiedReport",
+    "load_audit_ir",
+]
+
+ succeeded in 1472ms:
+True
+bibliography.json
+completeness.json
+contradictions.json
+corpus_adequacy.json
+corpus_approval.json
+cost_ledger.jsonl
+evaluator_rule_checks.json
+human_gap_tasks.json
+live_corpus_dump.json
+m44_primary_citation_telemetry.json
+m47_mechanism_clamp_diagnostic.json
+m50_per_trial_subsections.json
+manifest.json
+protocol.json
+qwen_judge_output.json
+refetch_diagnostics.json
+report.md
+run_log.txt
+v29_primary_custody.json
+verification_details.json
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+import sys
+import polaris_graph.audit_ir.registry as r
+mods=[m for m in sys.modules if m.endswith('polaris_graph.audit_ir.loader')]
+print(mods)
+print('runs', len(r.list_available_runs()))
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+import sys
+from polaris_graph.audit_ir.loader import AuditIR as A
+mods=[m for m in sys.modules if m.endswith('polaris_graph.audit_ir.loader')]
+print(mods)
+print(A.__module__)
+'@ | python -" in C:\POLARIS
+ succeeded in 2109ms:
+['src.polaris_graph.audit_ir.loader', 'polaris_graph.audit_ir.loader']
+polaris_graph.audit_ir.loader
+
+ succeeded in 2253ms:
+['src.polaris_graph.audit_ir.loader']
+runs 1
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+from src.polaris_graph.audit_ir.loader import load_audit_ir
+from src.polaris_graph.audit_ir.registry import CANONICAL_DEMO_DIR
+ir = load_audit_ir(CANONICAL_DEMO_DIR)
+bib = {e.evidence_id for e in ir.bibliography}
+ref = set()
+for sec in ir.verified_report.sections:
+    for sent in sec.sentences:
+        if sent.is_verified:
+            ref.update(tok.evidence_id for tok in sent.tokens)
+for cluster in ir.contradictions:
+    for claim in cluster.claims:
+        ref.add(claim.evidence_id)
+missing = sorted(ref - bib)
+print(len(ir.bibliography), len(ref), len(missing))
+print(missing[:5])
+print(missing[-5:])
+'@ | python -" in C:\POLARIS
+ succeeded in 1901ms:
+26 121 97
+['ev_000', 'ev_001', 'ev_004', 'ev_006', 'ev_008']
+['ev_461', 'ev_462', 'ev_465', 'ev_466', 'ev_470']
+
+codex
+I also recomputed the canonical referenced-not-in-bibliography count from the current workspace. Using exactly the proposed set, verified sentence tokens plus contradiction claim IDs, I get 97 missing IDs, not 98.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+from src.polaris_graph.audit_ir.loader import load_audit_ir
+from src.polaris_graph.audit_ir.registry import CANONICAL_DEMO_DIR
+ir = load_audit_ir(CANONICAL_DEMO_DIR)
+bib = {e.evidence_id for e in ir.bibliography}
+sets={}
+ref_verified=set(); ref_all=set(); ref_contra=set()
+for sec in ir.verified_report.sections:
+    for sent in sec.sentences:
+        for tok in sent.tokens:
+            ref_all.add(tok.evidence_id)
+            if sent.is_verified:
+                ref_verified.add(tok.evidence_id)
+for cluster in ir.contradictions:
+    for claim in cluster.claims:
+        ref_contra.add(claim.evidence_id)
+for name, ref in [('verified',ref_verified),('contra',ref_contra),('verified+contra',ref_verified|ref_contra),('all_sent',ref_all),('all_sent+contra',ref_all|ref_contra)]:
+    print(name, 'refs', len(ref), 'missing', len(ref-bib))
+'@ | python -" in C:\POLARIS
+ succeeded in 2185ms:
+verified refs 26 missing 2
+contra refs 102 missing 96
+verified+contra refs 121 missing 97
+all_sent refs 35 missing 11
+all_sent+contra refs 127 missing 103
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+from src.polaris_graph.audit_ir.loader import load_audit_ir
+from src.polaris_graph.audit_ir.registry import CANONICAL_DEMO_DIR
+from collections import Counter
+ir = load_audit_ir(CANONICAL_DEMO_DIR)
+bib = {e.evidence_id for e in ir.bibliography}
+items=[]
+for sec in ir.verified_report.sections:
+    for sent in sec.sentences:
+        if sent.is_verified:
+            for tok in sent.tokens:
+                items.append(('verified', tok.evidence_id))
+for cluster in ir.contradictions:
+    for claim in cluster.claims:
+        items.append(('contra', claim.evidence_id))
+missing=[eid for _,eid in items if eid not in bib]
+print('missing occurrences', len(missing), 'unique', len(set(missing)))
+print('empty?', '' in set(missing))
+print('top dupes', Counter(missing).most_common(10))
+'@ | python -" in C:\POLARIS
+ succeeded in 1921ms:
+missing occurrences 98 unique 97
+empty? False
+top dupes [('ev_162', 2), ('ev_185', 1), ('ev_001', 1), ('ev_133', 1), ('ev_248', 1), ('ev_371', 1), ('ev_161', 1), ('ev_180', 1), ('ev_455', 1), ('ev_289', 1)]
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Canonical fallback count mismatch: the proposed set logic creates 97 unique bibliography_missing stubs, not 98. I recomputed current V30 as bibliography=26, referenced unique=121, missing unique=97, missing occurrences=98. If the test asserts fallback_source_count == 98, it will fail. Use 97 for unique stubs, or add a separate missing_reference_occurrence_count."
+  - "Use the app import convention in src/polaris_v6/api/app.py: from polaris_graph.api.graph_route import router as graph_router. The shown src.polaris_graph... import can create duplicate module namespaces and is inconsistent with every existing slice-router mount."
+p2:
+  - "Router mount location and prefix are correct: include_router(graph_router, prefix='/api') matches existing slice precedent."
+  - "Fallback source nodes are the right approach; do not drop edges. Set referenced_unknown_evidence_ids to sorted(missing) if that field exists."
+  - "If the payload is meant to be Cytoscape-native, classes belongs on the element, not inside data. If UI reads data.classes manually, current placement is acceptable."
+  - "Map fail_* -> fail is acceptable for v1."
+  - "Add one create_app mount smoke test for the graph route; this prevents repeating P1-3.2."
+p3_cosmetic: []
+convergence_call: continue
+remaining_blockers:
+  - "Fix the 97-vs-98 fallback count expectation."
+  - "Use the bare polaris_graph.api.graph_route import in app.py."
+```
+tokens used
+56,198
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Canonical fallback count mismatch: the proposed set logic creates 97 unique bibliography_missing stubs, not 98. I recomputed current V30 as bibliography=26, referenced unique=121, missing unique=97, missing occurrences=98. If the test asserts fallback_source_count == 98, it will fail. Use 97 for unique stubs, or add a separate missing_reference_occurrence_count."
+  - "Use the app import convention in src/polaris_v6/api/app.py: from polaris_graph.api.graph_route import router as graph_router. The shown src.polaris_graph... import can create duplicate module namespaces and is inconsistent with every existing slice-router mount."
+p2:
+  - "Router mount location and prefix are correct: include_router(graph_router, prefix='/api') matches existing slice precedent."
+  - "Fallback source nodes are the right approach; do not drop edges. Set referenced_unknown_evidence_ids to sorted(missing) if that field exists."
+  - "If the payload is meant to be Cytoscape-native, classes belongs on the element, not inside data. If UI reads data.classes manually, current placement is acceptable."
+  - "Map fail_* -> fail is acceptable for v1."
+  - "Add one create_app mount smoke test for the graph route; this prevents repeating P1-3.2."
+p3_cosmetic: []
+convergence_call: continue
+remaining_blockers:
+  - "Fix the 97-vs-98 fallback count expectation."
+  - "Use the bare polaris_graph.api.graph_route import in app.py."
+```

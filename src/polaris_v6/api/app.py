@@ -48,6 +48,7 @@ from polaris_graph.api.benchmark_route import (
     router as slice005_benchmark_router,
 )
 from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
 
 
 @asynccontextmanager
@@ -159,6 +160,9 @@ def create_app() -> FastAPI:
     app.include_router(slice005_benchmark_router, prefix="/api")
 
     app.include_router(disambiguation_router, prefix="/api")
+
+    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+    app.include_router(graph_router, prefix="/api")
 
     return app
 

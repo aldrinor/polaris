@@ -1,10 +1,11 @@
 {
-  "active_issue_id": null,
-  "current_step": null,
+  "active_issue_id": "I-snowball-002",
+  "active_issue_gh_number": 448,
+  "current_step": "brief",
   "in_progress_pr": null,
-  "next_pr": "PR-C",
-  "next_pr_task_id": "170",
-  "next_pr_blocked_by": [],
+  "next_pr": "PR-canonical-pin (#447) + I-snowball-002",
+  "next_pr_task_id": "I-snowball-002",
+  "next_pr_blocked_by": ["PR #447 (canonical pin reconciliation) awaiting user merge"],
   "user_actions_complete": {
     "user_action_1_g2_signed_commit": {
       "status": "done",
@@ -22,7 +23,23 @@
       "codex_required_yml_workflow": "deferred to PR-D"
     }
   },
-  "last_updated_utc": "2026-05-05T22:55:00Z",
+  "active_workstream": {
+    "name": "F-snowball claim-graph view",
+    "decision_doc": ".codex/I-snowball-001/DECISION.md",
+    "decision_status": "Codex APPROVE iter 4 on 2026-05-12 (accept_remaining, 0 P0/P1, 0 blockers)",
+    "library_chosen": "cytoscape.js + react-cytoscapejs + cytoscape-fcose + cytoscape-dagre + cytoscape-expand-collapse (all MIT runtime)",
+    "implementation_issues": [
+      {"id": "I-snowball-002", "gh": 448, "status": "active", "scope": "backend graph endpoint + server-side fcose pre-layout"},
+      {"id": "I-snowball-003a", "gh": 449, "status": "queued", "scope": "ClaimGraph component + preset rendering"},
+      {"id": "I-snowball-003b", "gh": 450, "status": "queued", "scope": "compound nodes + tier + edge-type styling"},
+      {"id": "I-snowball-004a", "gh": 451, "status": "queued", "scope": "hover/click + AccessibleGraphList"},
+      {"id": "I-snowball-004b", "gh": 452, "status": "queued", "scope": "keyboard nav + search + useGraphState"},
+      {"id": "I-snowball-005", "gh": 453, "status": "queued", "scope": "snowball BFS + expand-collapse + F13 diff"},
+      {"id": "I-snowball-006a", "gh": 454, "status": "queued", "scope": "PNG + JSON export + audit bundle"},
+      {"id": "I-snowball-006b", "gh": 455, "status": "queued", "scope": "Playwright e2e + axe-core + perf gate"}
+    ]
+  },
+  "last_updated_utc": "2026-05-12T08:00:00Z",
   "session_started_via_ritual": false,
-  "notes": "PR-A1/A2/A3/B/B2 all Codex APPROVE'd. USER ACTION 1 (G2 signed commit on polaris-controls) and USER ACTION 2 (mechanical isolation gates live) both complete as of 2026-05-05 night. Next: PR-C (surgical cleanup execution per state/polaris_restart/cleanup_audit.md Cleanup-PR-1..PR-8 schedule, Codex APPROVE'd iter 21). Active GitHub Issues open at PR-E."
+  "notes": "User directive 2026-05-12: prioritize F-snowball claim-graph view above the hardware-blocked chain. Decision doc I-snowball-001 APPROVE iter 4 with cytoscape.js. 8 implementation issues opened GH#448-455. Canonical pin drift reconciled via PR #447. Active issue: I-snowball-002 (backend endpoint). Hardware chain (Phase 0/4/4.5/5, GH#85-91 + #199-206) remains blocked on user procurement of OVH H200 (GH#90 HARD GATE) but is now de-prioritized below F-snowball per user directive."
 }
