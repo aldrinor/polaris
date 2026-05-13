@@ -1,0 +1,4 @@
+# I-arch-001f brief APPROVE verdict (iter 3 of 5)
+# CI parses the final `verdict:` line of this file via .github/workflows/codex-required.yml.
+
+verdict: APPROVE
