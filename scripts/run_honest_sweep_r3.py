@@ -90,6 +90,7 @@ from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
     FreshnessStatus,
     check_freshness,
 )
+from src.polaris_graph.audit_ir.manifest_augment import augment_v6_manifest  # noqa: E402
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
 )
@@ -1125,7 +1126,11 @@ async def run_one_query(
     except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
         pass
 
-    run_dir = out_root / q["domain"] / q["slug"]
+    # I-arch-001a: v6 actor passes out_root_override (UUID-scoped artifact_dir)
+    # to prevent same-slug concurrent overwrites. Legacy CLI sweep keeps the
+    # domain/slug nesting unchanged.
+    _v6_override = q.get("out_root_override") if q.get("v6_mode") else None
+    run_dir = Path(_v6_override) if _v6_override else (out_root / q["domain"] / q["slug"])
     run_dir.mkdir(parents=True, exist_ok=True)
     run_id = f"SWEEP_{q['domain']}_{q['slug']}_{int(time.time())}"
     # BUG-N-301 fix: set ambient run_id so every downstream
@@ -1328,6 +1333,12 @@ async def run_one_query(
                     "reasons": scope.protocol.scope_reasons,
                 },
             })
+            abort_manifest = augment_v6_manifest(
+                abort_manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -1450,6 +1461,12 @@ async def run_one_query(
                 "status": "abort_no_sources",
                 "error": "zero sources retrieved",
             })
+            abort_manifest = augment_v6_manifest(
+                abort_manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -1664,6 +1681,12 @@ async def run_one_query(
                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
                 },
             })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -1743,6 +1766,12 @@ async def run_one_query(
                     "approved": False,
                 },
             })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -2300,6 +2329,12 @@ async def run_one_query(
                     "sentences_verified": 0,
                 },
             })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -2803,6 +2838,12 @@ async def run_one_query(
         except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
             pass
 
+        manifest = augment_v6_manifest(
+            manifest,
+            external_run_id=q.get("external_run_id"),
+            decision_id=q.get("decision_id"),
+            query_slug=q.get("slug"),
+        )
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
