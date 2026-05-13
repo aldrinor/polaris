@@ -1,76 +1,26 @@
 {
-  "active_issue_id": "I-carney-001",
-  "active_issue_gh_number": 462,
-  "current_step": "sub_issues_opened_awaiting_user_continue_signal",
-  "in_progress_pr": null,
-  "next_pr": "I-arch-001a (GH#463) — run_store atomic schema + UUID/slug/artifact_dir mapping + pipeline-A manifest augmentation",
-  "next_pr_task_id": "I-arch-001a",
-  "next_pr_blocked_by": [],
-  "force_approve_iter5_artifact": ".codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt",
-  "sub_issues_opened": {
-    "I-arch-001a": 463,
-    "I-arch-001b": 464,
-    "I-arch-001c": 465,
-    "I-arch-001d": 466,
-    "I-arch-001e": 467,
-    "I-arch-001f": 468,
-    "I-carney-005": 469,
-    "I-carney-002": 470,
-    "I-carney-003": 471,
-    "I-carney-004": 472,
-    "I-carney-006": 473,
-    "I-carney-007": 474
+  "active_issue_id": "I-carney-008",
+  "active_issue_gh_number": 486,
+  "branch": "bot/I-carney-008-sovereign-pivot",
+  "current_step": "commit_pivot_diff",
+  "next_action": "commit infra/vexxhost + infra/aws.archived + egress_allowlist + runbook edits, write codex_diff brief, run Codex diff review (5-iter cap), push branch, open PR, admin-merge",
+  "assigned_at_utc": "2026-05-13",
+  "user_directive_quote": "Full sovereign — no US company anywhere; OVH H200 procurement not started — kick off this week",
+  "follow_up_issues": {
+    "I-carney-009": {"github": 487, "title": "Replace Serper with Brave Search in real_fetcher.py"},
+    "I-sov-001": {"github": 199, "title": "Replace OpenRouter with sovereign vLLM (depends on OVH H200 landing)"}
   },
-  "user_actions_complete": {
-    "user_action_1_g2_signed_commit": {"status": "done"},
-    "user_action_2_mechanical_isolation": {"status": "done"}
+  "parent_workstream": "I-carney-001 — Carney production deploy + live submission (GH#462)",
+  "sovereign_stack": {
+    "orchestrator_hosting": "Vexxhost (Canadian-owned, Montréal)",
+    "llm_inference": "OVH BHS H200 (French-owned, Beauharnois QC) running vLLM",
+    "live_search": "Brave Search API (Czech-owned)",
+    "tls_ca": "Let's Encrypt ISRG (US 501(c)(3)) — public attestation only, no data leaves",
+    "dns": "easyDNS or Cira (Canadian)"
   },
-  "active_workstream": {
-    "name": "I-carney-001 — Carney production deploy + live submission",
-    "github_issue": 462,
-    "boss_directive_utc": "2026-05-12",
-    "boss_directive_quotes": [
-      "my boss want to speed it up, we want to find a Canadian server, upload the whole thing on it, and run it, and let Mark Carney to use it, are you ready?",
-      "I need you to help me to find the most suitable one",
-      "Not a stupid demo, it need to be real, any person around Mark can really use it",
-      "Why you don't ask Codex 5.5 for opinion, it is smarter than Opus 4.7"
-    ],
-    "user_scope_pivot_utc": "2026-05-12",
-    "user_scope_pivot_quote": "Posture C — Live submission, extend timeline to ~3-4 weeks",
-    "demo_posture": "C — live submission of any in-scope public-policy question",
-    "demo_target_utc": "2026-06-05 to 2026-06-09 (24-day calendar from 2026-05-13)",
-    "decisions_codex_approved_brief_v1": {
-      "sovereignty_bar": "c — Canadian-hosted public-policy research; foreign API egress permitted; transparency endpoint discloses",
-      "vendor": "AWS ca-central-1 Montréal — m7i-flex.4xlarge EC2 single-instance docker-compose",
-      "auth_model": "static_accounts — pre-provisioned named users with admin/operator/viewer roles",
-      "concurrency_target": "1 active research run + N viewers",
-      "fallback_plan": "Posture A canonical Q1-Q5 library as known-good demo wedge if live submission misbehaves on demo day",
-      "public_terminology": "Canadian-hosted public-policy research (NOT 'sovereign Canadian AI')"
-    },
-    "codex_iteration_history": [
-      {"version": "brief_v1", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 1, "p2_count": 3, "novel_finding": "F-snowball deploy-path mismatch (live_server.py vs polaris_v6/api/app.py)"},
-      {"version": "brief_v1", "iter": 2, "verdict": "REQUEST_CHANGES", "p1_count": 2, "p2_count": 4, "novel_finding": "Browser-reachable URL strategy + Redis/Dramatiq worker missing"},
-      {"version": "brief_v1", "iter": 3, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "Docker ENTRYPOINT subcommand whitelist + broker init order + run state volume sharing + Next rewrites build-time bake"},
-      {"version": "brief_v1", "iter": 4, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "UUID/slug bridge fundamental: v6 UUIDs ≠ pipeline-A SWEEP_ slugs; V30 strict AuditIR requires per_query_report_contract"},
-      {"version": "brief_v1", "iter": 5, "verdict": "NOT_RUN", "reason": "User scope-pivoted to Posture C after iter 4 revealed live-submission is multi-week architecture work"},
-      {"version": "brief_v2", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 5, "novel_finding": "build_and_run_v4 signature mismatch + V30 contract schema gaps + bundle/compare adapters + atomic run_store + SSE protocol translation"}
-    ],
-    "subissue_plan_v2": [
-      {"id": "I-arch-001a", "title": "run_store atomic schema + UUID/slug/artifact_dir mapping + actor wiring", "days": "1-3", "status": "pending"},
-      {"id": "I-arch-001b", "title": "V30 contract synthesizer + 8-template synthesis golden fixtures", "days": "4-6", "status": "pending"},
-      {"id": "I-arch-001c", "title": "scope_domain enum extension + per-domain rubric generation", "days": "4-6", "status": "pending"},
-      {"id": "I-arch-001d", "title": "bundle.py + compare.py artifact-routing adapters", "days": "7-8", "status": "pending"},
-      {"id": "I-arch-001e", "title": "SSE translator + Redis pub/sub publish in pipeline-A", "days": "9-10", "status": "pending"},
-      {"id": "I-arch-001f", "title": "e2e test with pinned fixture runner", "days": "11", "status": "pending"},
-      {"id": "I-carney-005", "title": "Deploy substrate (Dockerfile/entrypoint/compose/Next rewrites/GPG)", "days": "12-13", "status": "pending"},
-      {"id": "I-carney-002", "title": "AWS Canada infra (VPC/EC2/ALB/ACM/Route 53/SSM/EBS snapshots)", "days": "14", "status": "pending"},
-      {"id": "I-carney-003", "title": "Sovereignty + transparency endpoint + egress controls", "days": "14-15", "status": "pending"},
-      {"id": "I-carney-004", "title": "Static_accounts auth + GPG demo key + AWS Secrets Manager", "days": "16-17", "status": "pending"},
-      {"id": "I-carney-006", "title": "Live-submission rehearsal — 5 canonical + 5 staff-style questions, §-1.1 audit each", "days": "18-22", "status": "pending"},
-      {"id": "I-carney-007", "title": "Demo runbook + transparency.md + fallback + rehearsal + Codex sign-off", "days": "23-24", "status": "pending"}
-    ]
+  "archived_workstream": {
+    "name": "I-carney-001 — Carney production deploy + live submission (AWS path)",
+    "completed_artifacts": "PRs #475-#485 shipped AWS infra. Code archived at infra/aws.archived/ — fails sovereignty audit per user directive 2026-05-13. Reuse possible if Phase-2 budget permits dual-jurisdiction strategy."
   },
-  "last_updated_utc": "2026-05-12T22:30:00Z",
-  "session_started_via_ritual": false,
-  "notes": "POSTURE C SCOPE PIVOT 2026-05-12. F-snowball workstream complete (6 PRs shipped). Boss directive triggered scope expansion to multi-week project. Codex brief_v2_iter_2 ready in .codex/I-carney-001/; iter 1 returned 5 P1s, iter 2 drafted addressing all. Architecture rework (I-arch-001 series) is the new critical-path long pole — v6 UUID API and pipeline-A SWEEP_ slug architecture were never wired together. 24-day calendar targets Carney demo 2026-06-05 to 2026-06-09. Sub-issues NOT yet opened — awaiting Codex APPROVE on brief_v2."
+  "last_updated_utc": "2026-05-13T00:00:00Z"
 }

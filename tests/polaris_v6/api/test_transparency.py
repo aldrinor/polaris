@@ -24,22 +24,48 @@ def app_with_transparency():
 
 
 def test_transparency_returns_required_keys(app_with_transparency, monkeypatch):
-    monkeypatch.setenv("AWS_REGION", "ca-central-1")
+    # I-carney-008 sovereign pivot: POLARIS_REGION + POLARIS_PROVIDER preferred;
+    # AWS_REGION still honored as backward-compat fallback for region.
+    monkeypatch.setenv("POLARIS_PROVIDER", "vexxhost")
+    monkeypatch.setenv("POLARIS_REGION", "montreal-qc")
     monkeypatch.setenv("POLARIS_GPG_KEY_ID", "TESTFINGERPRINT123")
     client = TestClient(app_with_transparency)
     resp = client.get("/transparency")
     assert resp.status_code == 200
     body = resp.json()
     required = {
-        "region", "git_commit", "polaris_version", "deploy_timestamp",
+        "provider", "region", "git_commit", "polaris_version", "deploy_timestamp",
         "signing_key_id", "signing_key_fingerprint", "sovereignty_filter",
         "evaluator_models", "egress_allowlist", "dependencies",
     }
     assert required.issubset(body.keys()), f"missing keys: {required - body.keys()}"
-    assert body["region"] == "ca-central-1"
+    assert body["provider"] == "vexxhost"
+    assert body["region"] == "montreal-qc"
     assert body["signing_key_id"] == "TESTFINGERPRINT123"
     assert body["sovereignty_filter"]["cleared_tiers"] == ["T1"]
     assert "T1" in body["sovereignty_filter"]["tier_definitions"]
+
+
+def test_transparency_region_falls_back_to_aws_region_env(
+    app_with_transparency, monkeypatch
+):
+    """Backward compat: pre-pivot deploys set only AWS_REGION."""
+    monkeypatch.delenv("POLARIS_REGION", raising=False)
+    monkeypatch.setenv("AWS_REGION", "ca-central-1")
+    client = TestClient(app_with_transparency)
+    resp = client.get("/transparency")
+    assert resp.status_code == 200
+    assert resp.json()["region"] == "ca-central-1"
+
+
+def test_transparency_policy_no_aws_security_group_layer(app_with_transparency):
+    """I-carney-008 sovereign pivot: enforcement_layer must NOT mention AWS SG."""
+    client = TestClient(app_with_transparency)
+    resp = client.get("/transparency/policy")
+    layers = resp.json()["enforcement_layer"]
+    assert not any("AWS" in layer for layer in layers), (
+        f"sovereign pivot regression — enforcement_layer still mentions AWS: {layers}"
+    )
 
 
 def test_transparency_pubkey_returns_armored_block(

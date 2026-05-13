@@ -3704,11 +3704,11 @@ ERROR tests/polaris_v6/queue/test_template_to_scope_domain.py
 2026-05-13T04:45:00.859709Z ERROR codex_core::tools::router: error=Exit code: 1
 Wall time: 4.8 seconds
 Output:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
 
 
  exited 1 in 4803ms:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
 
 
 exec
@@ -4133,8 +4133,8 @@ outputs\audits\I-arch-001a\claude_audit.md:79:- I-arch-001c: scope_domain templa
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3680:ImportError while importing test module 'C:\POLARIS\tests\polaris_v6\queue\test_template_to_scope_domain.py'.
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3686:tests\polaris_v6\queue\test_template_to_scope_domain.py:10: in <module>
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3700:ERROR tests/polaris_v6/queue/test_template_to_scope_domain.py
-.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3707:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
-.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3711:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3707:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3711:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3717:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -m pytest -q tests/polaris_v6/queue/test_template_to_scope_domain.py" in C:\POLARIS
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3903:tests\polaris_v6\queue\test_template_to_scope_domain.py ....             [100%]
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3914:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "e26d045|I-arch-001c|TEMPLATE_TO_SCOPE_DOMAIN|template_to_scope" .codex outputs src tests -g "*.md" -g "*.txt" -g "*.patch" -g "*.py"' in C:\POLARIS
@@ -4402,8 +4402,8 @@ outputs\audits\I-arch-001a\claude_audit.md:79:- I-arch-001c: scope_domain templa
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3680:ImportError while importing test module 'C:\POLARIS\tests\polaris_v6\queue\test_template_to_scope_domain.py'.
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3686:tests\polaris_v6\queue\test_template_to_scope_domain.py:10: in <module>
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3700:ERROR tests/polaris_v6/queue/test_template_to_scope_domain.py
-.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3707:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
-.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3711:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3707:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
+.codex\I-arch-001c\codex_diff_audit_iter_1.txt:3711:Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/polaris_v6/queue/test_template_to_scope_domain.py': Access is denied.
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3717:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -m pytest -q tests/polaris_v6/queue/test_template_to_scope_domain.py" in C:\POLARIS
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3903:tests\polaris_v6\queue\test_template_to_scope_domain.py ....             [100%]
 .codex\I-arch-001c\codex_diff_audit_iter_1.txt:3914:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "e26d045|I-arch-001c|TEMPLATE_TO_SCOPE_DOMAIN|template_to_scope" .codex outputs src tests -g "*.md" -g "*.txt" -g "*.patch" -g "*.py"' in C:\POLARIS

@@ -2422,10 +2422,10 @@ exec
 2026-05-06T18:10:34.509762Z ERROR codex_core::tools::router: error=Exit code: 1
 Wall time: 0.8 seconds
 Output:
-ERROR: Access denied
+ERROR: Access denied
 
  exited 1 in 826ms:
-ERROR: Access denied
+ERROR: Access denied
 
 codex
 ```yaml

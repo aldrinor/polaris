@@ -8,12 +8,16 @@
 # (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
 # can be removed from the runtime allowlist if desired.
 
-# ----- LLM API -----
+# ----- LLM (sovereign vLLM on OVH BHS H200; OpenRouter as transition fallback) -----
+# When POLARIS_LLM_BACKEND=vllm, no external LLM hosts hit at all (private
+# network to OVH). When POLARIS_LLM_BACKEND=openrouter (transitional), the
+# 2 lines below are required:
 openrouter.ai
 api.openrouter.ai
 
-# ----- Live retrieval -----
-google.serper.dev
+# ----- Live retrieval (sovereign-aligned: Brave Search CZ-owned) -----
+api.search.brave.com
+# Semantic Scholar (US-based, AI2 non-profit) — optional; remove for stricter sovereignty
 api.semanticscholar.org
 
 # ----- Container image registry -----
@@ -23,11 +27,9 @@ registry-1.docker.io
 auth.docker.io
 production.cloudflare.docker.com
 
-# ----- AWS substrate (ca-central-1) -----
-ssm.ca-central-1.amazonaws.com
-ssmmessages.ca-central-1.amazonaws.com
-ec2messages.ca-central-1.amazonaws.com
-s3.ca-central-1.amazonaws.com
+# ----- Let's Encrypt (TLS cert renewal via Caddy) -----
+acme-v02.api.letsencrypt.org
+r3.o.lencr.org
 
 # ----- Build-time package indices (remove post-build for tighter runtime lockdown) -----
 pypi.org
@@ -35,3 +37,6 @@ files.pythonhosted.org
 deb.debian.org
 security.debian.org
 registry.npmjs.org
+dl.cloudsmith.io
+# I-carney-008: AWS-specific endpoints (ssm.*, ec2messages.*, s3.ca-central-1.*)
+# REMOVED. No AWS in the sovereign deploy.

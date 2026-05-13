@@ -46,6 +46,7 @@ class SovereigntyPolicy(BaseModel):
 class TransparencyResponse(BaseModel):
     """Public deploy descriptor."""
 
+    provider: str
     region: str
     git_commit: str
     polaris_version: str
@@ -187,7 +188,10 @@ def transparency() -> TransparencyResponse:
     """Public deploy descriptor."""
     key_id, fpr = _signing_key_info()
     return TransparencyResponse(
-        region=os.environ.get("AWS_REGION", "unknown"),
+        provider=os.environ.get("POLARIS_PROVIDER", "unknown"),
+        region=os.environ.get(
+            "POLARIS_REGION", os.environ.get("AWS_REGION", "unknown")
+        ),
         git_commit=_git_commit(),
         polaris_version=__version__,
         deploy_timestamp=datetime.now(timezone.utc).isoformat(),
@@ -228,9 +232,5 @@ def policy() -> PolicyResponse:
         enforcement_layer=[
             "host iptables OUTPUT chain (scripts/egress_lockdown.sh)",
             "Docker DOCKER-USER chain (scripts/egress_lockdown.sh)",
-            # Codex diff iter-2 P2: AWS SG on EC2 is NOT an egress allowlist
-            # (egress is all-permit per infra/aws/ec2.tf). Listed here as
-            # "ingress-only" to be honest about layer scope.
-            "AWS Security Group on EC2 (ingress-only; egress all-permit)",
         ],
     )
