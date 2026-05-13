@@ -2058,3 +2058,5 @@ index 8960edcb..f3ca31c7 100644
  def test_transparency_pubkey_returns_armored_block(
      app_with_transparency, tmp_path, monkeypatch
  ):
+
+# canonical-diff-sha256: 94df6b30e7bcf949b469e3d3fd4bed265b48ad3e01983b105e2423e15cc595e8
