@@ -1,45 +1,76 @@
 {
-  "active_issue_id": "I-snowball-002",
-  "active_issue_gh_number": 448,
-  "current_step": "brief",
+  "active_issue_id": "I-carney-001",
+  "active_issue_gh_number": 462,
+  "current_step": "sub_issues_opened_awaiting_user_continue_signal",
   "in_progress_pr": null,
-  "next_pr": "PR-canonical-pin (#447) + I-snowball-002",
-  "next_pr_task_id": "I-snowball-002",
-  "next_pr_blocked_by": ["PR #447 (canonical pin reconciliation) awaiting user merge"],
+  "next_pr": "I-arch-001a (GH#463) — run_store atomic schema + UUID/slug/artifact_dir mapping + pipeline-A manifest augmentation",
+  "next_pr_task_id": "I-arch-001a",
+  "next_pr_blocked_by": [],
+  "force_approve_iter5_artifact": ".codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt",
+  "sub_issues_opened": {
+    "I-arch-001a": 463,
+    "I-arch-001b": 464,
+    "I-arch-001c": 465,
+    "I-arch-001d": 466,
+    "I-arch-001e": 467,
+    "I-arch-001f": 468,
+    "I-carney-005": 469,
+    "I-carney-002": 470,
+    "I-carney-003": 471,
+    "I-carney-004": 472,
+    "I-carney-006": 473,
+    "I-carney-007": 474
+  },
   "user_actions_complete": {
-    "user_action_1_g2_signed_commit": {
-      "status": "done",
-      "polaris_controls_commit": "7995804910e8c991762186f48ceef682d409e90b",
-      "signature": "ED25519 key SHA256:2aDMjzEV06aiNWDU3RAhuM3DV3wC0t7n/PnQ7PzQO8E",
-      "signer_email": "aldrin.or@c-polarbiotech.com",
-      "verified_locally": true,
-      "github_verification_pending": "user must add the ed25519 public key to https://github.com/settings/ssh/new with type=Signing Key for the GitHub Verified badge to display retroactively. Plan §2 precondition #3 (signed commit exists) is satisfied without this step."
-    },
-    "user_action_2_mechanical_isolation": {
-      "status": "done",
-      "branch_protection_polaris": "applied by user 2026-05-05",
-      "admin_repo_scope_revoked": "verified — gh auth status returns scopes 'gist, read:org, repo, workflow' with no admin:repo",
-      "polaris_controls_signed_commits_required": "verified — push of unverified commit triggered 'Bypassed rule violations: Commits must have verified signatures' warning",
-      "codex_required_yml_workflow": "deferred to PR-D"
-    }
+    "user_action_1_g2_signed_commit": {"status": "done"},
+    "user_action_2_mechanical_isolation": {"status": "done"}
   },
   "active_workstream": {
-    "name": "F-snowball claim-graph view",
-    "decision_doc": ".codex/I-snowball-001/DECISION.md",
-    "decision_status": "Codex APPROVE iter 4 on 2026-05-12 (accept_remaining, 0 P0/P1, 0 blockers)",
-    "library_chosen": "cytoscape.js + react-cytoscapejs + cytoscape-fcose + cytoscape-dagre + cytoscape-expand-collapse (all MIT runtime)",
-    "implementation_issues": [
-      {"id": "I-snowball-002", "gh": 448, "status": "active", "scope": "backend graph endpoint + server-side fcose pre-layout"},
-      {"id": "I-snowball-003a", "gh": 449, "status": "queued", "scope": "ClaimGraph component + preset rendering"},
-      {"id": "I-snowball-003b", "gh": 450, "status": "queued", "scope": "compound nodes + tier + edge-type styling"},
-      {"id": "I-snowball-004a", "gh": 451, "status": "queued", "scope": "hover/click + AccessibleGraphList"},
-      {"id": "I-snowball-004b", "gh": 452, "status": "queued", "scope": "keyboard nav + search + useGraphState"},
-      {"id": "I-snowball-005", "gh": 453, "status": "queued", "scope": "snowball BFS + expand-collapse + F13 diff"},
-      {"id": "I-snowball-006a", "gh": 454, "status": "queued", "scope": "PNG + JSON export + audit bundle"},
-      {"id": "I-snowball-006b", "gh": 455, "status": "queued", "scope": "Playwright e2e + axe-core + perf gate"}
+    "name": "I-carney-001 — Carney production deploy + live submission",
+    "github_issue": 462,
+    "boss_directive_utc": "2026-05-12",
+    "boss_directive_quotes": [
+      "my boss want to speed it up, we want to find a Canadian server, upload the whole thing on it, and run it, and let Mark Carney to use it, are you ready?",
+      "I need you to help me to find the most suitable one",
+      "Not a stupid demo, it need to be real, any person around Mark can really use it",
+      "Why you don't ask Codex 5.5 for opinion, it is smarter than Opus 4.7"
+    ],
+    "user_scope_pivot_utc": "2026-05-12",
+    "user_scope_pivot_quote": "Posture C — Live submission, extend timeline to ~3-4 weeks",
+    "demo_posture": "C — live submission of any in-scope public-policy question",
+    "demo_target_utc": "2026-06-05 to 2026-06-09 (24-day calendar from 2026-05-13)",
+    "decisions_codex_approved_brief_v1": {
+      "sovereignty_bar": "c — Canadian-hosted public-policy research; foreign API egress permitted; transparency endpoint discloses",
+      "vendor": "AWS ca-central-1 Montréal — m7i-flex.4xlarge EC2 single-instance docker-compose",
+      "auth_model": "static_accounts — pre-provisioned named users with admin/operator/viewer roles",
+      "concurrency_target": "1 active research run + N viewers",
+      "fallback_plan": "Posture A canonical Q1-Q5 library as known-good demo wedge if live submission misbehaves on demo day",
+      "public_terminology": "Canadian-hosted public-policy research (NOT 'sovereign Canadian AI')"
+    },
+    "codex_iteration_history": [
+      {"version": "brief_v1", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 1, "p2_count": 3, "novel_finding": "F-snowball deploy-path mismatch (live_server.py vs polaris_v6/api/app.py)"},
+      {"version": "brief_v1", "iter": 2, "verdict": "REQUEST_CHANGES", "p1_count": 2, "p2_count": 4, "novel_finding": "Browser-reachable URL strategy + Redis/Dramatiq worker missing"},
+      {"version": "brief_v1", "iter": 3, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "Docker ENTRYPOINT subcommand whitelist + broker init order + run state volume sharing + Next rewrites build-time bake"},
+      {"version": "brief_v1", "iter": 4, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "UUID/slug bridge fundamental: v6 UUIDs ≠ pipeline-A SWEEP_ slugs; V30 strict AuditIR requires per_query_report_contract"},
+      {"version": "brief_v1", "iter": 5, "verdict": "NOT_RUN", "reason": "User scope-pivoted to Posture C after iter 4 revealed live-submission is multi-week architecture work"},
+      {"version": "brief_v2", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 5, "novel_finding": "build_and_run_v4 signature mismatch + V30 contract schema gaps + bundle/compare adapters + atomic run_store + SSE protocol translation"}
+    ],
+    "subissue_plan_v2": [
+      {"id": "I-arch-001a", "title": "run_store atomic schema + UUID/slug/artifact_dir mapping + actor wiring", "days": "1-3", "status": "pending"},
+      {"id": "I-arch-001b", "title": "V30 contract synthesizer + 8-template synthesis golden fixtures", "days": "4-6", "status": "pending"},
+      {"id": "I-arch-001c", "title": "scope_domain enum extension + per-domain rubric generation", "days": "4-6", "status": "pending"},
+      {"id": "I-arch-001d", "title": "bundle.py + compare.py artifact-routing adapters", "days": "7-8", "status": "pending"},
+      {"id": "I-arch-001e", "title": "SSE translator + Redis pub/sub publish in pipeline-A", "days": "9-10", "status": "pending"},
+      {"id": "I-arch-001f", "title": "e2e test with pinned fixture runner", "days": "11", "status": "pending"},
+      {"id": "I-carney-005", "title": "Deploy substrate (Dockerfile/entrypoint/compose/Next rewrites/GPG)", "days": "12-13", "status": "pending"},
+      {"id": "I-carney-002", "title": "AWS Canada infra (VPC/EC2/ALB/ACM/Route 53/SSM/EBS snapshots)", "days": "14", "status": "pending"},
+      {"id": "I-carney-003", "title": "Sovereignty + transparency endpoint + egress controls", "days": "14-15", "status": "pending"},
+      {"id": "I-carney-004", "title": "Static_accounts auth + GPG demo key + AWS Secrets Manager", "days": "16-17", "status": "pending"},
+      {"id": "I-carney-006", "title": "Live-submission rehearsal — 5 canonical + 5 staff-style questions, §-1.1 audit each", "days": "18-22", "status": "pending"},
+      {"id": "I-carney-007", "title": "Demo runbook + transparency.md + fallback + rehearsal + Codex sign-off", "days": "23-24", "status": "pending"}
     ]
   },
-  "last_updated_utc": "2026-05-12T08:00:00Z",
+  "last_updated_utc": "2026-05-12T22:30:00Z",
   "session_started_via_ritual": false,
-  "notes": "User directive 2026-05-12: prioritize F-snowball claim-graph view above the hardware-blocked chain. Decision doc I-snowball-001 APPROVE iter 4 with cytoscape.js. 8 implementation issues opened GH#448-455. Canonical pin drift reconciled via PR #447. Active issue: I-snowball-002 (backend endpoint). Hardware chain (Phase 0/4/4.5/5, GH#85-91 + #199-206) remains blocked on user procurement of OVH H200 (GH#90 HARD GATE) but is now de-prioritized below F-snowball per user directive."
+  "notes": "POSTURE C SCOPE PIVOT 2026-05-12. F-snowball workstream complete (6 PRs shipped). Boss directive triggered scope expansion to multi-week project. Codex brief_v2_iter_2 ready in .codex/I-carney-001/; iter 1 returned 5 P1s, iter 2 drafted addressing all. Architecture rework (I-arch-001 series) is the new critical-path long pole — v6 UUID API and pipeline-A SWEEP_ slug architecture were never wired together. 24-day calendar targets Carney demo 2026-06-05 to 2026-06-09. Sub-issues NOT yet opened — awaiting Codex APPROVE on brief_v2."
 }
