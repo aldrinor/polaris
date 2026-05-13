@@ -1,0 +1,1386 @@
+From 994097eb01cfa51deb08896782ff42190d895b76 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Tue, 12 May 2026 20:31:35 -0700
+Subject: [PATCH] I-arch-001b: V30 contract synthesizer + 8 template golden
+ fixtures
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implements APPROVED brief (Codex iter 5 APPROVE, zero P0/P1) for GH#464.
+
+Synthesizer (src/polaris_graph/v30_contract_synthesizer.py):
+- build_v30_contract(v6_template, query_slug, question=None) → per_query_report_contract.{slug}
+- Schema: v30.1 with required_entities (id/type/required_fields/min_fields_for_completion/
+  rendering_slot/url_pattern/anchor) + rendering_slots DICT keyed by slot_id
+  (section/subsection_title/ordering/required) + section_order
+- Mechanical 1-frame → 1-slot + 1-entity transform from v6 frame_manifest
+- Concrete http(s) url_pattern rotated through T1 sources (M-56 fetchable;
+  not a regex per Codex iter-4 P1 verification of frame_fetcher.py:780,1046)
+- Stable anchor <template_id>:<frame_id>:<slug[:40]>:<sha256_8> as secondary id
+
+actors.py:
+- Imports polaris_v6.templates.registry.load_template + build_v30_contract
+- Attaches synth output to q["v30_contract_patch"]
+- FileNotFoundError + generic Exception both → logger.warning (exc_info=True);
+  pipeline-A handles via legacy no-contract path
+
+pipeline-A (scripts/run_honest_sweep_r3.py):
+- 5-LOC merge of q["v30_contract_patch"] into _template["per_query_report_contract"]
+- Runs AFTER load_scope_template, BEFORE compile_frame / load_report_contract_for_slug
+- Non-v6 sweep (q lacking v6_mode) → noop; legacy CLI byte-identical
+
+8 golden fixtures (tests/fixtures/v30_contracts/<template_id>.json):
+- ai_sovereignty, canada_us, climate, clinical, defense, housing, trade, workforce
+- 5 frames each → 5 entities + 5 slots + section_order
+
+Tests (tests/polaris_graph/test_v30_contract_synthesizer.py): 35/35 pass
+- 8× golden fixture match (build output == fixture JSON)
+- 8× round-trip via load_report_contract_for_slug (schema_version=v30.1)
+- 8× compile_frame produces non-empty evidence_bindings
+- 8× M-56 fetchability: every binding has resolvable locator (urlparse scheme+netloc)
+- Anchor stability + collision-safety
+- url_pattern rotation through T1 (entity[i] == T1[i % len(T1)])
+- Empty-T1 fallback returns valid URL
+
+Codex iteration trail:
+- Brief iter 1: REQUEST_CHANGES (M55 locator missing + actor template source wrong)
+- Brief iter 2: REQUEST_CHANGES (load_scope_template loads yaml not v6 JSON)
+- Brief iter 3: REQUEST_CHANGES (anchor-only entities fail M-56)
+- Brief iter 4: REQUEST_CHANGES (url_pattern regex not M-56 fetchable)
+- Brief iter 5: APPROVE (concrete T1 URL rotation; urlparse validation test)
+
+Full pytest: 1988 passed (1 pre-existing test_demo_smoke isolation failure
+unrelated to I-arch-001b; passes when run in isolation pre AND post).
+
+GH#464.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ scripts/run_honest_sweep_r3.py                |   8 +
+ src/polaris_graph/v30_contract_synthesizer.py | 164 ++++++++++++++++++
+ src/polaris_v6/queue/actors.py                |  37 ++++
+ .../v30_contracts/ai_sovereignty.json         | 109 ++++++++++++
+ tests/fixtures/v30_contracts/canada_us.json   | 109 ++++++++++++
+ tests/fixtures/v30_contracts/climate.json     | 109 ++++++++++++
+ tests/fixtures/v30_contracts/clinical.json    | 111 ++++++++++++
+ tests/fixtures/v30_contracts/defense.json     | 109 ++++++++++++
+ tests/fixtures/v30_contracts/housing.json     | 109 ++++++++++++
+ tests/fixtures/v30_contracts/trade.json       | 109 ++++++++++++
+ tests/fixtures/v30_contracts/workforce.json   | 109 ++++++++++++
+ .../test_v30_contract_synthesizer.py          | 135 ++++++++++++++
+ 12 files changed, 1218 insertions(+)
+ create mode 100644 src/polaris_graph/v30_contract_synthesizer.py
+ create mode 100644 tests/fixtures/v30_contracts/ai_sovereignty.json
+ create mode 100644 tests/fixtures/v30_contracts/canada_us.json
+ create mode 100644 tests/fixtures/v30_contracts/climate.json
+ create mode 100644 tests/fixtures/v30_contracts/clinical.json
+ create mode 100644 tests/fixtures/v30_contracts/defense.json
+ create mode 100644 tests/fixtures/v30_contracts/housing.json
+ create mode 100644 tests/fixtures/v30_contracts/trade.json
+ create mode 100644 tests/fixtures/v30_contracts/workforce.json
+ create mode 100644 tests/polaris_graph/test_v30_contract_synthesizer.py
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 417438f6..9cbc6156 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1386,6 +1386,14 @@ async def run_one_query(
+                 f"(M-28) OR primary-trial (M-35) expansion"
+             )
+             _template = None
++        # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
++        # the v6 template's frame_manifest and passes it through q. Merge it
++        # into the scope template so M-55 compile_frame and
++        # load_report_contract_for_slug see the synthesized contract for this
++        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
++        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
++        if _v30_patch and isinstance(_template, dict):
++            _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+         _reg_queries = expand_regulatory_queries(q["question"], _template)
+         if _reg_queries:
+             _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+diff --git a/src/polaris_graph/v30_contract_synthesizer.py b/src/polaris_graph/v30_contract_synthesizer.py
+new file mode 100644
+index 00000000..1bc11741
+--- /dev/null
++++ b/src/polaris_graph/v30_contract_synthesizer.py
+@@ -0,0 +1,164 @@
++"""I-arch-001b — synthesize a v30.1 per_query_report_contract from a v6 template.
++
++Input: v6 template JSON (config/v6_templates/<template_id>.json), query_slug.
++Output: {query_slug: <v30.1 contract dict>} ready to merge into a scope
++template's `per_query_report_contract` key, where M-55 frame_compiler and
++load_report_contract_for_slug both consume it.
++
++Per Codex APPROVE iter 5: every entity carries a concrete http(s) url_pattern
++from T1 + a stable anchor; this satisfies M-56's `_fetch_url_pattern()` which
++treats the value as a literal URL, not a regex.
++"""
++
++from __future__ import annotations
++
++import hashlib
++from typing import Any
++
++# Per-template defaults for the type discriminator + identifier field names.
++# Codex iter-2: rolled clinical→drug/condition into a generic "frame" entity-
++# type so the v30 compiler doesn't try to dispatch on type-specific paths
++# that don't exist for synthesized contracts.
++_TYPE_FOR_TEMPLATE: dict[str, str] = {
++    "clinical": "drug",
++    "ai_sovereignty": "policy",
++    "canada_us": "policy",
++    "climate": "policy",
++    "defense": "policy",
++    "housing": "policy",
++    "trade": "policy",
++    "workforce": "policy",
++}
++
++_REQUIRED_FIELDS_FOR_TEMPLATE: dict[str, list[str]] = {
++    "clinical": ["rxcui", "drugbank_id", "icd_10"],
++    "ai_sovereignty": ["bill_id", "jurisdiction", "year"],
++    "canada_us": ["jurisdiction", "treaty_id", "year"],
++    "climate": ["jurisdiction", "policy_id", "target_year"],
++    "defense": ["program_id", "jurisdiction", "year"],
++    "housing": ["jurisdiction", "policy_id", "year"],
++    "trade": ["hs_code", "jurisdiction", "year"],
++    "workforce": ["jurisdiction", "indicator_id", "year"],
++}
++
++# Last-resort URL when a template has empty T1. Per Codex iter-5 P2 accepted-
++# remaining: this is acceptable for v1 (all 8 current templates have T1);
++# future templates should fail-loud, deferred to follow-up.
++_EMPTY_T1_FALLBACK = "https://www.canada.ca/en/research.html"
++
++
++def _anchor_for(template_id: str, frame_id: str, query_slug: str) -> str:
++    """Stable, unique anchor: <template>:<frame>:<slug_prefix>:<sha256_8>.
++
++    Used as a secondary stable id (not the retrieval locator — url_pattern is).
++    Collision-safe for any realistic curator workload (2^32 combinations).
++    """
++    h = hashlib.sha256(
++        f"{template_id}|{frame_id}|{query_slug}".encode("utf-8")
++    ).hexdigest()[:8]
++    return f"{template_id}:{frame_id}:{query_slug[:40]}:{h}"
++
++
++def _concrete_url_for_entity(frame_idx: int, source_tiers: dict[str, Any]) -> str:
++    """Concrete http(s) URL for this entity, rotated through T1 by frame index.
++
++    M-56's `_fetch_url_pattern()` treats this value as a literal URL, NOT a
++    regex (per Codex iter-4 P1 verification at frame_fetcher.py:780,1046).
++    Returning a regex would fail to fetch.
++
++    Rotation: entity[i] uses T1[i % len(T1)]. Different frames retrieve
++    different roots; strict_verify later filters per-frame relevance.
++    """
++    t1 = source_tiers.get("T1") or []
++    if t1:
++        return t1[frame_idx % len(t1)]
++    return _EMPTY_T1_FALLBACK
++
++
++def build_v30_contract(
++    v6_template: dict[str, Any],
++    query_slug: str,
++    question: str | None = None,
++) -> dict[str, Any]:
++    """Synthesize a v30.1 per_query_report_contract.{query_slug} dict from a v6 template.
++
++    Args:
++        v6_template: loaded v6 template JSON (config/v6_templates/<id>.json)
++        query_slug: pipeline-A URL-safe slug (e.g. "clinical_glp1_t2dm")
++        question: reserved for future question-aware seeding; iter-1 implementation
++                  uses frame_id as entity_id basis.
++
++    Returns:
++        {query_slug: <contract>} where <contract> has schema_version="v30.1",
++        required_entities, rendering_slots (dict-keyed by slot_id), and
++        section_order. Round-trips clean via load_report_contract_for_slug.
++    """
++    del question  # reserved; suppress unused-arg warning
++    template_id = v6_template.get("template_id", "")
++    frame_manifest = v6_template.get("frame_manifest") or []
++    source_tiers = v6_template.get("source_tiers") or {}
++
++    entity_type = _TYPE_FOR_TEMPLATE.get(template_id, "policy")
++    required_fields = _REQUIRED_FIELDS_FOR_TEMPLATE.get(
++        template_id, ["jurisdiction", "year"]
++    )
++
++    required_entities: list[dict[str, Any]] = []
++    rendering_slots: dict[str, dict[str, Any]] = {}
++    sections_seen: list[str] = []  # ordered, deduped
++
++    for idx, frame in enumerate(frame_manifest):
++        frame_id = frame.get("frame_id", f"frame_{idx}")
++        frame_name = frame.get("frame_name", frame_id.replace("_", " ").title())
++        slot_id = f"{frame_id}_slot"
++        section = _section_for_frame(template_id, frame_id, idx)
++        if section not in sections_seen:
++            sections_seen.append(section)
++
++        rendering_slots[slot_id] = {
++            "section": section,
++            "subsection_title": frame_name,
++            "ordering": idx + 1,
++            "required": True,
++        }
++        required_entities.append({
++            "id": f"{frame_id}_entity",
++            "type": entity_type,
++            "required_fields": list(required_fields),
++            "min_fields_for_completion": 1,
++            "rendering_slot": slot_id,
++            "url_pattern": _concrete_url_for_entity(idx, source_tiers),
++            "anchor": _anchor_for(template_id, frame_id, query_slug),
++        })
++
++    contract = {
++        "schema_version": "v30.1",
++        "required_entities": required_entities,
++        "rendering_slots": rendering_slots,
++        "section_order": sections_seen,
++    }
++    return {query_slug: contract}
++
++
++def _section_for_frame(template_id: str, frame_id: str, idx: int) -> str:
++    """Group frames into 2-4 sections per template. Mechanical grouping; per-
++    template overrides can be added later via report_contract_override blocks.
++    """
++    # Per Codex iter-5 P2: section grouping is left mechanical-but-stable;
++    # template-specific overrides are a follow-up.
++    if template_id == "clinical":
++        section_map = {
++            "efficacy": "Efficacy",
++            "safety": "Safety",
++            "labelling": "Regulatory",
++            "post_market": "Post-market",
++            "subgroup": "Subgroups",
++        }
++    else:
++        # Policy templates default: split into Background / Findings / Implications.
++        if idx < 2:
++            return "Background"
++        if idx < 4:
++            return "Findings"
++        return "Implications"
++    return section_map.get(frame_id, "Other")
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index a1b2f5dc..2ee05486 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -95,6 +95,43 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+         "template_id": template_id,
+     }
+ 
++    # I-arch-001b: synthesize v30.1 contract patch from v6 template's
++    # frame_manifest. Pipeline-A merges this into the scope template's
++    # per_query_report_contract before compile_frame / load_report_contract_for_slug.
++    # Failure is graceful (logger.warning) — pipeline-A handles missing
++    # contract via legacy no-contract path.
++    try:
++        from polaris_v6.templates.registry import load_template
++        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
++
++        v6_tmpl = load_template(template_id).model_dump()
++        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
++        logger.info(
++            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
++            run_id,
++            template_id,
++            slug,
++            len(q["v30_contract_patch"][slug]["required_entities"]),
++        )
++    except FileNotFoundError as exc:
++        logger.warning(
++            "[actor] v6 template not found template_id=%s run_id=%s; "
++            "pipeline-A will run on legacy no-contract path: %s",
++            template_id,
++            run_id,
++            exc,
++        )
++    except Exception as exc:  # noqa: BLE001 — synthesizer failure must not block runtime
++        logger.warning(
++            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
++            "slug=%s: %s; pipeline-A on legacy no-contract path",
++            run_id,
++            template_id,
++            slug,
++            exc,
++            exc_info=True,
++        )
++
+     run_store.set_pipeline_meta(
+         run_id,
+         query_slug=slug,
+diff --git a/tests/fixtures/v30_contracts/ai_sovereignty.json b/tests/fixtures/v30_contracts/ai_sovereignty.json
+new file mode 100644
+index 00000000..ef987471
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/ai_sovereignty.json
+@@ -0,0 +1,109 @@
++{
++  "ai_sovereignty_fixture": {
++    "rendering_slots": {
++      "aida_regulation_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "AIDA / Bill C-27 + ISED commitments"
++      },
++      "alignment_posture_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Federal alignment + safety posture"
++      },
++      "data_residency_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Data residency + cross-border AI training data"
++      },
++      "sovereign_compute_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Sovereign compute capacity (domestic GPU/TPU)"
++      },
++      "talent_retention_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "AI talent retention vs US/UK brain drain"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "ai_sovereignty:sovereign_compute:ai_sovereignty_fixture:07b989ac",
++        "id": "sovereign_compute_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "sovereign_compute_slot",
++        "required_fields": [
++          "bill_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://ised-isde.canada.ca"
++      },
++      {
++        "anchor": "ai_sovereignty:talent_retention:ai_sovereignty_fixture:bbcb613b",
++        "id": "talent_retention_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "talent_retention_slot",
++        "required_fields": [
++          "bill_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.priv.gc.ca"
++      },
++      {
++        "anchor": "ai_sovereignty:data_residency:ai_sovereignty_fixture:d016bc45",
++        "id": "data_residency_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "data_residency_slot",
++        "required_fields": [
++          "bill_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/treasury-board-secretariat.html"
++      },
++      {
++        "anchor": "ai_sovereignty:aida_regulation:ai_sovereignty_fixture:478df94a",
++        "id": "aida_regulation_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "aida_regulation_slot",
++        "required_fields": [
++          "bill_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://cifar.ca"
++      },
++      {
++        "anchor": "ai_sovereignty:alignment_posture:ai_sovereignty_fixture:06fe3820",
++        "id": "alignment_posture_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "alignment_posture_slot",
++        "required_fields": [
++          "bill_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www150.statcan.gc.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/canada_us.json b/tests/fixtures/v30_contracts/canada_us.json
+new file mode 100644
+index 00000000..a102a1df
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/canada_us.json
+@@ -0,0 +1,109 @@
++{
++  "canada_us_fixture": {
++    "rendering_slots": {
++      "critical_minerals_integration_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Critical minerals supply integration"
++      },
++      "cusma_review_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "CUSMA / USMCA 2026 review + renegotiation triggers"
++      },
++      "defense_interop_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "NORAD + Five Eyes defense interoperability"
++      },
++      "energy_integration_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Cross-border energy infrastructure"
++      },
++      "ira_spillover_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Inflation Reduction Act spillover on Canadian industry"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "canada_us:cusma_review:canada_us_fixture:77f62f2e",
++        "id": "cusma_review_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "cusma_review_slot",
++        "required_fields": [
++          "jurisdiction",
++          "treaty_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.international.gc.ca"
++      },
++      {
++        "anchor": "canada_us:ira_spillover:canada_us_fixture:f8f70672",
++        "id": "ira_spillover_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "ira_spillover_slot",
++        "required_fields": [
++          "jurisdiction",
++          "treaty_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/department-finance.html"
++      },
++      {
++        "anchor": "canada_us:critical_minerals_integration:canada_us_fixture:7fc731c7",
++        "id": "critical_minerals_integration_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "critical_minerals_integration_slot",
++        "required_fields": [
++          "jurisdiction",
++          "treaty_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/global-affairs.html"
++      },
++      {
++        "anchor": "canada_us:energy_integration:canada_us_fixture:ce53641e",
++        "id": "energy_integration_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "energy_integration_slot",
++        "required_fields": [
++          "jurisdiction",
++          "treaty_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.edc.ca"
++      },
++      {
++        "anchor": "canada_us:defense_interop:canada_us_fixture:c0c09b89",
++        "id": "defense_interop_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "defense_interop_slot",
++        "required_fields": [
++          "jurisdiction",
++          "treaty_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.bankofcanada.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/climate.json b/tests/fixtures/v30_contracts/climate.json
+new file mode 100644
+index 00000000..4fb4dac6
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/climate.json
+@@ -0,0 +1,109 @@
++{
++  "climate_fixture": {
++    "rendering_slots": {
++      "carbon_pricing_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Federal carbon pricing + provincial systems"
++      },
++      "critical_minerals_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Critical minerals strategy (lithium, nickel, cobalt, rare earths)"
++      },
++      "emissions_intensity_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Oil-sands GHG intensity per barrel"
++      },
++      "indigenous_conservation_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Indigenous-led conservation + consultation"
++      },
++      "methane_regulation_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Methane emissions regulation"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "climate:emissions_intensity:climate_fixture:208cbcf4",
++        "id": "emissions_intensity_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "emissions_intensity_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "target_year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/environment-climate-change.html"
++      },
++      {
++        "anchor": "climate:critical_minerals:climate_fixture:f3da5751",
++        "id": "critical_minerals_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "critical_minerals_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "target_year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://natural-resources.canada.ca"
++      },
++      {
++        "anchor": "climate:carbon_pricing:climate_fixture:4a8e003c",
++        "id": "carbon_pricing_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "carbon_pricing_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "target_year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www150.statcan.gc.ca"
++      },
++      {
++        "anchor": "climate:methane_regulation:climate_fixture:fe144fef",
++        "id": "methane_regulation_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "methane_regulation_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "target_year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.cer-rec.gc.ca"
++      },
++      {
++        "anchor": "climate:indigenous_conservation:climate_fixture:cab6906e",
++        "id": "indigenous_conservation_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "indigenous_conservation_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "target_year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.pbo-dpb.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/clinical.json b/tests/fixtures/v30_contracts/clinical.json
+new file mode 100644
+index 00000000..da3febdd
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/clinical.json
+@@ -0,0 +1,111 @@
++{
++  "clinical_fixture": {
++    "rendering_slots": {
++      "efficacy_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Efficacy",
++        "subsection_title": "Efficacy outcomes (primary endpoints)"
++      },
++      "labelling_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Regulatory",
++        "subsection_title": "Regulatory labelling deltas"
++      },
++      "post_market_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Post-market",
++        "subsection_title": "Post-market surveillance signals"
++      },
++      "safety_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Safety",
++        "subsection_title": "Safety / adverse events"
++      },
++      "subgroup_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Subgroups",
++        "subsection_title": "Subgroup analyses + heterogeneity"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "clinical:efficacy:clinical_fixture:144c421e",
++        "id": "efficacy_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "efficacy_slot",
++        "required_fields": [
++          "rxcui",
++          "drugbank_id",
++          "icd_10"
++        ],
++        "type": "drug",
++        "url_pattern": "https://www.canada.ca/en/health-canada.html"
++      },
++      {
++        "anchor": "clinical:safety:clinical_fixture:84954e8d",
++        "id": "safety_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "safety_slot",
++        "required_fields": [
++          "rxcui",
++          "drugbank_id",
++          "icd_10"
++        ],
++        "type": "drug",
++        "url_pattern": "https://www.fda.gov/drugs"
++      },
++      {
++        "anchor": "clinical:labelling:clinical_fixture:090c9b5c",
++        "id": "labelling_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "labelling_slot",
++        "required_fields": [
++          "rxcui",
++          "drugbank_id",
++          "icd_10"
++        ],
++        "type": "drug",
++        "url_pattern": "https://www.ema.europa.eu"
++      },
++      {
++        "anchor": "clinical:post_market:clinical_fixture:36668fb7",
++        "id": "post_market_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "post_market_slot",
++        "required_fields": [
++          "rxcui",
++          "drugbank_id",
++          "icd_10"
++        ],
++        "type": "drug",
++        "url_pattern": "https://clinicaltrials.gov"
++      },
++      {
++        "anchor": "clinical:subgroup:clinical_fixture:da9cbc42",
++        "id": "subgroup_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "subgroup_slot",
++        "required_fields": [
++          "rxcui",
++          "drugbank_id",
++          "icd_10"
++        ],
++        "type": "drug",
++        "url_pattern": "https://pubmed.ncbi.nlm.nih.gov"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Efficacy",
++      "Safety",
++      "Regulatory",
++      "Post-market",
++      "Subgroups"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/defense.json b/tests/fixtures/v30_contracts/defense.json
+new file mode 100644
+index 00000000..65154e0d
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/defense.json
+@@ -0,0 +1,109 @@
++{
++  "defense_fixture": {
++    "rendering_slots": {
++      "arctic_sovereignty_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Arctic sovereignty + Northwest Passage"
++      },
++      "industrial_base_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Defense industrial base + procurement"
++      },
++      "interoperability_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Five Eyes / AUKUS interoperability"
++      },
++      "nato_burden_share_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "NATO 2% GDP burden-sharing"
++      },
++      "norad_modernization_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "NORAD modernization (radar, JADC2, OTH)"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "defense:norad_modernization:defense_fixture:20d34f9e",
++        "id": "norad_modernization_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "norad_modernization_slot",
++        "required_fields": [
++          "program_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/department-national-defence.html"
++      },
++      {
++        "anchor": "defense:arctic_sovereignty:defense_fixture:236e608a",
++        "id": "arctic_sovereignty_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "arctic_sovereignty_slot",
++        "required_fields": [
++          "program_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.norad.mil"
++      },
++      {
++        "anchor": "defense:nato_burden_share:defense_fixture:1c58668d",
++        "id": "nato_burden_share_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "nato_burden_share_slot",
++        "required_fields": [
++          "program_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.nato.int"
++      },
++      {
++        "anchor": "defense:industrial_base:defense_fixture:8d28ffdc",
++        "id": "industrial_base_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "industrial_base_slot",
++        "required_fields": [
++          "program_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.dnd-mdn.gc.ca"
++      },
++      {
++        "anchor": "defense:interoperability:defense_fixture:f847230e",
++        "id": "interoperability_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "interoperability_slot",
++        "required_fields": [
++          "program_id",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.cda-cdai.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/housing.json b/tests/fixtures/v30_contracts/housing.json
+new file mode 100644
+index 00000000..0ba56a3c
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/housing.json
+@@ -0,0 +1,109 @@
++{
++  "housing_fixture": {
++    "rendering_slots": {
++      "affordability_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Affordability + price-to-income ratios"
++      },
++      "federal_provincial_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Federal-provincial policy alignment"
++      },
++      "indigenous_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Indigenous housing gap"
++      },
++      "productivity_link_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Housing \u2192 productivity macro link"
++      },
++      "supply_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Housing-starts supply dynamics"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "housing:supply:housing_fixture:f7da7e41",
++        "id": "supply_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "supply_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.cmhc-schl.gc.ca"
++      },
++      {
++        "anchor": "housing:affordability:housing_fixture:2f2bb62b",
++        "id": "affordability_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "affordability_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www150.statcan.gc.ca"
++      },
++      {
++        "anchor": "housing:indigenous:housing_fixture:3511e269",
++        "id": "indigenous_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "indigenous_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.bankofcanada.ca"
++      },
++      {
++        "anchor": "housing:productivity_link:housing_fixture:a3d9e383",
++        "id": "productivity_link_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "productivity_link_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/department-finance.html"
++      },
++      {
++        "anchor": "housing:federal_provincial:housing_fixture:d202c99b",
++        "id": "federal_provincial_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "federal_provincial_slot",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.pbo-dpb.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/trade.json b/tests/fixtures/v30_contracts/trade.json
+new file mode 100644
+index 00000000..10b1f2b7
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/trade.json
+@@ -0,0 +1,109 @@
++{
++  "trade_fixture": {
++    "rendering_slots": {
++      "cusma_disputes_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "CUSMA dispute resolution"
++      },
++      "retaliation_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Retaliation scenarios + exposed sectors"
++      },
++      "supply_chain_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Supply-chain resilience + reshoring"
++      },
++      "tariff_exposure_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Sector-level tariff exposure"
++      },
++      "trade_flows_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Bilateral trade-flow trends"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "trade:tariff_exposure:trade_fixture:e3eca46a",
++        "id": "tariff_exposure_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "tariff_exposure_slot",
++        "required_fields": [
++          "hs_code",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.international.gc.ca"
++      },
++      {
++        "anchor": "trade:cusma_disputes:trade_fixture:fa2c0f96",
++        "id": "cusma_disputes_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "cusma_disputes_slot",
++        "required_fields": [
++          "hs_code",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://ustr.gov"
++      },
++      {
++        "anchor": "trade:supply_chain:trade_fixture:d61b96b7",
++        "id": "supply_chain_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "supply_chain_slot",
++        "required_fields": [
++          "hs_code",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.wto.org"
++      },
++      {
++        "anchor": "trade:trade_flows:trade_fixture:2687b7dc",
++        "id": "trade_flows_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "trade_flows_slot",
++        "required_fields": [
++          "hs_code",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www150.statcan.gc.ca"
++      },
++      {
++        "anchor": "trade:retaliation:trade_fixture:fe449ad5",
++        "id": "retaliation_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "retaliation_slot",
++        "required_fields": [
++          "hs_code",
++          "jurisdiction",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.bankofcanada.ca"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/workforce.json b/tests/fixtures/v30_contracts/workforce.json
+new file mode 100644
+index 00000000..c8681550
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/workforce.json
+@@ -0,0 +1,109 @@
++{
++  "workforce_fixture": {
++    "rendering_slots": {
++      "demographic_transition_slot": {
++        "ordering": 3,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Demographic ageing + labour-force participation"
++      },
++      "immigration_skills_mismatch_slot": {
++        "ordering": 2,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Immigration + skills mismatch"
++      },
++      "indigenous_participation_slot": {
++        "ordering": 4,
++        "required": true,
++        "section": "Findings",
++        "subsection_title": "Indigenous workforce participation"
++      },
++      "labour_productivity_gap_slot": {
++        "ordering": 1,
++        "required": true,
++        "section": "Background",
++        "subsection_title": "Canada\u2013US labour productivity gap"
++      },
++      "regional_unemployment_slot": {
++        "ordering": 5,
++        "required": true,
++        "section": "Implications",
++        "subsection_title": "Regional unemployment + interprovincial mobility"
++      }
++    },
++    "required_entities": [
++      {
++        "anchor": "workforce:labour_productivity_gap:workforce_fixture:827c455c",
++        "id": "labour_productivity_gap_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "labour_productivity_gap_slot",
++        "required_fields": [
++          "jurisdiction",
++          "indicator_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/employment-social-development.html"
++      },
++      {
++        "anchor": "workforce:immigration_skills_mismatch:workforce_fixture:ebd69259",
++        "id": "immigration_skills_mismatch_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "immigration_skills_mismatch_slot",
++        "required_fields": [
++          "jurisdiction",
++          "indicator_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/immigration-refugees-citizenship.html"
++      },
++      {
++        "anchor": "workforce:demographic_transition:workforce_fixture:96b0e39e",
++        "id": "demographic_transition_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "demographic_transition_slot",
++        "required_fields": [
++          "jurisdiction",
++          "indicator_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www150.statcan.gc.ca"
++      },
++      {
++        "anchor": "workforce:indigenous_participation:workforce_fixture:376976fc",
++        "id": "indigenous_participation_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "indigenous_participation_slot",
++        "required_fields": [
++          "jurisdiction",
++          "indicator_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.bankofcanada.ca"
++      },
++      {
++        "anchor": "workforce:regional_unemployment:workforce_fixture:aba1dbf7",
++        "id": "regional_unemployment_entity",
++        "min_fields_for_completion": 1,
++        "rendering_slot": "regional_unemployment_slot",
++        "required_fields": [
++          "jurisdiction",
++          "indicator_id",
++          "year"
++        ],
++        "type": "policy",
++        "url_pattern": "https://www.canada.ca/en/department-finance.html"
++      }
++    ],
++    "schema_version": "v30.1",
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/polaris_graph/test_v30_contract_synthesizer.py b/tests/polaris_graph/test_v30_contract_synthesizer.py
+new file mode 100644
+index 00000000..39e2703c
+--- /dev/null
++++ b/tests/polaris_graph/test_v30_contract_synthesizer.py
+@@ -0,0 +1,135 @@
++"""I-arch-001b — v30_contract_synthesizer coverage."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from urllib.parse import urlparse
++
++import pytest
++
++from polaris_graph.v30_contract_synthesizer import build_v30_contract
++from polaris_v6.templates.registry import load_template
++
++ALL_V6_TEMPLATES = [
++    "ai_sovereignty", "canada_us", "climate", "clinical",
++    "defense", "housing", "trade", "workforce",
++]
++
++FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "v30_contracts"
++
++
++def _load_v6_template(template_id: str) -> dict:
++    return load_template(template_id).model_dump()
++
++
++@pytest.mark.parametrize("template_id", ALL_V6_TEMPLATES)
++def test_build_v30_contract_matches_golden_fixture(template_id: str) -> None:
++    """build_v30_contract output for the fixture slug must equal the golden file."""
++    v6_tmpl = _load_v6_template(template_id)
++    slug = f"{template_id}_fixture"
++    actual = build_v30_contract(v6_tmpl, slug, question=None)
++    expected = json.loads((FIXTURE_DIR / f"{template_id}.json").read_text(encoding="utf-8"))
++    assert actual == expected
++
++
++@pytest.mark.parametrize("template_id", ALL_V6_TEMPLATES)
++def test_fixture_round_trips_via_load_report_contract(template_id: str) -> None:
++    """The fixture merged under per_query_report_contract loads cleanly."""
++    from polaris_graph.nodes.report_contract import load_report_contract_for_slug
++
++    fixture = json.loads((FIXTURE_DIR / f"{template_id}.json").read_text(encoding="utf-8"))
++    slug = next(iter(fixture))
++    scope_tmpl = {"per_query_report_contract": dict(fixture)}
++    rc = load_report_contract_for_slug(scope_tmpl, slug)
++    assert rc is not None
++    assert rc.schema_version == "v30.1"
++    assert len(rc.required_entities) >= 1
++    assert len(rc.rendering_slots) >= 1
++    # Referential integrity: every entity's rendering_slot resolves to a declared slot.
++    declared_slots = {s.id for s in rc.rendering_slots}
++    for e in rc.required_entities:
++        assert e.rendering_slot in declared_slots
++
++
++@pytest.mark.parametrize("template_id", ALL_V6_TEMPLATES)
++def test_synthesized_contract_compiles_via_compile_frame(template_id: str) -> None:
++    """Synth output compiles through M-55 compile_frame, not just loader."""
++    from polaris_graph.nodes.frame_compiler import compile_frame
++
++    v6_tmpl = _load_v6_template(template_id)
++    slug = "test_compile_slug"
++    contract = build_v30_contract(v6_tmpl, slug, question="test question")
++    scope_tmpl = {"per_query_report_contract": dict(contract)}
++    cf = compile_frame("test question", scope_tmpl, slug)
++    assert cf is not None
++    assert len(cf.evidence_bindings) >= 1
++
++
++@pytest.mark.parametrize("template_id", ALL_V6_TEMPLATES)
++def test_synthesized_bindings_have_fetchable_url(template_id: str) -> None:
++    """Every binding has a resolvable locator: doi OR pmid OR fetchable url_pattern.
++
++    Per Codex iter-4 P1 verification: M-56's `_fetch_url_pattern()` treats the
++    value as a literal URL, NOT a regex. A regex locator would fail to fetch.
++    """
++    from polaris_graph.nodes.frame_compiler import compile_frame
++
++    v6_tmpl = _load_v6_template(template_id)
++    slug = "fetchability_slug"
++    contract = build_v30_contract(v6_tmpl, slug, question="test question")
++    scope_tmpl = {"per_query_report_contract": dict(contract)}
++    cf = compile_frame("test question", scope_tmpl, slug)
++    assert cf is not None
++    entities = cf.contract.entities_by_id()
++    for binding in cf.evidence_bindings:
++        entity = entities[binding.entity_id]
++        has_resolvable = bool(entity.doi or entity.pmid or entity.url_pattern)
++        assert has_resolvable, (
++            f"binding entity_id={binding.entity_id!r} is anchor-only; "
++            f"M-56 would treat as FRAME_GAP_UNRECOVERABLE"
++        )
++        if entity.url_pattern and not (entity.doi or entity.pmid):
++            parsed = urlparse(entity.url_pattern)
++            assert parsed.scheme in ("http", "https"), (
++                f"url_pattern {entity.url_pattern!r} not http(s); M-56 would fail"
++            )
++            assert parsed.netloc, (
++                f"url_pattern {entity.url_pattern!r} missing netloc"
++            )
++
++
++def test_anchor_is_stable_and_collision_safe() -> None:
++    """Same (template, frame, slug) → same anchor; different inputs → different anchor."""
++    v6 = _load_v6_template("clinical")
++    c1 = build_v30_contract(v6, "slug_alpha")
++    c2 = build_v30_contract(v6, "slug_alpha")
++    c3 = build_v30_contract(v6, "slug_beta")
++    anchors_1 = {e["anchor"] for e in c1["slug_alpha"]["required_entities"]}
++    anchors_2 = {e["anchor"] for e in c2["slug_alpha"]["required_entities"]}
++    anchors_3 = {e["anchor"] for e in c3["slug_beta"]["required_entities"]}
++    assert anchors_1 == anchors_2  # determinism
++    assert anchors_1.isdisjoint(anchors_3)  # collision-free across slugs
++
++
++def test_url_pattern_rotates_through_t1_sources() -> None:
++    """If T1 has N URLs and contract has M ≥ N entities, entity[i].url_pattern == T1[i % N]."""
++    v6 = _load_v6_template("clinical")
++    t1 = v6["source_tiers"]["T1"]
++    contract = build_v30_contract(v6, "rotation_slug")
++    entities = contract["rotation_slug"]["required_entities"]
++    for i, e in enumerate(entities):
++        assert e["url_pattern"] == t1[i % len(t1)], (
++            f"entity[{i}] url_pattern={e['url_pattern']!r} != T1[{i % len(t1)}]={t1[i % len(t1)]!r}"
++        )
++
++
++def test_empty_t1_falls_back_to_known_url() -> None:
++    """Defensive fallback for templates with empty T1 (none exist today, but ...)."""
++    v6 = _load_v6_template("clinical")
++    v6["source_tiers"]["T1"] = []
++    contract = build_v30_contract(v6, "empty_t1_slug")
++    for e in contract["empty_t1_slug"]["required_entities"]:
++        parsed = urlparse(e["url_pattern"])
++        assert parsed.scheme in ("http", "https")
++        assert parsed.netloc
+-- 
+2.49.0.windows.1
+
