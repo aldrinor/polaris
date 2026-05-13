@@ -40,24 +40,50 @@ def stub_broker(monkeypatch):
 
 
 def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
-    """Scenario 1: actor returns; status `completed`.
+    """Scenario 1: actor returns; lifecycle_status `completed`.
 
     I-phase0-005: strengthened to assert the run row reaches `completed`
-    in the run_store DB after broker drain (was previously `assert True`).
+    in the run_store DB after broker drain.
+
+    I-arch-001a (2026-05-12): mocks pipeline-A (run_one_query) to write
+    a minimal valid manifest. Without the mock the actor would attempt
+    a real pipeline-A invocation and hit retrieval / LLM dependencies.
     """
+    import json
+
     broker, worker = stub_broker
     monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.01,
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.01, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+
     from polaris_v6.queue import run_store
     from polaris_v6.queue.actors import enqueue_research_run
 
     run_store.insert_run("run_001", "clinical", "noop?")
     enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
-    broker.join(enqueue_research_run.queue_name, timeout=5000)
+    broker.join(enqueue_research_run.queue_name, timeout=10000)
     worker.join()
 
     record = run_store.get_run("run_001")
     assert record is not None
-    assert record.status == "completed"
+    assert record.lifecycle_status == "completed"
+    assert record.pipeline_status == "success"
+    assert record.status == "completed"  # computed_field backcompat alias
 
 
 @pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")

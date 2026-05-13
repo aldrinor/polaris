@@ -234,6 +234,11 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
     mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
     init_db) get None back, matching the actor's row-missing-stub-noop
     contract.
+
+    I-arch-001a Codex iter-2 P2-002: if a known DB exists with the legacy
+    schema, the first read-only `get_run` call would 500 on column-missing.
+    The defensive catch below detects "no such column" and triggers a
+    one-time migration via init_db before retrying.
     """
     conn = _connect(path)
     try:
@@ -246,13 +251,27 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
                 (run_id,),
             ).fetchone()
         except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
             # Narrow per Codex iter-1 P2-001: only the missing-table stub
             # path returns None; surface other operational errors (schema
             # corruption, migration faults) so they aren't masked as
             # missing-row.
-            if "no such table" in str(exc).lower():
+            if "no such table" in msg:
                 return None
-            raise
+            # Codex iter-2 P2-002: legacy schema → migrate then retry once.
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(
+                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+                    "queued_at, started_at, finished_at, result_json, error_json, "
+                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+                    "FROM runs WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                raise
     finally:
         conn.close()
     if row is None:
