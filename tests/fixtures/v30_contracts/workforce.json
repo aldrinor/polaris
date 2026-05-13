@@ -1,0 +1,109 @@
+{
+  "workforce_fixture": {
+    "rendering_slots": {
+      "demographic_transition_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Demographic ageing + labour-force participation"
+      },
+      "immigration_skills_mismatch_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Immigration + skills mismatch"
+      },
+      "indigenous_participation_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Indigenous workforce participation"
+      },
+      "labour_productivity_gap_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Canada\u2013US labour productivity gap"
+      },
+      "regional_unemployment_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Implications",
+        "subsection_title": "Regional unemployment + interprovincial mobility"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "workforce:labour_productivity_gap:workforce_fixture:827c455c",
+        "id": "labour_productivity_gap_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "labour_productivity_gap_slot",
+        "required_fields": [
+          "jurisdiction",
+          "indicator_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/employment-social-development.html"
+      },
+      {
+        "anchor": "workforce:immigration_skills_mismatch:workforce_fixture:ebd69259",
+        "id": "immigration_skills_mismatch_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "immigration_skills_mismatch_slot",
+        "required_fields": [
+          "jurisdiction",
+          "indicator_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/immigration-refugees-citizenship.html"
+      },
+      {
+        "anchor": "workforce:demographic_transition:workforce_fixture:96b0e39e",
+        "id": "demographic_transition_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "demographic_transition_slot",
+        "required_fields": [
+          "jurisdiction",
+          "indicator_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www150.statcan.gc.ca"
+      },
+      {
+        "anchor": "workforce:indigenous_participation:workforce_fixture:376976fc",
+        "id": "indigenous_participation_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "indigenous_participation_slot",
+        "required_fields": [
+          "jurisdiction",
+          "indicator_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.bankofcanada.ca"
+      },
+      {
+        "anchor": "workforce:regional_unemployment:workforce_fixture:aba1dbf7",
+        "id": "regional_unemployment_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "regional_unemployment_slot",
+        "required_fields": [
+          "jurisdiction",
+          "indicator_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/department-finance.html"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

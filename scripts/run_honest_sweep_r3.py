@@ -1386,6 +1386,14 @@ async def run_one_query(
                 f"(M-28) OR primary-trial (M-35) expansion"
             )
             _template = None
+        # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
+        # the v6 template's frame_manifest and passes it through q. Merge it
+        # into the scope template so M-55 compile_frame and
+        # load_report_contract_for_slug see the synthesized contract for this
+        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+        if _v30_patch and isinstance(_template, dict):
+            _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
         _reg_queries = expand_regulatory_queries(q["question"], _template)
         if _reg_queries:
             _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "

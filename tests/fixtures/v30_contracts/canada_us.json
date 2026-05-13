@@ -1,0 +1,109 @@
+{
+  "canada_us_fixture": {
+    "rendering_slots": {
+      "critical_minerals_integration_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Critical minerals supply integration"
+      },
+      "cusma_review_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "CUSMA / USMCA 2026 review + renegotiation triggers"
+      },
+      "defense_interop_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Implications",
+        "subsection_title": "NORAD + Five Eyes defense interoperability"
+      },
+      "energy_integration_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Cross-border energy infrastructure"
+      },
+      "ira_spillover_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Inflation Reduction Act spillover on Canadian industry"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "canada_us:cusma_review:canada_us_fixture:77f62f2e",
+        "id": "cusma_review_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "cusma_review_slot",
+        "required_fields": [
+          "jurisdiction",
+          "treaty_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.international.gc.ca"
+      },
+      {
+        "anchor": "canada_us:ira_spillover:canada_us_fixture:f8f70672",
+        "id": "ira_spillover_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "ira_spillover_slot",
+        "required_fields": [
+          "jurisdiction",
+          "treaty_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/department-finance.html"
+      },
+      {
+        "anchor": "canada_us:critical_minerals_integration:canada_us_fixture:7fc731c7",
+        "id": "critical_minerals_integration_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "critical_minerals_integration_slot",
+        "required_fields": [
+          "jurisdiction",
+          "treaty_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/global-affairs.html"
+      },
+      {
+        "anchor": "canada_us:energy_integration:canada_us_fixture:ce53641e",
+        "id": "energy_integration_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "energy_integration_slot",
+        "required_fields": [
+          "jurisdiction",
+          "treaty_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.edc.ca"
+      },
+      {
+        "anchor": "canada_us:defense_interop:canada_us_fixture:c0c09b89",
+        "id": "defense_interop_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "defense_interop_slot",
+        "required_fields": [
+          "jurisdiction",
+          "treaty_id",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.bankofcanada.ca"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}
