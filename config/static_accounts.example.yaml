@@ -1,0 +1,21 @@
+# I-carney-004 — POLARIS Carney demo static-accounts auth.
+#
+# Copy to /etc/polaris/static_accounts.yaml on the EC2 host (cloud-init
+# pulls from AWS Secrets Manager → /etc/polaris/static_accounts.yaml).
+#
+# Generate bcrypt hashes locally with:
+#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('your-password'))"
+#
+# Roles:
+#   - reviewer : can POST /runs, GET /stream, GET /bundle
+#   - admin    : also reserved for future /admin/* surfaces (none yet)
+
+accounts:
+  - username: carney_office
+    # bcrypt hash of "REPLACE_ME_REVIEWER_PASSWORD"
+    password_bcrypt: "$2b$12$REPLACE_ME_BCRYPT_HASH_FROM_PASSLIB"
+    role: reviewer
+
+  - username: ops
+    password_bcrypt: "$2b$12$REPLACE_ME_OPS_BCRYPT_HASH"
+    role: admin

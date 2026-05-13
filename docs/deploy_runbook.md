@@ -54,8 +54,15 @@ curl -fsS http://localhost:8000/health
 # Webui
 curl -fsS http://localhost:3000/
 
+# I-carney-004: auth-gated endpoints require a Bearer JWT. Get one first:
+TOKEN=$(curl -fsS -X POST http://localhost:8000/auth/login \
+    -H 'content-type: application/json' \
+    -d '{"username":"carney_office","password":"<your-password>"}' \
+    | jq -r .access_token)
+
 # Submit a sample run (browser-side fetch lands here via /api/v6/runs)
 curl -fsS -X POST http://localhost:8000/runs \
+    -H "Authorization: Bearer $TOKEN" \
     -H 'content-type: application/json' \
     -d '{"template":"clinical","question":"Is tirzepatide effective for type 2 diabetes?"}'
 ```

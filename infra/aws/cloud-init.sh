@@ -5,7 +5,10 @@
 # Idempotent on reboot (`docker compose up -d` is idempotent; SSM fetches
 # overwrite .env each boot).
 
-set -euxo pipefail
+# Codex iter-1 P1-3: do NOT enable xtrace globally because it would print
+# POLARIS_JWT_SECRET, POLARIS_STATIC_ACCOUNTS_YAML, and POLARIS_GPG_PRIVKEY
+# verbatim to cloud-init logs / journald. Errors-only + pipefail.
+set -eo pipefail
 
 AWS_REGION="${aws_region}"
 POLARIS_REPO_URL="${polaris_repo_url}"
@@ -89,6 +92,29 @@ SEMANTIC_SCHOLAR_API_KEY=$(ssm_get /polaris/v6/semantic_scholar_api_key || true)
 POLARIS_GPG_KEY_ID=$(ssm_get /polaris/v6/polaris_gpg_key_id)
 POLARIS_GPG_PUBKEY=$(ssm_get /polaris/v6/polaris_gpg_pubkey || true)
 
+# ----- 4b. I-carney-004: fetch Secrets Manager substrate -----
+sm_get() {
+    aws secretsmanager get-secret-value \
+        --secret-id "$1" \
+        --region "$AWS_REGION" \
+        --query SecretString \
+        --output text 2>/dev/null
+}
+
+POLARIS_JWT_SECRET=$(sm_get polaris/v6/jwt_secret)
+POLARIS_STATIC_ACCOUNTS_YAML=$(sm_get polaris/v6/static_accounts_yaml)
+POLARIS_GPG_PRIVKEY=$(sm_get polaris/v6/gpg_private_key_armored)
+
+# Write static_accounts.yaml to /etc/polaris/ (host) AND make it available
+# to the api container via bind-mount. The container path /app/config/
+# is baked in by Dockerfile.v6 `COPY config/`; for the runtime override
+# we set POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
+# in the api+worker env_file so the container reads the host-managed YAML.
+mkdir -p /etc/polaris
+chmod 750 /etc/polaris
+echo "$POLARIS_STATIC_ACCOUNTS_YAML" > /etc/polaris/static_accounts.yaml
+chmod 640 /etc/polaris/static_accounts.yaml
+
 cat > /opt/polaris/.env <<EOF
 OPENROUTER_API_KEY=$OPENROUTER_API_KEY
 SERPER_API_KEY=$SERPER_API_KEY
@@ -101,6 +127,8 @@ PG_MAX_COST_PER_RUN=5.00
 POLARIS_AUDIT_S3_BUCKET=$AUDIT_BUCKET_NAME
 POLARIS_GIT_COMMIT=$POLARIS_REPO_COMMIT
 AWS_REGION=$AWS_REGION
+POLARIS_JWT_SECRET=$POLARIS_JWT_SECRET
+POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
 EOF
 chmod 600 /opt/polaris/.env
 
@@ -120,6 +148,19 @@ if [ -n "$POLARIS_GPG_PUBKEY" ]; then
     echo "$POLARIS_GPG_PUBKEY" | gpg --import || true
     echo "$POLARIS_GPG_PUBKEY" > /var/lib/polaris/gpg/polaris_demo_pubkey.asc
     chmod 644 /var/lib/polaris/gpg/polaris_demo_pubkey.asc
+fi
+
+# I-carney-004: import GPG PRIVATE key from Secrets Manager (replaces the
+# manual operator-side SSM Session Manager transfer step from I-carney-002).
+# Private key remains in the dedicated /var/lib/polaris/gpg keyring (mode 700).
+if [ -n "$POLARIS_GPG_PRIVKEY" ]; then
+    export GNUPGHOME=/var/lib/polaris/gpg
+    # Codex iter-1 P2: fail loud on import error (private key is the entire
+    # reason for the bundle-signing substrate; silent failure would let the
+    # deploy come up serving 503s on every /runs/{id}/bundle.tar.gz).
+    echo "$POLARIS_GPG_PRIVKEY" | gpg --batch --import
+    # Wipe the env var so it doesn't leak into journald via systemd unit logs.
+    unset POLARIS_GPG_PRIVKEY
 fi
 
 # ----- 5b. Install egress allowlist + lockdown (I-carney-003) -----

@@ -13,6 +13,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.70"
     }
+    # I-carney-004: random_password for the JWT secret in Secrets Manager.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # S3 backend for state. Bootstrap the bucket separately (chicken-and-egg).

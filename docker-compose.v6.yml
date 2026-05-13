@@ -45,6 +45,10 @@ services:
       - ./data:/app/data
       # P1-006: writable GPG homedir bind-mount.
       - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+      # I-carney-004 P1: mount /etc/polaris/static_accounts.yaml into the
+      # container so verify_app_startup() can find the auth substrate.
+      # Read-only bind; host file is 640 root:root, container reads as root.
+      - ${POLARIS_ETC_DIR:-/etc/polaris}:/etc/polaris:ro
     ports:
       - "${POLARIS_API_PORT:-8000}:8000"
     depends_on:
@@ -81,6 +85,7 @@ services:
       - ./logs:/app/logs
       - ./data:/app/data
       - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+      - ${POLARIS_ETC_DIR:-/etc/polaris}:/etc/polaris:ro
     depends_on:
       redis:
         condition: service_healthy

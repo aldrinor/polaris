@@ -25,6 +25,12 @@ import os
 # otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
 os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
 
+# I-carney-004 P1: every create_app() call now invokes verify_app_startup()
+# which raises RuntimeError on missing POLARIS_JWT_SECRET / static_accounts.
+# Tests that mount the full app must bypass the auth substrate; individual
+# auth tests opt back in by `monkeypatch.delenv("POLARIS_AUTH_DISABLED")`.
+os.environ.setdefault("POLARIS_AUTH_DISABLED", "1")
+
 try:
     from polaris_v6.queue.broker import get_broker as _get_broker
 

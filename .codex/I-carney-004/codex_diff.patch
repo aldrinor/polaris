@@ -1,0 +1,766 @@
+diff --git a/config/static_accounts.example.yaml b/config/static_accounts.example.yaml
+new file mode 100644
+index 00000000..af99b8a9
+--- /dev/null
++++ b/config/static_accounts.example.yaml
+@@ -0,0 +1,21 @@
++# I-carney-004 — POLARIS Carney demo static-accounts auth.
++#
++# Copy to /etc/polaris/static_accounts.yaml on the EC2 host (cloud-init
++# pulls from AWS Secrets Manager → /etc/polaris/static_accounts.yaml).
++#
++# Generate bcrypt hashes locally with:
++#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('your-password'))"
++#
++# Roles:
++#   - reviewer : can POST /runs, GET /stream, GET /bundle
++#   - admin    : also reserved for future /admin/* surfaces (none yet)
++
++accounts:
++  - username: carney_office
++    # bcrypt hash of "REPLACE_ME_REVIEWER_PASSWORD"
++    password_bcrypt: "$2b$12$REPLACE_ME_BCRYPT_HASH_FROM_PASSLIB"
++    role: reviewer
++
++  - username: ops
++    password_bcrypt: "$2b$12$REPLACE_ME_OPS_BCRYPT_HASH"
++    role: admin
+diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
+index 7e828ea4..0e29a2be 100644
+--- a/docker-compose.v6.yml
++++ b/docker-compose.v6.yml
+@@ -45,6 +45,10 @@ services:
+       - ./data:/app/data
+       # P1-006: writable GPG homedir bind-mount.
+       - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
++      # I-carney-004 P1: mount /etc/polaris/static_accounts.yaml into the
++      # container so verify_app_startup() can find the auth substrate.
++      # Read-only bind; host file is 640 root:root, container reads as root.
++      - ${POLARIS_ETC_DIR:-/etc/polaris}:/etc/polaris:ro
+     ports:
+       - "${POLARIS_API_PORT:-8000}:8000"
+     depends_on:
+@@ -81,6 +85,7 @@ services:
+       - ./logs:/app/logs
+       - ./data:/app/data
+       - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
++      - ${POLARIS_ETC_DIR:-/etc/polaris}:/etc/polaris:ro
+     depends_on:
+       redis:
+         condition: service_healthy
+diff --git a/infra/aws/cloud-init.sh b/infra/aws/cloud-init.sh
+index 74fb0330..a9292518 100644
+--- a/infra/aws/cloud-init.sh
++++ b/infra/aws/cloud-init.sh
+@@ -5,7 +5,10 @@
+ # Idempotent on reboot (`docker compose up -d` is idempotent; SSM fetches
+ # overwrite .env each boot).
+ 
+-set -euxo pipefail
++# Codex iter-1 P1-3: do NOT enable xtrace globally because it would print
++# POLARIS_JWT_SECRET, POLARIS_STATIC_ACCOUNTS_YAML, and POLARIS_GPG_PRIVKEY
++# verbatim to cloud-init logs / journald. Errors-only + pipefail.
++set -eo pipefail
+ 
+ AWS_REGION="${aws_region}"
+ POLARIS_REPO_URL="${polaris_repo_url}"
+@@ -89,6 +92,29 @@ SEMANTIC_SCHOLAR_API_KEY=$(ssm_get /polaris/v6/semantic_scholar_api_key || true)
+ POLARIS_GPG_KEY_ID=$(ssm_get /polaris/v6/polaris_gpg_key_id)
+ POLARIS_GPG_PUBKEY=$(ssm_get /polaris/v6/polaris_gpg_pubkey || true)
+ 
++# ----- 4b. I-carney-004: fetch Secrets Manager substrate -----
++sm_get() {
++    aws secretsmanager get-secret-value \
++        --secret-id "$1" \
++        --region "$AWS_REGION" \
++        --query SecretString \
++        --output text 2>/dev/null
++}
++
++POLARIS_JWT_SECRET=$(sm_get polaris/v6/jwt_secret)
++POLARIS_STATIC_ACCOUNTS_YAML=$(sm_get polaris/v6/static_accounts_yaml)
++POLARIS_GPG_PRIVKEY=$(sm_get polaris/v6/gpg_private_key_armored)
++
++# Write static_accounts.yaml to /etc/polaris/ (host) AND make it available
++# to the api container via bind-mount. The container path /app/config/
++# is baked in by Dockerfile.v6 `COPY config/`; for the runtime override
++# we set POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
++# in the api+worker env_file so the container reads the host-managed YAML.
++mkdir -p /etc/polaris
++chmod 750 /etc/polaris
++echo "$POLARIS_STATIC_ACCOUNTS_YAML" > /etc/polaris/static_accounts.yaml
++chmod 640 /etc/polaris/static_accounts.yaml
++
+ cat > /opt/polaris/.env <<EOF
+ OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+ SERPER_API_KEY=$SERPER_API_KEY
+@@ -101,6 +127,8 @@ PG_MAX_COST_PER_RUN=5.00
+ POLARIS_AUDIT_S3_BUCKET=$AUDIT_BUCKET_NAME
+ POLARIS_GIT_COMMIT=$POLARIS_REPO_COMMIT
+ AWS_REGION=$AWS_REGION
++POLARIS_JWT_SECRET=$POLARIS_JWT_SECRET
++POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
+ EOF
+ chmod 600 /opt/polaris/.env
+ 
+@@ -122,6 +150,19 @@ if [ -n "$POLARIS_GPG_PUBKEY" ]; then
+     chmod 644 /var/lib/polaris/gpg/polaris_demo_pubkey.asc
+ fi
+ 
++# I-carney-004: import GPG PRIVATE key from Secrets Manager (replaces the
++# manual operator-side SSM Session Manager transfer step from I-carney-002).
++# Private key remains in the dedicated /var/lib/polaris/gpg keyring (mode 700).
++if [ -n "$POLARIS_GPG_PRIVKEY" ]; then
++    export GNUPGHOME=/var/lib/polaris/gpg
++    # Codex iter-1 P2: fail loud on import error (private key is the entire
++    # reason for the bundle-signing substrate; silent failure would let the
++    # deploy come up serving 503s on every /runs/{id}/bundle.tar.gz).
++    echo "$POLARIS_GPG_PRIVKEY" | gpg --batch --import
++    # Wipe the env var so it doesn't leak into journald via systemd unit logs.
++    unset POLARIS_GPG_PRIVKEY
++fi
++
+ # ----- 5b. Install egress allowlist + lockdown (I-carney-003) -----
+ mkdir -p /etc/polaris
+ cp /opt/polaris/config/egress_allowlist.txt /etc/polaris/egress_allowlist.txt
+diff --git a/infra/aws/ec2.tf b/infra/aws/ec2.tf
+index af1f3b4d..c2a681c6 100644
+--- a/infra/aws/ec2.tf
++++ b/infra/aws/ec2.tf
+@@ -166,11 +166,10 @@ resource "aws_instance" "polaris" {
+     Name = "polaris-carney"
+   }
+ 
+-  # Codex diff iter-1 P1-002: cloud-init.sh runs `aws ssm get-parameter ...`
+-  # under `set -e`. If the instance launches before the SSM parameters exist
+-  # or before the SSM read IAM policy is attached to the role, the user-data
+-  # script fails and compose never starts. Explicit depends_on forces both
+-  # secrets-in-Parameter-Store + IAM permission to be in place at boot.
++  # Codex diff iter-1 P1-002 (I-carney-002) + I-carney-004 iter-1 P1-2:
++  # cloud-init.sh runs `aws ssm get-parameter` AND `aws secretsmanager
++  # get-secret-value` under `set -e`. Block instance boot until ALL secrets
++  # are written AND the IAM policies are attached.
+   depends_on = [
+     aws_ssm_parameter.openrouter_api_key,
+     aws_ssm_parameter.serper_api_key,
+@@ -179,6 +178,11 @@ resource "aws_instance" "polaris" {
+     aws_iam_role_policy_attachment.ssm_managed,
+     aws_iam_role_policy_attachment.ssm_read,
+     aws_iam_role_policy_attachment.s3_audit_write,
++    # I-carney-004 Secrets Manager substrate.
++    aws_secretsmanager_secret_version.jwt_secret,
++    aws_secretsmanager_secret_version.static_accounts,
++    aws_secretsmanager_secret_version.gpg_private_key,
++    aws_iam_role_policy_attachment.secretsmanager_read,
+   ]
+ }
+ 
+diff --git a/infra/aws/main.tf b/infra/aws/main.tf
+index 1578c042..b36f3ef9 100644
+--- a/infra/aws/main.tf
++++ b/infra/aws/main.tf
+@@ -13,6 +13,11 @@ terraform {
+       source  = "hashicorp/aws"
+       version = "~> 5.70"
+     }
++    # I-carney-004: random_password for the JWT secret in Secrets Manager.
++    random = {
++      source  = "hashicorp/random"
++      version = "~> 3.6"
++    }
+   }
+ 
+   # S3 backend for state. Bootstrap the bucket separately (chicken-and-egg).
+diff --git a/infra/aws/secretsmanager.tf b/infra/aws/secretsmanager.tf
+new file mode 100644
+index 00000000..568c5fc0
+--- /dev/null
++++ b/infra/aws/secretsmanager.tf
+@@ -0,0 +1,78 @@
++# I-carney-004 — AWS Secrets Manager: JWT secret + static accounts + GPG
++# private key. SSM Parameter Store still holds the LLM API keys (smaller
++# secrets, lower rotation cadence); Secrets Manager carries the auth +
++# bundle-signing substrate that requires automated rotation eligibility.
++
++resource "aws_secretsmanager_secret" "jwt_secret" {
++  name        = "polaris/v6/jwt_secret"
++  description = "HS256 signing key for /auth/login JWTs"
++  kms_key_id  = aws_kms_key.audit.arn  # reuse the audit CMK
++}
++
++# Auto-generated 64-byte URL-safe random value via Terraform's random_password.
++resource "random_password" "jwt_secret" {
++  length  = 64
++  special = false # URL-safe
++}
++
++resource "aws_secretsmanager_secret_version" "jwt_secret" {
++  secret_id     = aws_secretsmanager_secret.jwt_secret.id
++  secret_string = random_password.jwt_secret.result
++}
++
++# ----- Static accounts YAML -----
++resource "aws_secretsmanager_secret" "static_accounts" {
++  name        = "polaris/v6/static_accounts_yaml"
++  description = "POLARIS Carney demo reviewer + admin accounts (bcrypt hashed)"
++  kms_key_id  = aws_kms_key.audit.arn
++}
++
++resource "aws_secretsmanager_secret_version" "static_accounts" {
++  secret_id     = aws_secretsmanager_secret.static_accounts.id
++  secret_string = var.static_accounts_yaml
++}
++
++# ----- GPG private key (armored ASCII) -----
++resource "aws_secretsmanager_secret" "gpg_private_key" {
++  name        = "polaris/v6/gpg_private_key_armored"
++  description = "Armored ASCII secret key for Carney demo bundle signing"
++  kms_key_id  = aws_kms_key.audit.arn
++}
++
++resource "aws_secretsmanager_secret_version" "gpg_private_key" {
++  secret_id     = aws_secretsmanager_secret.gpg_private_key.id
++  secret_string = var.gpg_private_key_armored
++}
++
++# Extends the EC2 IAM role from ec2.tf with Secrets Manager read on the
++# specific secret ARNs (NOT Resource: "*").
++data "aws_iam_policy_document" "secretsmanager_read" {
++  statement {
++    actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
++    resources = [
++      aws_secretsmanager_secret.jwt_secret.arn,
++      aws_secretsmanager_secret.static_accounts.arn,
++      aws_secretsmanager_secret.gpg_private_key.arn,
++    ]
++  }
++  # KMS Decrypt for the CMK that wraps the secrets.
++  statement {
++    actions   = ["kms:Decrypt"]
++    resources = [aws_kms_key.audit.arn]
++    condition {
++      test     = "StringEquals"
++      variable = "kms:ViaService"
++      values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
++    }
++  }
++}
++
++resource "aws_iam_policy" "secretsmanager_read" {
++  name   = "polaris-carney-secretsmanager-read"
++  policy = data.aws_iam_policy_document.secretsmanager_read.json
++}
++
++resource "aws_iam_role_policy_attachment" "secretsmanager_read" {
++  role       = aws_iam_role.polaris_ec2.name
++  policy_arn = aws_iam_policy.secretsmanager_read.arn
++}
+diff --git a/infra/aws/terraform.tfvars.example b/infra/aws/terraform.tfvars.example
+index dab2dab8..03f63ccc 100644
+--- a/infra/aws/terraform.tfvars.example
++++ b/infra/aws/terraform.tfvars.example
+@@ -33,3 +33,26 @@ EOT
+ 
+ # ----- Ops -----
+ ebs_backup_retention_days = 7
++
++# ----- I-carney-004 auth + secrets -----
++# Generate the bcrypt hashes locally:
++#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('your-password'))"
++# Then paste the YAML body verbatim.
++static_accounts_yaml = <<EOT
++accounts:
++  - username: carney_office
++    password_bcrypt: "$2b$12$REPLACE_ME_REVIEWER"
++    role: reviewer
++  - username: ops
++    password_bcrypt: "$2b$12$REPLACE_ME_OPS"
++    role: admin
++EOT
++
++# Armored ASCII of the demo signing key. On operator workstation:
++#   bash scripts/bootstrap_gpg_demo_key.sh
++#   gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo"
++gpg_private_key_armored = <<EOT
++-----BEGIN PGP PRIVATE KEY BLOCK-----
++REPLACE_ME_PRIVATE_KEY_BODY
++-----END PGP PRIVATE KEY BLOCK-----
++EOT
+diff --git a/infra/aws/variables.tf b/infra/aws/variables.tf
+index f556275d..4a700d52 100644
+--- a/infra/aws/variables.tf
++++ b/infra/aws/variables.tf
+@@ -110,3 +110,17 @@ variable "ebs_backup_retention_days" {
+   type        = number
+   default     = 7
+ }
++
++# I-carney-004 — Secrets Manager substrate.
++
++variable "static_accounts_yaml" {
++  description = "Body of static_accounts.yaml (bcrypt hashed). Operator generates locally then pastes."
++  type        = string
++  sensitive   = true
++}
++
++variable "gpg_private_key_armored" {
++  description = "Armored ASCII secret key for the Carney demo signing identity. Generated by bootstrap_gpg_demo_key.sh on operator workstation."
++  type        = string
++  sensitive   = true
++}
+diff --git a/requirements-v6.txt b/requirements-v6.txt
+index 086391ec..b9c90ef6 100644
+--- a/requirements-v6.txt
++++ b/requirements-v6.txt
+@@ -15,6 +15,12 @@ python-multipart==0.0.20
+ sse-starlette==2.4.1
+ httpx==0.28.1
+ 
++# --- Auth (I-carney-004): static-accounts + bcrypt + HS256 JWT ---
++passlib[bcrypt]==1.7.4
++python-jose[cryptography]==3.3.0
++PyYAML>=6.0
++boto3>=1.34.0  # AWS Secrets Manager fetch in cloud-init not in app; but app reads SECRETS via env
++
+ # --- Queue + broker ---
+ # Dramatiq 2.1.0 requires redis<8.0,>=4.0 (PyPI verified).
+ dramatiq[redis,watch]==2.1.0
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index b8d68ce6..4e14a3cf 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -9,11 +9,16 @@ from __future__ import annotations
+ import os
+ from contextlib import asynccontextmanager
+ 
+-from fastapi import FastAPI
++from fastapi import Depends, FastAPI
+ from fastapi.middleware.cors import CORSMiddleware
+ 
+ from polaris_v6 import __version__
+ from polaris_v6.api.ambiguity import router as ambiguity_router
++from polaris_v6.api.auth import (
++    require_auth as _require_auth,
++    router as auth_router,
++    verify_app_startup as _verify_auth_startup,
++)
+ from polaris_v6.api.bundle import router as bundle_router
+ from polaris_v6.api.charts import router as charts_router
+ from polaris_v6.api.compare import router as compare_router
+@@ -62,11 +67,15 @@ async def _lifespan(_: FastAPI):
+ 
+ 
+ def create_app() -> FastAPI:
++    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
++    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
++    _verify_auth_startup()
+     app = FastAPI(
+         title="POLARIS",
+         version=__version__,
+         description="Sovereign Canadian deep research AI",
+         lifespan=_lifespan,
++        dependencies=[Depends(_require_auth)],
+     )
+     cors_origins = os.environ.get(
+         "POLARIS_V6_CORS_ORIGINS",
+@@ -80,6 +89,7 @@ def create_app() -> FastAPI:
+         allow_headers=["*"],
+     )
+     app.include_router(health_router)
++    app.include_router(auth_router)
+     app.include_router(runs_router)
+     app.include_router(stream_router)
+     app.include_router(ambiguity_router)
+diff --git a/src/polaris_v6/api/auth.py b/src/polaris_v6/api/auth.py
+new file mode 100644
+index 00000000..085a5fa1
+--- /dev/null
++++ b/src/polaris_v6/api/auth.py
+@@ -0,0 +1,179 @@
++"""I-carney-004 — static-accounts auth + HS256 JWT.
++
++Pattern (Carney-demo scope):
++- Operator-curated YAML at `${POLARIS_STATIC_ACCOUNTS_PATH:-/app/config/static_accounts.yaml}`
++  with bcrypt-hashed passwords + role.
++- POST /auth/login → 12-hour HS256 JWT signed with POLARIS_JWT_SECRET.
++- `require_auth` FastAPI dependency injects on all routes except an allowlist
++  (/health, /transparency*, /auth/login).
++
++LAW II: missing POLARIS_JWT_SECRET at app startup → fail-loud RuntimeError.
++Never silently allow unauthenticated traffic.
++
++Phase-2: replace with Cognito/Okta when the demo gives way to long-term use.
++"""
++
++from __future__ import annotations
++
++import os
++import secrets
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Any
++
++import yaml
++from fastapi import APIRouter, Depends, HTTPException, Request
++from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
++from jose import JWTError, jwt
++from passlib.context import CryptContext
++from pydantic import BaseModel
++
++JWT_ALGORITHM = "HS256"
++JWT_EXPIRY_HOURS = 12
++
++# Paths exempt from auth — health probes + reviewer-visible transparency.
++PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
++    "/health",
++    "/transparency",
++    "/auth/login",
++    "/docs",       # FastAPI's own OpenAPI UI
++    "/redoc",
++    "/openapi.json",
++)
++
++DEFAULT_ACCOUNTS_PATH = "/app/config/static_accounts.yaml"
++
++_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
++_bearer_scheme = HTTPBearer(auto_error=False)
++router = APIRouter(tags=["auth"])
++
++
++class LoginRequest(BaseModel):
++    username: str
++    password: str
++
++
++class LoginResponse(BaseModel):
++    access_token: str
++    token_type: str = "bearer"
++    role: str
++    expires_in: int  # seconds
++
++
++class User(BaseModel):
++    username: str
++    role: str
++
++
++def _load_accounts() -> list[dict[str, Any]]:
++    """Read the static-accounts YAML. Raises RuntimeError if missing.
++
++    LAW II: never silently default to an empty account list (which would
++    behave as 'allow nobody' but the operator would not realize the file
++    was missing).
++    """
++    path = Path(os.environ.get("POLARIS_STATIC_ACCOUNTS_PATH", DEFAULT_ACCOUNTS_PATH))
++    if not path.exists():
++        raise RuntimeError(
++            f"static_accounts.yaml not found at {path}. Set "
++            "POLARIS_STATIC_ACCOUNTS_PATH or mount the file. The application "
++            "refuses to start without the auth substrate (LAW II)."
++        )
++    body = yaml.safe_load(path.read_text(encoding="utf-8"))
++    if not isinstance(body, dict) or not isinstance(body.get("accounts"), list):
++        raise RuntimeError(f"static_accounts.yaml at {path} must have top-level 'accounts' list")
++    return body["accounts"]
++
++
++def _jwt_secret() -> str:
++    secret = os.environ.get("POLARIS_JWT_SECRET", "").strip()
++    if not secret or len(secret) < 32:
++        raise RuntimeError(
++            "POLARIS_JWT_SECRET env var missing or too short (<32 chars). "
++            "Application refuses to issue tokens with a weak/missing key (LAW II). "
++            "Set via AWS Secrets Manager → cloud-init → .env per I-carney-004."
++        )
++    return secret
++
++
++def verify_app_startup() -> None:
++    """Called at FastAPI app create_app() time. Fail loud if auth substrate
++    is misconfigured. Per LAW II, we never start an auth-gated app with a
++    broken auth gate.
++
++    Skipped when POLARIS_AUTH_DISABLED=1 (Phase-0 demo + tests).
++    """
++    if os.environ.get("POLARIS_AUTH_DISABLED", "") == "1":
++        return
++    _jwt_secret()
++    _load_accounts()  # raises if YAML missing or malformed
++
++
++def issue_token(username: str, role: str) -> tuple[str, int]:
++    """Returns (jwt, expires_in_seconds)."""
++    expires_in = JWT_EXPIRY_HOURS * 3600
++    payload = {
++        "sub": username,
++        "role": role,
++        "iat": datetime.now(timezone.utc),
++        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
++    }
++    token = jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALGORITHM)
++    return token, expires_in
++
++
++def _path_is_public(path: str) -> bool:
++    return any(path.startswith(prefix) for prefix in PUBLIC_PATH_PREFIXES)
++
++
++async def require_auth(
++    request: Request,
++    creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
++) -> User | None:
++    """Global FastAPI dependency. None on public paths; raises 401 otherwise.
++
++    Phase-0 demo: POLARIS_AUTH_DISABLED=1 short-circuits to None (auth off).
++    """
++    if os.environ.get("POLARIS_AUTH_DISABLED", "") == "1":
++        return None
++    if _path_is_public(request.url.path):
++        return None
++    if creds is None or creds.scheme.lower() != "bearer":
++        raise HTTPException(
++            status_code=401,
++            detail={"error": "missing_bearer_token", "message": "Authorization: Bearer <jwt> required"},
++        )
++    try:
++        payload = jwt.decode(creds.credentials, _jwt_secret(), algorithms=[JWT_ALGORITHM])
++    except JWTError as exc:
++        raise HTTPException(
++            status_code=401,
++            detail={"error": "invalid_token", "message": str(exc)},
++        ) from exc
++    return User(username=payload["sub"], role=payload.get("role", "reviewer"))
++
++
++@router.post("/auth/login", response_model=LoginResponse)
++def login(payload: LoginRequest) -> LoginResponse:
++    accounts = _load_accounts()
++    for account in accounts:
++        if account.get("username") == payload.username:
++            hashed = account.get("password_bcrypt", "")
++            if hashed and _pwd_ctx.verify(payload.password, hashed):
++                token, exp_in = issue_token(payload.username, account.get("role", "reviewer"))
++                return LoginResponse(
++                    access_token=token,
++                    role=account.get("role", "reviewer"),
++                    expires_in=exp_in,
++                )
++            break
++    # Constant-time-ish failure shape (don't leak whether username exists).
++    raise HTTPException(
++        status_code=401,
++        detail={"error": "invalid_credentials"},
++    )
++
++
++def generate_strong_secret(n_bytes: int = 48) -> str:
++    """Helper for operator scripts: 64-char URL-safe random secret."""
++    return secrets.token_urlsafe(n_bytes)
+diff --git a/tests/polaris_v6/api/test_auth.py b/tests/polaris_v6/api/test_auth.py
+new file mode 100644
+index 00000000..6810fc37
+--- /dev/null
++++ b/tests/polaris_v6/api/test_auth.py
+@@ -0,0 +1,165 @@
++"""I-carney-004 — static-accounts auth + JWT coverage.
++
++Hermetic: no AWS calls, no real Secrets Manager. Uses tmp_path for the
++static_accounts YAML + monkeypatched env vars for the JWT secret.
++"""
++
++from __future__ import annotations
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from passlib.hash import bcrypt
++
++from polaris_v6.api import auth as auth_module
++
++
++@pytest.fixture
++def jwt_secret(monkeypatch):
++    secret = "test-jwt-secret-" + "x" * 32
++    monkeypatch.setenv("POLARIS_JWT_SECRET", secret)
++    return secret
++
++
++@pytest.fixture
++def static_accounts_file(tmp_path, monkeypatch):
++    """Builds a YAML with a known reviewer + admin."""
++    accounts_path = tmp_path / "static_accounts.yaml"
++    reviewer_hash = bcrypt.using(rounds=4).hash("reviewer_pw")
++    admin_hash = bcrypt.using(rounds=4).hash("admin_pw")
++    accounts_path.write_text(
++        f"accounts:\n"
++        f"  - username: carney_office\n"
++        f"    password_bcrypt: \"{reviewer_hash}\"\n"
++        f"    role: reviewer\n"
++        f"  - username: ops\n"
++        f"    password_bcrypt: \"{admin_hash}\"\n"
++        f"    role: admin\n",
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("POLARIS_STATIC_ACCOUNTS_PATH", str(accounts_path))
++    return accounts_path
++
++
++@pytest.fixture
++def app_with_auth(jwt_secret, static_accounts_file, monkeypatch):
++    monkeypatch.delenv("POLARIS_AUTH_DISABLED", raising=False)
++    app = FastAPI(dependencies=[pytest.importorskip("fastapi").Depends(auth_module.require_auth)])
++    app.include_router(auth_module.router)
++
++    # Mount a stub protected route for testing.
++    @app.get("/protected/echo")
++    def protected() -> dict:
++        return {"ok": True}
++
++    @app.get("/health")
++    def health() -> dict:
++        return {"status": "ok"}
++
++    return app
++
++
++def test_login_valid_credentials_returns_jwt(app_with_auth):
++    client = TestClient(app_with_auth)
++    resp = client.post(
++        "/auth/login",
++        json={"username": "carney_office", "password": "reviewer_pw"},
++    )
++    assert resp.status_code == 200
++    body = resp.json()
++    assert "access_token" in body
++    assert body["token_type"] == "bearer"
++    assert body["role"] == "reviewer"
++    assert body["expires_in"] == 12 * 3600
++
++
++def test_login_invalid_password_returns_401(app_with_auth):
++    client = TestClient(app_with_auth)
++    resp = client.post(
++        "/auth/login",
++        json={"username": "carney_office", "password": "wrong"},
++    )
++    assert resp.status_code == 401
++    assert resp.json()["detail"]["error"] == "invalid_credentials"
++
++
++def test_login_unknown_user_returns_401(app_with_auth):
++    client = TestClient(app_with_auth)
++    resp = client.post(
++        "/auth/login",
++        json={"username": "stranger", "password": "anything"},
++    )
++    assert resp.status_code == 401
++
++
++def test_protected_route_requires_bearer(app_with_auth):
++    client = TestClient(app_with_auth)
++    resp = client.get("/protected/echo")
++    assert resp.status_code == 401
++    assert resp.json()["detail"]["error"] == "missing_bearer_token"
++
++
++def test_protected_route_accepts_valid_jwt(app_with_auth):
++    client = TestClient(app_with_auth)
++    login = client.post(
++        "/auth/login",
++        json={"username": "carney_office", "password": "reviewer_pw"},
++    ).json()
++    token = login["access_token"]
++    resp = client.get(
++        "/protected/echo",
++        headers={"Authorization": f"Bearer {token}"},
++    )
++    assert resp.status_code == 200
++    assert resp.json() == {"ok": True}
++
++
++def test_protected_route_rejects_malformed_jwt(app_with_auth):
++    client = TestClient(app_with_auth)
++    resp = client.get(
++        "/protected/echo",
++        headers={"Authorization": "Bearer garbage.token.string"},
++    )
++    assert resp.status_code == 401
++    assert resp.json()["detail"]["error"] == "invalid_token"
++
++
++def test_health_and_transparency_are_public(app_with_auth, monkeypatch):
++    client = TestClient(app_with_auth)
++    # /health doesn't require auth (allowlist)
++    resp = client.get("/health")
++    assert resp.status_code == 200
++
++
++def test_verify_app_startup_fails_loud_on_missing_jwt_secret(
++    static_accounts_file, monkeypatch
++):
++    monkeypatch.delenv("POLARIS_JWT_SECRET", raising=False)
++    monkeypatch.delenv("POLARIS_AUTH_DISABLED", raising=False)
++    with pytest.raises(RuntimeError, match="POLARIS_JWT_SECRET"):
++        auth_module.verify_app_startup()
++
++
++def test_verify_app_startup_fails_loud_on_missing_accounts(
++    jwt_secret, tmp_path, monkeypatch
++):
++    monkeypatch.setenv(
++        "POLARIS_STATIC_ACCOUNTS_PATH", str(tmp_path / "nonexistent.yaml")
++    )
++    monkeypatch.delenv("POLARIS_AUTH_DISABLED", raising=False)
++    with pytest.raises(RuntimeError, match="static_accounts.yaml not found"):
++        auth_module.verify_app_startup()
++
++
++def test_verify_app_startup_skipped_when_auth_disabled(monkeypatch):
++    monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
++    monkeypatch.delenv("POLARIS_JWT_SECRET", raising=False)
++    # Should NOT raise even with missing secret.
++    auth_module.verify_app_startup()
++
++
++def test_short_jwt_secret_rejected(static_accounts_file, monkeypatch):
++    monkeypatch.setenv("POLARIS_JWT_SECRET", "too-short")
++    monkeypatch.delenv("POLARIS_AUTH_DISABLED", raising=False)
++    with pytest.raises(RuntimeError, match="too short"):
++        auth_module.verify_app_startup()
+diff --git a/tests/polaris_v6/conftest.py b/tests/polaris_v6/conftest.py
+new file mode 100644
+index 00000000..a8dd538f
+--- /dev/null
++++ b/tests/polaris_v6/conftest.py
+@@ -0,0 +1,14 @@
++"""Test-level setup for tests/polaris_v6/ (mirrors tests/v6/conftest.py).
++
++I-carney-004: create_app() invokes verify_app_startup() which raises on
++missing POLARIS_JWT_SECRET / static_accounts.yaml. Default tests/ to
++auth-disabled mode; individual auth tests opt back in via
++`monkeypatch.delenv("POLARIS_AUTH_DISABLED")`.
++"""
++
++from __future__ import annotations
++
++import os
++
++os.environ.setdefault("POLARIS_AUTH_DISABLED", "1")
++os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
+diff --git a/tests/v6/conftest.py b/tests/v6/conftest.py
+index a2990fb2..581d6edd 100644
+--- a/tests/v6/conftest.py
++++ b/tests/v6/conftest.py
+@@ -25,6 +25,12 @@ import os
+ # otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
+ os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
+ 
++# I-carney-004 P1: every create_app() call now invokes verify_app_startup()
++# which raises RuntimeError on missing POLARIS_JWT_SECRET / static_accounts.
++# Tests that mount the full app must bypass the auth substrate; individual
++# auth tests opt back in by `monkeypatch.delenv("POLARIS_AUTH_DISABLED")`.
++os.environ.setdefault("POLARIS_AUTH_DISABLED", "1")
++
+ try:
+     from polaris_v6.queue.broker import get_broker as _get_broker
+ 
