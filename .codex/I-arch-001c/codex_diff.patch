@@ -1,0 +1,144 @@
+From efefb6d1f532ed456496f4cc2b95446e442d61c4 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Tue, 12 May 2026 21:43:52 -0700
+Subject: [PATCH] =?UTF-8?q?I-arch-001c:=20refine=20TEMPLATE=5FTO=5FSCOPE?=
+ =?UTF-8?q?=5FDOMAIN=20=E2=80=94=20promote=203=20templates=20with=20own=20?=
+ =?UTF-8?q?scope=5Ftemplates?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Codex brief APPROVE iter 1 (zero P0/P1) per Codex iter-3 P3 nudge to derive
+template set from registry instead of hardcoding.
+
+Before (I-arch-001a): all 7 non-clinical templates collapsed to "policy"
+After (this PR): 3 templates with existing config/scope_templates/*.yaml
+(ai_sovereignty, canada_us, workforce from I-tpl-006/7/8) promoted to
+identity mappings; 4 templates without scope_templates (climate, defense,
+housing, trade) keep the "policy" fallback pending Phase 2 authoring.
+
+scope_gate.SUPPORTED_DOMAINS:
+- clinical, policy, tech, due_diligence, custom (base)
+- ai_sovereignty, canada_us, workforce (I-tpl-006/7/8) ← now used
+
+Tests (4 new, all pass):
+- every v6 template_id from registry.list_template_ids() has a mapping
+- every mapping value is in SUPPORTED_DOMAINS (would otherwise raise at
+  run_scope_gate load_scope_template call)
+- promoted templates use identity mapping
+- Phase 2 deferred templates fall back to "policy"
+
+GH#465.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ src/polaris_v6/queue/actors.py                | 24 +++++---
+ .../queue/test_template_to_scope_domain.py    | 56 +++++++++++++++++++
+ 2 files changed, 73 insertions(+), 7 deletions(-)
+ create mode 100644 tests/polaris_v6/queue/test_template_to_scope_domain.py
+
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index a1b2f5dc..c75da240 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -28,18 +28,28 @@ logger = logging.getLogger(__name__)
+ 
+ ENQUEUE_MAX_RETRIES = 3
+ 
+-# I-arch-001a: week-1 template→scope_domain mapping. Per Codex iter-3 APPROVE
+-# of brief. Per-domain expansion (real scope_templates for 4 new policy
+-# domains) deferred to post-demo Phase 2 per I-arch-001c follow-up.
++# I-arch-001c (2026-05-13): template_id → pipeline-A scope_domain mapping at
++# the actor boundary.
++#
++# Three domains already exist in scope_gate.SUPPORTED_DOMAINS with their own
++# config/scope_templates/<domain>.yaml (per I-tpl-006/7/8): ai_sovereignty,
++# canada_us, workforce. These are promoted to identity mappings so the
++# deterministic scope_gate picks the right per-domain rubric.
++#
++# Four templates (climate, defense, housing, trade) have no scope_template
++# yet — they fall back to the generic "policy" rubric. Authoring per-domain
++# YAMLs + adding to SUPPORTED_DOMAINS is Phase 2 (post-Carney-demo).
++#
++# clinical → clinical (unchanged).
+ TEMPLATE_TO_SCOPE_DOMAIN = {
+-    "ai_sovereignty": "policy",
+-    "canada_us": "policy",
+-    "climate": "policy",
++    "ai_sovereignty": "ai_sovereignty",
++    "canada_us": "canada_us",
++    "workforce": "workforce",
+     "clinical": "clinical",
++    "climate": "policy",
+     "defense": "policy",
+     "housing": "policy",
+     "trade": "policy",
+-    "workforce": "policy",
+ }
+ 
+ 
+diff --git a/tests/polaris_v6/queue/test_template_to_scope_domain.py b/tests/polaris_v6/queue/test_template_to_scope_domain.py
+new file mode 100644
+index 00000000..8553fe91
+--- /dev/null
++++ b/tests/polaris_v6/queue/test_template_to_scope_domain.py
+@@ -0,0 +1,56 @@
++"""I-arch-001c — TEMPLATE_TO_SCOPE_DOMAIN mapping coverage.
++
++Per Codex iter-1 P3 nudge: derive the template set from
++polaris_v6.templates.registry.list_template_ids() so future v6 templates
++cannot silently fall through to a default policy mapping.
++"""
++
++from __future__ import annotations
++
++from polaris_graph.nodes.scope_gate import SUPPORTED_DOMAINS
++from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
++from polaris_v6.templates.registry import list_template_ids
++
++
++def test_every_v6_template_has_a_mapping() -> None:
++    """Every v6 template_id (read from config/v6_templates/*.json at runtime)
++    must have an explicit entry in TEMPLATE_TO_SCOPE_DOMAIN. Catches future
++    templates that would otherwise silently fall through to a default."""
++    v6_template_ids = set(list_template_ids())
++    mapped_ids = set(TEMPLATE_TO_SCOPE_DOMAIN.keys())
++    missing = v6_template_ids - mapped_ids
++    assert not missing, (
++        f"v6 templates {sorted(missing)!r} have no entry in "
++        f"TEMPLATE_TO_SCOPE_DOMAIN — add explicit mappings."
++    )
++
++
++def test_every_mapping_value_is_a_supported_scope_domain() -> None:
++    """Every target domain must be in scope_gate.SUPPORTED_DOMAINS or
++    pipeline-A's run_scope_gate will reject the load_scope_template call."""
++    for template_id, scope_domain in TEMPLATE_TO_SCOPE_DOMAIN.items():
++        assert scope_domain in SUPPORTED_DOMAINS, (
++            f"template_id={template_id!r} maps to "
++            f"scope_domain={scope_domain!r} which is NOT in SUPPORTED_DOMAINS "
++            f"{sorted(SUPPORTED_DOMAINS)!r}"
++        )
++
++
++def test_promoted_templates_use_identity_mapping() -> None:
++    """ai_sovereignty / canada_us / workforce have their own scope_templates
++    (I-tpl-006/7/8) and should map to themselves, not collapse to policy."""
++    for template_id in ("ai_sovereignty", "canada_us", "workforce", "clinical"):
++        assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == template_id, (
++            f"{template_id!r} should map to itself (its scope_template exists), "
++            f"but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
++        )
++
++
++def test_phase2_deferred_templates_fall_back_to_policy() -> None:
++    """climate / defense / housing / trade have no scope_template yet — they
++    must fall back to the generic policy rubric until Phase 2 authoring."""
++    for template_id in ("climate", "defense", "housing", "trade"):
++        assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == "policy", (
++            f"{template_id!r} has no scope_template; must map to 'policy' until "
++            f"Phase 2 authoring, but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
++        )
+-- 
+2.49.0.windows.1
+
