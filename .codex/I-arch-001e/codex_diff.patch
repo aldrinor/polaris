@@ -1,0 +1,1173 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 9cbc6156..398f83ed 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -91,6 +91,10 @@ from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
+     check_freshness,
+ )
+ from src.polaris_graph.audit_ir.manifest_augment import augment_v6_manifest  # noqa: E402
++from src.polaris_v6.queue.run_events import (  # noqa: E402
++    emit_event,
++    emit_terminal_event,
++)
+ from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
+     check_completeness,
+ )
+@@ -1174,6 +1178,17 @@ async def run_one_query(
+              f"decision={scope.protocol.scope_decision} "
+              f"needs_review={scope.protocol.needs_user_review}")
+ 
++        # I-arch-001e: stage event for SSE consumers (v6_mode only; no-op otherwise).
++        if q.get("v6_mode") and q.get("external_run_id"):
++            emit_event(
++                q.get("external_run_id"),
++                "scope_gate.completed",
++                {
++                    "decision": scope.protocol.scope_decision,
++                    "reason": "; ".join(scope.protocol.scope_reasons) if scope.protocol.scope_rejected else "in_scope",
++                },
++            )
++
+         # M-INT-4: best-effort LLM scope classification alongside
+         # the deterministic template-driven gate. Telemetry only —
+         # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
+@@ -1347,6 +1362,12 @@ async def run_one_query(
+             summary["cost_usd"] = run_cost
+             try: write_per_run_cost_ledger(run_dir, run_id)
+             except Exception: pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "abort_scope_rejected",
++                    error_msg=summary.get("error"),
++                )
+             set_current_run_id(None)
+             log_f.close()
+             return summary
+@@ -1483,6 +1504,12 @@ async def run_one_query(
+             summary["cost_usd"] = run_cost
+             try: write_per_run_cost_ledger(run_dir, run_id)
+             except Exception: pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "abort_no_sources",
++                    error_msg=summary.get("error"),
++                )
+             set_current_run_id(None)
+             log_f.close()
+             return summary
+@@ -1703,6 +1730,12 @@ async def run_one_query(
+             summary["cost_usd"] = run_cost
+             try: write_per_run_cost_ledger(run_dir, run_id)
+             except Exception: pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "abort_corpus_inadequate",
++                    error_msg=summary.get("error"),
++                )
+             set_current_run_id(None)
+             log_f.close()
+             return summary
+@@ -1788,6 +1821,12 @@ async def run_one_query(
+             summary["cost_usd"] = run_cost
+             try: write_per_run_cost_ledger(run_dir, run_id)
+             except Exception: pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "abort_corpus_approval_denied",
++                    error_msg=summary.get("error"),
++                )
+             set_current_run_id(None)
+             log_f.close()
+             return summary
+@@ -2351,6 +2390,12 @@ async def run_one_query(
+             summary["cost_usd"] = run_cost
+             try: write_per_run_cost_ledger(run_dir, run_id)
+             except Exception: pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "abort_no_verified_sections",
++                    error_msg=summary.get("error"),
++                )
+             set_current_run_id(None)
+             log_f.close()
+             return summary
+@@ -2913,6 +2958,27 @@ async def run_one_query(
+         logging.getLogger(__name__).warning(
+             "per-run ledger copy failed: %s", ledger_exc
+         )
++
++    # I-arch-001e: success + error_unexpected terminal events. The 5 abort
++    # paths emit inline before their early returns; this catches the
++    # success path (status set at line ~2865) plus the error path (status
++    # set to "error" at line ~2873, mapped to error_unexpected here).
++    if q.get("v6_mode") and q.get("external_run_id"):
++        _final_status = summary.get("status") or "error_unexpected"
++        if _final_status == "error":
++            _final_status = "error_unexpected"
++        # Use the manifest's unified status if available — it is the
++        # canonical taxonomy (success / partial_* / abort_* / error_unexpected).
++        _manifest = summary.get("manifest") or {}
++        _manifest_status = _manifest.get("status")
++        if _manifest_status:
++            _final_status = _manifest_status
++        emit_terminal_event(
++            q.get("external_run_id"),
++            _final_status,
++            error_msg=summary.get("error"),
++        )
++
+     set_current_run_id(None)
+ 
+     log_f.close()
+diff --git a/src/polaris_v6/api/stream.py b/src/polaris_v6/api/stream.py
+index 01e39633..ebae02e1 100644
+--- a/src/polaris_v6/api/stream.py
++++ b/src/polaris_v6/api/stream.py
+@@ -1,44 +1,72 @@
+-"""SSE /stream endpoint — emits per-event updates for a research run.
++"""SSE /stream endpoint — durable replayable event log via Redis Streams.
+ 
+-Per docs/carney_delivery_plan_v6_2.md F4 (live audit run UI), the
+-frontend subscribes to /stream/{run_id} and receives Server-Sent Events
+-as the run progresses: scope_decision, retrieval_progress, evidence_id,
+-verifier_verdict, section_complete, run_complete.
++I-arch-001e (2026-05-13): replaces canned Phase 0 demo events with real
++Redis-Streams-backed SSE. Honors Last-Event-ID HTTP header (set
++automatically by EventSource on reconnect) plus ?last_event_id= query
++param fallback. Emits each event with `id: <stream_id>` so EventSource
++clients resume cleanly. Terminates after a v6 `run_complete` event.
+ 
+-Phase 0 stub: yields a small set of synthetic events with deterministic
+-timing for frontend wiring tests. Real event emission wires to the
+-pipeline-A bridge in Phase 1 once the cluster is live.
++Per docs/carney_delivery_plan_v6_2.md F4, the v6 event protocol is:
++scope_decision, retrieval_progress, evidence_id, verifier_verdict,
++section_complete, run_complete. Pipeline-A's stage events translate to
++these names via polaris_v6.queue.run_events.translate().
+ """
+ 
+ from __future__ import annotations
+ 
+-import asyncio
+ import json
+ from typing import AsyncIterator
+ 
+-from fastapi import APIRouter
++from fastapi import APIRouter, Header
+ from sse_starlette.sse import EventSourceResponse
+ 
++from polaris_v6.queue.run_events import read_events, translate
++
+ router = APIRouter(prefix="/stream", tags=["stream"])
+ 
+-PHASE_0_STUB_EVENTS = [
+-    ("scope_decision", {"verdict": "accepted", "reason": "single-meaning question"}),
+-    ("retrieval_progress", {"sources_found": 14, "tier_breakdown": {"T1": 3, "T2": 7, "T3": 4}}),
+-    ("verifier_verdict", {"section": "summary", "local_pass": True, "global_pass": True}),
+-    ("section_complete", {"section": "summary", "verified_sentences": 8, "dropped": 1}),
+-    ("run_complete", {"status": "completed"}),
+-]
+ 
++async def _redis_stream_source(
++    run_id: str, last_event_id: str, *, redis_client_async=None
++) -> AsyncIterator[dict]:
++    """Yield SSE event dicts sourced from the Redis Stream for this run_id.
+ 
+-async def _phase_0_event_source(run_id: str) -> AsyncIterator[dict]:
+-    for event_name, payload in PHASE_0_STUB_EVENTS:
+-        await asyncio.sleep(0.05)
++    Each yielded event includes `id: <stream_id>` so the EventSource client
++    resumes via Last-Event-ID on reconnect. Empty XREAD windows yield a
++    keepalive comment frame. Terminates after a v6 `run_complete`.
++    """
++    async for stream_id, raw_event in read_events(
++        run_id,
++        last_event_id=last_event_id,
++        redis_client_async=redis_client_async,
++    ):
++        if stream_id == "__keepalive__":
++            yield {"comment": "keepalive"}
++            continue
++        v6 = translate(raw_event)
++        if v6 is None:
++            continue
++        v6_name, v6_payload = v6
+         yield {
+-            "event": event_name,
+-            "data": json.dumps({"run_id": run_id, **payload}),
++            "id": stream_id,
++            "event": v6_name,
++            "data": json.dumps({"run_id": run_id, **v6_payload}),
+         }
++        if v6_name == "run_complete":
++            return
+ 
+ 
+ @router.get("/{run_id}")
+-async def stream_run(run_id: str) -> EventSourceResponse:
+-    return EventSourceResponse(_phase_0_event_source(run_id))
++async def stream_run(
++    run_id: str,
++    last_event_id_header: str | None = Header(None, alias="Last-Event-ID"),
++    last_event_id: str = "0-0",
++) -> EventSourceResponse:
++    """SSE event stream for a research run.
++
++    Reconnect / replay semantics:
++        - HTTP `Last-Event-ID: <stream_id>` header (set automatically by
++          EventSource on reconnect)
++        - `?last_event_id=<stream_id>` query param fallback for manual clients
++    """
++    effective = last_event_id_header or last_event_id
++    return EventSourceResponse(_redis_stream_source(run_id, effective))
+diff --git a/src/polaris_v6/queue/run_events.py b/src/polaris_v6/queue/run_events.py
+new file mode 100644
+index 00000000..61c76654
+--- /dev/null
++++ b/src/polaris_v6/queue/run_events.py
+@@ -0,0 +1,322 @@
++"""I-arch-001e — durable replayable SSE event log via Redis Streams.
++
++Pipeline-A emits stage events via sync `emit_event()` (non-raising). The SSE
++endpoint `stream.py` reads via async `read_events()` and translates to the v6
++canonical event protocol. Last-Event-ID resume is honored.
++
++Per Codex iter-1: emit MUST be non-raising — Redis observability failure cannot
++become a pipeline-A `error_unexpected`. Terminal events fire at all 7 exit
++paths in pipeline-A's `run_one_query`.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++import re
++from typing import Any, AsyncIterator
++
++logger = logging.getLogger(__name__)
++
++EVENT_STREAM_KEY = "polaris:events:{run_id}"
++_LAST_EVENT_ID_RE = re.compile(r"^\d+-\d+$")
++DEFAULT_REDIS_URL = "redis://localhost:6379/0"
++STREAM_MAX_LEN = 10_000
++
++
++def _redis_url() -> str:
++    return os.environ.get("POLARIS_V6_REDIS_URL", DEFAULT_REDIS_URL)
++
++
++def _get_sync_redis():
++    """Lazy redis import — keeps test-suite importable without redis installed."""
++    import redis  # noqa: PLC0415 — lazy to defer ImportError to call site
++    return redis.Redis.from_url(_redis_url())
++
++
++def _validate_last_event_id(raw: str | None) -> str:
++    """Last-Event-ID must match `<ms>-<seq>` (Redis stream-id format).
++
++    Bad input → fall back to "0-0" (read from beginning). Caller can supply
++    None or empty string to mean same thing.
++    """
++    if not raw:
++        return "0-0"
++    return raw if _LAST_EVENT_ID_RE.match(raw) else "0-0"
++
++
++def emit_event(
++    external_run_id: str | None,
++    event_type: str,
++    payload: dict[str, Any],
++    *,
++    redis_client=None,
++) -> None:
++    """Best-effort, non-raising XADD to `polaris:events:{run_id}`.
++
++    Per Codex iter-1 P1-2: pipeline-A's run_one_query MUST NOT raise
++    error_unexpected because Redis is down. All exceptions are caught
++    and logged at WARN.
++    """
++    if not external_run_id:
++        return
++    try:
++        client = redis_client or _get_sync_redis()
++        client.xadd(
++            EVENT_STREAM_KEY.format(run_id=external_run_id),
++            {
++                "event_type": event_type,
++                "payload": json.dumps(payload, default=str),
++            },
++            maxlen=STREAM_MAX_LEN,
++            approximate=True,
++        )
++    except ImportError:
++        # redis library not installed (test environment) — silent noop.
++        return
++    except Exception as exc:  # noqa: BLE001 — observability MUST NEVER block pipeline
++        # Catch ALL exceptions, not just RedisError, per Codex iter-2 P3 cosmetic.
++        logger.warning(
++            "[run_events] emit failed run_id=%s event_type=%s: %s",
++            external_run_id,
++            event_type,
++            exc,
++        )
++
++
++def emit_terminal_event(
++    external_run_id: str | None,
++    pipeline_status: str,
++    error_msg: str | None = None,
++    *,
++    redis_client=None,
++) -> None:
++    """Single helper for the 7 pipeline-A exit paths.
++
++    Emits a `run.completed` event that the translator maps to v6 `run_complete`
++    with payload.status carrying the original pipeline_status (success /
++    partial_* / abort_* / error_unexpected / stream_lost).
++    """
++    payload: dict[str, Any] = {"status": pipeline_status}
++    if error_msg:
++        payload["error"] = error_msg
++    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
++
++
++# Translator: pipeline-A event_type → (v6_event_name, transform_fn).
++# All terminal pipeline-A events (run.completed/aborted/failed) collapse to v6
++# `run_complete` carrying the original status.
++_TRANSLATOR: dict[str, tuple[str, Any]] = {
++    "scope_gate.completed": ("scope_decision", lambda p: {
++        "verdict": p.get("decision", "unknown"),
++        "reason": p.get("reason", ""),
++    }),
++    "corpus_adequacy.completed": ("retrieval_progress", lambda p: {
++        "sources_found": p.get("pool_size", 0),
++        "tier_breakdown": p.get("tier_counts", {}),
++    }),
++    "evidence.id_assigned": ("evidence_id", lambda p: {
++        "evidence_id": p.get("id", ""),
++        "source_url": p.get("url", ""),
++    }),
++    "strict_verify.section_completed": ("verifier_verdict", lambda p: {
++        "section": p.get("section", ""),
++        "local_pass": p.get("local", False),
++        "global_pass": p.get("global", False),
++    }),
++    "generator.section_completed": ("section_complete", lambda p: {
++        "section": p.get("section", ""),
++        "verified_sentences": p.get("verified", 0),
++        "dropped": p.get("dropped", 0),
++    }),
++    "run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
++}
++
++
++def translate(pipeline_event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
++    """Translate a pipeline-A event payload to v6 (name, payload) or None."""
++    event_type = pipeline_event.get("event_type")
++    mapping = _TRANSLATOR.get(event_type or "")
++    if mapping is None:
++        return None
++    v6_name, payload_fn = mapping
++    try:
++        payload = json.loads(pipeline_event.get("payload", "{}"))
++    except json.JSONDecodeError:
++        payload = {}
++    return v6_name, payload_fn(payload)
++
++
++# Grace period (seconds) after run_store reports lifecycle_status terminal but
++# no Redis terminal event has been seen. After this elapses, emit a synthetic
++# `run_complete(status=stream_lost)` so the client gets a deterministic close
++# rather than hanging on keepalives forever. Per Codex iter-2 P1-3 + diff iter-1.
++STREAM_LOST_GRACE_SECONDS = 10.0
++
++
++def _get_lifecycle_status(external_run_id: str) -> str | None:
++    """Best-effort sync run_store lookup. Returns lifecycle_status or None.
++
++    Imported lazily so tests that don't touch run_store don't pay sqlite init.
++    Any failure (missing DB, import error, schema drift) returns None so the
++    reader keeps emitting keepalives rather than synthesizing a stream_lost
++    terminal on transient backend hiccups.
++    """
++    try:
++        from polaris_v6.queue import run_store  # noqa: PLC0415
++
++        row = run_store.get_run(external_run_id)
++        if row is None:
++            return None
++        return getattr(row, "lifecycle_status", None)
++    except Exception as exc:  # noqa: BLE001 — observability lookup never blocks SSE
++        logger.warning(
++            "[run_events] run_store lookup failed run_id=%s: %s",
++            external_run_id,
++            exc,
++        )
++        return None
++
++
++async def _check_lifecycle_terminal(external_run_id: str) -> bool:
++    """Async wrapper for the sync sqlite lookup."""
++    import asyncio  # noqa: PLC0415
++    status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
++    return status in ("completed", "failed")
++
++
++def _is_connection_failure(exc: BaseException) -> bool:
++    """Narrow stream_unavailable to actual Redis reachability failures.
++
++    Per Codex diff iter-1 P1: every XREAD exception was being mapped to
++    stream_unavailable, masking schema bugs / corrupt entries as 'Redis down'.
++    Now we treat ONLY connection/timeout/socket failures as unavailability;
++    other exceptions surface as stream_lost.
++    """
++    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
++        return True
++    # redis.asyncio raises ConnectionError subclasses; check by class name
++    # to avoid a hard import dependency.
++    name = type(exc).__name__
++    return name in {
++        "ConnectionError",
++        "TimeoutError",
++        "BusyLoadingError",
++        "ConnectionResetError",
++        "RedisConnectionError",
++    }
++
++
++async def read_events(
++    external_run_id: str,
++    last_event_id: str = "0-0",
++    *,
++    block_ms: int = 5000,
++    redis_client_async=None,
++) -> AsyncIterator[tuple[str, dict[str, Any]]]:
++    """Async generator yielding (stream_id, raw_pipeline_event_dict).
++
++    Terminates after emitting a `run.completed` event. Per Codex iter-2 P1-3
++    + diff iter-1 P1:
++
++    - empty XREAD window → keepalive (caller emits SSE comment frame), then
++      check run_store. While lifecycle_status is queued/in_progress, keep
++      emitting keepalives.
++    - lifecycle_status in {completed, failed} AND no terminal event seen in
++      the next STREAM_LOST_GRACE_SECONDS → emit a synthetic
++      run_complete(status=stream_lost) and close cleanly.
++    - actual Redis connection/timeout failure → emit
++      run_complete(status=stream_unavailable) and close.
++    - non-reachability XREAD exception → emit stream_lost and close (treat as
++      degraded stream rather than 'Redis down').
++    """
++    import asyncio  # noqa: PLC0415
++
++    last_id = _validate_last_event_id(last_event_id)
++    key = EVENT_STREAM_KEY.format(run_id=external_run_id)
++
++    try:
++        if redis_client_async is None:
++            import redis.asyncio as aredis  # noqa: PLC0415
++            client = aredis.from_url(_redis_url(), decode_responses=False)
++        else:
++            client = redis_client_async
++    except ImportError:
++        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
++        return
++
++    # Tracks first-seen-at for lifecycle_status terminal so we can apply the
++    # grace window before declaring stream_lost.
++    lifecycle_terminal_first_seen: float | None = None
++    loop = asyncio.get_event_loop()
++
++    try:
++        while True:
++            try:
++                events = await client.xread({key: last_id}, count=100, block=block_ms)
++            except Exception as exc:  # noqa: BLE001
++                if _is_connection_failure(exc):
++                    logger.warning(
++                        "[run_events] redis unreachable run_id=%s: %s",
++                        external_run_id,
++                        exc,
++                    )
++                    yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
++                    return
++                # Non-reachability failure — log and degrade to stream_lost.
++                logger.warning(
++                    "[run_events] xread error run_id=%s: %s",
++                    external_run_id,
++                    exc,
++                )
++                yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
++                return
++
++            if not events:
++                # Empty XREAD window — emit keepalive then consult run_store.
++                yield ("__keepalive__", {})
++                if await _check_lifecycle_terminal(external_run_id):
++                    now = loop.time()
++                    if lifecycle_terminal_first_seen is None:
++                        lifecycle_terminal_first_seen = now
++                    elif now - lifecycle_terminal_first_seen >= STREAM_LOST_GRACE_SECONDS:
++                        logger.warning(
++                            "[run_events] lifecycle terminal without redis terminal "
++                            "run_id=%s — emitting synthetic stream_lost",
++                            external_run_id,
++                        )
++                        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
++                        return
++                else:
++                    # Reset the grace window if the run un-terminals (shouldn't happen,
++                    # but the lifecycle is the source of truth).
++                    lifecycle_terminal_first_seen = None
++                continue
++
++            # Real events arrived → reset the grace window.
++            lifecycle_terminal_first_seen = None
++
++            for _stream_name, entries in events:
++                for entry_id, fields in entries:
++                    stream_id = entry_id.decode() if isinstance(entry_id, bytes) else entry_id
++                    last_id = stream_id
++                    event_type = fields.get(b"event_type") or fields.get("event_type")
++                    payload = fields.get(b"payload") or fields.get("payload")
++                    if isinstance(event_type, bytes):
++                        event_type = event_type.decode()
++                    if isinstance(payload, bytes):
++                        payload = payload.decode()
++                    yield (stream_id, {"event_type": event_type, "payload": payload})
++                    if event_type == "run.completed":
++                        return
++    finally:
++        # aredis client lazy-closed via context if possible
++        try:
++            close = getattr(client, "aclose", None) or getattr(client, "close", None)
++            if close:
++                result = close()
++                if hasattr(result, "__await__"):
++                    await result
++        except Exception:  # noqa: BLE001 — defensive close
++            pass
+diff --git a/tests/polaris_v6/queue/test_run_events.py b/tests/polaris_v6/queue/test_run_events.py
+new file mode 100644
+index 00000000..2303e37e
+--- /dev/null
++++ b/tests/polaris_v6/queue/test_run_events.py
+@@ -0,0 +1,340 @@
++"""I-arch-001e — run_events coverage.
++
++Uses fakeredis so no real Redis broker is required. Verifies:
++- Sync emit_event → XADD lands a stream entry
++- Async read_events round-trips via XREAD
++- Last-Event-ID resume skips already-seen entries
++- run.completed terminal closes the stream
++- ImportError-free path (emit on missing redis is silent)
++- Translator maps the 6 pipeline-A event_types to canonical v6 names
++- _validate_last_event_id regex + fallback
++- emit_event swallows arbitrary exceptions (observability never blocks pipeline)
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from polaris_v6.queue import run_events
++
++
++# ---------------------------------------------------------------------------
++# Unit: validators + translator (pure-function — no Redis needed)
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize("raw,expected", [
++    (None, "0-0"),
++    ("", "0-0"),
++    ("0-0", "0-0"),
++    ("1700000000000-5", "1700000000000-5"),
++    ("garbage", "0-0"),
++    ("123", "0-0"),
++    ("123-", "0-0"),
++    ("-5", "0-0"),
++])
++def test_last_event_id_validation(raw, expected):
++    assert run_events._validate_last_event_id(raw) == expected
++
++
++@pytest.mark.parametrize("pa_event_type,v6_name", [
++    ("scope_gate.completed", "scope_decision"),
++    ("corpus_adequacy.completed", "retrieval_progress"),
++    ("evidence.id_assigned", "evidence_id"),
++    ("strict_verify.section_completed", "verifier_verdict"),
++    ("generator.section_completed", "section_complete"),
++    ("run.completed", "run_complete"),
++])
++def test_translator_maps_pipeline_a_events_to_v6_names(pa_event_type, v6_name):
++    raw = {"event_type": pa_event_type, "payload": json.dumps({})}
++    out = run_events.translate(raw)
++    assert out is not None
++    name, payload = out
++    assert name == v6_name
++    assert isinstance(payload, dict)
++
++
++def test_translator_returns_none_on_unknown_event_type():
++    raw = {"event_type": "garbage.unknown", "payload": "{}"}
++    assert run_events.translate(raw) is None
++
++
++def test_translator_tolerates_malformed_payload():
++    raw = {"event_type": "run.completed", "payload": "not-json"}
++    out = run_events.translate(raw)
++    assert out is not None
++    name, payload = out
++    assert name == "run_complete"
++    assert payload == {}
++
++
++# ---------------------------------------------------------------------------
++# Integration: fakeredis sync emit + async read round-trip
++# ---------------------------------------------------------------------------
++
++
++@pytest.fixture
++def fake_server():
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.FakeServer()
++
++
++@pytest.fixture
++def sync_fakeredis(fake_server):
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.FakeStrictRedis(server=fake_server)
++
++
++@pytest.fixture
++def async_fakeredis(fake_server):
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.aioredis.FakeRedis(server=fake_server)
++
++
++def test_emit_event_silent_on_missing_run_id(sync_fakeredis):
++    # No external_run_id → CLI sweep mode, no-op.
++    run_events.emit_event(None, "scope_gate.completed", {}, redis_client=sync_fakeredis)
++    # Stream should not exist
++    assert sync_fakeredis.exists(run_events.EVENT_STREAM_KEY.format(run_id="anything")) == 0
++
++
++def test_emit_event_writes_xadd_entry(sync_fakeredis):
++    run_events.emit_event(
++        "run_abc",
++        "scope_gate.completed",
++        {"decision": "in_scope", "reason": ""},
++        redis_client=sync_fakeredis,
++    )
++    key = run_events.EVENT_STREAM_KEY.format(run_id="run_abc")
++    entries = sync_fakeredis.xrange(key)
++    assert len(entries) == 1
++    entry_id, fields = entries[0]
++    assert fields[b"event_type"] == b"scope_gate.completed"
++    payload = json.loads(fields[b"payload"].decode())
++    assert payload == {"decision": "in_scope", "reason": ""}
++
++
++def test_emit_terminal_event_carries_status(sync_fakeredis):
++    run_events.emit_terminal_event(
++        "run_def",
++        "abort_no_sources",
++        error_msg="zero sources",
++        redis_client=sync_fakeredis,
++    )
++    entries = sync_fakeredis.xrange(run_events.EVENT_STREAM_KEY.format(run_id="run_def"))
++    assert len(entries) == 1
++    _id, fields = entries[0]
++    assert fields[b"event_type"] == b"run.completed"
++    payload = json.loads(fields[b"payload"].decode())
++    assert payload["status"] == "abort_no_sources"
++    assert payload["error"] == "zero sources"
++
++
++def test_emit_event_swallows_arbitrary_exceptions():
++    """Per Codex iter-2 P3: pipeline-A error_unexpected cannot be caused by Redis."""
++
++    class BoomClient:
++        def xadd(self, *args, **kwargs):
++            raise RuntimeError("simulated redis blip")
++
++    # Must not raise — pipeline keeps running even if Redis observability blows up.
++    run_events.emit_event(
++        "run_boom",
++        "scope_gate.completed",
++        {},
++        redis_client=BoomClient(),
++    )
++
++
++# ---------------------------------------------------------------------------
++# Async: read_events round-trip via fakeredis.aioredis
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.asyncio
++async def test_read_events_round_trip(sync_fakeredis, async_fakeredis):
++    """Emit 3 events via sync; read via async; terminal closes stream."""
++    async_client = async_fakeredis
++
++    run_events.emit_event("rid1", "scope_gate.completed", {"decision": "in_scope"}, redis_client=sync_fakeredis)
++    run_events.emit_event("rid1", "corpus_adequacy.completed", {"pool_size": 5}, redis_client=sync_fakeredis)
++    run_events.emit_terminal_event("rid1", "success", redis_client=sync_fakeredis)
++
++    seen = []
++    async for stream_id, raw in run_events.read_events(
++        "rid1", last_event_id="0-0", block_ms=100, redis_client_async=async_client
++    ):
++        if stream_id == "__keepalive__":
++            continue
++        seen.append(raw["event_type"])
++        if raw["event_type"] == "run.completed":
++            break
++    assert seen == ["scope_gate.completed", "corpus_adequacy.completed", "run.completed"]
++
++
++@pytest.mark.asyncio
++async def test_read_events_resume_via_last_event_id(sync_fakeredis, async_fakeredis):
++    """After supplying Last-Event-ID = stream_id of first event, only entries 2+3 are returned."""
++    async_client = async_fakeredis
++    key = run_events.EVENT_STREAM_KEY.format(run_id="rid2")
++    run_events.emit_event("rid2", "scope_gate.completed", {}, redis_client=sync_fakeredis)
++    run_events.emit_event("rid2", "corpus_adequacy.completed", {}, redis_client=sync_fakeredis)
++    run_events.emit_terminal_event("rid2", "success", redis_client=sync_fakeredis)
++
++    entries = sync_fakeredis.xrange(key)
++    first_id = entries[0][0].decode()
++
++    seen = []
++    async for stream_id, raw in run_events.read_events(
++        "rid2", last_event_id=first_id, block_ms=100, redis_client_async=async_client
++    ):
++        if stream_id == "__keepalive__":
++            continue
++        seen.append(raw["event_type"])
++        if raw["event_type"] == "run.completed":
++            break
++    # First event was already seen → only events 2 + terminal returned.
++    assert seen == ["corpus_adequacy.completed", "run.completed"]
++
++
++@pytest.mark.asyncio
++async def test_read_events_redis_unreachable_yields_synthetic_terminal():
++    """When XREAD raises ConnectionError, the reader emits a single
++    stream_unavailable terminal and stops. Per Codex diff iter-1 P1: only
++    connection failures map to stream_unavailable.
++    """
++
++    class BoomAsyncClient:
++        async def xread(self, *args, **kwargs):
++            raise ConnectionError("redis down for the test")
++
++        async def aclose(self):
++            return None
++
++    seen = []
++    async for stream_id, raw in run_events.read_events(
++        "rid_boom", last_event_id="0-0", block_ms=100, redis_client_async=BoomAsyncClient()
++    ):
++        seen.append(raw)
++        if raw["event_type"] == "run.completed":
++            break
++    assert len(seen) == 1
++    payload = json.loads(seen[0]["payload"])
++    assert payload["status"] == "stream_unavailable"
++
++
++@pytest.mark.asyncio
++async def test_read_events_non_connection_error_yields_stream_lost():
++    """Per Codex diff iter-1 P1: XREAD exceptions that are NOT connection-failure
++    are stream_lost (degraded), not stream_unavailable (Redis-down). This keeps
++    schema bugs / corrupt entries from being misreported as backend outage.
++    """
++
++    class BadDataClient:
++        async def xread(self, *args, **kwargs):
++            raise ValueError("garbled fields from the wire")
++
++        async def aclose(self):
++            return None
++
++    seen = []
++    async for stream_id, raw in run_events.read_events(
++        "rid_bad", last_event_id="0-0", block_ms=100, redis_client_async=BadDataClient()
++    ):
++        seen.append(raw)
++        if raw["event_type"] == "run.completed":
++            break
++    assert len(seen) == 1
++    payload = json.loads(seen[0]["payload"])
++    assert payload["status"] == "stream_lost"
++
++
++@pytest.mark.asyncio
++async def test_read_events_lifecycle_terminal_with_no_redis_event_emits_stream_lost(
++    sync_fakeredis, async_fakeredis, monkeypatch
++):
++    """Per Codex diff iter-1 P1 (continuing iter-2 brief P1-3): when run_store
++    says lifecycle_status='completed' but no Redis terminal event arrives, the
++    SSE stream must NOT hang forever on keepalives. After
++    STREAM_LOST_GRACE_SECONDS elapses, emit synthetic stream_lost and close.
++    """
++    # Force the run_store lookup to report 'completed' so empty XREAD windows
++    # trigger the grace-window logic without an actual sqlite DB.
++    monkeypatch.setattr(
++        run_events,
++        "_get_lifecycle_status",
++        lambda run_id: "completed",
++    )
++    # Shrink the grace window to keep the test fast.
++    monkeypatch.setattr(run_events, "STREAM_LOST_GRACE_SECONDS", 0.05)
++
++    seen = []
++    async for stream_id, raw in run_events.read_events(
++        "rid_grace",
++        last_event_id="0-0",
++        block_ms=10,
++        redis_client_async=async_fakeredis,
++    ):
++        if stream_id == "__keepalive__":
++            seen.append("KEEPALIVE")
++            continue
++        seen.append(raw["event_type"])
++        if raw["event_type"] == "run.completed":
++            break
++    # Expect: at least one keepalive (first empty window), then synthetic terminal.
++    assert seen[-1] == "run.completed"
++    payload_seen_last = None
++    # We need to recover the payload too; rerun on a fresh fakeredis so test
++    # is self-contained.
++    fakeredis = pytest.importorskip("fakeredis")
++    fake = fakeredis.FakeServer()
++    async_c = fakeredis.aioredis.FakeRedis(server=fake)
++    async for stream_id, raw in run_events.read_events(
++        "rid_grace2", last_event_id="0-0", block_ms=10, redis_client_async=async_c,
++    ):
++        if stream_id == "__keepalive__":
++            continue
++        payload_seen_last = json.loads(raw["payload"])
++        break
++    assert payload_seen_last["status"] == "stream_lost"
++
++
++@pytest.mark.asyncio
++async def test_read_events_lifecycle_still_running_keepalives_forever(
++    sync_fakeredis, async_fakeredis, monkeypatch
++):
++    """While lifecycle_status is in_progress, empty XREAD windows must keep
++    emitting keepalives — never synthesize stream_lost — even after the grace
++    window elapses. Stream_lost is ONLY for the lifecycle-says-done-but-event-
++    missing race.
++    """
++    monkeypatch.setattr(
++        run_events,
++        "_get_lifecycle_status",
++        lambda run_id: "in_progress",
++    )
++    monkeypatch.setattr(run_events, "STREAM_LOST_GRACE_SECONDS", 0.05)
++
++    seen_kinds = []
++    keepalive_budget = 3
++
++    async for stream_id, raw in run_events.read_events(
++        "rid_running",
++        last_event_id="0-0",
++        block_ms=10,
++        redis_client_async=async_fakeredis,
++    ):
++        if stream_id == "__keepalive__":
++            seen_kinds.append("KEEPALIVE")
++            keepalive_budget -= 1
++            if keepalive_budget <= 0:
++                # Client disconnect — break out before any terminal would fire.
++                break
++            continue
++        seen_kinds.append(raw.get("event_type"))
++        break  # any non-keepalive aborts the test
++    assert all(k == "KEEPALIVE" for k in seen_kinds), (
++        f"in_progress lifecycle must never synthesize a terminal: got {seen_kinds}"
++    )
+diff --git a/tests/v6/test_api_stream.py b/tests/v6/test_api_stream.py
+index fd624d18..dfeb1d42 100644
+--- a/tests/v6/test_api_stream.py
++++ b/tests/v6/test_api_stream.py
+@@ -1,9 +1,11 @@
+-"""Tests for /stream/{run_id} SSE endpoint (Phase 0 stub).
++"""I-arch-001e — /stream/{run_id} SSE endpoint (Redis Streams).
+ 
+-Verifies the 5-event Phase 0 stub emits in the documented order with
+-the expected fields, using FastAPI TestClient (no real HTTP server).
+-The endpoint is replaced with real pipeline-A bridge events in Phase 1
+-once the cluster is live; this test pins the contract until then.
++Verifies the new Redis-Streams-backed SSE endpoint translates pipeline-A
++events into the v6 canonical protocol (scope_decision, retrieval_progress,
++evidence_id, verifier_verdict, section_complete, run_complete) and honors
++Last-Event-ID resume.
++
++Uses fakeredis as a stand-in for both the sync writer and the async reader.
+ """
+ 
+ from __future__ import annotations
+@@ -14,91 +16,180 @@ import pytest
+ 
+ 
+ @pytest.fixture
+-def client():
++def app_with_stream_router():
+     pytest.importorskip("fastapi")
+     pytest.importorskip("sse_starlette")
+-    from fastapi.testclient import TestClient
+-    from polaris_v6.api.app import create_app
++    pytest.importorskip("fakeredis")
++    from fastapi import FastAPI
++    from polaris_v6.api import stream as stream_module
++
++    app = FastAPI()
++    app.include_router(stream_module.router)
++    return app
++
++
++@pytest.fixture
++def fake_server():
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.FakeServer()
++
++
++@pytest.fixture
++def sync_fake(fake_server):
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.FakeStrictRedis(server=fake_server)
+ 
+-    return TestClient(create_app())
+ 
++@pytest.fixture
++def async_fake(fake_server):
++    fakeredis = pytest.importorskip("fakeredis")
++    return fakeredis.aioredis.FakeRedis(server=fake_server)
++
++
++def _parse_sse(raw: str) -> list[dict]:
++    """Parse the SSE wire format into a list of {event, data, id} dicts.
+ 
+-def _parse_sse_events(raw: str) -> list[tuple[str, dict]]:
+-    """Parse the SSE wire format. Server may use `\r\n` line endings; split on
+-    blank lines (one or more newlines) and strip per-line whitespace.
++    Tolerates the keepalive comment (`: keepalive\\n\\n`) by skipping blocks
++    that contain no `event:` line.
+     """
+-    # Normalize line endings then split into blocks.
+     normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+-    events: list[tuple[str, dict]] = []
++    events: list[dict] = []
+     for block in normalized.split("\n\n"):
+         block = block.strip()
+         if not block:
+             continue
+-        event_name = ""
+-        data_payload = ""
++        evt: dict = {}
+         for line in block.splitlines():
+             line = line.strip()
++            if line.startswith(":"):
++                # comment / keepalive
++                continue
+             if line.startswith("event:"):
+-                event_name = line[len("event:") :].strip()
++                evt["event"] = line[len("event:"):].strip()
+             elif line.startswith("data:"):
+-                data_payload = line[len("data:") :].strip()
+-        if event_name and data_payload:
+-            events.append((event_name, json.loads(data_payload)))
++                evt["data"] = json.loads(line[len("data:"):].strip())
++            elif line.startswith("id:"):
++                evt["id"] = line[len("id:"):].strip()
++        if evt.get("event"):
++            events.append(evt)
+     return events
+ 
+ 
+-def test_stream_emits_five_phase0_events_in_order(client):
+-    response = client.get("/stream/test-run-123")
+-    assert response.status_code == 200
+-    assert "text/event-stream" in response.headers["content-type"]
+-
+-    events = _parse_sse_events(response.text)
+-    assert len(events) == 5
+-    assert [name for name, _ in events] == [
+-        "scope_decision",
+-        "retrieval_progress",
+-        "verifier_verdict",
+-        "section_complete",
+-        "run_complete",
+-    ]
+-
+-
+-def test_stream_includes_run_id_in_every_event(client):
+-    response = client.get("/stream/run-with-special-id-_-7")
+-    events = _parse_sse_events(response.text)
+-    assert len(events) == 5
+-    for _, payload in events:
+-        assert payload["run_id"] == "run-with-special-id-_-7"
+-
+-
+-def test_stream_scope_decision_payload_shape(client):
+-    response = client.get("/stream/r1")
+-    events = dict(_parse_sse_events(response.text))
+-    sd = events["scope_decision"]
+-    assert sd["verdict"] == "accepted"
+-    assert "reason" in sd
+-
+-
+-def test_stream_retrieval_progress_includes_tier_breakdown(client):
+-    response = client.get("/stream/r1")
+-    events = dict(_parse_sse_events(response.text))
+-    rp = events["retrieval_progress"]
+-    assert isinstance(rp["sources_found"], int)
+-    assert rp["sources_found"] > 0
+-    assert set(rp["tier_breakdown"].keys()) == {"T1", "T2", "T3"}
+-
+-
+-def test_stream_run_complete_signals_terminal_status(client):
+-    response = client.get("/stream/r1")
+-    events = dict(_parse_sse_events(response.text))
+-    rc = events["run_complete"]
+-    assert rc["status"] == "completed"
+-
+-
+-def test_stream_verifier_verdict_includes_pass_flags(client):
+-    response = client.get("/stream/r1")
+-    events = dict(_parse_sse_events(response.text))
+-    vv = events["verifier_verdict"]
+-    assert vv["local_pass"] is True
+-    assert vv["global_pass"] is True
+-    assert "section" in vv
++def test_stream_translates_pipeline_a_events_to_v6_protocol(
++    app_with_stream_router, sync_fake, async_fake, monkeypatch
++):
++    from fastapi.testclient import TestClient
++    from polaris_v6.queue import run_events as re_mod
++
++    # Pre-emit pipeline-A events into fakeredis (before the SSE request fires).
++    re_mod.emit_event("rid-xlate", "scope_gate.completed", {"decision": "in_scope", "reason": ""}, redis_client=sync_fake)
++    re_mod.emit_event("rid-xlate", "corpus_adequacy.completed", {"pool_size": 7, "tier_counts": {"T1": 3, "T2": 4}}, redis_client=sync_fake)
++    re_mod.emit_event("rid-xlate", "strict_verify.section_completed", {"section": "Summary", "local": True, "global": True}, redis_client=sync_fake)
++    re_mod.emit_event("rid-xlate", "generator.section_completed", {"section": "Summary", "verified": 5, "dropped": 1}, redis_client=sync_fake)
++    re_mod.emit_terminal_event("rid-xlate", "success", redis_client=sync_fake)
++
++    # Monkeypatch read_events to feed the pre-seeded fakeredis to the async reader.
++    real_read = re_mod.read_events
++
++    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
++        async for sid, raw in real_read(run_id, last_event_id=last_event_id, block_ms=100, redis_client_async=async_fake):
++            yield sid, raw
++
++    monkeypatch.setattr(re_mod, "read_events", _read_with_fake)
++    # stream.py imported read_events at module load; patch its bound reference too.
++    from polaris_v6.api import stream as stream_module
++    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
++
++    client = TestClient(app_with_stream_router)
++    resp = client.get("/stream/rid-xlate")
++    assert resp.status_code == 200
++    assert "text/event-stream" in resp.headers["content-type"]
++
++    events = _parse_sse(resp.text)
++    names = [e["event"] for e in events]
++    assert names == ["scope_decision", "retrieval_progress", "verifier_verdict", "section_complete", "run_complete"]
++    # Each event carries run_id + an id (stream_id).
++    for e in events:
++        assert e["data"]["run_id"] == "rid-xlate"
++        assert "id" in e
++
++
++def test_stream_run_complete_carries_pipeline_status(
++    app_with_stream_router, sync_fake, async_fake, monkeypatch
++):
++    from fastapi.testclient import TestClient
++    from polaris_v6.queue import run_events as re_mod
++
++    re_mod.emit_terminal_event("rid-abort", "abort_no_sources", error_msg="zero", redis_client=sync_fake)
++
++    real_read = re_mod.read_events
++
++    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
++        async for sid, raw in real_read(run_id, last_event_id=last_event_id, block_ms=100, redis_client_async=async_fake):
++            yield sid, raw
++
++    from polaris_v6.api import stream as stream_module
++    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
++
++    client = TestClient(app_with_stream_router)
++    resp = client.get("/stream/rid-abort")
++    events = _parse_sse(resp.text)
++    # Single run_complete event with abort status preserved.
++    rc = [e for e in events if e["event"] == "run_complete"]
++    assert len(rc) == 1
++    assert rc[0]["data"]["status"] == "abort_no_sources"
++    assert rc[0]["data"]["error"] == "zero"
++
++
++def test_stream_last_event_id_header_resumes(
++    app_with_stream_router, sync_fake, async_fake, monkeypatch
++):
++    from fastapi.testclient import TestClient
++    from polaris_v6.queue import run_events as re_mod
++
++    re_mod.emit_event("rid-resume", "scope_gate.completed", {}, redis_client=sync_fake)
++    re_mod.emit_event("rid-resume", "corpus_adequacy.completed", {}, redis_client=sync_fake)
++    re_mod.emit_terminal_event("rid-resume", "success", redis_client=sync_fake)
++
++    key = re_mod.EVENT_STREAM_KEY.format(run_id="rid-resume")
++    first_id = sync_fake.xrange(key)[0][0].decode()
++
++    real_read = re_mod.read_events
++
++    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
++        async for sid, raw in real_read(run_id, last_event_id=last_event_id, block_ms=100, redis_client_async=async_fake):
++            yield sid, raw
++
++    from polaris_v6.api import stream as stream_module
++    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
++
++    client = TestClient(app_with_stream_router)
++    resp = client.get("/stream/rid-resume", headers={"Last-Event-ID": first_id})
++    events = _parse_sse(resp.text)
++    names = [e["event"] for e in events]
++    # First event consumed → only retrieval_progress + run_complete left.
++    assert names == ["retrieval_progress", "run_complete"]
++
++
++def test_stream_redis_unreachable_emits_stream_unavailable_run_complete(
++    app_with_stream_router, monkeypatch
++):
++    """When the async reader can't connect, the endpoint still serves a terminal
++    run_complete with status='stream_unavailable' rather than hanging forever.
++    """
++    from fastapi.testclient import TestClient
++    from polaris_v6.api import stream as stream_module
++    from polaris_v6.queue import run_events as re_mod
++
++    async def _read_boom(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
++        # Single synthetic terminal — same shape as real read_events on redis fail
++        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
++
++    monkeypatch.setattr(stream_module, "read_events", _read_boom)
++
++    client = TestClient(app_with_stream_router)
++    resp = client.get("/stream/rid-down")
++    events = _parse_sse(resp.text)
++    rc = [e for e in events if e["event"] == "run_complete"]
++    assert len(rc) == 1
++    assert rc[0]["data"]["status"] == "stream_unavailable"

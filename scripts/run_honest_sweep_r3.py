@@ -91,6 +91,10 @@ from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
     check_freshness,
 )
 from src.polaris_graph.audit_ir.manifest_augment import augment_v6_manifest  # noqa: E402
+from src.polaris_v6.queue.run_events import (  # noqa: E402
+    emit_event,
+    emit_terminal_event,
+)
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
 )
@@ -1174,6 +1178,17 @@ async def run_one_query(
              f"decision={scope.protocol.scope_decision} "
              f"needs_review={scope.protocol.needs_user_review}")
 
+        # I-arch-001e: stage event for SSE consumers (v6_mode only; no-op otherwise).
+        if q.get("v6_mode") and q.get("external_run_id"):
+            emit_event(
+                q.get("external_run_id"),
+                "scope_gate.completed",
+                {
+                    "decision": scope.protocol.scope_decision,
+                    "reason": "; ".join(scope.protocol.scope_reasons) if scope.protocol.scope_rejected else "in_scope",
+                },
+            )
+
         # M-INT-4: best-effort LLM scope classification alongside
         # the deterministic template-driven gate. Telemetry only —
         # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
@@ -1347,6 +1362,12 @@ async def run_one_query(
             summary["cost_usd"] = run_cost
             try: write_per_run_cost_ledger(run_dir, run_id)
             except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_scope_rejected",
+                    error_msg=summary.get("error"),
+                )
             set_current_run_id(None)
             log_f.close()
             return summary
@@ -1483,6 +1504,12 @@ async def run_one_query(
             summary["cost_usd"] = run_cost
             try: write_per_run_cost_ledger(run_dir, run_id)
             except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_no_sources",
+                    error_msg=summary.get("error"),
+                )
             set_current_run_id(None)
             log_f.close()
             return summary
@@ -1703,6 +1730,12 @@ async def run_one_query(
             summary["cost_usd"] = run_cost
             try: write_per_run_cost_ledger(run_dir, run_id)
             except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_corpus_inadequate",
+                    error_msg=summary.get("error"),
+                )
             set_current_run_id(None)
             log_f.close()
             return summary
@@ -1788,6 +1821,12 @@ async def run_one_query(
             summary["cost_usd"] = run_cost
             try: write_per_run_cost_ledger(run_dir, run_id)
             except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_corpus_approval_denied",
+                    error_msg=summary.get("error"),
+                )
             set_current_run_id(None)
             log_f.close()
             return summary
@@ -2351,6 +2390,12 @@ async def run_one_query(
             summary["cost_usd"] = run_cost
             try: write_per_run_cost_ledger(run_dir, run_id)
             except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_no_verified_sections",
+                    error_msg=summary.get("error"),
+                )
             set_current_run_id(None)
             log_f.close()
             return summary
@@ -2913,6 +2958,27 @@ async def run_one_query(
         logging.getLogger(__name__).warning(
             "per-run ledger copy failed: %s", ledger_exc
         )
+
+    # I-arch-001e: success + error_unexpected terminal events. The 5 abort
+    # paths emit inline before their early returns; this catches the
+    # success path (status set at line ~2865) plus the error path (status
+    # set to "error" at line ~2873, mapped to error_unexpected here).
+    if q.get("v6_mode") and q.get("external_run_id"):
+        _final_status = summary.get("status") or "error_unexpected"
+        if _final_status == "error":
+            _final_status = "error_unexpected"
+        # Use the manifest's unified status if available — it is the
+        # canonical taxonomy (success / partial_* / abort_* / error_unexpected).
+        _manifest = summary.get("manifest") or {}
+        _manifest_status = _manifest.get("status")
+        if _manifest_status:
+            _final_status = _manifest_status
+        emit_terminal_event(
+            q.get("external_run_id"),
+            _final_status,
+            error_msg=summary.get("error"),
+        )
+
     set_current_run_id(None)
 
     log_f.close()
