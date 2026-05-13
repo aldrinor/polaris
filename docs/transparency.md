@@ -57,15 +57,20 @@ The Vexxhost host (Canadian-owned hosting, Montréal) runs `scripts/egress_lockd
 Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008):
 
 - `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
-- `api.search.brave.com` — live retrieval (Brave Search, Czech-owned)
-- `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; optional, removable for stricter sovereignty)
+- `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; disclosed; removable for stricter sovereignty)
+- T1 corpus endpoints — `fda.gov`, `accessdata.fda.gov`, `clinicaltrials.gov`, `ncbi.nlm.nih.gov`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov`, `ema.europa.eu`, `nice.org.uk`, `mhra.gov.uk`, `www.gov.uk`, `canada.ca`, `hc-sc.gc.ca`, `recalls-rappels.canada.ca`, `health-products.canada.ca`, `hres.ca`, `cda-amc.ca`, `who.int`, `iarc.who.int`
+- Bibliographic / DOI infrastructure — `doi.org`, `dx.doi.org`, `api.crossref.org` (UK non-profit), `api.unpaywall.org`, `api.openalex.org`, `arxiv.org`, `export.arxiv.org`, `efts.sec.gov`, `www.sec.gov`
 - `github.com`, `codeload.github.com` — source clones
 - `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
 - `acme-v02.api.letsencrypt.org`, `r3.o.lencr.org` — Let's Encrypt TLS cert renewal (public attestation only; no data leaves)
 
+**Web search provider:** DEFERRED to GH#487 I-carney-009. Serper (US) is removed from the sovereign allowlist; under lockdown, Serper calls fail loudly. The chosen non-US replacement (Mojeek UK / Qwant FR / Ecosia DE) lands in that follow-up Issue, at which point its API host is added here.
+
 Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
 
 **No AWS endpoints.** SSM, EC2 messages, and S3 hosts are explicitly NOT in the allowlist (per I-carney-008 sovereignty audit).
+
+**Tier-1 evidence fetching under lockdown.** Pipeline-A's sovereignty filter accepts only T1 (regulatory + clinical guideline) sources by default. The allowlist covers those T1 corpus hosts + the bib/DOI resolution infrastructure needed to attach them to cites. Arbitrary publisher domains (nature.com, nejm.org, thelancet.com, etc.) are NOT in the allowlist — they're T2/T3 and excluded by the sovereignty filter anyway; the egress drop is defense-in-depth.
 
 DNS (53), NTP (123), and link-local metadata (169.254.169.254) remain unrestricted as required substrate.
 

@@ -131,15 +131,25 @@ cd /opt/polaris
 docker compose -f docker-compose.v6.yml up -d --build
 
 # ----- 7. wait for api + webui healthchecks -----
+# Codex iter-1 P2-4: if the wait loop exhausts without success, FAIL the
+# script rather than silently emitting "deployed" on an unhealthy stack.
 echo "[provision] waiting for api + webui healthchecks..."
+healthy=0
 for i in $(seq 1 60); do
     if curl -fsS http://localhost:8000/health > /dev/null && \
        curl -fsS http://localhost:3000/ > /dev/null; then
         echo "[provision] api + webui healthy at boot+$((i*5))s"
+        healthy=1
         break
     fi
     sleep 5
 done
+if [ "$healthy" -ne 1 ]; then
+    echo "[provision] ERROR: api + webui did not become healthy within 300s." >&2
+    echo "[provision] Compose logs (last 50 lines):" >&2
+    docker compose -f docker-compose.v6.yml logs --tail=50 >&2 || true
+    exit 1
+fi
 
 # ----- 8. Caddy reverse proxy + Let's Encrypt -----
 cat > /etc/caddy/Caddyfile <<EOF

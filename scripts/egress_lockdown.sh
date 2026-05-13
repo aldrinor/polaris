@@ -61,7 +61,10 @@ install_chain() {
     iptables -A "$chain_name" -o lo -j ACCEPT || true
     iptables -A "$chain_name" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # Allow DNS (53), NTP (123), AWS instance metadata (169.254.169.254).
+    # Allow DNS (53), NTP (123), link-local cloud metadata (169.254.169.254 —
+    # used by OpenStack on Vexxhost; AWS EC2 used the same address. Either way,
+    # it's the standard cloud-init metadata endpoint and never carries demo
+    # payload).
     iptables -A "$chain_name" -p udp --dport 53 -j ACCEPT
     iptables -A "$chain_name" -p tcp --dport 53 -j ACCEPT
     iptables -A "$chain_name" -p udp --dport 123 -j ACCEPT

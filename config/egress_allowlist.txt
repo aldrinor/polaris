@@ -1,4 +1,9 @@
 # I-carney-003 — POLARIS Carney demo egress allowlist.
+# Updated I-carney-008 — sovereign pivot. Brave Search REMOVED 2026-05-13
+# (Brave Software Inc. is a Delaware corporation; fails the "no US company
+# anywhere" bar per Codex iter-1 P1-1). Search-provider selection moved to
+# GH#487 I-carney-009 — until that lands, search calls fail loudly under
+# lockdown (intentional; the no-search smoke shows the failure mode honestly).
 #
 # scripts/egress_lockdown.sh resolves each domain to A records and installs
 # iptables rules in OUTPUT (host) + DOCKER-USER (container). Everything else
@@ -8,17 +13,80 @@
 # (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
 # can be removed from the runtime allowlist if desired.
 
-# ----- LLM (sovereign vLLM on OVH BHS H200; OpenRouter as transition fallback) -----
+# ----- LLM (transition: OpenRouter US; production: private vLLM on OVH H200) -----
 # When POLARIS_LLM_BACKEND=vllm, no external LLM hosts hit at all (private
-# network to OVH). When POLARIS_LLM_BACKEND=openrouter (transitional), the
+# network to OVH). When POLARIS_LLM_BACKEND=openrouter (transition), the
 # 2 lines below are required:
 openrouter.ai
 api.openrouter.ai
 
-# ----- Live retrieval (sovereign-aligned: Brave Search CZ-owned) -----
-api.search.brave.com
-# Semantic Scholar (US-based, AI2 non-profit) — optional; remove for stricter sovereignty
+# ----- Live retrieval — DEFERRED to GH#487 I-carney-009 -----
+# Search-provider selection (Mojeek UK / Qwant FR / Ecosia DE) is the
+# follow-up Issue. NO search API host is in this allowlist for the sovereign
+# deploy. With lockdown on, search-tier-1 corpus fetch still works (govt
+# endpoints listed below); Serper/etc. calls fail loudly under lockdown.
+# Semantic Scholar (US AI2 non-profit) — disclosed in /transparency,
+# kept for the academic-bib path; remove for stricter sovereignty.
 api.semanticscholar.org
+
+# ----- T1 corpus (regulatory + clinical guideline) — sovereign egress -----
+# Per src/polaris_graph/retrieval/{evidence_selector,tier_classifier}.py
+# these are the cleared T1 hosts. Audit-grade demo material is ONLY ever
+# T1; T2/T3 publisher arbitrary URLs are dropped by sovereignty filter
+# AND by this egress (defense in depth).
+
+# FDA + NIH (US govt, not "US company"; sovereign-aligned per CHARTER)
+fda.gov
+accessdata.fda.gov
+nctr-crs.fda.gov
+clinicaltrials.gov
+ncbi.nlm.nih.gov
+www.ncbi.nlm.nih.gov
+pmc.ncbi.nlm.nih.gov
+pubmed.ncbi.nlm.nih.gov
+nlm.nih.gov
+eutils.ncbi.nlm.nih.gov
+
+# EMA + EU regulator
+ema.europa.eu
+europa.eu
+
+# UK regulator
+nice.org.uk
+mhra.gov.uk
+www.gov.uk
+
+# Health Canada + Canadian sovereign endpoints
+canada.ca
+www.canada.ca
+hc-sc.gc.ca
+recalls-rappels.canada.ca
+health-products.canada.ca
+hres.ca
+pdf.hres.ca
+cda-amc.ca
+
+# WHO + IARC
+who.int
+iarc.who.int
+
+# ----- Bibliographic / DOI-resolver infrastructure (sovereign-aligned) -----
+# DOI registry (CNRI, US 501(c)(3) — disclosed; alternative is to bypass DOI
+# resolution and use direct publisher URLs, but that breaks tier-1 cites).
+doi.org
+dx.doi.org
+# Crossref (UK non-profit, sovereign-aligned)
+api.crossref.org
+# Unpaywall (Our Research, US 501(c)(3) — disclosed)
+api.unpaywall.org
+# OpenAlex (US OurResearch, public CC0 corpus — disclosed)
+api.openalex.org
+# arXiv (Cornell, US — disclosed; mathematics + tech preprints)
+arxiv.org
+export.arxiv.org
+# SEC EDGAR (US govt, public corporate filings)
+efts.sec.gov
+www.sec.gov
 
 # ----- Container image registry -----
 github.com
@@ -28,6 +96,7 @@ auth.docker.io
 production.cloudflare.docker.com
 
 # ----- Let's Encrypt (TLS cert renewal via Caddy) -----
+# US 501(c)(3) ISRG; the cert is a public attestation, no data leaves.
 acme-v02.api.letsencrypt.org
 r3.o.lencr.org
 
@@ -38,5 +107,6 @@ deb.debian.org
 security.debian.org
 registry.npmjs.org
 dl.cloudsmith.io
+
 # I-carney-008: AWS-specific endpoints (ssm.*, ec2messages.*, s3.ca-central-1.*)
 # REMOVED. No AWS in the sovereign deploy.

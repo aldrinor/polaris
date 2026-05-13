@@ -187,11 +187,17 @@ def _read_pubkey() -> str:
 def transparency() -> TransparencyResponse:
     """Public deploy descriptor."""
     key_id, fpr = _signing_key_info()
+    # I-carney-008 Codex iter-1 P1-2: treat empty-string env vars as missing
+    # (otherwise an unfilled .env template surfaces provider="" / region="").
+    provider = os.environ.get("POLARIS_PROVIDER", "").strip() or "unknown"
+    region = (
+        os.environ.get("POLARIS_REGION", "").strip()
+        or os.environ.get("AWS_REGION", "").strip()
+        or "unknown"
+    )
     return TransparencyResponse(
-        provider=os.environ.get("POLARIS_PROVIDER", "unknown"),
-        region=os.environ.get(
-            "POLARIS_REGION", os.environ.get("AWS_REGION", "unknown")
-        ),
+        provider=provider,
+        region=region,
         git_commit=_git_commit(),
         polaris_version=__version__,
         deploy_timestamp=datetime.now(timezone.utc).isoformat(),

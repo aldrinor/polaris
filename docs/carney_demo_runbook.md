@@ -9,9 +9,12 @@ This is the single source of truth for the PM Mark Carney POLARIS demo. Read end
 | Layer | Provider | Ownership |
 |---|---|---|
 | Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
-| LLM inference | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
-| Live search | Brave Search API | Czech-owned (not US) |
+| LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
+| LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
+| Live search | DEFERRED to GH#487 (Mojeek UK / Qwant FR / Ecosia DE candidates) | Non-US — Codex iter-1 caught Brave Software is Delaware-incorporated |
+| Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
 | DNS | easyDNS or Cira | Canadian |
+| TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
 | **AWS** | ARCHIVED at `infra/aws.archived/` | Was US-owned — fails sovereignty audit |
 
 See `infra/vexxhost/README.md` for the active deploy path. The §1 section below replaces the original AWS Terraform flow.
@@ -27,34 +30,40 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 | Canadian-registrar domain + DNS A record `polaris.<domain>` → VM floating IPv4 | Ops | `dig +short polaris.<domain>` returns the IP |
 | `gh` + `ssh` + `scp` CLIs installed | Ops | `gh --version && ssh -V` |
 | Demo signing GPG key generated | Ops | `bash scripts/bootstrap_gpg_demo_key.sh` |
-| Brave Search API key (Czech-owned, non-US) | Ops | https://api.search.brave.com/app/keys |
+| Non-US web search API key (see GH#487 — Mojeek UK / Qwant FR / Ecosia DE) | Ops | provider-specific signup |
 | OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
 | OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
 | `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
 | Carney office contact + demo time confirmed | Lead | calendar invite |
 | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
 
-**During the OVH H200 lead-time (5-10 business days):** the orchestrator can run with `POLARIS_LLM_BACKEND=openrouter` as a transitional fallback. `/transparency` will surface OpenRouter as `provider_jurisdiction: US` until the H200 lands. Flip to `POLARIS_LLM_BACKEND=vllm` + restart compose once OVH is up.
+**During the OVH H200 lead-time (5-10 business days):** the orchestrator runs with `POLARIS_LLM_BACKEND=openrouter` as a transitional fallback (this is the `.env.example` default). `/transparency` surfaces OpenRouter as the active inference backend so reviewers see the US disclosure during the transition. Flip to `POLARIS_LLM_BACKEND=vllm` + restart compose once (a) the OVH H200 is online with a reachable private IP, AND (b) GH#199 I-sov-001 has shipped the vLLM client code. Setting the flag without both prereqs will break generation.
 
 ## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
 
 **Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Brave Search key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
 ```bash
-# 1. Stage files on the Vexxhost VM.
-scp infra/vexxhost/.env.example       root@polaris.<domain>:/root/.env  # edit FIRST
-scp outputs/polaris_demo_pubkey.asc   root@polaris.<domain>:/root/
-scp ~/polaris_demo_secret.asc         root@polaris.<domain>:/root/
-scp config/static_accounts.yaml       root@polaris.<domain>:/root/  # bcrypt-hashed
-scp infra/vexxhost/provision.sh       root@polaris.<domain>:/root/
+# 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)
+#    inside the ssh heredoc would expand on the remote host, where the repo
+#    may not exist or may point at a different commit).
+POLARIS_REPO_COMMIT=$(git rev-parse polaris)
+POLARIS_DOMAIN=polaris.<your-domain>
+POLARIS_ACME_EMAIL=ops@<your-domain>
 
-# 2. Run provisioning.
-ssh root@polaris.<domain> "
-    export POLARIS_REPO_COMMIT=$(git rev-parse polaris)
-    export POLARIS_DOMAIN=polaris.<your-domain>
-    export POLARIS_ACME_EMAIL=ops@<your-domain>
-    bash /root/provision.sh
-"
+# 1. Stage files on the Vexxhost VM.
+scp infra/vexxhost/.env.example       root@${POLARIS_DOMAIN}:/root/.env  # edit FIRST
+scp outputs/polaris_demo_pubkey.asc   root@${POLARIS_DOMAIN}:/root/
+scp ~/polaris_demo_secret.asc         root@${POLARIS_DOMAIN}:/root/
+scp config/static_accounts.yaml       root@${POLARIS_DOMAIN}:/root/  # bcrypt-hashed
+scp infra/vexxhost/provision.sh       root@${POLARIS_DOMAIN}:/root/
+
+# 2. Run provisioning — pass the locally-resolved commit through ssh env.
+ssh root@${POLARIS_DOMAIN} \
+    "POLARIS_REPO_COMMIT=${POLARIS_REPO_COMMIT} \
+     POLARIS_DOMAIN=${POLARIS_DOMAIN} \
+     POLARIS_ACME_EMAIL=${POLARIS_ACME_EMAIL} \
+     bash /root/provision.sh"
 ```
 
 Provisioning takes ~10 minutes (apt + docker pull + Next.js build + Caddy ACME). Verify:
