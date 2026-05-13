@@ -95,6 +95,43 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
         "template_id": template_id,
     }
 
+    # I-arch-001b: synthesize v30.1 contract patch from v6 template's
+    # frame_manifest. Pipeline-A merges this into the scope template's
+    # per_query_report_contract before compile_frame / load_report_contract_for_slug.
+    # Failure is graceful (logger.warning) — pipeline-A handles missing
+    # contract via legacy no-contract path.
+    try:
+        from polaris_v6.templates.registry import load_template
+        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+
+        v6_tmpl = load_template(template_id).model_dump()
+        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+        logger.info(
+            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
+            run_id,
+            template_id,
+            slug,
+            len(q["v30_contract_patch"][slug]["required_entities"]),
+        )
+    except FileNotFoundError as exc:
+        logger.warning(
+            "[actor] v6 template not found template_id=%s run_id=%s; "
+            "pipeline-A will run on legacy no-contract path: %s",
+            template_id,
+            run_id,
+            exc,
+        )
+    except Exception as exc:  # noqa: BLE001 — synthesizer failure must not block runtime
+        logger.warning(
+            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
+            "slug=%s: %s; pipeline-A on legacy no-contract path",
+            run_id,
+            template_id,
+            slug,
+            exc,
+            exc_info=True,
+        )
+
     run_store.set_pipeline_meta(
         run_id,
         query_slug=slug,

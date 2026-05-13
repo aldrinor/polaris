@@ -1,0 +1,109 @@
+{
+  "ai_sovereignty_fixture": {
+    "rendering_slots": {
+      "aida_regulation_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "AIDA / Bill C-27 + ISED commitments"
+      },
+      "alignment_posture_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Implications",
+        "subsection_title": "Federal alignment + safety posture"
+      },
+      "data_residency_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Data residency + cross-border AI training data"
+      },
+      "sovereign_compute_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Sovereign compute capacity (domestic GPU/TPU)"
+      },
+      "talent_retention_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "AI talent retention vs US/UK brain drain"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "ai_sovereignty:sovereign_compute:ai_sovereignty_fixture:07b989ac",
+        "id": "sovereign_compute_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "sovereign_compute_slot",
+        "required_fields": [
+          "bill_id",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://ised-isde.canada.ca"
+      },
+      {
+        "anchor": "ai_sovereignty:talent_retention:ai_sovereignty_fixture:bbcb613b",
+        "id": "talent_retention_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "talent_retention_slot",
+        "required_fields": [
+          "bill_id",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.priv.gc.ca"
+      },
+      {
+        "anchor": "ai_sovereignty:data_residency:ai_sovereignty_fixture:d016bc45",
+        "id": "data_residency_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "data_residency_slot",
+        "required_fields": [
+          "bill_id",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/treasury-board-secretariat.html"
+      },
+      {
+        "anchor": "ai_sovereignty:aida_regulation:ai_sovereignty_fixture:478df94a",
+        "id": "aida_regulation_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "aida_regulation_slot",
+        "required_fields": [
+          "bill_id",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://cifar.ca"
+      },
+      {
+        "anchor": "ai_sovereignty:alignment_posture:ai_sovereignty_fixture:06fe3820",
+        "id": "alignment_posture_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "alignment_posture_slot",
+        "required_fields": [
+          "bill_id",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www150.statcan.gc.ca"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

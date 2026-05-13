@@ -1,0 +1,111 @@
+{
+  "clinical_fixture": {
+    "rendering_slots": {
+      "efficacy_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Efficacy",
+        "subsection_title": "Efficacy outcomes (primary endpoints)"
+      },
+      "labelling_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Regulatory",
+        "subsection_title": "Regulatory labelling deltas"
+      },
+      "post_market_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Post-market",
+        "subsection_title": "Post-market surveillance signals"
+      },
+      "safety_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Safety",
+        "subsection_title": "Safety / adverse events"
+      },
+      "subgroup_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Subgroups",
+        "subsection_title": "Subgroup analyses + heterogeneity"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "clinical:efficacy:clinical_fixture:144c421e",
+        "id": "efficacy_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "efficacy_slot",
+        "required_fields": [
+          "rxcui",
+          "drugbank_id",
+          "icd_10"
+        ],
+        "type": "drug",
+        "url_pattern": "https://www.canada.ca/en/health-canada.html"
+      },
+      {
+        "anchor": "clinical:safety:clinical_fixture:84954e8d",
+        "id": "safety_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "safety_slot",
+        "required_fields": [
+          "rxcui",
+          "drugbank_id",
+          "icd_10"
+        ],
+        "type": "drug",
+        "url_pattern": "https://www.fda.gov/drugs"
+      },
+      {
+        "anchor": "clinical:labelling:clinical_fixture:090c9b5c",
+        "id": "labelling_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "labelling_slot",
+        "required_fields": [
+          "rxcui",
+          "drugbank_id",
+          "icd_10"
+        ],
+        "type": "drug",
+        "url_pattern": "https://www.ema.europa.eu"
+      },
+      {
+        "anchor": "clinical:post_market:clinical_fixture:36668fb7",
+        "id": "post_market_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "post_market_slot",
+        "required_fields": [
+          "rxcui",
+          "drugbank_id",
+          "icd_10"
+        ],
+        "type": "drug",
+        "url_pattern": "https://clinicaltrials.gov"
+      },
+      {
+        "anchor": "clinical:subgroup:clinical_fixture:da9cbc42",
+        "id": "subgroup_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "subgroup_slot",
+        "required_fields": [
+          "rxcui",
+          "drugbank_id",
+          "icd_10"
+        ],
+        "type": "drug",
+        "url_pattern": "https://pubmed.ncbi.nlm.nih.gov"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Efficacy",
+      "Safety",
+      "Regulatory",
+      "Post-market",
+      "Subgroups"
+    ]
+  }
+}

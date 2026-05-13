@@ -1,0 +1,109 @@
+{
+  "climate_fixture": {
+    "rendering_slots": {
+      "carbon_pricing_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Federal carbon pricing + provincial systems"
+      },
+      "critical_minerals_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Critical minerals strategy (lithium, nickel, cobalt, rare earths)"
+      },
+      "emissions_intensity_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Oil-sands GHG intensity per barrel"
+      },
+      "indigenous_conservation_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Implications",
+        "subsection_title": "Indigenous-led conservation + consultation"
+      },
+      "methane_regulation_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Methane emissions regulation"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "climate:emissions_intensity:climate_fixture:208cbcf4",
+        "id": "emissions_intensity_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "emissions_intensity_slot",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "target_year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.canada.ca/en/environment-climate-change.html"
+      },
+      {
+        "anchor": "climate:critical_minerals:climate_fixture:f3da5751",
+        "id": "critical_minerals_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "critical_minerals_slot",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "target_year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://natural-resources.canada.ca"
+      },
+      {
+        "anchor": "climate:carbon_pricing:climate_fixture:4a8e003c",
+        "id": "carbon_pricing_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "carbon_pricing_slot",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "target_year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www150.statcan.gc.ca"
+      },
+      {
+        "anchor": "climate:methane_regulation:climate_fixture:fe144fef",
+        "id": "methane_regulation_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "methane_regulation_slot",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "target_year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.cer-rec.gc.ca"
+      },
+      {
+        "anchor": "climate:indigenous_conservation:climate_fixture:cab6906e",
+        "id": "indigenous_conservation_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "indigenous_conservation_slot",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "target_year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.pbo-dpb.ca"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "trade_fixture": {
+    "rendering_slots": {
+      "cusma_disputes_slot": {
+        "ordering": 2,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "CUSMA dispute resolution"
+      },
+      "retaliation_slot": {
+        "ordering": 5,
+        "required": true,
+        "section": "Implications",
+        "subsection_title": "Retaliation scenarios + exposed sectors"
+      },
+      "supply_chain_slot": {
+        "ordering": 3,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Supply-chain resilience + reshoring"
+      },
+      "tariff_exposure_slot": {
+        "ordering": 1,
+        "required": true,
+        "section": "Background",
+        "subsection_title": "Sector-level tariff exposure"
+      },
+      "trade_flows_slot": {
+        "ordering": 4,
+        "required": true,
+        "section": "Findings",
+        "subsection_title": "Bilateral trade-flow trends"
+      }
+    },
+    "required_entities": [
+      {
+        "anchor": "trade:tariff_exposure:trade_fixture:e3eca46a",
+        "id": "tariff_exposure_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "tariff_exposure_slot",
+        "required_fields": [
+          "hs_code",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.international.gc.ca"
+      },
+      {
+        "anchor": "trade:cusma_disputes:trade_fixture:fa2c0f96",
+        "id": "cusma_disputes_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "cusma_disputes_slot",
+        "required_fields": [
+          "hs_code",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://ustr.gov"
+      },
+      {
+        "anchor": "trade:supply_chain:trade_fixture:d61b96b7",
+        "id": "supply_chain_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "supply_chain_slot",
+        "required_fields": [
+          "hs_code",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.wto.org"
+      },
+      {
+        "anchor": "trade:trade_flows:trade_fixture:2687b7dc",
+        "id": "trade_flows_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "trade_flows_slot",
+        "required_fields": [
+          "hs_code",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www150.statcan.gc.ca"
+      },
+      {
+        "anchor": "trade:retaliation:trade_fixture:fe449ad5",
+        "id": "retaliation_entity",
+        "min_fields_for_completion": 1,
+        "rendering_slot": "retaliation_slot",
+        "required_fields": [
+          "hs_code",
+          "jurisdiction",
+          "year"
+        ],
+        "type": "policy",
+        "url_pattern": "https://www.bankofcanada.ca"
+      }
+    ],
+    "schema_version": "v30.1",
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}
