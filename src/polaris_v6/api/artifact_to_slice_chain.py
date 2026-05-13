@@ -311,9 +311,16 @@ def build_slice_chain(
         )
 
     overall = sum(s.section_verify_pass_rate for s in non_dropped) / len(non_dropped)
-    pipeline_verdict: PipelineVerdict = (
-        "success" if air.manifest.status == "success" else "abort_no_verified_sections"
-    )
+    # Codex diff iter-1 P2-001 fix: partial_* runs still have kept sections;
+    # they're "success-with-degradation" not "no_verified_sections" aborts.
+    # PipelineVerdict Literal accepts success | abort_no_verified_sections;
+    # collapse partial_* into "success" since the pipeline did produce kept
+    # content (the degradation is recorded on the manifest, not the verdict).
+    manifest_status = air.manifest.status or ""
+    if manifest_status == "success" or manifest_status.startswith("partial_"):
+        pipeline_verdict: PipelineVerdict = "success"
+    else:
+        pipeline_verdict = "abort_no_verified_sections"
     models_block = manifest_raw.get("models") or {}
     report = SliceChainVerifiedReport(
         report_id=air.manifest.run_id,

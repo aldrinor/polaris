@@ -22,6 +22,15 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+# I-arch-001d Codex diff iter-1 P1-001 fix: import get_sign_fn at module top
+# so FastAPI Depends() identity matches what app.dependency_overrides keys on.
+# A lambda Depends would be a DIFFERENT callable than get_sign_fn — the
+# create_app() override wouldn't fire and the endpoint would always 503.
+from polaris_graph.api.audit_bundle_route import (
+    AuditBundleRequest,
+    get_sign_fn,
+    post_audit_bundle,
+)
 from polaris_v6.api.artifact_to_slice_chain import (
     SovereigntyFilterEmptiedReportError,
     build_slice_chain,
@@ -59,21 +68,23 @@ def get_bundle(run_id: str) -> EvidenceContract:
 @router.get("/{run_id}/bundle.tar.gz")
 def get_run_bundle_targz(
     run_id: str,
-    sign_fn=Depends(  # I-arch-001d Codex iter-2 P1-004: explicit Depends
-        # Lazy import: audit_bundle_route depends on polaris_graph; we don't
-        # want bundle.py import to fail if that subtree has runtime issues
-        # outside this endpoint.
-        lambda: _resolve_sign_fn()
-    ),
+    sign_fn=Depends(get_sign_fn),
 ):
     """Resolve run_id → artifact_dir → signed audit bundle (tar.gz).
+
+    I-arch-001d Codex diff iter-1 P1-001: `Depends(get_sign_fn)` MUST use
+    the actual `get_sign_fn` callable from audit_bundle_route — the
+    create_app() registers `app.dependency_overrides[get_sign_fn]` to
+    inject the real GPGSigner when POLARIS_GPG_KEY_ID is set. A lambda
+    Depends would be a different callable; the override would never fire.
 
     Status codes:
         200: bundleable run; returns application/gzip
         404: run not found, not completed, or artifact_dir missing
         422: run aborted (pipeline_status=abort_*) or sovereignty cascade
              emptied the report
-        503: GPG signer not configured (POLARIS_GPG_KEY_ID unset)
+        503: GPG signer not configured (POLARIS_GPG_KEY_ID unset) — surfaced
+             by the inner post_audit_bundle when sign_fn is None.
     """
     info = run_store.get_run(run_id)
     if info is None:
@@ -110,24 +121,7 @@ def get_run_bundle_targz(
             detail={"error": f"artifact_dir incomplete: {exc}"},
         ) from exc
 
-    # Lazy import keeps top-of-file imports clean of polaris_graph dependency.
-    from polaris_graph.api.audit_bundle_route import (
-        AuditBundleRequest,
-        post_audit_bundle,
-    )
-
     return post_audit_bundle(
         AuditBundleRequest(decision=decision, pool=pool, report=report),
         sign_fn=sign_fn,
     )
-
-
-def _resolve_sign_fn():
-    """Lazy import of audit_bundle_route.get_sign_fn for FastAPI Depends.
-
-    The audit_bundle_route module imports polaris_graph; deferring keeps
-    bundle.py loadable even when the polaris_graph subtree has an init
-    issue (it doesn't today, but the lazy pattern is defensive).
-    """
-    from polaris_graph.api.audit_bundle_route import get_sign_fn
-    return get_sign_fn()
