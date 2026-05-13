@@ -9,11 +9,16 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from polaris_v6 import __version__
 from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
 from polaris_v6.api.bundle import router as bundle_router
 from polaris_v6.api.charts import router as charts_router
 from polaris_v6.api.compare import router as compare_router
@@ -62,11 +67,15 @@ async def _lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
     app = FastAPI(
         title="POLARIS",
         version=__version__,
         description="Sovereign Canadian deep research AI",
         lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
     )
     cors_origins = os.environ.get(
         "POLARIS_V6_CORS_ORIGINS",
@@ -80,6 +89,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(runs_router)
     app.include_router(stream_router)
     app.include_router(ambiguity_router)

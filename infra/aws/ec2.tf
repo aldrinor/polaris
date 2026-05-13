@@ -166,11 +166,10 @@ resource "aws_instance" "polaris" {
     Name = "polaris-carney"
   }
 
-  # Codex diff iter-1 P1-002: cloud-init.sh runs `aws ssm get-parameter ...`
-  # under `set -e`. If the instance launches before the SSM parameters exist
-  # or before the SSM read IAM policy is attached to the role, the user-data
-  # script fails and compose never starts. Explicit depends_on forces both
-  # secrets-in-Parameter-Store + IAM permission to be in place at boot.
+  # Codex diff iter-1 P1-002 (I-carney-002) + I-carney-004 iter-1 P1-2:
+  # cloud-init.sh runs `aws ssm get-parameter` AND `aws secretsmanager
+  # get-secret-value` under `set -e`. Block instance boot until ALL secrets
+  # are written AND the IAM policies are attached.
   depends_on = [
     aws_ssm_parameter.openrouter_api_key,
     aws_ssm_parameter.serper_api_key,
@@ -179,6 +178,11 @@ resource "aws_instance" "polaris" {
     aws_iam_role_policy_attachment.ssm_managed,
     aws_iam_role_policy_attachment.ssm_read,
     aws_iam_role_policy_attachment.s3_audit_write,
+    # I-carney-004 Secrets Manager substrate.
+    aws_secretsmanager_secret_version.jwt_secret,
+    aws_secretsmanager_secret_version.static_accounts,
+    aws_secretsmanager_secret_version.gpg_private_key,
+    aws_iam_role_policy_attachment.secretsmanager_read,
   ]
 }
 

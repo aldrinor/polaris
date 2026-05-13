@@ -33,3 +33,26 @@ EOT
 
 # ----- Ops -----
 ebs_backup_retention_days = 7
+
+# ----- I-carney-004 auth + secrets -----
+# Generate the bcrypt hashes locally:
+#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('your-password'))"
+# Then paste the YAML body verbatim.
+static_accounts_yaml = <<EOT
+accounts:
+  - username: carney_office
+    password_bcrypt: "$2b$12$REPLACE_ME_REVIEWER"
+    role: reviewer
+  - username: ops
+    password_bcrypt: "$2b$12$REPLACE_ME_OPS"
+    role: admin
+EOT
+
+# Armored ASCII of the demo signing key. On operator workstation:
+#   bash scripts/bootstrap_gpg_demo_key.sh
+#   gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo"
+gpg_private_key_armored = <<EOT
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+REPLACE_ME_PRIVATE_KEY_BODY
+-----END PGP PRIVATE KEY BLOCK-----
+EOT
