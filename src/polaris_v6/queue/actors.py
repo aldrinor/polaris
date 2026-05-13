@@ -11,18 +11,25 @@ direct .fn() invocation), returns deterministic noop without DB writes.
 
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
-import os
-import re
-import uuid
-from pathlib import Path
-from typing import Any
+# I-carney-005 P1-001: broker init MUST happen BEFORE any @dramatiq.actor
+# decoration below, in the SAME interpreter that imports this module.
+# get_broker() is idempotent (broker._INITIALIZED sentinel) so test
+# environments where conftest already installed a StubBroker pay no cost.
+from polaris_v6.queue.broker import get_broker as _ensure_broker
+_ensure_broker()
 
-import dramatiq
+import asyncio  # noqa: E402 — must come after broker init
+import json  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import uuid  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
 
-from polaris_v6.queue import run_store
+import dramatiq  # noqa: E402
+
+from polaris_v6.queue import run_store  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,118 @@
+# I-carney-005 — POLARIS v6 production stack (Carney demo).
+#
+# Stack: redis + api + worker + webui.
+# Legacy pipeline-B compose (docker-compose.yml) stays untouched per
+# I-carney-005 acceptance criterion 8.
+#
+# Bring up:  docker compose -f docker-compose.v6.yml up -d
+# Tear down: docker compose -f docker-compose.v6.yml down -v   (NB: drops volumes)
+
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1000"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.v6
+    command: api
+    env_file:
+      - .env
+    environment:
+      POLARIS_V6_REDIS_URL: redis://redis:6379/0
+      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
+      GNUPGHOME: /app/gpg
+      # POLARIS_GPG_KEY_ID is read from .env via env_file
+    volumes:
+      - shared_state:/app/state
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+      # P1-006: writable GPG homedir bind-mount.
+      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+    ports:
+      - "${POLARIS_API_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.v6
+    command: worker
+    env_file:
+      - .env
+    environment:
+      POLARIS_V6_REDIS_URL: redis://redis:6379/0
+      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
+      GNUPGHOME: /app/gpg
+    volumes:
+      - shared_state:/app/state
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  webui:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # P1-B from Codex diff iter-2: Next.js bakes rewrites() destinations
+        # at build time, so INTERNAL_API_URL must be a build arg. NOT
+        # prefixed NEXT_PUBLIC_, so it does NOT leak into the client bundle —
+        # only the server-side routes manifest sees it.
+        INTERNAL_API_URL: http://api:8000
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${POLARIS_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  shared_state:
