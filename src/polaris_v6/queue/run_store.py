@@ -245,8 +245,14 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
                 "FROM runs WHERE run_id=?",
                 (run_id,),
             ).fetchone()
-        except sqlite3.OperationalError:
-            return None
+        except sqlite3.OperationalError as exc:
+            # Narrow per Codex iter-1 P2-001: only the missing-table stub
+            # path returns None; surface other operational errors (schema
+            # corruption, migration faults) so they aren't masked as
+            # missing-row.
+            if "no such table" in str(exc).lower():
+                return None
+            raise
     finally:
         conn.close()
     if row is None:

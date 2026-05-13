@@ -2880,6 +2880,12 @@ async def run_one_query(
                     "cost_usd": run_cost,
                     "budget_cap_usd": PG_MAX_COST_PER_RUN,
                 }
+                error_manifest = augment_v6_manifest(
+                    error_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
                 (run_dir / "manifest.json").write_text(
                     json.dumps(error_manifest, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
