@@ -24,6 +24,7 @@ from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.scope import router as scope_router
 from polaris_v6.api.stream import router as stream_router
 from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
 from polaris_v6.api.upload import router as upload_router
 
 # Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(compare_router)
     app.include_router(memory_router)
     app.include_router(templates_router)
+    app.include_router(transparency_router)
 
     # Slice 001 — POST /api/intake + GET /api/intake/health
     app.include_router(slice001_intake_router, prefix="/api")

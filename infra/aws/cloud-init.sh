@@ -99,6 +99,8 @@ POLARIS_API_PORT=8000
 POLARIS_WEB_PORT=3000
 PG_MAX_COST_PER_RUN=5.00
 POLARIS_AUDIT_S3_BUCKET=$AUDIT_BUCKET_NAME
+POLARIS_GIT_COMMIT=$POLARIS_REPO_COMMIT
+AWS_REGION=$AWS_REGION
 EOF
 chmod 600 /opt/polaris/.env
 
@@ -110,10 +112,23 @@ chmod 600 /opt/polaris/.env
 # via SSM Session Manager). Cloud-init only imports the public half so
 # `bundle.tar.gz` requests will return 503 gpg_unavailable until the
 # operator finishes the private-key transfer.
+#
+# I-carney-003 P1-002: ALSO persist the armored ASCII to disk so the
+# /transparency/pubkey.asc endpoint can serve it without shelling to gpg.
 if [ -n "$POLARIS_GPG_PUBKEY" ]; then
     export GNUPGHOME=/var/lib/polaris/gpg
     echo "$POLARIS_GPG_PUBKEY" | gpg --import || true
+    echo "$POLARIS_GPG_PUBKEY" > /var/lib/polaris/gpg/polaris_demo_pubkey.asc
+    chmod 644 /var/lib/polaris/gpg/polaris_demo_pubkey.asc
 fi
+
+# ----- 5b. Install egress allowlist + lockdown (I-carney-003) -----
+mkdir -p /etc/polaris
+cp /opt/polaris/config/egress_allowlist.txt /etc/polaris/egress_allowlist.txt
+chmod 644 /etc/polaris/egress_allowlist.txt
+# Note: egress_lockdown.sh is NOT auto-run on boot. Operator runs it AFTER
+# `docker compose up -d` succeeds the first time so build-time hosts can
+# be tightened. See docs/transparency.md §4.
 
 # ----- 6. bring up the compose stack -----
 cd /opt/polaris

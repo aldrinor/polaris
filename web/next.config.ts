@@ -16,6 +16,17 @@ const nextConfig: NextConfig = {
         source: "/api/v6/:path*",
         destination: `${internal}/:path*`,
       },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
     ];
   },
 };
