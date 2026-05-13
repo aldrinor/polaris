@@ -1,4 +1,20 @@
-# I-carney-002 — AWS Canada Central deploy
+# ARCHIVED 2026-05-13 — AWS Canada Central deploy
+
+> **DO NOT USE for the Carney demo.** User directive 2026-05-13: full-sovereign
+> Canadian deploy, no US-owned company anywhere. AWS data is physically in
+> Montréal under ca-central-1 but Amazon is a US corporation subject to US
+> CLOUD Act + US FISA — fails the sovereignty audit. The active Carney deploy
+> lives at `infra/vexxhost/` (Canadian-owned hosting) paired with `infra/ovh/`
+> (French-owned, in Quebec, for H200 GPU inference).
+>
+> See `infra/vexxhost/README.md` for the active deploy path.
+>
+> Keep this module: useful reference for VPC + ALB + ACM + WAF + SSM +
+> Secrets Manager patterns for any future non-sovereign deployment.
+
+---
+
+# I-carney-002 — AWS Canada Central deploy (archived)
 
 Terraform module that provisions the Carney demo on AWS ca-central-1 (Montréal). Hosts the `docker-compose.v6.yml` stack from I-carney-005.
 

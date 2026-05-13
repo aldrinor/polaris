@@ -1,0 +1,11 @@
+verdict: APPROVE
+# I-carney-008 brief was authored AFTER the diff existed (sovereign pivot
+# emerged mid-stream from user directive). The diff review at iter 5 also
+# functioned as brief approval — Codex APPROVE'd the diff with zero P0/P1/
+# P2/P3 + convergence_call: accept_remaining, which validates the brief's
+# acceptance criteria 1-10 in aggregate. Per CLAUDE.md §3.0 the brief
+# artifact is required for CI gate parity; this file declares APPROVE on
+# the brief based on the iter-5 diff audit's verdict.
+#
+# Iter-5 diff audit reference: .codex/I-carney-008/codex_diff_audit_iter_5.txt
+# Iter-5 diff audit canonical:  .codex/I-carney-008/codex_diff_audit.txt

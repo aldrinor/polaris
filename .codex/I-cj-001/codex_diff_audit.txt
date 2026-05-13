@@ -2192,11 +2192,11 @@ tests\crown_jewels\test_cj_001_two_family_segregation.py .....           [100%]
 2026-05-09T01:42:33.842551Z ERROR codex_core::tools::router: error=Exit code: 1
 Wall time: 5 seconds
 Output:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_001_two_family_segregation.py -q': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_001_two_family_segregation.py -q': Access is denied.
 
 
  exited 1 in 5041ms:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_001_two_family_segregation.py -q': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_001_two_family_segregation.py -q': Access is denied.
 
 
 exec

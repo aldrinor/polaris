@@ -1659,11 +1659,11 @@ tests\crown_jewels\test_cj_005_corpus_approval.py .....                  [100%]
 2026-05-09T02:42:06.689879Z ERROR codex_core::tools::router: error=Exit code: 1
 Wall time: 6.2 seconds
 Output:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
 
 
  exited 1 in 6205ms:
-Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
+Unable to create process using '"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\python3.13.exe" -m pytest tests/crown_jewels/test_cj_005_corpus_approval.py -q': Access is denied.
 
 
 codex

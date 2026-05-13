@@ -1,37 +1,215 @@
 # I-carney-003 — POLARIS Carney demo egress allowlist.
+# Updated I-carney-008 — sovereign pivot. Brave Search REMOVED 2026-05-13
+# (Brave Software Inc. is a Delaware corporation; fails the "no US company
+# anywhere" bar per Codex iter-1 P1-1). Search-provider selection moved to
+# GH#487 I-carney-009 — until that lands, search calls fail loudly under
+# lockdown (intentional; the no-search smoke shows the failure mode honestly).
 #
-# scripts/egress_lockdown.sh resolves each domain to A records and installs
-# iptables rules in OUTPUT (host) + DOCKER-USER (container). Everything else
-# 80/443 is DROP-ed.
+# scripts/egress_lockdown.sh resolves each domain to A AND AAAA records and
+# installs iptables (IPv4) + ip6tables (IPv6) rules in OUTPUT (host) +
+# DOCKER-USER (container). Everything else 80/443 is DROP-ed on BOTH stacks.
 #
 # Run lockdown AFTER first `docker compose build` so build-time hosts
 # (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
 # can be removed from the runtime allowlist if desired.
 
-# ----- LLM API -----
+# ----- LLM (transition: OpenRouter US; production: private vLLM on OVH H200) -----
+# When POLARIS_LLM_BACKEND=vllm, no external LLM hosts hit at all (private
+# network to OVH). When POLARIS_LLM_BACKEND=openrouter (transition), the
+# 2 lines below are required:
 openrouter.ai
 api.openrouter.ai
 
-# ----- Live retrieval -----
-google.serper.dev
+# ----- Live retrieval — DEFERRED to GH#487 I-carney-009 -----
+# Search-provider selection (Mojeek UK / Qwant FR / Ecosia DE) is the
+# follow-up Issue. NO search API host is in this allowlist for the sovereign
+# deploy. With lockdown on, search-tier-1 corpus fetch still works (govt
+# endpoints listed below); Serper/etc. calls fail loudly under lockdown.
+# Semantic Scholar (US AI2 non-profit) — disclosed in /transparency,
+# kept for the academic-bib path; remove for stricter sovereignty.
 api.semanticscholar.org
 
-# ----- Container image registry -----
+# ----- T1 corpus (regulatory + clinical guideline) — sovereign egress -----
+# Per src/polaris_graph/retrieval/{evidence_selector,tier_classifier,
+# domain_backends,frame_fetcher}.py these are the cleared T1 hosts. Audit-
+# grade demo material is ONLY ever T1; T2/T3 publisher arbitrary URLs are
+# dropped by sovereignty filter AND by this egress (defense in depth).
+#
+# CRITICAL: iptables resolves each hostname to ONE set of A/AAAA records;
+# bare-domain vs www-prefixed vs sub-prefixed CDN edges resolve to DIFFERENT
+# IPs. egress_lockdown.sh per Codex iter-2 P1-3 must allowlist every
+# hostname pipeline-A can dispatch httpx.Client() against. Iter-2 listed
+# only the bare-domain forms; iter-3 adds the www. + sub-prefixed forms
+# the code can produce.
+
+# US FDA (govt, not US company)
+fda.gov
+www.fda.gov
+accessdata.fda.gov
+nctr-crs.fda.gov
+labels.fda.gov
+# US ClinicalTrials.gov
+clinicaltrials.gov
+www.clinicaltrials.gov
+# US CDC + NASA (tier_classifier REGULATORY_DOMAINS)
+cdc.gov
+www.cdc.gov
+# US NCBI / NLM literature aggregator (sovereignty-disclosed; T1 corpus path)
+ncbi.nlm.nih.gov
+www.ncbi.nlm.nih.gov
+pmc.ncbi.nlm.nih.gov
+pubmed.ncbi.nlm.nih.gov
+nlm.nih.gov
+www.nlm.nih.gov
+eutils.ncbi.nlm.nih.gov
+# DailyMed (NLM-hosted FDA labels) — clinical url_pattern path
+dailymed.nlm.nih.gov
+
+# EMA + EU
+ema.europa.eu
+www.ema.europa.eu
+europa.eu
+www.europa.eu
+
+# UK regulator
+nice.org.uk
+www.nice.org.uk
+mhra.gov.uk
+www.mhra.gov.uk
+gov.uk
+www.gov.uk
+
+# Health Canada + Canadian sovereign endpoints
+canada.ca
+www.canada.ca
+hc-sc.gc.ca
+www.hc-sc.gc.ca
+recalls-rappels.canada.ca
+health-products.canada.ca
+hpfb-dgpsa.ca
+www.hpfb-dgpsa.ca
+dhpp.hpfb-dgpsa.ca
+hres.ca
+www.hres.ca
+pdf.hres.ca
+cda-amc.ca
+www.cda-amc.ca
+
+# Australia / NZ regulators
+tga.gov.au
+www.tga.gov.au
+medsafe.govt.nz
+www.medsafe.govt.nz
+
+# Japan PMDA
+pmda.go.jp
+www.pmda.go.jp
+
+# China NMPA (regulatory; evidence_selector.py:107)
+nmpa.gov.cn
+www.nmpa.gov.cn
+
+# Other national regulators
+bfarm.de
+www.bfarm.de
+ansm.sante.fr
+www.ansm.sante.fr
+
+# WHO + IARC
+who.int
+www.who.int
+iarc.who.int
+www.iarc.who.int
+
+# ----- Policy-domain T1 corpus (per scope_templates/policy.yaml + domain_backends.py) -----
+# Codex iter-4 P1: policy submissions in the demo rehearsal matrix (NORAD,
+# pharmacare, AI sovereignty, Canada-US digital services tax, workforce)
+# fetch from these endpoints. Without them, lockdown drops policy evidence.
+
+# US federal policy machinery
+federalregister.gov
+www.federalregister.gov
+regulations.gov
+www.regulations.gov
+gao.gov
+www.gao.gov
+congress.gov
+www.congress.gov
+whitehouse.gov
+www.whitehouse.gov
+cbo.gov
+www.cbo.gov
+cms.gov
+www.cms.gov
+hhs.gov
+www.hhs.gov
+ftc.gov
+www.ftc.gov
+treasury.gov
+home.treasury.gov
+
+# EU Commission
+ec.europa.eu
+
+# Public legal corpus (US case law)
+courtlistener.com
+www.courtlistener.com
+
+# ----- Bibliographic / DOI-resolver infrastructure (sovereign-aligned) -----
+# DOI registry (CNRI, US 501(c)(3) — disclosed; alternative is to bypass DOI
+# resolution and use direct publisher URLs, but that breaks tier-1 cites).
+doi.org
+dx.doi.org
+# Crossref (UK non-profit, sovereign-aligned)
+api.crossref.org
+# Unpaywall (Our Research, US 501(c)(3) — disclosed)
+api.unpaywall.org
+# OpenAlex (US OurResearch, public CC0 corpus — disclosed)
+api.openalex.org
+# arXiv (Cornell, US — disclosed; mathematics + tech preprints)
+arxiv.org
+export.arxiv.org
+# SEC EDGAR (US govt, public corporate filings)
+efts.sec.gov
+www.sec.gov
+
+# ----- Let's Encrypt (TLS cert renewal via Caddy) — RUNTIME -----
+# US 501(c)(3) ISRG; the cert is a public attestation, no data leaves.
+acme-v02.api.letsencrypt.org
+r3.o.lencr.org
+
+# ----- BUILD-TIME ONLY (US-corp infrastructure; remove for runtime) -----
+# Codex iter-2 P2-2 (sovereign discipline): GitHub, Docker Hub registry,
+# Cloudflare's Docker CDN, and the npm/PyPI/Debian/Cloudsmith indices are
+# US-corp-owned. They are needed ONCE during `docker compose build` and
+# `git clone`. After the first build:
+#
+#   1. provision.sh prints the "remove build-time hosts" reminder
+#   2. operator runs:  bash scripts/egress_runtime_tighten.sh
+#      which copies config/egress_allowlist.txt → /etc/polaris/
+#      egress_allowlist.txt MINUS the build-time block below, then
+#      re-runs egress_lockdown.sh
+#
+# /transparency reports `build_time_hosts_pruned: true|false` per the
+# /etc/polaris/runtime_pruned.flag sentinel egress_runtime_tighten.sh sets.
+#
+# DO NOT remove these lines from this file directly — they're required for
+# first boot. The runtime tightening pass copies+filters them out.
+
+# ----- Container image registry (BUILD-TIME) -----
 github.com
 codeload.github.com
 registry-1.docker.io
 auth.docker.io
 production.cloudflare.docker.com
 
-# ----- AWS substrate (ca-central-1) -----
-ssm.ca-central-1.amazonaws.com
-ssmmessages.ca-central-1.amazonaws.com
-ec2messages.ca-central-1.amazonaws.com
-s3.ca-central-1.amazonaws.com
-
-# ----- Build-time package indices (remove post-build for tighter runtime lockdown) -----
+# ----- Build-time package indices (BUILD-TIME) -----
 pypi.org
 files.pythonhosted.org
 deb.debian.org
 security.debian.org
 registry.npmjs.org
+dl.cloudsmith.io
+
+# I-carney-008: AWS-specific endpoints (ssm.*, ec2messages.*, s3.ca-central-1.*)
+# REMOVED. No AWS in the sovereign deploy.

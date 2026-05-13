@@ -46,6 +46,7 @@ class SovereigntyPolicy(BaseModel):
 class TransparencyResponse(BaseModel):
     """Public deploy descriptor."""
 
+    provider: str
     region: str
     git_commit: str
     polaris_version: str
@@ -55,6 +56,7 @@ class TransparencyResponse(BaseModel):
     sovereignty_filter: SovereigntyPolicy
     evaluator_models: dict[str, str]
     egress_allowlist: list[str]
+    build_time_hosts_pruned: bool
     dependencies: dict[str, list[str]]
 
 
@@ -186,8 +188,25 @@ def _read_pubkey() -> str:
 def transparency() -> TransparencyResponse:
     """Public deploy descriptor."""
     key_id, fpr = _signing_key_info()
+    # I-carney-008 Codex iter-1 P1-2: treat empty-string env vars as missing
+    # (otherwise an unfilled .env template surfaces provider="" / region="").
+    provider = os.environ.get("POLARIS_PROVIDER", "").strip() or "unknown"
+    region = (
+        os.environ.get("POLARIS_REGION", "").strip()
+        or os.environ.get("AWS_REGION", "").strip()
+        or "unknown"
+    )
+    # I-carney-008 Codex iter-2 P2-2: surface whether the build-time block
+    # (GitHub, Docker registry, Cloudflare CDN, pypi/npm/debian) was pruned
+    # from the runtime allowlist by scripts/egress_runtime_tighten.sh.
+    pruned_flag = Path(
+        os.environ.get(
+            "POLARIS_RUNTIME_PRUNED_FLAG", "/etc/polaris/runtime_pruned.flag"
+        )
+    )
     return TransparencyResponse(
-        region=os.environ.get("AWS_REGION", "unknown"),
+        provider=provider,
+        region=region,
         git_commit=_git_commit(),
         polaris_version=__version__,
         deploy_timestamp=datetime.now(timezone.utc).isoformat(),
@@ -199,6 +218,7 @@ def transparency() -> TransparencyResponse:
             "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
         },
         egress_allowlist=_load_egress_allowlist(),
+        build_time_hosts_pruned=pruned_flag.exists(),
         dependencies=_load_dependencies(),
     )
 
@@ -228,9 +248,5 @@ def policy() -> PolicyResponse:
         enforcement_layer=[
             "host iptables OUTPUT chain (scripts/egress_lockdown.sh)",
             "Docker DOCKER-USER chain (scripts/egress_lockdown.sh)",
-            # Codex diff iter-2 P2: AWS SG on EC2 is NOT an egress allowlist
-            # (egress is all-permit per infra/aws/ec2.tf). Listed here as
-            # "ingress-only" to be honest about layer scope.
-            "AWS Security Group on EC2 (ingress-only; egress all-permit)",
         ],
     )
