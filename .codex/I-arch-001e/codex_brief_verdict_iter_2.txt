@@ -1,0 +1,115 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e1fe7-9425-77d3-9591-25ef1fc58d02
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+
+# I-arch-001e iter 2 — resolutions
+
+## P1-1: Terminal emit at ALL exit paths (7 sites)
+
+Resolution: centralize via `emit_terminal_event(external_run_id, pipeline_status, error_msg=None, *, redis_client=None)` helper. Called at each pipeline-A return in run_one_query: scope abort (1349), no_sources (1485), corpus_inadequate (1705), corpus_approval_denied (1790), no_verified_sections (2353), success (2820), outer exception (2870). All translate to v6 `run_complete` with `payload.status` carrying the original pipeline_status string.
+
+## P1-2: emit_event non-raising
+
+Resolution:
+```python
+def emit_event(external_run_id, event_type, payload, *, redis_client=None):
+    if not external_run_id:
+        return  # CLI sweep — no v6 stream
+    try:
+        client = redis_client or _get_sync_redis()
+        client.xadd(EVENT_STREAM_KEY.format(run_id=external_run_id),
+                    {"event_type": event_type, "payload": json.dumps(payload)},
+                    maxlen=10000, approximate=True)
+    except (redis.exceptions.RedisError, ConnectionError) as exc:
+        logger.warning("[run_events] emit failed run_id=%s event_type=%s: %s",
+                       external_run_id, event_type, exc)
+    except Exception as exc:  # noqa: BLE001 — observability must NEVER block pipeline
+        logger.warning("[run_events] emit unexpected error: %s", exc)
+```
+Pipeline-A `error_unexpected` cannot be caused by Redis observability.
+
+## P1-3: stream_unavailable only on Redis connection failure
+
+Resolution: SSE reader checks run_store first when stream is empty:
+```python
+async for event in _redis_stream_source(run_id, last_id):
+    yield event
+# When XREAD raises ConnectionError → terminal stream_unavailable
+# When XREAD returns empty for 5s window → keepalive ping, NOT terminal
+# Only after run_store shows run finished AND no more events for 10s → close cleanly
+```
+
+Empty-stream-while-queued/in_progress → keepalive forever (or until client disconnects), per `run_store.get_run(run_id).lifecycle_status`. Empty after `lifecycle_status == completed/failed` AND no terminal event seen for 10s → emit synthetic `run_complete(status=stream_lost)` and close (degraded but honest).
+
+## P2 resolutions
+
+- partial_* + abort_* mapped via central translator: all produce terminal `run_complete` with `payload.status=<original>`
+- Tests use `fakeredis` library or mock Redis with monkeypatch; no real Redis required
+- Validate `Last-Event-ID` shape: must match `\d+-\d+` regex; bad → fall back to `0-0`
+- Update existing `tests/v6/test_api_stream.py` (correct path) not `tests/polaris_v6/api/test_stream.py`
+
+## Acceptance criteria
+
+Per iter-1 + the P1/P2 fixes above. Tests must pass without real Redis (fakeredis or pure mock).
+
+## Direct questions iter 2
+
+1. Single `emit_terminal_event` helper at all 7 pipeline-A return sites — APPROVE'd?
+2. Non-raising emit + logger.warning on all exceptions — APPROVE'd?
+3. run_store check before declaring stream_unavailable (only on actual Redis ConnectionError, never on empty 30s) — APPROVE'd?
+4. fakeredis for tests — APPROVE'd?
+5. Last-Event-ID regex validation with fallback to "0-0" — APPROVE'd?
+6. Anything else blocking iter-2 APPROVE?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers: [...]
+```
+
+deprecated: `[features].web_search` is deprecated because web search is enabled by default.
+Set `web_search` to `"live"`, `"cached"`, or `"disabled"` at the top level (or under a profile) in config.toml if you want to override it.
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+p3_cosmetic:
+  - "In tests, cover both malformed Last-Event-ID fallback and valid ID passthrough."
+  - "Prefer asserting emit_event logs and suppresses unexpected exceptions, not only RedisError."
+convergence_call: accept_remaining
+remaining_blockers: []
+```
+tokens used
+2,935
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+p3_cosmetic:
+  - "In tests, cover both malformed Last-Event-ID fallback and valid ID passthrough."
+  - "Prefer asserting emit_event logs and suppresses unexpected exceptions, not only RedisError."
+convergence_call: accept_remaining
+remaining_blockers: []
+```
