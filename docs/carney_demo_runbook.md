@@ -73,19 +73,36 @@ curl -fsS https://polaris.<your-domain>/health
 curl -fsS https://polaris.<your-domain>/transparency | jq
 ```
 
-### §1b — Install egress lockdown (mandatory before §2 smoke test)
+### §1b — Install egress lockdown + runtime tighten (mandatory before §2 smoke test)
 
-Per Codex iter-1 P1-2: `provision.sh` does NOT auto-run `egress_lockdown.sh` because the first compose build needs pypi/npmjs/debian access. After the first `docker compose up -d` succeeds, SSH into the host and install the lockdown:
+Per Codex iter-1 P1-2 + iter-2 P2-2 + iter-3 P2: `provision.sh` does NOT auto-run egress lockdown (first compose build needs pypi/npmjs/debian access). After the first `docker compose up -d` succeeds, SSH into the host and run BOTH:
 
 ```bash
 ssh root@polaris.<your-domain>
 # Inside the SSH session:
+
+# 1. Install IPv4 + IPv6 lockdown with the FULL allowlist (build-time hosts
+#    still included so re-runs of `docker compose build` work).
 sudo bash /opt/polaris/scripts/egress_lockdown.sh
+
+# 2. Tighten by stripping the build-time block (GitHub, Docker registry,
+#    Cloudflare CDN, pypi, npmjs, debian, cloudsmith) from the runtime
+#    allowlist. After this step `/transparency` reports
+#    build_time_hosts_pruned: true.
+sudo bash /opt/polaris/scripts/egress_runtime_tighten.sh
+
+# 3. Verify all 4 chains.
 sudo iptables -L POLARIS_EGRESS_HOST -n -v | head -20
 sudo iptables -L POLARIS_EGRESS_DOCKER -n -v | head -20
+sudo ip6tables -L POLARIS_EGRESS_HOST_V6 -n -v | head -20
+sudo ip6tables -L POLARIS_EGRESS_DOCKER_V6 -n -v | head -20
+
+# 4. Confirm the pruned flag is visible to /transparency.
+curl -fsS https://polaris.<your-domain>/transparency | jq '.build_time_hosts_pruned'
+# expected: true
 ```
 
-Both chains must show DROP rules at the bottom + the allowlisted IPs as ACCEPT. Without this step, the deploy claims egress controls but they are NOT enforced — `/transparency`'s `enforcement_layer` field would be inaccurate.
+All four chains (iptables + ip6tables × OUTPUT + DOCKER-USER) must show DROP rules at the bottom + the allowlisted IPs as ACCEPT. Without these two steps the deploy claims egress controls but they are NOT enforced — `/transparency`'s `enforcement_layer` field would be inaccurate AND `build_time_hosts_pruned` would remain false, indicating that GitHub/Docker/pypi/npm are still reachable from the runtime.
 
 ## §2 — Smoke test (T-3 before demo)
 

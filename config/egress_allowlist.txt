@@ -5,9 +5,9 @@
 # GH#487 I-carney-009 — until that lands, search calls fail loudly under
 # lockdown (intentional; the no-search smoke shows the failure mode honestly).
 #
-# scripts/egress_lockdown.sh resolves each domain to A records and installs
-# iptables rules in OUTPUT (host) + DOCKER-USER (container). Everything else
-# 80/443 is DROP-ed.
+# scripts/egress_lockdown.sh resolves each domain to A AND AAAA records and
+# installs iptables (IPv4) + ip6tables (IPv6) rules in OUTPUT (host) +
+# DOCKER-USER (container). Everything else 80/443 is DROP-ed on BOTH stacks.
 #
 # Run lockdown AFTER first `docker compose build` so build-time hosts
 # (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
@@ -62,6 +62,8 @@ pubmed.ncbi.nlm.nih.gov
 nlm.nih.gov
 www.nlm.nih.gov
 eutils.ncbi.nlm.nih.gov
+# DailyMed (NLM-hosted FDA labels) — clinical url_pattern path
+dailymed.nlm.nih.gov
 
 # EMA + EU
 ema.europa.eu
@@ -84,6 +86,9 @@ hc-sc.gc.ca
 www.hc-sc.gc.ca
 recalls-rappels.canada.ca
 health-products.canada.ca
+hpfb-dgpsa.ca
+www.hpfb-dgpsa.ca
+dhpp.hpfb-dgpsa.ca
 hres.ca
 www.hres.ca
 pdf.hres.ca
@@ -99,6 +104,10 @@ www.medsafe.govt.nz
 # Japan PMDA
 pmda.go.jp
 www.pmda.go.jp
+
+# China NMPA (regulatory; evidence_selector.py:107)
+nmpa.gov.cn
+www.nmpa.gov.cn
 
 # Other national regulators
 bfarm.de

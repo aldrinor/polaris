@@ -59,18 +59,28 @@ curl -fsS -X POST https://polaris.<your-domain>/api/v6/runs \
     -d '{"template":"clinical","question":"Is tirzepatide effective for type 2 diabetes?"}'
 ```
 
-## Egress lockdown (T-6 before demo)
+## Egress lockdown + runtime tighten (T-6 before demo)
 
 After the first successful deploy + Caddy ACME provisioning succeeds:
 
 ```bash
 ssh root@polaris.<domain>
+
+# 1. IPv4 + IPv6 lockdown with full allowlist.
 sudo bash /opt/polaris/scripts/egress_lockdown.sh
-sudo iptables -L POLARIS_EGRESS_HOST -n -v | head -20
-sudo iptables -L POLARIS_EGRESS_DOCKER -n -v | head -20
+
+# 2. Strip build-time hosts (github/docker/cloudflare/pypi/npm/debian) from
+#    the RUNTIME allowlist, set the runtime_pruned.flag, re-apply lockdown.
+sudo bash /opt/polaris/scripts/egress_runtime_tighten.sh
+
+# 3. Verify all 4 chains.
+sudo iptables   -L POLARIS_EGRESS_HOST    -n -v | head -20
+sudo iptables   -L POLARIS_EGRESS_DOCKER  -n -v | head -20
+sudo ip6tables  -L POLARIS_EGRESS_HOST_V6 -n -v | head -20
+sudo ip6tables  -L POLARIS_EGRESS_DOCKER_V6 -n -v | head -20
 ```
 
-Both chains must show DROP rules at the bottom + the allowlisted IPs as ACCEPT.
+All four chains must show DROP rules at the bottom + the allowlisted IPs as ACCEPT. `curl https://polaris.<domain>/transparency | jq .build_time_hosts_pruned` should return `true` after `egress_runtime_tighten.sh`.
 
 ## Architecture
 
