@@ -41,7 +41,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 
 ## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
 
-**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Brave Search key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, non-US search API key obtained per GH#487 (or transitional Serper with disclosure), OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
 ```bash
 # 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)

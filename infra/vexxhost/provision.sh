@@ -94,6 +94,14 @@ git checkout "$POLARIS_REPO_COMMIT"
 cp /root/.env /opt/polaris/.env
 chmod 600 /opt/polaris/.env
 
+# Codex iter-2 P2-1: .env template defaults POLARIS_GIT_COMMIT=REPLACE_ME_REPO_SHA.
+# Overwrite from the resolved pin so /transparency surfaces the real commit
+# rather than the placeholder.
+sed -i "s|^POLARIS_GIT_COMMIT=.*|POLARIS_GIT_COMMIT=${POLARIS_REPO_COMMIT}|" /opt/polaris/.env
+if ! grep -q "^POLARIS_GIT_COMMIT=" /opt/polaris/.env; then
+    echo "POLARIS_GIT_COMMIT=${POLARIS_REPO_COMMIT}" >> /opt/polaris/.env
+fi
+
 # ----- 4. /etc/polaris substrate (auth + egress allowlist) -----
 mkdir -p /etc/polaris
 chmod 750 /etc/polaris

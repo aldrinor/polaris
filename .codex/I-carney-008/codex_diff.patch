@@ -1,0 +1,1124 @@
+diff --git a/config/egress_allowlist.txt b/config/egress_allowlist.txt
+index 5cd027aa..12c3b42e 100644
+--- a/config/egress_allowlist.txt
++++ b/config/egress_allowlist.txt
+@@ -1,4 +1,9 @@
+ # I-carney-003 — POLARIS Carney demo egress allowlist.
++# Updated I-carney-008 — sovereign pivot. Brave Search REMOVED 2026-05-13
++# (Brave Software Inc. is a Delaware corporation; fails the "no US company
++# anywhere" bar per Codex iter-1 P1-1). Search-provider selection moved to
++# GH#487 I-carney-009 — until that lands, search calls fail loudly under
++# lockdown (intentional; the no-search smoke shows the failure mode honestly).
+ #
+ # scripts/egress_lockdown.sh resolves each domain to A records and installs
+ # iptables rules in OUTPUT (host) + DOCKER-USER (container). Everything else
+@@ -8,14 +13,81 @@
+ # (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
+ # can be removed from the runtime allowlist if desired.
+ 
+-# ----- LLM API -----
++# ----- LLM (transition: OpenRouter US; production: private vLLM on OVH H200) -----
++# When POLARIS_LLM_BACKEND=vllm, no external LLM hosts hit at all (private
++# network to OVH). When POLARIS_LLM_BACKEND=openrouter (transition), the
++# 2 lines below are required:
+ openrouter.ai
+ api.openrouter.ai
+ 
+-# ----- Live retrieval -----
+-google.serper.dev
++# ----- Live retrieval — DEFERRED to GH#487 I-carney-009 -----
++# Search-provider selection (Mojeek UK / Qwant FR / Ecosia DE) is the
++# follow-up Issue. NO search API host is in this allowlist for the sovereign
++# deploy. With lockdown on, search-tier-1 corpus fetch still works (govt
++# endpoints listed below); Serper/etc. calls fail loudly under lockdown.
++# Semantic Scholar (US AI2 non-profit) — disclosed in /transparency,
++# kept for the academic-bib path; remove for stricter sovereignty.
+ api.semanticscholar.org
+ 
++# ----- T1 corpus (regulatory + clinical guideline) — sovereign egress -----
++# Per src/polaris_graph/retrieval/{evidence_selector,tier_classifier}.py
++# these are the cleared T1 hosts. Audit-grade demo material is ONLY ever
++# T1; T2/T3 publisher arbitrary URLs are dropped by sovereignty filter
++# AND by this egress (defense in depth).
++
++# FDA + NIH (US govt, not "US company"; sovereign-aligned per CHARTER)
++fda.gov
++accessdata.fda.gov
++nctr-crs.fda.gov
++clinicaltrials.gov
++ncbi.nlm.nih.gov
++www.ncbi.nlm.nih.gov
++pmc.ncbi.nlm.nih.gov
++pubmed.ncbi.nlm.nih.gov
++nlm.nih.gov
++eutils.ncbi.nlm.nih.gov
++
++# EMA + EU regulator
++ema.europa.eu
++europa.eu
++
++# UK regulator
++nice.org.uk
++mhra.gov.uk
++www.gov.uk
++
++# Health Canada + Canadian sovereign endpoints
++canada.ca
++www.canada.ca
++hc-sc.gc.ca
++recalls-rappels.canada.ca
++health-products.canada.ca
++hres.ca
++pdf.hres.ca
++cda-amc.ca
++
++# WHO + IARC
++who.int
++iarc.who.int
++
++# ----- Bibliographic / DOI-resolver infrastructure (sovereign-aligned) -----
++# DOI registry (CNRI, US 501(c)(3) — disclosed; alternative is to bypass DOI
++# resolution and use direct publisher URLs, but that breaks tier-1 cites).
++doi.org
++dx.doi.org
++# Crossref (UK non-profit, sovereign-aligned)
++api.crossref.org
++# Unpaywall (Our Research, US 501(c)(3) — disclosed)
++api.unpaywall.org
++# OpenAlex (US OurResearch, public CC0 corpus — disclosed)
++api.openalex.org
++# arXiv (Cornell, US — disclosed; mathematics + tech preprints)
++arxiv.org
++export.arxiv.org
++# SEC EDGAR (US govt, public corporate filings)
++efts.sec.gov
++www.sec.gov
++
+ # ----- Container image registry -----
+ github.com
+ codeload.github.com
+@@ -23,11 +95,10 @@ registry-1.docker.io
+ auth.docker.io
+ production.cloudflare.docker.com
+ 
+-# ----- AWS substrate (ca-central-1) -----
+-ssm.ca-central-1.amazonaws.com
+-ssmmessages.ca-central-1.amazonaws.com
+-ec2messages.ca-central-1.amazonaws.com
+-s3.ca-central-1.amazonaws.com
++# ----- Let's Encrypt (TLS cert renewal via Caddy) -----
++# US 501(c)(3) ISRG; the cert is a public attestation, no data leaves.
++acme-v02.api.letsencrypt.org
++r3.o.lencr.org
+ 
+ # ----- Build-time package indices (remove post-build for tighter runtime lockdown) -----
+ pypi.org
+@@ -35,3 +106,7 @@ files.pythonhosted.org
+ deb.debian.org
+ security.debian.org
+ registry.npmjs.org
++dl.cloudsmith.io
++
++# I-carney-008: AWS-specific endpoints (ssm.*, ec2messages.*, s3.ca-central-1.*)
++# REMOVED. No AWS in the sovereign deploy.
+diff --git a/docs/carney_demo_runbook.md b/docs/carney_demo_runbook.md
+index be226f7a..9eba2409 100644
+--- a/docs/carney_demo_runbook.md
++++ b/docs/carney_demo_runbook.md
+@@ -2,46 +2,71 @@
+ 
+ This is the single source of truth for the PM Mark Carney POLARIS demo. Read end-to-end before the meeting; refer back during.
+ 
+-**Demo target window:** 2026-06-05 to 2026-06-09. Updated 2026-05-13 after all I-arch-001* + I-carney-002..005 PRs merged.
++**Demo target window:** 2026-06-05 to 2026-06-09.
++
++**Stack (revised 2026-05-13, sovereign pivot per I-carney-008):**
++
++| Layer | Provider | Ownership |
++|---|---|---|
++| Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
++| LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
++| LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
++| Live search | DEFERRED to GH#487 (Mojeek UK / Qwant FR / Ecosia DE candidates) | Non-US — Codex iter-1 caught Brave Software is Delaware-incorporated |
++| Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
++| DNS | easyDNS or Cira | Canadian |
++| TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
++| **AWS** | ARCHIVED at `infra/aws.archived/` | Was US-owned — fails sovereignty audit |
++
++See `infra/vexxhost/README.md` for the active deploy path. The §1 section below replaces the original AWS Terraform flow.
+ 
+ ---
+ 
+-## §0 — Prereqs (1 week before demo)
++## §0 — Prereqs (1 week before demo, sovereign deploy)
+ 
+ | Item | Owner | Status |
+ |---|---|---|
+-| AWS account with ca-central-1 IAM admin | Ops | (verify) |
+-| Route 53 public hosted zone | Ops | (verify) |
+-| `terraform` + `gh` + `aws` CLIs installed | Ops | `terraform --version && gh --version && aws --version` |
++| Vexxhost Montréal account + project + SSH key | Ops | https://my.vexxhost.com/ |
++| Vexxhost VM provisioned (Ubuntu 24.04 LTS, `v3-32` or larger, floating IPv4 + IPv6) | Ops | `ssh root@<floating-ip>` reachable |
++| Canadian-registrar domain + DNS A record `polaris.<domain>` → VM floating IPv4 | Ops | `dig +short polaris.<domain>` returns the IP |
++| `gh` + `ssh` + `scp` CLIs installed | Ops | `gh --version && ssh -V` |
+ | Demo signing GPG key generated | Ops | `bash scripts/bootstrap_gpg_demo_key.sh` |
+-| OpenRouter + Serper API keys procured | Ops | private records |
++| Non-US web search API key (see GH#487 — Mojeek UK / Qwant FR / Ecosia DE) | Ops | provider-specific signup |
++| OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
++| OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
++| `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
+ | Carney office contact + demo time confirmed | Lead | calendar invite |
+ | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
+ 
+-## §1 — Deploy day-1 (T-7 before demo)
++**During the OVH H200 lead-time (5-10 business days):** the orchestrator runs with `POLARIS_LLM_BACKEND=openrouter` as a transitional fallback (this is the `.env.example` default). `/transparency` surfaces OpenRouter as the active inference backend so reviewers see the US disclosure during the transition. Flip to `POLARIS_LLM_BACKEND=vllm` + restart compose once (a) the OVH H200 is online with a reachable private IP, AND (b) GH#199 I-sov-001 has shipped the vLLM client code. Setting the flag without both prereqs will break generation.
++
++## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
++
++**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Brave Search key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+ 
+ ```bash
+-cd infra/aws
+-cp terraform.tfvars.example terraform.tfvars
+-# Edit terraform.tfvars: domain_name, route53_zone_name, polaris_repo_commit
+-# (current polaris HEAD SHA), openrouter/serper keys, polaris_gpg_key_id,
+-# polaris_gpg_pubkey, static_accounts_yaml (bcrypt hashes), gpg_private_key_armored.
+-
+-aws s3 mb s3://polaris-carney-tf-state --region ca-central-1
+-aws s3api put-bucket-versioning \
+-    --bucket polaris-carney-tf-state \
+-    --versioning-configuration Status=Enabled
+-
+-terraform init \
+-    -backend-config="bucket=polaris-carney-tf-state" \
+-    -backend-config="region=ca-central-1" \
+-    -backend-config="key=polaris-carney/terraform.tfstate"
+-
+-terraform plan -out plan.bin
+-terraform apply plan.bin
++# 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)
++#    inside the ssh heredoc would expand on the remote host, where the repo
++#    may not exist or may point at a different commit).
++POLARIS_REPO_COMMIT=$(git rev-parse polaris)
++POLARIS_DOMAIN=polaris.<your-domain>
++POLARIS_ACME_EMAIL=ops@<your-domain>
++
++# 1. Stage files on the Vexxhost VM.
++scp infra/vexxhost/.env.example       root@${POLARIS_DOMAIN}:/root/.env  # edit FIRST
++scp outputs/polaris_demo_pubkey.asc   root@${POLARIS_DOMAIN}:/root/
++scp ~/polaris_demo_secret.asc         root@${POLARIS_DOMAIN}:/root/
++scp config/static_accounts.yaml       root@${POLARIS_DOMAIN}:/root/  # bcrypt-hashed
++scp infra/vexxhost/provision.sh       root@${POLARIS_DOMAIN}:/root/
++
++# 2. Run provisioning — pass the locally-resolved commit through ssh env.
++ssh root@${POLARIS_DOMAIN} \
++    "POLARIS_REPO_COMMIT=${POLARIS_REPO_COMMIT} \
++     POLARIS_DOMAIN=${POLARIS_DOMAIN} \
++     POLARIS_ACME_EMAIL=${POLARIS_ACME_EMAIL} \
++     bash /root/provision.sh"
+ ```
+ 
+-Wait ~10 minutes for EC2 + ACM + cloud-init. Verify:
++Provisioning takes ~10 minutes (apt + docker pull + Next.js build + Caddy ACME). Verify:
+ 
+ ```bash
+ curl -fsS https://polaris.<your-domain>/health
+@@ -50,12 +75,11 @@ curl -fsS https://polaris.<your-domain>/transparency | jq
+ 
+ ### §1b — Install egress lockdown (mandatory before §2 smoke test)
+ 
+-Per Codex iter-1 P1-2: cloud-init does NOT auto-run `egress_lockdown.sh` because the first compose build needs pypi/npmjs/debian access. After the first `docker compose up -d` succeeds inside cloud-init, SSM into the host and install the lockdown:
++Per Codex iter-1 P1-2: `provision.sh` does NOT auto-run `egress_lockdown.sh` because the first compose build needs pypi/npmjs/debian access. After the first `docker compose up -d` succeeds, SSH into the host and install the lockdown:
+ 
+ ```bash
+-INSTANCE_ID=$(cd infra/aws && terraform output -raw ec2_instance_id)
+-aws ssm start-session --target $INSTANCE_ID --region ca-central-1
+-# Inside the SSM session:
++ssh root@polaris.<your-domain>
++# Inside the SSH session:
+ sudo bash /opt/polaris/scripts/egress_lockdown.sh
+ sudo iptables -L POLARIS_EGRESS_HOST -n -v | head -20
+ sudo iptables -L POLARIS_EGRESS_DOCKER -n -v | head -20
+@@ -126,64 +150,53 @@ For each: audit the bundle per CLAUDE.md §-1.1 (line-by-line claim against cite
+ 7. Submit Q2 (pharmacare) — observe sovereignty cascade in real time.
+ 8. Take questions.
+ 
+-## §5 — Fallback laptop
++## §5 — Fallback laptop (sovereign — no US KMS dependency)
+ 
+-If the AWS deploy is unreachable (DNS, ALB down, etc.) during the demo:
++If the Vexxhost deploy is unreachable (DNS, network outage, etc.) during the demo:
+ 
+-**One-time setup (T-3 before demo):** populate the laptop's `.env` + `/etc/polaris/static_accounts.yaml` from AWS Secrets Manager AND SSM Parameter Store so the laptop matches the production substrate. Codex iter-2 P1 fix: use the right service per secret; pipe to `sudo tee` for the static_accounts file.
++**One-time setup (T-3 before demo):** populate the laptop's `.env` + `/etc/polaris/static_accounts.yaml` from an encrypted offline secret bundle. No US-owned KMS (AWS Secrets Manager / GCP KMS / Azure Key Vault) is on the sovereign hot-path; the operator workstation holds the master `polaris_demo_secrets.tar.gz.gpg`, decrypted by the operator's personal GPG key (NOT the demo signing key — different keyring).
+ 
+ ```bash
+ cd /local/polaris
+ 
+-# 1. Define helpers for SSM Parameter Store vs Secrets Manager.
+-ssm_get() {
+-    aws ssm get-parameter --name "$1" --with-decryption \
+-        --query Parameter.Value --output text --region ca-central-1
+-}
+-sm_get() {
+-    aws secretsmanager get-secret-value --secret-id "$1" \
+-        --query SecretString --output text --region ca-central-1
+-}
+-
+-# 2. Write .env at repo root (compose reads this).
+-# SSM Parameter Store: API keys + GPG key fingerprint (per infra/aws/ssm_parameters.tf).
+-# Secrets Manager:    JWT secret + static accounts + GPG private key (per infra/aws/secretsmanager.tf).
+-cat > .env <<EOF
+-OPENROUTER_API_KEY=$(ssm_get /polaris/v6/openrouter_api_key)
+-SERPER_API_KEY=$(ssm_get /polaris/v6/serper_api_key)
+-POLARIS_GPG_KEY_ID=$(ssm_get /polaris/v6/polaris_gpg_key_id)
+-POLARIS_JWT_SECRET=$(sm_get polaris/v6/jwt_secret)
+-POLARIS_GPG_HOMEDIR=$HOME/.gnupg-polaris
+-POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
+-POLARIS_ETC_DIR=/etc/polaris
+-POLARIS_API_PORT=8000
+-POLARIS_WEB_PORT=3000
+-PG_MAX_COST_PER_RUN=5.00
+-EOF
++# 1. Decrypt the offline secret bundle (operator's personal GPG key).
++gpg --decrypt ~/polaris_demo_secrets.tar.gz.gpg | tar -xz -C /tmp/polaris_secrets
++# Bundle layout (encrypt-only-once, kept on a YubiKey + paper backup):
++#   /tmp/polaris_secrets/.env                  — same as infra/vexxhost/.env.example, filled in
++#   /tmp/polaris_secrets/static_accounts.yaml  — bcrypt-hashed reviewer pwd
++#   /tmp/polaris_secrets/gpg_private_key.asc   — POLARIS demo signing key (private)
++
++# 2. Stage .env at repo root (compose reads this).
++cp /tmp/polaris_secrets/.env .env
+ chmod 600 .env
+ 
+-# 3. Write static_accounts.yaml to /etc/polaris (mirroring EC2 host path).
+-# Pipe through sudo tee — running `sudo bash -c "sm_get ..."` would not see
+-# the function definition since sudo starts a fresh shell.
++# 3. Stage static_accounts.yaml at /etc/polaris (matches Vexxhost host path).
+ sudo mkdir -p /etc/polaris
+ sudo chmod 750 /etc/polaris
+-sm_get polaris/v6/static_accounts_yaml | sudo tee /etc/polaris/static_accounts.yaml > /dev/null
++sudo cp /tmp/polaris_secrets/static_accounts.yaml /etc/polaris/static_accounts.yaml
+ sudo chmod 640 /etc/polaris/static_accounts.yaml
+ 
+-# 4. Import the GPG private key into the local keyring.
++# 4. Import the GPG private key into a separate laptop keyring.
+ mkdir -p ~/.gnupg-polaris && chmod 700 ~/.gnupg-polaris
+-sm_get polaris/v6/gpg_private_key_armored | gpg --homedir ~/.gnupg-polaris --batch --import
++gpg --homedir ~/.gnupg-polaris --batch --import /tmp/polaris_secrets/gpg_private_key.asc
++
++# 5. Shred the decrypted plaintext.
++shred -u /tmp/polaris_secrets/.env /tmp/polaris_secrets/gpg_private_key.asc
++shred -u /tmp/polaris_secrets/static_accounts.yaml
++rmdir /tmp/polaris_secrets
+ 
+-# 5. Bring up the stack.
++# 6. Bring up the stack.
+ docker compose -f docker-compose.v6.yml down
+ docker compose -f docker-compose.v6.yml up -d --build
+ 
+-# 6. Smoke test.
++# 7. Smoke test.
+ curl -fsS http://localhost:8000/health
+ curl -fsS http://localhost:8000/transparency | jq
+ ```
+ 
+-Localhost demo at http://localhost:3000. Auth + signing + sovereignty filter all behave identically to the AWS deploy since the laptop loads the SAME secrets. `/transparency` will show `region: "unknown"` (no AWS_REGION env) — disclose this if a reviewer asks why.
++Localhost demo at http://localhost:3000. Auth + signing + sovereignty filter all behave identically to the Vexxhost deploy since the laptop loads the SAME secrets. `/transparency` will show `provider: "fallback_laptop"` instead of `provider: "vexxhost"` — disclose this if a reviewer asks why.
++
++**Fallback LLM backend:** the laptop cannot reach OVH H200's private IP. Set `POLARIS_LLM_BACKEND=openrouter` in the laptop `.env` and document this in the demo narration: "Vexxhost down → OpenRouter (US) used as transitional fallback for inference; the sovereign deploy path uses self-hosted vLLM."
+ 
+ ## §6 — 30-minute internal rehearsal (T-1 before demo)
+ 
+@@ -218,21 +231,25 @@ env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < /tmp/carney_demo_sign
+ 
+ If the evidence file still contains `<your-domain>` or other placeholders, ABORT — Codex would otherwise sign off on the example template instead of the real deploy. Expected verdict: `verdict: APPROVE ship_decision: SHIP convergence_call: accept_remaining`. Anything REQUEST_CHANGES or `ship_decision: HALT` → escalate to I-carney-006 (live rehearsal) for the failing question.
+ 
+-## §8 — Post-demo tear-down
++## §8 — Post-demo tear-down (sovereign)
+ 
+ ```bash
+-# Recover audit bundles BEFORE destroy.
+-aws s3 sync s3://polaris-carney-audit-<acct-id>/ ./carney_demo_bundles/
++# Recover audit bundles from the Vexxhost VM BEFORE destroy.
++ssh root@polaris.<your-domain> "tar -czf /tmp/carney_bundles.tar.gz /var/lib/polaris/run_bundles"
++scp root@polaris.<your-domain>:/tmp/carney_bundles.tar.gz ./carney_demo_bundles.tar.gz
++
++# Vexxhost: power-off + delete VM via web console OR openstack CLI:
++openstack server delete polaris-carney
+ 
+-# Tear down the AWS stack.
+-cd infra/aws
+-terraform destroy
++# OVH: keep the H200 server if doing Phase-2 work; otherwise file a cancellation
++# ticket via the OVH manager web console (per OVH Canada T&Cs).
+ ```
+ 
+ ## §9 — Known limitations (disclose during demo if asked)
+ 
+-- Single-AZ EC2 (no HA pair) — for demo window only
+-- Manual GPG private key rotation (Secrets Manager rotation_lambda is Phase-2)
++- Single-VM Vexxhost (no HA pair) — for demo window only
++- Manual GPG private key rotation (auto-rotation via Vexxhost Hashicorp Vault is Phase-2)
+ - Pipeline-A only (pipeline-B legacy + pipeline-C frozen per architecture.md §5)
+-- 18-domain egress allowlist enforced via iptables (not VPC NACLs — also defense-in-depth Phase-2)
++- ~20-domain egress allowlist enforced via iptables on the VM (no managed cloud NACL on Vexxhost compute path — sovereign tradeoff vs hyperscaler defense-in-depth)
+ - /docs + /redoc + /openapi.json public for operator ergonomics — gate to admin in Phase-2
++- TLS certs from Let's Encrypt (Internet Security Research Group, US 501(c)(3)). The cert is a public attestation; no data leaves to ISRG. Sovereign-strict tradeoff: replacing with a Canadian CA is Phase-2.
+diff --git a/docs/transparency.md b/docs/transparency.md
+index bed6c286..d5907adb 100644
+--- a/docs/transparency.md
++++ b/docs/transparency.md
+@@ -52,23 +52,29 @@ A successful verification prints `Good signature from "POLARIS Carney Demo <sign
+ 
+ ## 4. Egress allowlist
+ 
+-The EC2 host runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
++The Vexxhost host (Canadian-owned hosting, Montréal) runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
+ 
+-Current allowlist domains (from `/transparency`):
++Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008):
+ 
+-- `openrouter.ai`, `api.openrouter.ai` — LLM API
+-- `google.serper.dev` — live retrieval (Serper)
+-- `api.semanticscholar.org` — Semantic Scholar
++- `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
++- `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; disclosed; removable for stricter sovereignty)
++- T1 corpus endpoints — `fda.gov`, `accessdata.fda.gov`, `clinicaltrials.gov`, `ncbi.nlm.nih.gov`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov`, `ema.europa.eu`, `nice.org.uk`, `mhra.gov.uk`, `www.gov.uk`, `canada.ca`, `hc-sc.gc.ca`, `recalls-rappels.canada.ca`, `health-products.canada.ca`, `hres.ca`, `cda-amc.ca`, `who.int`, `iarc.who.int`
++- Bibliographic / DOI infrastructure — `doi.org`, `dx.doi.org`, `api.crossref.org` (UK non-profit), `api.unpaywall.org`, `api.openalex.org`, `arxiv.org`, `export.arxiv.org`, `efts.sec.gov`, `www.sec.gov`
+ - `github.com`, `codeload.github.com` — source clones
+ - `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
+-- `ssm.ca-central-1.amazonaws.com` + `ssmmessages.ca-central-1.amazonaws.com` + `ec2messages.ca-central-1.amazonaws.com` — SSM Session Manager
+-- `s3.ca-central-1.amazonaws.com` — audit bundle upload
++- `acme-v02.api.letsencrypt.org`, `r3.o.lencr.org` — Let's Encrypt TLS cert renewal (public attestation only; no data leaves)
+ 
+-Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. (Full count: 18 entries in `config/egress_allowlist.txt` including `security.debian.org`.)
++**Web search provider:** DEFERRED to GH#487 I-carney-009. Serper (US) is removed from the sovereign allowlist; under lockdown, Serper calls fail loudly. The chosen non-US replacement (Mojeek UK / Qwant FR / Ecosia DE) lands in that follow-up Issue, at which point its API host is added here.
+ 
+-DNS (53), NTP (123), and AWS instance metadata (169.254.169.254) remain unrestricted as required substrate.
++Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
+ 
+-Verify: `curl https://polaris.<domain>/transparency/policy` returns the `egress_allowlist` array and the `enforcement_layer` list (host iptables + Docker DOCKER-USER + AWS Security Group).
++**No AWS endpoints.** SSM, EC2 messages, and S3 hosts are explicitly NOT in the allowlist (per I-carney-008 sovereignty audit).
++
++**Tier-1 evidence fetching under lockdown.** Pipeline-A's sovereignty filter accepts only T1 (regulatory + clinical guideline) sources by default. The allowlist covers those T1 corpus hosts + the bib/DOI resolution infrastructure needed to attach them to cites. Arbitrary publisher domains (nature.com, nejm.org, thelancet.com, etc.) are NOT in the allowlist — they're T2/T3 and excluded by the sovereignty filter anyway; the egress drop is defense-in-depth.
++
++DNS (53), NTP (123), and link-local metadata (169.254.169.254) remain unrestricted as required substrate.
++
++Verify: `curl https://polaris.<domain>/transparency/policy` returns the `egress_allowlist` array and the `enforcement_layer` list (host iptables + Docker DOCKER-USER).
+ 
+ ## 5. Code provenance
+ 
+@@ -76,10 +82,11 @@ Verify: `curl https://polaris.<domain>/transparency/policy` returns the `egress_
+ - **`git_commit`** — short SHA of the POLARIS commit deployed
+ - **`polaris_version`** — `__version__` from `src/polaris_v6/__init__.py`
+ - **`deploy_timestamp`** — server-side UTC timestamp at /transparency request
+-- **`region`** — AWS region (`ca-central-1` for Carney demo)
++- **`provider`** — orchestrator hosting provider (`vexxhost` for the sovereign deploy; `fallback_laptop` for the offline fallback in `docs/carney_demo_runbook.md §5`)
++- **`region`** — datacenter region (`montreal-qc` for Vexxhost; `none` for fallback laptop)
+ - **`dependencies.python`** — first 50 lines of `requirements-v6.txt`
+ 
+-The container images are built from `Dockerfile.v6` and `web/Dockerfile` at the pinned commit; no pre-built registry images are used. Operator can verify by SSM into the host and running `git rev-parse HEAD` inside `/opt/polaris`.
++The container images are built from `Dockerfile.v6` and `web/Dockerfile` at the pinned commit; no pre-built registry images are used. Operator can verify by SSH into the host and running `git rev-parse HEAD` inside `/opt/polaris`.
+ 
+ ## 6. Filing a sovereignty escalation
+ 
+@@ -90,4 +97,4 @@ If a reviewer finds:
+ 
+ Email the operator with the `run_id` + the specific claim/path. The operator can re-run the bundle generation OR confirm the issue is a Tier-2 source mistakenly marked T1.
+ 
+-For the Carney demo, escalation contact is the POLARIS deploy operator listed in the Route 53 zone WHOIS record for the deploy domain.
++For the Carney demo, escalation contact is the POLARIS deploy operator listed in the Canadian-registrar DNS WHOIS record for the deploy domain.
+diff --git a/infra/aws/README.md b/infra/aws.archived/README.md
+similarity index 86%
+rename from infra/aws/README.md
+rename to infra/aws.archived/README.md
+index 4acf034a..37ca68fd 100644
+--- a/infra/aws/README.md
++++ b/infra/aws.archived/README.md
+@@ -1,4 +1,20 @@
+-# I-carney-002 — AWS Canada Central deploy
++# ARCHIVED 2026-05-13 — AWS Canada Central deploy
++
++> **DO NOT USE for the Carney demo.** User directive 2026-05-13: full-sovereign
++> Canadian deploy, no US-owned company anywhere. AWS data is physically in
++> Montréal under ca-central-1 but Amazon is a US corporation subject to US
++> CLOUD Act + US FISA — fails the sovereignty audit. The active Carney deploy
++> lives at `infra/vexxhost/` (Canadian-owned hosting) paired with `infra/ovh/`
++> (French-owned, in Quebec, for H200 GPU inference).
++>
++> See `infra/vexxhost/README.md` for the active deploy path.
++>
++> Keep this module: useful reference for VPC + ALB + ACM + WAF + SSM +
++> Secrets Manager patterns for any future non-sovereign deployment.
++
++---
++
++# I-carney-002 — AWS Canada Central deploy (archived)
+ 
+ Terraform module that provisions the Carney demo on AWS ca-central-1 (Montréal). Hosts the `docker-compose.v6.yml` stack from I-carney-005.
+ 
+diff --git a/infra/aws/acm.tf b/infra/aws.archived/acm.tf
+similarity index 100%
+rename from infra/aws/acm.tf
+rename to infra/aws.archived/acm.tf
+diff --git a/infra/aws/alb.tf b/infra/aws.archived/alb.tf
+similarity index 100%
+rename from infra/aws/alb.tf
+rename to infra/aws.archived/alb.tf
+diff --git a/infra/aws/cloud-init.sh b/infra/aws.archived/cloud-init.sh
+similarity index 100%
+rename from infra/aws/cloud-init.sh
+rename to infra/aws.archived/cloud-init.sh
+diff --git a/infra/aws/ec2.tf b/infra/aws.archived/ec2.tf
+similarity index 100%
+rename from infra/aws/ec2.tf
+rename to infra/aws.archived/ec2.tf
+diff --git a/infra/aws/main.tf b/infra/aws.archived/main.tf
+similarity index 100%
+rename from infra/aws/main.tf
+rename to infra/aws.archived/main.tf
+diff --git a/infra/aws/outputs.tf b/infra/aws.archived/outputs.tf
+similarity index 100%
+rename from infra/aws/outputs.tf
+rename to infra/aws.archived/outputs.tf
+diff --git a/infra/aws/route53.tf b/infra/aws.archived/route53.tf
+similarity index 100%
+rename from infra/aws/route53.tf
+rename to infra/aws.archived/route53.tf
+diff --git a/infra/aws/s3_audit_bucket.tf b/infra/aws.archived/s3_audit_bucket.tf
+similarity index 100%
+rename from infra/aws/s3_audit_bucket.tf
+rename to infra/aws.archived/s3_audit_bucket.tf
+diff --git a/infra/aws/secretsmanager.tf b/infra/aws.archived/secretsmanager.tf
+similarity index 100%
+rename from infra/aws/secretsmanager.tf
+rename to infra/aws.archived/secretsmanager.tf
+diff --git a/infra/aws/ssm_parameters.tf b/infra/aws.archived/ssm_parameters.tf
+similarity index 100%
+rename from infra/aws/ssm_parameters.tf
+rename to infra/aws.archived/ssm_parameters.tf
+diff --git a/infra/aws/terraform.tfvars.example b/infra/aws.archived/terraform.tfvars.example
+similarity index 100%
+rename from infra/aws/terraform.tfvars.example
+rename to infra/aws.archived/terraform.tfvars.example
+diff --git a/infra/aws/variables.tf b/infra/aws.archived/variables.tf
+similarity index 100%
+rename from infra/aws/variables.tf
+rename to infra/aws.archived/variables.tf
+diff --git a/infra/aws/vpc.tf b/infra/aws.archived/vpc.tf
+similarity index 100%
+rename from infra/aws/vpc.tf
+rename to infra/aws.archived/vpc.tf
+diff --git a/infra/vexxhost/.env.example b/infra/vexxhost/.env.example
+new file mode 100644
+index 00000000..6a71e84b
+--- /dev/null
++++ b/infra/vexxhost/.env.example
+@@ -0,0 +1,56 @@
++# I-carney-008 — POLARIS Vexxhost deploy .env template.
++#
++# Copy to /root/.env on the Vexxhost VM (NOT in repo — gitignored).
++# All values are sensitive. Replace REPLACE_ME placeholders before scp.
++
++# ---- LLM backend ----
++# DEFAULT to openrouter for the transition window. The vLLM client lives in
++# GH#199 I-sov-001 — DO NOT set POLARIS_LLM_BACKEND=vllm until that PR lands
++# AND OVH BHS H200 is online (GH#90 I-phase0-009). Setting it now will break
++# generation. /transparency surfaces this backend; reviewers see the US
++# disclosure during the transition.
++POLARIS_LLM_BACKEND=openrouter   # flip to "vllm" post-GH#199 + post-OVH-H200
++POLARIS_VLLM_BASE_URL=http://10.0.0.42:8000/v1   # only used when backend=vllm
++OPENROUTER_API_KEY=REPLACE_ME_OR_REMOVE_AFTER_VLLM_CUTOVER
++
++# ---- Live retrieval ----
++# Search-provider selection is GH#487 I-carney-009 follow-up. Until then the
++# code-side still uses Serper (US, fails the no-US-company bar). Keep
++# SERPER_API_KEY populated for transitional runs; the egress allowlist
++# already drops Serper for the sovereign deploy — runs will fail loudly.
++# Replace SERPER_API_KEY with the chosen non-US provider's key once
++# GH#487 picks Mojeek (UK) / Qwant (FR) / Ecosia (DE).
++SERPER_API_KEY=REPLACE_ME_OR_LEAVE_BLANK_FOR_NO_SEARCH_PHASE
++# Semantic Scholar is hosted by AI2 (US non-profit, public corpus). Disclosed
++# in /transparency; remove for stricter sovereignty.
++SEMANTIC_SCHOLAR_API_KEY=
++
++# ---- Sovereign deploy provenance ----
++# Surfaced by /transparency. Truthful disclosure is non-negotiable.
++POLARIS_PROVIDER=vexxhost
++POLARIS_REGION=montreal-qc
++
++# ---- Auth (I-carney-004) ----
++# Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
++POLARIS_JWT_SECRET=REPLACE_ME_64_BYTE_URL_SAFE_RANDOM
++
++# Path inside the container — provision.sh writes /etc/polaris/static_accounts.yaml
++# and bind-mounts /etc/polaris into the container.
++POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
++POLARIS_ETC_DIR=/etc/polaris
++
++# ---- GPG bundle signing ----
++# Fingerprint output by scripts/bootstrap_gpg_demo_key.sh.
++POLARIS_GPG_KEY_ID=REPLACE_ME_FINGERPRINT
++POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg
++
++# ---- Pipeline-A controls ----
++PG_MAX_COST_PER_RUN=5.00
++POLARIS_GIT_COMMIT=REPLACE_ME_REPO_SHA
++
++# ---- Compose port mapping ----
++POLARIS_API_PORT=8000
++POLARIS_WEB_PORT=3000
++
++# ---- Egress allowlist override (optional) ----
++POLARIS_EGRESS_ALLOWLIST=/etc/polaris/egress_allowlist.txt
+diff --git a/infra/vexxhost/README.md b/infra/vexxhost/README.md
+new file mode 100644
+index 00000000..dc5e53c3
+--- /dev/null
++++ b/infra/vexxhost/README.md
+@@ -0,0 +1,129 @@
++# infra/vexxhost — sovereign Canadian deploy
++
++The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fails sovereignty audit).
++
++**Hosting:** Vexxhost (Canadian-owned, Montréal datacenter).
++**LLM inference:** OVH BHS H200 (French-owned, Beauharnois QC) running self-hosted DeepSeek V4 Pro + Gemma 4 31B via vLLM. See `docs/ovh_h200_procurement_spec.md`.
++**Search:** DEFERRED to GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE candidates — non-US). Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), so the original Brave plan is invalid.
++**No US company anywhere in the runtime path.**
++
++## Prereqs (operator, T-7 before demo)
++
++1. Vexxhost account + project in Montréal region. Free tier available; demo workload fits in v3-32 (8 vCPU / 32 GB / 100 GB SSD).
++2. Provision a single Ubuntu 24.04 LTS VM via Vexxhost web console:
++   - Flavor: `v3-32` or larger
++   - Image: Ubuntu 24.04 LTS
++   - Network: floating public IPv4 + IPv6
++   - SSH key uploaded
++3. Domain registered + DNS A record for `polaris.<your-domain>` pointing at the VM's floating IPv4. Use a Canadian registrar (easyDNS, Cira, Hover-Canada-billing) for the sovereignty story.
++4. GPG demo signing key generated on operator workstation: `bash scripts/bootstrap_gpg_demo_key.sh`. Produces `outputs/polaris_demo_pubkey.asc` and a fingerprint in `state/polaris_gpg_keyid.txt`. ALSO export the secret: `gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo" > polaris_demo_secret.asc`.
++5. Non-US web search API key per GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE — pick at PR time; OPTIONAL during transition while pipeline-A runs on cached corpus + direct T1 government endpoints).
++6. OVH H200 server provisioned in BHS — see `docs/ovh_h200_procurement_spec.md`. Note its private IP; default vLLM endpoint is `http://10.0.0.42:8000/v1`.
++7. bcrypt-hashed `static_accounts.yaml` prepared locally (template at `config/static_accounts.example.yaml`).
++
++## Deploy (single command)
++
++```bash
++# 1. Stage files on the VM.
++scp infra/vexxhost/.env.example root@polaris.<domain>:/root/.env  # edit first
++scp outputs/polaris_demo_pubkey.asc root@polaris.<domain>:/root/
++scp ~/polaris_demo_secret.asc       root@polaris.<domain>:/root/
++scp config/static_accounts.yaml     root@polaris.<domain>:/root/  # filled-in version
++scp infra/vexxhost/provision.sh     root@polaris.<domain>:/root/
++
++# 2. Run provisioning.
++ssh root@polaris.<domain> "
++    export POLARIS_REPO_COMMIT=<git rev-parse polaris on your workstation>
++    export POLARIS_DOMAIN=polaris.<your-domain>
++    export POLARIS_ACME_EMAIL=ops@<your-domain>
++    bash /root/provision.sh
++"
++```
++
++Provisioning takes ~10 minutes (apt + docker pull + Next.js build + Caddy ACME).
++
++## Smoke test
++
++```bash
++curl -fsS https://polaris.<your-domain>/health
++curl -fsS https://polaris.<your-domain>/transparency | jq
++
++TOKEN=$(curl -fsS -X POST https://polaris.<your-domain>/auth/login \
++    -H 'content-type: application/json' \
++    -d '{"username":"carney_office","password":"<password>"}' \
++    | jq -r .access_token)
++
++curl -fsS -X POST https://polaris.<your-domain>/api/v6/runs \
++    -H "Authorization: Bearer $TOKEN" \
++    -H 'content-type: application/json' \
++    -d '{"template":"clinical","question":"Is tirzepatide effective for type 2 diabetes?"}'
++```
++
++## Egress lockdown (T-6 before demo)
++
++After the first successful deploy + Caddy ACME provisioning succeeds:
++
++```bash
++ssh root@polaris.<domain>
++sudo bash /opt/polaris/scripts/egress_lockdown.sh
++sudo iptables -L POLARIS_EGRESS_HOST -n -v | head -20
++sudo iptables -L POLARIS_EGRESS_DOCKER -n -v | head -20
++```
++
++Both chains must show DROP rules at the bottom + the allowlisted IPs as ACCEPT.
++
++## Architecture
++
++```
++                                Internet
++                                    │
++                                    │ HTTPS:443
++                                    ▼
++                          ┌──────────────────────┐
++                          │  Vexxhost Montréal   │
++                          │  Ubuntu 24.04 VM     │
++                          │                      │
++                          │   Caddy (TLS + LE)   │
++                          │        │             │
++                          │        ▼             │
++                          │   webui:3000 (Next)  │
++                          │        │             │
++                          │  /api/v6/* rewrite   │
++                          │        ▼             │
++                          │   api:8000 (FastAPI) │──────┐
++                          │   worker (Dramatiq)  │      │
++                          │   redis:6379         │      │
++                          │                      │      │ private network
++                          └──────────────────────┘      │ (VPN or peered)
++                                                        │
++                                                        ▼
++                              ┌──────────────────────────┐
++                              │   OVH BHS H200 GPU       │
++                              │   vLLM serving DeepSeek  │
++                              │   V4 Pro + Gemma 4 31B   │
++                              └──────────────────────────┘
++                                          │
++                                          ▼
++                                 Brave Search API (CZ)
++                                 + government sources
++                                 (FDA, NICE, Health Canada)
++```
++
++## Why not Terraform
++
++The Vexxhost OpenStack Terraform provider exists, but for a single VM the operator-time overhead of writing + reviewing the HCL exceeds the time saved over a web-console click + ssh + bash. If you scale to >3 VMs later, port `provision.sh` into a Terraform module then.
++
++## Sovereignty audit checklist (for transparency.md reviewers)
++
++| Layer | Provider | Ownership | Jurisdiction |
++|---|---|---|---|
++| Orchestrator hosting | Vexxhost | Canadian | Canada (PIPEDA + Quebec Law 25) |
++| LLM inference (when OVH H200 online + GH#199 ships) | OVH Canada | French (parent: OVH SAS) | Canada (OVH Canada entity is the data controller) |
++| LLM inference (transition default) | OpenRouter | US | US (transitional only — disclosed in `/transparency`) |
++| Live search | DEFERRED to GH#487 | Non-US (Mojeek UK / Qwant FR / Ecosia DE candidates) | TBD per provider; Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), invalidating the original Brave plan |
++| Source corpora (T1) | Government sites (FDA, EMA, Health Canada, NICE, MHRA, WHO, NCBI) | Sovereign per source | Each source jurisdiction |
++| Bib / DOI infrastructure | doi.org (CNRI US), Crossref (UK), Unpaywall + OpenAlex (US non-profits), arXiv (Cornell US), SEC EDGAR (US govt) | Mixed; disclosed | Mixed |
++| DNS | easyDNS or Cira | Canadian | Canada |
++| TLS cert | Let's Encrypt (Internet Security Research Group) | US 501(c)(3) | US — BUT cert is a public attestation, no data leaves to ISRG |
++
++Decision tree per layer documented in `docs/transparency.md`.
+diff --git a/infra/vexxhost/provision.sh b/infra/vexxhost/provision.sh
+new file mode 100644
+index 00000000..f8960a3b
+--- /dev/null
++++ b/infra/vexxhost/provision.sh
+@@ -0,0 +1,192 @@
++#!/bin/bash
++# I-carney-008 — POLARIS Carney demo bootstrap on a fresh Vexxhost Ubuntu 24.04 VM.
++#
++# Run as root on a freshly-provisioned Vexxhost VM in the Montréal region.
++# Replaces the AWS Terraform module + cloud-init + Secrets Manager flow with
++# a single bash script for the sovereign Canadian deploy.
++#
++# Prereqs (operator does these BEFORE running this script):
++#   1. Vexxhost VM provisioned (Ubuntu 24.04, 8 vCPU / 32 GB / 100 GB SSD, Montréal)
++#   2. DNS A record pointing polaris.<domain> at the VM's public IP
++#   3. SSH key access as root or sudo user
++#   4. /root/.env populated with all secrets (see infra/vexxhost/.env.example)
++#   5. /root/polaris_demo_pubkey.asc + /root/polaris_demo_secret.asc (GPG keys)
++#
++# Usage:
++#   scp infra/vexxhost/.env.example root@polaris.<domain>:/root/.env  (edit first)
++#   ssh root@polaris.<domain>
++#   curl -fsSL https://raw.githubusercontent.com/aldrinor/polaris/polaris/infra/vexxhost/provision.sh | bash
++#
++# OR copy this script up and run it directly.
++
++set -eo pipefail
++
++# Config (override via env before running).
++POLARIS_REPO_URL="${POLARIS_REPO_URL:-https://github.com/aldrinor/polaris.git}"
++POLARIS_REPO_BRANCH="${POLARIS_REPO_BRANCH:-polaris}"
++POLARIS_REPO_COMMIT="${POLARIS_REPO_COMMIT:-}"   # required; no default — must pin
++POLARIS_DOMAIN="${POLARIS_DOMAIN:-}"             # e.g. polaris.example.ca
++POLARIS_ACME_EMAIL="${POLARIS_ACME_EMAIL:-}"     # Let's Encrypt contact
++
++if [ "$(id -u)" -ne 0 ]; then
++    echo "[provision] ERROR: must run as root" >&2
++    exit 1
++fi
++if [ -z "$POLARIS_REPO_COMMIT" ]; then
++    echo "[provision] ERROR: POLARIS_REPO_COMMIT must be pinned (no floating HEAD)" >&2
++    exit 1
++fi
++if [ -z "$POLARIS_DOMAIN" ]; then
++    echo "[provision] ERROR: POLARIS_DOMAIN must be set" >&2
++    exit 1
++fi
++if [ ! -f /root/.env ]; then
++    echo "[provision] ERROR: /root/.env not found. Populate from infra/vexxhost/.env.example" >&2
++    exit 1
++fi
++if [ ! -f /root/polaris_demo_pubkey.asc ] || [ ! -f /root/polaris_demo_secret.asc ]; then
++    echo "[provision] ERROR: GPG keys not staged at /root/polaris_demo_{pubkey,secret}.asc" >&2
++    exit 1
++fi
++
++echo "=== POLARIS Vexxhost provisioning ==="
++echo "Domain: $POLARIS_DOMAIN"
++echo "Repo:   $POLARIS_REPO_URL @ $POLARIS_REPO_COMMIT"
++echo "===================================="
++
++# ----- 1. apt + docker + caddy + git + gnupg -----
++export DEBIAN_FRONTEND=noninteractive
++apt-get update
++apt-get install -y \
++    docker.io \
++    docker-compose-v2 \
++    git \
++    gnupg \
++    curl \
++    jq \
++    debian-keyring \
++    debian-archive-keyring \
++    apt-transport-https \
++    ca-certificates
++
++# Caddy from official Cloudsmith repo (Czech/EU-mirrored, not US — and even
++# if Cloudsmith CDN edges via US, the package itself is fetched once at
++# install and we don't depend on Caddy phoning home at runtime).
++curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
++    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
++curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
++    | tee /etc/apt/sources.list.d/caddy-stable.list
++apt-get update
++apt-get install -y caddy
++
++systemctl enable --now docker
++
++# ----- 2. clone POLARIS at pinned commit -----
++mkdir -p /opt
++if [ ! -d /opt/polaris/.git ]; then
++    git clone "$POLARIS_REPO_URL" /opt/polaris
++fi
++cd /opt/polaris
++git fetch origin "$POLARIS_REPO_BRANCH"
++git checkout "$POLARIS_REPO_COMMIT"
++
++# ----- 3. wire .env -----
++cp /root/.env /opt/polaris/.env
++chmod 600 /opt/polaris/.env
++
++# ----- 4. /etc/polaris substrate (auth + egress allowlist) -----
++mkdir -p /etc/polaris
++chmod 750 /etc/polaris
++
++# static_accounts.yaml expected in /root/static_accounts.yaml (operator-prepared).
++if [ -f /root/static_accounts.yaml ]; then
++    cp /root/static_accounts.yaml /etc/polaris/static_accounts.yaml
++    chmod 640 /etc/polaris/static_accounts.yaml
++else
++    echo "[provision] WARN: /root/static_accounts.yaml not found; auth will fail until provided" >&2
++fi
++
++# Egress allowlist baked from the repo.
++cp /opt/polaris/config/egress_allowlist.txt /etc/polaris/egress_allowlist.txt
++chmod 644 /etc/polaris/egress_allowlist.txt
++
++# ----- 5. GPG keyring -----
++export GNUPGHOME=/var/lib/polaris/gpg
++mkdir -p "$GNUPGHOME"
++chmod 700 "$GNUPGHOME"
++cp /root/polaris_demo_pubkey.asc "$GNUPGHOME/polaris_demo_pubkey.asc"
++chmod 644 "$GNUPGHOME/polaris_demo_pubkey.asc"
++gpg --batch --import /root/polaris_demo_pubkey.asc
++gpg --batch --import /root/polaris_demo_secret.asc
++# Wipe the secret key file from /root — it now lives only in the GPG keyring.
++shred -u /root/polaris_demo_secret.asc
++
++# Ensure POLARIS_GPG_HOMEDIR in .env points at /var/lib/polaris/gpg.
++if ! grep -q "POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg" /opt/polaris/.env; then
++    echo "POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg" >> /opt/polaris/.env
++fi
++
++# ----- 6. bring up the compose stack -----
++cd /opt/polaris
++docker compose -f docker-compose.v6.yml up -d --build
++
++# ----- 7. wait for api + webui healthchecks -----
++# Codex iter-1 P2-4: if the wait loop exhausts without success, FAIL the
++# script rather than silently emitting "deployed" on an unhealthy stack.
++echo "[provision] waiting for api + webui healthchecks..."
++healthy=0
++for i in $(seq 1 60); do
++    if curl -fsS http://localhost:8000/health > /dev/null && \
++       curl -fsS http://localhost:3000/ > /dev/null; then
++        echo "[provision] api + webui healthy at boot+$((i*5))s"
++        healthy=1
++        break
++    fi
++    sleep 5
++done
++if [ "$healthy" -ne 1 ]; then
++    echo "[provision] ERROR: api + webui did not become healthy within 300s." >&2
++    echo "[provision] Compose logs (last 50 lines):" >&2
++    docker compose -f docker-compose.v6.yml logs --tail=50 >&2 || true
++    exit 1
++fi
++
++# ----- 8. Caddy reverse proxy + Let's Encrypt -----
++cat > /etc/caddy/Caddyfile <<EOF
++${POLARIS_DOMAIN} {
++    tls ${POLARIS_ACME_EMAIL}
++
++    # /health + /transparency + /auth + /api + /stream + everything else → webui:3000
++    # webui's Next.js rewrites handle /api/v6/* and /transparency/* server-side.
++    reverse_proxy localhost:3000 {
++        # SSE keepalive: don't buffer.
++        flush_interval -1
++    }
++
++    # /health probe goes direct to backend for cleaner ops signal.
++    handle /health {
++        reverse_proxy localhost:8000
++    }
++
++    log {
++        output file /var/log/caddy/polaris.log
++        format json
++    }
++}
++EOF
++mkdir -p /var/log/caddy
++caddy fmt --overwrite /etc/caddy/Caddyfile
++systemctl reload caddy
++
++echo ""
++echo "=================================================================="
++echo "POLARIS deployed on Vexxhost. Public URL:"
++echo "  https://${POLARIS_DOMAIN}/"
++echo ""
++echo "Verify:"
++echo "  curl https://${POLARIS_DOMAIN}/health"
++echo "  curl https://${POLARIS_DOMAIN}/transparency | jq"
++echo ""
++echo "Egress lockdown is NOT yet enabled. Run after first compose build:"
++echo "  sudo bash /opt/polaris/scripts/egress_lockdown.sh"
++echo "=================================================================="
+diff --git a/scripts/egress_lockdown.sh b/scripts/egress_lockdown.sh
+index cb20e034..af20e7f4 100644
+--- a/scripts/egress_lockdown.sh
++++ b/scripts/egress_lockdown.sh
+@@ -61,7 +61,10 @@ install_chain() {
+     iptables -A "$chain_name" -o lo -j ACCEPT || true
+     iptables -A "$chain_name" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ 
+-    # Allow DNS (53), NTP (123), AWS instance metadata (169.254.169.254).
++    # Allow DNS (53), NTP (123), link-local cloud metadata (169.254.169.254 —
++    # used by OpenStack on Vexxhost; AWS EC2 used the same address. Either way,
++    # it's the standard cloud-init metadata endpoint and never carries demo
++    # payload).
+     iptables -A "$chain_name" -p udp --dport 53 -j ACCEPT
+     iptables -A "$chain_name" -p tcp --dport 53 -j ACCEPT
+     iptables -A "$chain_name" -p udp --dport 123 -j ACCEPT
+diff --git a/src/polaris_v6/api/transparency.py b/src/polaris_v6/api/transparency.py
+index 956ede8d..eea8db5c 100644
+--- a/src/polaris_v6/api/transparency.py
++++ b/src/polaris_v6/api/transparency.py
+@@ -46,6 +46,7 @@ class SovereigntyPolicy(BaseModel):
+ class TransparencyResponse(BaseModel):
+     """Public deploy descriptor."""
+ 
++    provider: str
+     region: str
+     git_commit: str
+     polaris_version: str
+@@ -186,8 +187,17 @@ def _read_pubkey() -> str:
+ def transparency() -> TransparencyResponse:
+     """Public deploy descriptor."""
+     key_id, fpr = _signing_key_info()
++    # I-carney-008 Codex iter-1 P1-2: treat empty-string env vars as missing
++    # (otherwise an unfilled .env template surfaces provider="" / region="").
++    provider = os.environ.get("POLARIS_PROVIDER", "").strip() or "unknown"
++    region = (
++        os.environ.get("POLARIS_REGION", "").strip()
++        or os.environ.get("AWS_REGION", "").strip()
++        or "unknown"
++    )
+     return TransparencyResponse(
+-        region=os.environ.get("AWS_REGION", "unknown"),
++        provider=provider,
++        region=region,
+         git_commit=_git_commit(),
+         polaris_version=__version__,
+         deploy_timestamp=datetime.now(timezone.utc).isoformat(),
+@@ -228,9 +238,5 @@ def policy() -> PolicyResponse:
+         enforcement_layer=[
+             "host iptables OUTPUT chain (scripts/egress_lockdown.sh)",
+             "Docker DOCKER-USER chain (scripts/egress_lockdown.sh)",
+-            # Codex diff iter-2 P2: AWS SG on EC2 is NOT an egress allowlist
+-            # (egress is all-permit per infra/aws/ec2.tf). Listed here as
+-            # "ingress-only" to be honest about layer scope.
+-            "AWS Security Group on EC2 (ingress-only; egress all-permit)",
+         ],
+     )
+diff --git a/state/active_issue.json b/state/active_issue.json
+index 23719ecb..bc84e311 100644
+--- a/state/active_issue.json
++++ b/state/active_issue.json
+@@ -1,76 +1,26 @@
+ {
+-  "active_issue_id": "I-carney-001",
+-  "active_issue_gh_number": 462,
+-  "current_step": "sub_issues_opened_awaiting_user_continue_signal",
+-  "in_progress_pr": null,
+-  "next_pr": "I-arch-001a (GH#463) — run_store atomic schema + UUID/slug/artifact_dir mapping + pipeline-A manifest augmentation",
+-  "next_pr_task_id": "I-arch-001a",
+-  "next_pr_blocked_by": [],
+-  "force_approve_iter5_artifact": ".codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt",
+-  "sub_issues_opened": {
+-    "I-arch-001a": 463,
+-    "I-arch-001b": 464,
+-    "I-arch-001c": 465,
+-    "I-arch-001d": 466,
+-    "I-arch-001e": 467,
+-    "I-arch-001f": 468,
+-    "I-carney-005": 469,
+-    "I-carney-002": 470,
+-    "I-carney-003": 471,
+-    "I-carney-004": 472,
+-    "I-carney-006": 473,
+-    "I-carney-007": 474
++  "active_issue_id": "I-carney-008",
++  "active_issue_gh_number": 486,
++  "branch": "bot/I-carney-008-sovereign-pivot",
++  "current_step": "commit_pivot_diff",
++  "next_action": "commit infra/vexxhost + infra/aws.archived + egress_allowlist + runbook edits, write codex_diff brief, run Codex diff review (5-iter cap), push branch, open PR, admin-merge",
++  "assigned_at_utc": "2026-05-13",
++  "user_directive_quote": "Full sovereign — no US company anywhere; OVH H200 procurement not started — kick off this week",
++  "follow_up_issues": {
++    "I-carney-009": {"github": 487, "title": "Replace Serper with Brave Search in real_fetcher.py"},
++    "I-sov-001": {"github": 199, "title": "Replace OpenRouter with sovereign vLLM (depends on OVH H200 landing)"}
+   },
+-  "user_actions_complete": {
+-    "user_action_1_g2_signed_commit": {"status": "done"},
+-    "user_action_2_mechanical_isolation": {"status": "done"}
++  "parent_workstream": "I-carney-001 — Carney production deploy + live submission (GH#462)",
++  "sovereign_stack": {
++    "orchestrator_hosting": "Vexxhost (Canadian-owned, Montréal)",
++    "llm_inference": "OVH BHS H200 (French-owned, Beauharnois QC) running vLLM",
++    "live_search": "Brave Search API (Czech-owned)",
++    "tls_ca": "Let's Encrypt ISRG (US 501(c)(3)) — public attestation only, no data leaves",
++    "dns": "easyDNS or Cira (Canadian)"
+   },
+-  "active_workstream": {
+-    "name": "I-carney-001 — Carney production deploy + live submission",
+-    "github_issue": 462,
+-    "boss_directive_utc": "2026-05-12",
+-    "boss_directive_quotes": [
+-      "my boss want to speed it up, we want to find a Canadian server, upload the whole thing on it, and run it, and let Mark Carney to use it, are you ready?",
+-      "I need you to help me to find the most suitable one",
+-      "Not a stupid demo, it need to be real, any person around Mark can really use it",
+-      "Why you don't ask Codex 5.5 for opinion, it is smarter than Opus 4.7"
+-    ],
+-    "user_scope_pivot_utc": "2026-05-12",
+-    "user_scope_pivot_quote": "Posture C — Live submission, extend timeline to ~3-4 weeks",
+-    "demo_posture": "C — live submission of any in-scope public-policy question",
+-    "demo_target_utc": "2026-06-05 to 2026-06-09 (24-day calendar from 2026-05-13)",
+-    "decisions_codex_approved_brief_v1": {
+-      "sovereignty_bar": "c — Canadian-hosted public-policy research; foreign API egress permitted; transparency endpoint discloses",
+-      "vendor": "AWS ca-central-1 Montréal — m7i-flex.4xlarge EC2 single-instance docker-compose",
+-      "auth_model": "static_accounts — pre-provisioned named users with admin/operator/viewer roles",
+-      "concurrency_target": "1 active research run + N viewers",
+-      "fallback_plan": "Posture A canonical Q1-Q5 library as known-good demo wedge if live submission misbehaves on demo day",
+-      "public_terminology": "Canadian-hosted public-policy research (NOT 'sovereign Canadian AI')"
+-    },
+-    "codex_iteration_history": [
+-      {"version": "brief_v1", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 1, "p2_count": 3, "novel_finding": "F-snowball deploy-path mismatch (live_server.py vs polaris_v6/api/app.py)"},
+-      {"version": "brief_v1", "iter": 2, "verdict": "REQUEST_CHANGES", "p1_count": 2, "p2_count": 4, "novel_finding": "Browser-reachable URL strategy + Redis/Dramatiq worker missing"},
+-      {"version": "brief_v1", "iter": 3, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "Docker ENTRYPOINT subcommand whitelist + broker init order + run state volume sharing + Next rewrites build-time bake"},
+-      {"version": "brief_v1", "iter": 4, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 4, "novel_finding": "UUID/slug bridge fundamental: v6 UUIDs ≠ pipeline-A SWEEP_ slugs; V30 strict AuditIR requires per_query_report_contract"},
+-      {"version": "brief_v1", "iter": 5, "verdict": "NOT_RUN", "reason": "User scope-pivoted to Posture C after iter 4 revealed live-submission is multi-week architecture work"},
+-      {"version": "brief_v2", "iter": 1, "verdict": "REQUEST_CHANGES", "p1_count": 5, "p2_count": 5, "novel_finding": "build_and_run_v4 signature mismatch + V30 contract schema gaps + bundle/compare adapters + atomic run_store + SSE protocol translation"}
+-    ],
+-    "subissue_plan_v2": [
+-      {"id": "I-arch-001a", "title": "run_store atomic schema + UUID/slug/artifact_dir mapping + actor wiring", "days": "1-3", "status": "pending"},
+-      {"id": "I-arch-001b", "title": "V30 contract synthesizer + 8-template synthesis golden fixtures", "days": "4-6", "status": "pending"},
+-      {"id": "I-arch-001c", "title": "scope_domain enum extension + per-domain rubric generation", "days": "4-6", "status": "pending"},
+-      {"id": "I-arch-001d", "title": "bundle.py + compare.py artifact-routing adapters", "days": "7-8", "status": "pending"},
+-      {"id": "I-arch-001e", "title": "SSE translator + Redis pub/sub publish in pipeline-A", "days": "9-10", "status": "pending"},
+-      {"id": "I-arch-001f", "title": "e2e test with pinned fixture runner", "days": "11", "status": "pending"},
+-      {"id": "I-carney-005", "title": "Deploy substrate (Dockerfile/entrypoint/compose/Next rewrites/GPG)", "days": "12-13", "status": "pending"},
+-      {"id": "I-carney-002", "title": "AWS Canada infra (VPC/EC2/ALB/ACM/Route 53/SSM/EBS snapshots)", "days": "14", "status": "pending"},
+-      {"id": "I-carney-003", "title": "Sovereignty + transparency endpoint + egress controls", "days": "14-15", "status": "pending"},
+-      {"id": "I-carney-004", "title": "Static_accounts auth + GPG demo key + AWS Secrets Manager", "days": "16-17", "status": "pending"},
+-      {"id": "I-carney-006", "title": "Live-submission rehearsal — 5 canonical + 5 staff-style questions, §-1.1 audit each", "days": "18-22", "status": "pending"},
+-      {"id": "I-carney-007", "title": "Demo runbook + transparency.md + fallback + rehearsal + Codex sign-off", "days": "23-24", "status": "pending"}
+-    ]
++  "archived_workstream": {
++    "name": "I-carney-001 — Carney production deploy + live submission (AWS path)",
++    "completed_artifacts": "PRs #475-#485 shipped AWS infra. Code archived at infra/aws.archived/ — fails sovereignty audit per user directive 2026-05-13. Reuse possible if Phase-2 budget permits dual-jurisdiction strategy."
+   },
+-  "last_updated_utc": "2026-05-12T22:30:00Z",
+-  "session_started_via_ritual": false,
+-  "notes": "POSTURE C SCOPE PIVOT 2026-05-12. F-snowball workstream complete (6 PRs shipped). Boss directive triggered scope expansion to multi-week project. Codex brief_v2_iter_2 ready in .codex/I-carney-001/; iter 1 returned 5 P1s, iter 2 drafted addressing all. Architecture rework (I-arch-001 series) is the new critical-path long pole — v6 UUID API and pipeline-A SWEEP_ slug architecture were never wired together. 24-day calendar targets Carney demo 2026-06-05 to 2026-06-09. Sub-issues NOT yet opened — awaiting Codex APPROVE on brief_v2."
++  "last_updated_utc": "2026-05-13T00:00:00Z"
+ }
+diff --git a/tests/polaris_v6/api/test_transparency.py b/tests/polaris_v6/api/test_transparency.py
+index 8960edcb..df78a1a0 100644
+--- a/tests/polaris_v6/api/test_transparency.py
++++ b/tests/polaris_v6/api/test_transparency.py
+@@ -24,24 +24,50 @@ def app_with_transparency():
+ 
+ 
+ def test_transparency_returns_required_keys(app_with_transparency, monkeypatch):
+-    monkeypatch.setenv("AWS_REGION", "ca-central-1")
++    # I-carney-008 sovereign pivot: POLARIS_REGION + POLARIS_PROVIDER preferred;
++    # AWS_REGION still honored as backward-compat fallback for region.
++    monkeypatch.setenv("POLARIS_PROVIDER", "vexxhost")
++    monkeypatch.setenv("POLARIS_REGION", "montreal-qc")
+     monkeypatch.setenv("POLARIS_GPG_KEY_ID", "TESTFINGERPRINT123")
+     client = TestClient(app_with_transparency)
+     resp = client.get("/transparency")
+     assert resp.status_code == 200
+     body = resp.json()
+     required = {
+-        "region", "git_commit", "polaris_version", "deploy_timestamp",
++        "provider", "region", "git_commit", "polaris_version", "deploy_timestamp",
+         "signing_key_id", "signing_key_fingerprint", "sovereignty_filter",
+         "evaluator_models", "egress_allowlist", "dependencies",
+     }
+     assert required.issubset(body.keys()), f"missing keys: {required - body.keys()}"
+-    assert body["region"] == "ca-central-1"
++    assert body["provider"] == "vexxhost"
++    assert body["region"] == "montreal-qc"
+     assert body["signing_key_id"] == "TESTFINGERPRINT123"
+     assert body["sovereignty_filter"]["cleared_tiers"] == ["T1"]
+     assert "T1" in body["sovereignty_filter"]["tier_definitions"]
+ 
+ 
++def test_transparency_region_falls_back_to_aws_region_env(
++    app_with_transparency, monkeypatch
++):
++    """Backward compat: pre-pivot deploys set only AWS_REGION."""
++    monkeypatch.delenv("POLARIS_REGION", raising=False)
++    monkeypatch.setenv("AWS_REGION", "ca-central-1")
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency")
++    assert resp.status_code == 200
++    assert resp.json()["region"] == "ca-central-1"
++
++
++def test_transparency_policy_no_aws_security_group_layer(app_with_transparency):
++    """I-carney-008 sovereign pivot: enforcement_layer must NOT mention AWS SG."""
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency/policy")
++    layers = resp.json()["enforcement_layer"]
++    assert not any("AWS" in layer for layer in layers), (
++        f"sovereign pivot regression — enforcement_layer still mentions AWS: {layers}"
++    )
++
++
+ def test_transparency_pubkey_returns_armored_block(
+     app_with_transparency, tmp_path, monkeypatch
+ ):

@@ -48,7 +48,7 @@ Provisioning takes ~10 minutes (apt + docker pull + Next.js build + Caddy ACME).
 curl -fsS https://polaris.<your-domain>/health
 curl -fsS https://polaris.<your-domain>/transparency | jq
 
-TOKEN=$(curl -fsS -X POST https://polaris.<your-domain>/auth/login \
+TOKEN=$(curl -fsS -X POST https://polaris.<your-domain>/api/v6/auth/login \
     -H 'content-type: application/json' \
     -d '{"username":"carney_office","password":"<password>"}' \
     | jq -r .access_token)
@@ -104,9 +104,10 @@ Both chains must show DROP rules at the bottom + the allowlisted IPs as ACCEPT.
                               └──────────────────────────┘
                                           │
                                           ▼
-                                 Brave Search API (CZ)
-                                 + government sources
-                                 (FDA, NICE, Health Canada)
+                                 Non-US search API (GH#487, pending)
+                                 + government T1 sources
+                                 (FDA, NICE, EMA, MHRA,
+                                  Health Canada, WHO, NCBI)
 ```
 
 ## Why not Terraform

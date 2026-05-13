@@ -7,14 +7,14 @@
   "assigned_at_utc": "2026-05-13",
   "user_directive_quote": "Full sovereign — no US company anywhere; OVH H200 procurement not started — kick off this week",
   "follow_up_issues": {
-    "I-carney-009": {"github": 487, "title": "Replace Serper with Brave Search in real_fetcher.py"},
+    "I-carney-009": {"github": 487, "title": "Replace Serper with non-US search provider (Mojeek/Qwant/Ecosia)"},
     "I-sov-001": {"github": 199, "title": "Replace OpenRouter with sovereign vLLM (depends on OVH H200 landing)"}
   },
   "parent_workstream": "I-carney-001 — Carney production deploy + live submission (GH#462)",
   "sovereign_stack": {
     "orchestrator_hosting": "Vexxhost (Canadian-owned, Montréal)",
     "llm_inference": "OVH BHS H200 (French-owned, Beauharnois QC) running vLLM",
-    "live_search": "Brave Search API (Czech-owned)",
+    "live_search": "DEFERRED to GH#487 (Mojeek UK / Qwant FR / Ecosia DE candidates — non-US; Codex iter-1 caught Brave Software is Delaware-incorporated)",
     "tls_ca": "Let's Encrypt ISRG (US 501(c)(3)) — public attestation only, no data leaves",
     "dns": "easyDNS or Cira (Canadian)"
   },

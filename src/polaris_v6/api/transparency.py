@@ -56,6 +56,7 @@ class TransparencyResponse(BaseModel):
     sovereignty_filter: SovereigntyPolicy
     evaluator_models: dict[str, str]
     egress_allowlist: list[str]
+    build_time_hosts_pruned: bool
     dependencies: dict[str, list[str]]
 
 
@@ -195,6 +196,14 @@ def transparency() -> TransparencyResponse:
         or os.environ.get("AWS_REGION", "").strip()
         or "unknown"
     )
+    # I-carney-008 Codex iter-2 P2-2: surface whether the build-time block
+    # (GitHub, Docker registry, Cloudflare CDN, pypi/npm/debian) was pruned
+    # from the runtime allowlist by scripts/egress_runtime_tighten.sh.
+    pruned_flag = Path(
+        os.environ.get(
+            "POLARIS_RUNTIME_PRUNED_FLAG", "/etc/polaris/runtime_pruned.flag"
+        )
+    )
     return TransparencyResponse(
         provider=provider,
         region=region,
@@ -209,6 +218,7 @@ def transparency() -> TransparencyResponse:
             "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
         },
         egress_allowlist=_load_egress_allowlist(),
+        build_time_hosts_pruned=pruned_flag.exists(),
         dependencies=_load_dependencies(),
     )
 
