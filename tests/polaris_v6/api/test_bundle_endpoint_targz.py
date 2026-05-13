@@ -105,6 +105,47 @@ def test_get_bundle_targz_503_when_signer_unconfigured(
     assert body["detail"]["code"] == "gpg_unavailable"
 
 
+def test_get_bundle_targz_422_when_release_blocked(
+    app_with_bundle_router, isolated_db, tmp_path
+):
+    """Partial run with release_allowed=false → 422, not a clean bundle.
+
+    Codex diff iter-2 P1-002: collapsing partial_* into pipeline_verdict="success"
+    erases the release_allowed gate. The endpoint reads raw manifest.release_allowed
+    and refuses release-blocked partials regardless of slice-chain verdict.
+    """
+    artifact_dir = _write_synthetic_artifact_dir(tmp_path)
+    # Override the synthetic manifest to set release_allowed=False + partial status.
+    manifest_path = artifact_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["release_allowed"] = False
+    manifest["status"] = "partial_qwen_advisory"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True))
+
+    run_store.insert_run("run_release_blocked", "clinical", "noop?", path=str(isolated_db))
+    run_store.mark_in_progress("run_release_blocked", path=str(isolated_db))
+    run_store.set_pipeline_meta(
+        "run_release_blocked",
+        query_slug="synthetic_q",
+        artifact_dir=str(artifact_dir),
+        path=str(isolated_db),
+    )
+    run_store.mark_completed(
+        "run_release_blocked",
+        {"manifest": {"status": "partial_qwen_advisory"}, "status": "partial_qwen_advisory"},
+        pipeline_status="partial_qwen_advisory",
+        cost_usd=0.42,
+        path=str(isolated_db),
+    )
+    client = TestClient(app_with_bundle_router)
+    resp = client.get("/runs/run_release_blocked/bundle.tar.gz")
+    assert resp.status_code == 422
+    body = resp.json()["detail"]
+    assert body["bundleable"] is False
+    assert body["pipeline_status"] == "partial_qwen_advisory"
+    assert "release-blocked" in body["error"]
+
+
 def test_get_bundle_targz_signer_override_fires(
     app_with_bundle_router, isolated_db, tmp_path
 ):

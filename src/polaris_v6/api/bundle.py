@@ -17,7 +17,7 @@ GPG-signed audit bundle via the build_slice_chain bridge.
 
 from __future__ import annotations
 
-import json
+import json  # noqa: F401 — used by release_allowed gate below
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -109,6 +109,31 @@ def get_run_bundle_targz(
         raise HTTPException(
             status_code=404,
             detail={"error": f"artifact_dir does not exist on disk: {artifact_dir}"},
+        )
+
+    # I-arch-001d Codex diff iter-2 P1-002 fix: release_allowed gate.
+    # The slice-chain pipeline_verdict collapses partial_* into "success",
+    # but a release-blocked partial (e.g. partial_qwen_advisory with
+    # release_allowed=false) MUST NOT ship as a clean bundle. Read the raw
+    # manifest.release_allowed flag and refuse with 422 when False.
+    try:
+        manifest_raw = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"manifest.json missing or invalid: {exc}"},
+        ) from exc
+    if not manifest_raw.get("release_allowed", False):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": (
+                    f"run release-blocked: pipeline_status={info.pipeline_status!r}, "
+                    f"release_allowed=False. Bundle cannot ship until release gate clears."
+                ),
+                "bundleable": False,
+                "pipeline_status": info.pipeline_status,
+            },
         )
 
     try:
