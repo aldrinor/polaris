@@ -28,18 +28,28 @@ logger = logging.getLogger(__name__)
 
 ENQUEUE_MAX_RETRIES = 3
 
-# I-arch-001a: week-1 template→scope_domain mapping. Per Codex iter-3 APPROVE
-# of brief. Per-domain expansion (real scope_templates for 4 new policy
-# domains) deferred to post-demo Phase 2 per I-arch-001c follow-up.
+# I-arch-001c (2026-05-13): template_id → pipeline-A scope_domain mapping at
+# the actor boundary.
+#
+# Three domains already exist in scope_gate.SUPPORTED_DOMAINS with their own
+# config/scope_templates/<domain>.yaml (per I-tpl-006/7/8): ai_sovereignty,
+# canada_us, workforce. These are promoted to identity mappings so the
+# deterministic scope_gate picks the right per-domain rubric.
+#
+# Four templates (climate, defense, housing, trade) have no scope_template
+# yet — they fall back to the generic "policy" rubric. Authoring per-domain
+# YAMLs + adding to SUPPORTED_DOMAINS is Phase 2 (post-Carney-demo).
+#
+# clinical → clinical (unchanged).
 TEMPLATE_TO_SCOPE_DOMAIN = {
-    "ai_sovereignty": "policy",
-    "canada_us": "policy",
-    "climate": "policy",
+    "ai_sovereignty": "ai_sovereignty",
+    "canada_us": "canada_us",
+    "workforce": "workforce",
     "clinical": "clinical",
+    "climate": "policy",
     "defense": "policy",
     "housing": "policy",
     "trade": "policy",
-    "workforce": "policy",
 }
 
 
