@@ -121,6 +121,40 @@ www.who.int
 iarc.who.int
 www.iarc.who.int
 
+# ----- Policy-domain T1 corpus (per scope_templates/policy.yaml + domain_backends.py) -----
+# Codex iter-4 P1: policy submissions in the demo rehearsal matrix (NORAD,
+# pharmacare, AI sovereignty, Canada-US digital services tax, workforce)
+# fetch from these endpoints. Without them, lockdown drops policy evidence.
+
+# US federal policy machinery
+federalregister.gov
+www.federalregister.gov
+regulations.gov
+www.regulations.gov
+gao.gov
+www.gao.gov
+congress.gov
+www.congress.gov
+whitehouse.gov
+www.whitehouse.gov
+cbo.gov
+www.cbo.gov
+cms.gov
+www.cms.gov
+hhs.gov
+www.hhs.gov
+ftc.gov
+www.ftc.gov
+treasury.gov
+home.treasury.gov
+
+# EU Commission
+ec.europa.eu
+
+# Public legal corpus (US case law)
+courtlistener.com
+www.courtlistener.com
+
 # ----- Bibliographic / DOI-resolver infrastructure (sovereign-aligned) -----
 # DOI registry (CNRI, US 501(c)(3) — disclosed; alternative is to bypass DOI
 # resolution and use direct publisher URLs, but that breaks tier-1 cites).
