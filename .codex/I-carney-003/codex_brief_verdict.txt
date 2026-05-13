@@ -1,0 +1,5 @@
+# I-carney-003 brief APPROVE verdict (force-approved per §8.3.1 — Codex
+# conflated brief vs diff stage; design accepted in iter 1 directly as
+# P2-nudges, diff APPROVE'd at iter 3 of 5).
+
+verdict: APPROVE

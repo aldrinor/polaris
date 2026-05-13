@@ -1,0 +1,722 @@
+diff --git a/config/egress_allowlist.txt b/config/egress_allowlist.txt
+new file mode 100644
+index 00000000..5cd027aa
+--- /dev/null
++++ b/config/egress_allowlist.txt
+@@ -0,0 +1,37 @@
++# I-carney-003 — POLARIS Carney demo egress allowlist.
++#
++# scripts/egress_lockdown.sh resolves each domain to A records and installs
++# iptables rules in OUTPUT (host) + DOCKER-USER (container). Everything else
++# 80/443 is DROP-ed.
++#
++# Run lockdown AFTER first `docker compose build` so build-time hosts
++# (deb.debian.org, pypi.org, files.pythonhosted.org, registry.npmjs.org)
++# can be removed from the runtime allowlist if desired.
++
++# ----- LLM API -----
++openrouter.ai
++api.openrouter.ai
++
++# ----- Live retrieval -----
++google.serper.dev
++api.semanticscholar.org
++
++# ----- Container image registry -----
++github.com
++codeload.github.com
++registry-1.docker.io
++auth.docker.io
++production.cloudflare.docker.com
++
++# ----- AWS substrate (ca-central-1) -----
++ssm.ca-central-1.amazonaws.com
++ssmmessages.ca-central-1.amazonaws.com
++ec2messages.ca-central-1.amazonaws.com
++s3.ca-central-1.amazonaws.com
++
++# ----- Build-time package indices (remove post-build for tighter runtime lockdown) -----
++pypi.org
++files.pythonhosted.org
++deb.debian.org
++security.debian.org
++registry.npmjs.org
+diff --git a/docs/transparency.md b/docs/transparency.md
+new file mode 100644
+index 00000000..bed6c286
+--- /dev/null
++++ b/docs/transparency.md
+@@ -0,0 +1,93 @@
++# POLARIS Carney demo — public transparency reference
++
++This document tells reviewers (incl. PM Mark Carney's office) how to audit that this POLARIS deploy is sovereign, signed, and bound by the policies it claims.
++
++The machine-readable companion is `GET /transparency` on the live deploy.
++
++## 1. Sovereignty filter
++
++POLARIS' clinical-grade filter accepts only **Tier 1 (T1)** sources by default. T1 is the regulatory + clinical guideline corpus (FDA, EMA, NICE, Health Canada, etc.) marked `legal_cleared` in the evidence pool.
++
++Sentences citing non-T1 sources are **redacted** from the bundle. If a section has zero passing sentences after the cascade, the section is **dropped**. If a report has zero passing sections, the pipeline raises `SovereigntyFilterEmptiedReportError` (HTTP 422 from `/runs/{id}/bundle.tar.gz`).
++
++Tier definitions:
++
++| Tier | Description | Default sovereignty status |
++|---|---|---|
++| T1 | Regulatory + clinical guideline corpora | legal_cleared = true |
++| T2 | Peer-reviewed primary literature | requires explicit operator clearance |
++| T3 | Unverified web content + raw uploads | excluded; fallback on unknown tiers |
++
++Verify: `curl https://polaris.<domain>/transparency/policy` returns the `sovereignty_filter` block.
++
++## 2. Evaluator models
++
++Pipeline-A uses a **two-family evaluator**: generator and verifier are from different training lineages so an internal failure in one family can't pass the other.
++
++Current models in production (from `/transparency`):
++- **Generator:** `${PG_GENERATOR_MODEL}` (default `deepseek/deepseek-v4-pro`)
++- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `qwen/qwen-2.5-72b-instruct`)
++
++`openrouter_client.check_family_segregation` raises `RuntimeError` at construction if the configured models are not from different families.
++
++## 3. GPG signing — verifying a bundle
++
++Every audit bundle returned by `GET /runs/{run_id}/bundle.tar.gz` contains a `manifest.yaml.asc` GPG detached signature over `manifest.yaml`. Verify on your workstation:
++
++```bash
++# Fetch the demo signing public key.
++curl -fsS https://polaris.<domain>/transparency/pubkey.asc > polaris.pubkey.asc
++gpg --import polaris.pubkey.asc
++
++# Fetch a bundle.
++curl -fsS https://polaris.<domain>/api/v6/runs/<run_id>/bundle.tar.gz > bundle.tar.gz
++tar -xzf bundle.tar.gz
++cd audit_*/
++
++# Verify the signature over manifest.yaml.
++gpg --verify manifest.yaml.asc manifest.yaml
++```
++
++A successful verification prints `Good signature from "POLARIS Carney Demo <signing@polaris.local>"`. The fingerprint must match the `signing_key_fingerprint` field in `/transparency`.
++
++## 4. Egress allowlist
++
++The EC2 host runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
++
++Current allowlist domains (from `/transparency`):
++
++- `openrouter.ai`, `api.openrouter.ai` — LLM API
++- `google.serper.dev` — live retrieval (Serper)
++- `api.semanticscholar.org` — Semantic Scholar
++- `github.com`, `codeload.github.com` — source clones
++- `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
++- `ssm.ca-central-1.amazonaws.com` + `ssmmessages.ca-central-1.amazonaws.com` + `ec2messages.ca-central-1.amazonaws.com` — SSM Session Manager
++- `s3.ca-central-1.amazonaws.com` — audit bundle upload
++
++Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. (Full count: 18 entries in `config/egress_allowlist.txt` including `security.debian.org`.)
++
++DNS (53), NTP (123), and AWS instance metadata (169.254.169.254) remain unrestricted as required substrate.
++
++Verify: `curl https://polaris.<domain>/transparency/policy` returns the `egress_allowlist` array and the `enforcement_layer` list (host iptables + Docker DOCKER-USER + AWS Security Group).
++
++## 5. Code provenance
++
++`/transparency` returns:
++- **`git_commit`** — short SHA of the POLARIS commit deployed
++- **`polaris_version`** — `__version__` from `src/polaris_v6/__init__.py`
++- **`deploy_timestamp`** — server-side UTC timestamp at /transparency request
++- **`region`** — AWS region (`ca-central-1` for Carney demo)
++- **`dependencies.python`** — first 50 lines of `requirements-v6.txt`
++
++The container images are built from `Dockerfile.v6` and `web/Dockerfile` at the pinned commit; no pre-built registry images are used. Operator can verify by SSM into the host and running `git rev-parse HEAD` inside `/opt/polaris`.
++
++## 6. Filing a sovereignty escalation
++
++If a reviewer finds:
++- A non-T1 source content surfacing in a verified sentence
++- A bundle whose `manifest.yaml.asc` fails GPG verification
++- An off-allowlist egress drop in the kernel log (`journalctl -k | grep POLARIS-EGRESS-DROP`)
++
++Email the operator with the `run_id` + the specific claim/path. The operator can re-run the bundle generation OR confirm the issue is a Tier-2 source mistakenly marked T1.
++
++For the Carney demo, escalation contact is the POLARIS deploy operator listed in the Route 53 zone WHOIS record for the deploy domain.
+diff --git a/infra/aws/cloud-init.sh b/infra/aws/cloud-init.sh
+index 6ce5cea9..74fb0330 100644
+--- a/infra/aws/cloud-init.sh
++++ b/infra/aws/cloud-init.sh
+@@ -99,6 +99,8 @@ POLARIS_API_PORT=8000
+ POLARIS_WEB_PORT=3000
+ PG_MAX_COST_PER_RUN=5.00
+ POLARIS_AUDIT_S3_BUCKET=$AUDIT_BUCKET_NAME
++POLARIS_GIT_COMMIT=$POLARIS_REPO_COMMIT
++AWS_REGION=$AWS_REGION
+ EOF
+ chmod 600 /opt/polaris/.env
+ 
+@@ -110,11 +112,24 @@ chmod 600 /opt/polaris/.env
+ # via SSM Session Manager). Cloud-init only imports the public half so
+ # `bundle.tar.gz` requests will return 503 gpg_unavailable until the
+ # operator finishes the private-key transfer.
++#
++# I-carney-003 P1-002: ALSO persist the armored ASCII to disk so the
++# /transparency/pubkey.asc endpoint can serve it without shelling to gpg.
+ if [ -n "$POLARIS_GPG_PUBKEY" ]; then
+     export GNUPGHOME=/var/lib/polaris/gpg
+     echo "$POLARIS_GPG_PUBKEY" | gpg --import || true
++    echo "$POLARIS_GPG_PUBKEY" > /var/lib/polaris/gpg/polaris_demo_pubkey.asc
++    chmod 644 /var/lib/polaris/gpg/polaris_demo_pubkey.asc
+ fi
+ 
++# ----- 5b. Install egress allowlist + lockdown (I-carney-003) -----
++mkdir -p /etc/polaris
++cp /opt/polaris/config/egress_allowlist.txt /etc/polaris/egress_allowlist.txt
++chmod 644 /etc/polaris/egress_allowlist.txt
++# Note: egress_lockdown.sh is NOT auto-run on boot. Operator runs it AFTER
++# `docker compose up -d` succeeds the first time so build-time hosts can
++# be tightened. See docs/transparency.md §4.
++
+ # ----- 6. bring up the compose stack -----
+ cd /opt/polaris
+ docker compose -f docker-compose.v6.yml up -d --build
+diff --git a/scripts/egress_lockdown.sh b/scripts/egress_lockdown.sh
+new file mode 100644
+index 00000000..cb20e034
+--- /dev/null
++++ b/scripts/egress_lockdown.sh
+@@ -0,0 +1,114 @@
++#!/bin/bash
++# I-carney-003 — install iptables egress lockdown on the host.
++#
++# Reads /etc/polaris/egress_allowlist.txt and installs rules in BOTH OUTPUT
++# (host) and DOCKER-USER (container forwarded traffic) chains so neither
++# host nor containers can reach off-allowlist destinations on 80/443.
++#
++# Idempotent: flushes the POLARIS_EGRESS_HOST + POLARIS_EGRESS_DOCKER chains
++# before reapplying. Per Codex iter-2 P1-003: covers BOTH host outbound
++# AND Docker-bridge-forwarded container traffic.
++#
++# Run AFTER the first `docker compose build` (build-time hosts in
++# config/egress_allowlist.txt are deb.debian.org / pypi.org / etc).
++
++set -eo pipefail
++
++ALLOWLIST_PATH="${POLARIS_EGRESS_ALLOWLIST:-/etc/polaris/egress_allowlist.txt}"
++LOG_FILE="${POLARIS_EGRESS_LOG:-/var/log/polaris-egress.log}"
++
++if [ ! -f "$ALLOWLIST_PATH" ]; then
++    echo "[egress] ERROR: allowlist file not found at $ALLOWLIST_PATH" >&2
++    echo "[egress] copy config/egress_allowlist.txt → $ALLOWLIST_PATH first" >&2
++    exit 1
++fi
++
++if [ "$(id -u)" -ne 0 ]; then
++    echo "[egress] ERROR: must run as root (uses iptables)" >&2
++    exit 1
++fi
++
++log() {
++    local ts
++    ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
++    echo "[$ts] $*" | tee -a "$LOG_FILE"
++}
++
++# Resolve allowlist domains to unique A records.
++resolve_allowlist() {
++    local domain ip
++    while IFS= read -r domain; do
++        # Skip blanks + comments.
++        [[ -z "$domain" || "$domain" =~ ^# ]] && continue
++        # getent returns "ip canonical alias" lines; awk picks the first column.
++        while IFS= read -r ip; do
++            [ -n "$ip" ] && echo "$ip"
++        done < <(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | sort -u)
++    done < "$ALLOWLIST_PATH" | sort -u
++}
++
++install_chain() {
++    local chain_name="$1"
++    local parent_chain="$2"
++    local resolved="$3"
++
++    log "installing chain $chain_name into $parent_chain"
++
++    # (Re)create the chain.
++    iptables -F "$chain_name" 2>/dev/null || iptables -N "$chain_name"
++
++    # Allow loopback + established + related.
++    iptables -A "$chain_name" -o lo -j ACCEPT || true
++    iptables -A "$chain_name" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
++
++    # Allow DNS (53), NTP (123), AWS instance metadata (169.254.169.254).
++    iptables -A "$chain_name" -p udp --dport 53 -j ACCEPT
++    iptables -A "$chain_name" -p tcp --dport 53 -j ACCEPT
++    iptables -A "$chain_name" -p udp --dport 123 -j ACCEPT
++    iptables -A "$chain_name" -d 169.254.169.254/32 -j ACCEPT
++
++    # Allow allowlisted IPs on 443 + 80.
++    while IFS= read -r ip; do
++        [ -z "$ip" ] && continue
++        iptables -A "$chain_name" -d "$ip" -p tcp --dport 443 -j ACCEPT
++        iptables -A "$chain_name" -d "$ip" -p tcp --dport 80 -j ACCEPT
++    done <<< "$resolved"
++
++    # Drop everything else on 80/443.
++    iptables -A "$chain_name" -p tcp --dport 443 -j LOG --log-prefix "[POLARIS-EGRESS-DROP] "
++    iptables -A "$chain_name" -p tcp --dport 443 -j DROP
++    iptables -A "$chain_name" -p tcp --dport 80 -j LOG --log-prefix "[POLARIS-EGRESS-DROP] "
++    iptables -A "$chain_name" -p tcp --dport 80 -j DROP
++
++    # Wire the chain into the parent if not already done.
++    if ! iptables -C "$parent_chain" -j "$chain_name" 2>/dev/null; then
++        iptables -I "$parent_chain" 1 -j "$chain_name"
++    fi
++
++    log "chain $chain_name installed with $(echo "$resolved" | wc -l) allowed IPs"
++}
++
++main() {
++    log "egress lockdown starting (allowlist=$ALLOWLIST_PATH)"
++    local resolved
++    resolved=$(resolve_allowlist)
++    if [ -z "$resolved" ]; then
++        echo "[egress] ERROR: allowlist resolved to zero IPs" >&2
++        exit 1
++    fi
++
++    # Host outbound.
++    install_chain "POLARIS_EGRESS_HOST" "OUTPUT" "$resolved"
++
++    # Container forwarded (Docker bridge). DOCKER-USER may not exist on
++    # systems without Docker; create it as a no-op if absent.
++    if ! iptables -L DOCKER-USER >/dev/null 2>&1; then
++        iptables -N DOCKER-USER 2>/dev/null || true
++        iptables -I FORWARD 1 -j DOCKER-USER 2>/dev/null || true
++    fi
++    install_chain "POLARIS_EGRESS_DOCKER" "DOCKER-USER" "$resolved"
++
++    log "egress lockdown complete"
++}
++
++main "$@"
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index 1a7c3740..b8d68ce6 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -24,6 +24,7 @@ from polaris_v6.api.runs import router as runs_router
+ from polaris_v6.api.scope import router as scope_router
+ from polaris_v6.api.stream import router as stream_router
+ from polaris_v6.api.templates import router as templates_router
++from polaris_v6.api.transparency import router as transparency_router
+ from polaris_v6.api.upload import router as upload_router
+ 
+ # Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
+     app.include_router(compare_router)
+     app.include_router(memory_router)
+     app.include_router(templates_router)
++    app.include_router(transparency_router)
+ 
+     # Slice 001 — POST /api/intake + GET /api/intake/health
+     app.include_router(slice001_intake_router, prefix="/api")
+diff --git a/src/polaris_v6/api/transparency.py b/src/polaris_v6/api/transparency.py
+new file mode 100644
+index 00000000..956ede8d
+--- /dev/null
++++ b/src/polaris_v6/api/transparency.py
+@@ -0,0 +1,236 @@
++"""I-carney-003 — public transparency endpoint.
++
++Returns deploy provenance (region, signing key, sovereignty filter coverage,
++evaluator models, egress allowlist) so reviewers and Carney's office can
++audit that the deploy is sovereign + verifiable.
++
++Three routes:
++- GET /transparency         JSON deploy descriptor
++- GET /transparency/pubkey.asc  text/plain armored GPG public key
++- GET /transparency/policy  JSON full sovereignty + egress policy
++"""
++
++from __future__ import annotations
++
++import os
++import subprocess
++from datetime import datetime, timezone
++from pathlib import Path
++
++from fastapi import APIRouter, HTTPException
++from fastapi.responses import PlainTextResponse
++from pydantic import BaseModel
++
++from polaris_v6 import __version__
++
++router = APIRouter(prefix="/transparency", tags=["transparency"])
++
++POLICY_VERSION = "v1.0"
++DEFAULT_PUBKEY_PATH = "/app/gpg/polaris_demo_pubkey.asc"
++# Codex diff iter-1 P1-004: /etc/polaris/* only exists on the EC2 host (cloud-
++# init copies it there). The api container has /app/config/ baked in by
++# Dockerfile.v6 via `COPY config/ config/`. Default to the in-container path
++# so /transparency returns the real 17-domain allowlist without operator
++# bind-mount; the host /etc/polaris path is used by egress_lockdown.sh only.
++DEFAULT_EGRESS_ALLOWLIST = "/app/config/egress_allowlist.txt"
++
++
++class SovereigntyPolicy(BaseModel):
++    """Sovereignty filter description — cited tiers, cascade behavior."""
++
++    cleared_tiers: list[str]
++    cascade_rule: str
++    tier_definitions: dict[str, str]
++
++
++class TransparencyResponse(BaseModel):
++    """Public deploy descriptor."""
++
++    region: str
++    git_commit: str
++    polaris_version: str
++    deploy_timestamp: str
++    signing_key_id: str | None
++    signing_key_fingerprint: str | None
++    sovereignty_filter: SovereigntyPolicy
++    evaluator_models: dict[str, str]
++    egress_allowlist: list[str]
++    dependencies: dict[str, list[str]]
++
++
++def _load_egress_allowlist() -> list[str]:
++    """Load the in-container egress allowlist or fall back to 'unrestricted'.
++
++    Default path is /app/config/egress_allowlist.txt (baked into Dockerfile.v6
++    via `COPY config/ config/`); operator override via POLARIS_EGRESS_ALLOWLIST.
++    """
++    path = Path(os.environ.get("POLARIS_EGRESS_ALLOWLIST", DEFAULT_EGRESS_ALLOWLIST))
++    if not path.exists():
++        return ["unrestricted (no lockdown applied)"]
++    return [
++        line.strip()
++        for line in path.read_text(encoding="utf-8").splitlines()
++        if line.strip() and not line.strip().startswith("#")
++    ]
++
++
++def _load_dependencies() -> dict[str, list[str]]:
++    """Best-effort dependency listing for transparency.
++
++    Reads requirements-v6.txt if present (backend image bakes this in).
++    web/package.json may or may not be present in the backend image —
++    fail silently and emit empty list rather than 503 on absence.
++    """
++    deps: dict[str, list[str]] = {"python": [], "node": []}
++    py_req = Path("/app/requirements-v6.txt")
++    if py_req.exists():
++        deps["python"] = [
++            line.strip()
++            for line in py_req.read_text(encoding="utf-8").splitlines()
++            if line.strip() and not line.strip().startswith("#") and not line.strip().startswith("-")
++        ][:50]  # cap to keep response small
++    # web/package.json optional — backend image doesn't include it.
++    return deps
++
++
++def _git_commit() -> str:
++    """Resolve git commit SHA in order:
++
++    1. POLARIS_GIT_COMMIT env var — injected at image build time (Dockerfile.v6
++       arg) or by cloud-init from the pinned commit it checked out. This is
++       the production path; Codex diff iter-2 P1 noted that the container
++       does NOT have .git because Dockerfile.v6 only COPYs src/scripts/config.
++    2. .git/HEAD probe in /opt/polaris or cwd — local-dev path.
++    3. "unknown" — fail-soft.
++    """
++    explicit = os.environ.get("POLARIS_GIT_COMMIT", "").strip()
++    if explicit:
++        return explicit[:12]
++    for candidate in [Path("/opt/polaris"), Path.cwd()]:
++        head_file = candidate / ".git" / "HEAD"
++        if head_file.exists():
++            head = head_file.read_text(encoding="utf-8").strip()
++            if head.startswith("ref: "):
++                ref_path = candidate / ".git" / head[5:]
++                if ref_path.exists():
++                    return ref_path.read_text(encoding="utf-8").strip()[:12]
++            return head[:12]
++    return "unknown"
++
++
++def _signing_key_info() -> tuple[str | None, str | None]:
++    """Read POLARIS_GPG_KEY_ID and look up the fingerprint via gpg if available."""
++    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip() or None
++    if not key_id:
++        return None, None
++    # The env var IS the fingerprint per I-carney-005 convention.
++    return key_id, key_id
++
++
++def _sovereignty_policy() -> SovereigntyPolicy:
++    """Encodes the artifact_to_slice_chain filter constants for reviewers."""
++    return SovereigntyPolicy(
++        cleared_tiers=["T1"],
++        cascade_rule=(
++            "Sentences citing non-T1 sources are redacted from the bundle. "
++            "Sections with zero passing sentences are dropped. Reports "
++            "with zero passing sections raise "
++            "SovereigntyFilterEmptiedReportError (HTTP 422)."
++        ),
++        tier_definitions={
++            "T1": "Regulatory + clinical guideline corpora (FDA, EMA, NICE, etc.) — legal-cleared by default",
++            "T2": "Peer-reviewed primary literature — requires explicit operator clearance",
++            "T3": "Unverified web content + raw uploads — defaults excluded; falls back to T3 on unknown tiers",
++        },
++    )
++
++
++def _read_pubkey() -> str:
++    """Read the armored GPG public key, falling back to gpg --export.
++
++    Per Codex iter-2 P1-002: cloud-init writes the file alongside the GPG
++    import, but local dev may not have the file. Fall back to shelling out
++    to gpg if POLARIS_GPG_KEY_ID is set. Strict 503 if neither works.
++    """
++    path = Path(os.environ.get("POLARIS_GPG_PUBKEY_PATH", DEFAULT_PUBKEY_PATH))
++    if path.exists():
++        return path.read_text(encoding="utf-8")
++    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
++    if key_id:
++        try:
++            result = subprocess.run(
++                ["gpg", "--armor", "--export", key_id],
++                capture_output=True,
++                text=True,
++                timeout=10,
++                check=False,
++            )
++            if result.returncode == 0 and "BEGIN PGP PUBLIC KEY BLOCK" in result.stdout:
++                return result.stdout
++        except Exception:
++            pass
++    raise HTTPException(
++        status_code=503,
++        detail={
++            "error": "pubkey_unavailable",
++            "message": (
++                f"Public key not found at {path} and gpg --export fallback failed. "
++                "Run scripts/bootstrap_gpg_demo_key.sh on the operator workstation "
++                "and confirm cloud-init imported the key."
++            ),
++        },
++    )
++
++
++@router.get("", response_model=TransparencyResponse)
++def transparency() -> TransparencyResponse:
++    """Public deploy descriptor."""
++    key_id, fpr = _signing_key_info()
++    return TransparencyResponse(
++        region=os.environ.get("AWS_REGION", "unknown"),
++        git_commit=_git_commit(),
++        polaris_version=__version__,
++        deploy_timestamp=datetime.now(timezone.utc).isoformat(),
++        signing_key_id=key_id,
++        signing_key_fingerprint=fpr,
++        sovereignty_filter=_sovereignty_policy(),
++        evaluator_models={
++            "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
++            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
++        },
++        egress_allowlist=_load_egress_allowlist(),
++        dependencies=_load_dependencies(),
++    )
++
++
++@router.get("/pubkey.asc", response_class=PlainTextResponse)
++def pubkey() -> PlainTextResponse:
++    """Armored GPG public key for bundle signature verification."""
++    body = _read_pubkey()
++    return PlainTextResponse(content=body, media_type="text/plain; charset=us-ascii")
++
++
++class PolicyResponse(BaseModel):
++    """Full sovereignty + egress policy with version string."""
++
++    version: str
++    sovereignty_filter: SovereigntyPolicy
++    egress_allowlist: list[str]
++    enforcement_layer: list[str]
++
++
++@router.get("/policy", response_model=PolicyResponse)
++def policy() -> PolicyResponse:
++    return PolicyResponse(
++        version=POLICY_VERSION,
++        sovereignty_filter=_sovereignty_policy(),
++        egress_allowlist=_load_egress_allowlist(),
++        enforcement_layer=[
++            "host iptables OUTPUT chain (scripts/egress_lockdown.sh)",
++            "Docker DOCKER-USER chain (scripts/egress_lockdown.sh)",
++            # Codex diff iter-2 P2: AWS SG on EC2 is NOT an egress allowlist
++            # (egress is all-permit per infra/aws/ec2.tf). Listed here as
++            # "ingress-only" to be honest about layer scope.
++            "AWS Security Group on EC2 (ingress-only; egress all-permit)",
++        ],
++    )
+diff --git a/tests/polaris_v6/api/test_transparency.py b/tests/polaris_v6/api/test_transparency.py
+new file mode 100644
+index 00000000..8960edcb
+--- /dev/null
++++ b/tests/polaris_v6/api/test_transparency.py
+@@ -0,0 +1,132 @@
++"""I-carney-003 — transparency endpoint coverage.
++
++Verifies:
++- GET /transparency returns full Pydantic shape with all 8 required keys
++- GET /transparency/pubkey.asc returns text/plain + armored block when file present
++- GET /transparency/pubkey.asc returns 503 when neither file nor POLARIS_GPG_KEY_ID
++- GET /transparency/policy returns version + sovereignty_filter + enforcement_layer
++"""
++
++from __future__ import annotations
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from polaris_v6.api import transparency as transparency_module
++
++
++@pytest.fixture
++def app_with_transparency():
++    app = FastAPI()
++    app.include_router(transparency_module.router)
++    return app
++
++
++def test_transparency_returns_required_keys(app_with_transparency, monkeypatch):
++    monkeypatch.setenv("AWS_REGION", "ca-central-1")
++    monkeypatch.setenv("POLARIS_GPG_KEY_ID", "TESTFINGERPRINT123")
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency")
++    assert resp.status_code == 200
++    body = resp.json()
++    required = {
++        "region", "git_commit", "polaris_version", "deploy_timestamp",
++        "signing_key_id", "signing_key_fingerprint", "sovereignty_filter",
++        "evaluator_models", "egress_allowlist", "dependencies",
++    }
++    assert required.issubset(body.keys()), f"missing keys: {required - body.keys()}"
++    assert body["region"] == "ca-central-1"
++    assert body["signing_key_id"] == "TESTFINGERPRINT123"
++    assert body["sovereignty_filter"]["cleared_tiers"] == ["T1"]
++    assert "T1" in body["sovereignty_filter"]["tier_definitions"]
++
++
++def test_transparency_pubkey_returns_armored_block(
++    app_with_transparency, tmp_path, monkeypatch
++):
++    pubkey_path = tmp_path / "polaris_demo_pubkey.asc"
++    pubkey_path.write_text(
++        "-----BEGIN PGP PUBLIC KEY BLOCK-----\n"
++        "test stub\n"
++        "-----END PGP PUBLIC KEY BLOCK-----\n",
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("POLARIS_GPG_PUBKEY_PATH", str(pubkey_path))
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency/pubkey.asc")
++    assert resp.status_code == 200
++    assert "text/plain" in resp.headers["content-type"]
++    assert "BEGIN PGP PUBLIC KEY BLOCK" in resp.text
++
++
++def test_transparency_pubkey_returns_503_when_missing(
++    app_with_transparency, tmp_path, monkeypatch
++):
++    monkeypatch.setenv("POLARIS_GPG_PUBKEY_PATH", str(tmp_path / "nonexistent.asc"))
++    monkeypatch.delenv("POLARIS_GPG_KEY_ID", raising=False)
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency/pubkey.asc")
++    assert resp.status_code == 503
++    body = resp.json()
++    assert body["detail"]["error"] == "pubkey_unavailable"
++
++
++def test_transparency_policy_returns_version_and_enforcement(
++    app_with_transparency,
++):
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency/policy")
++    assert resp.status_code == 200
++    body = resp.json()
++    assert body["version"] == "v1.0"
++    assert "sovereignty_filter" in body
++    assert "egress_allowlist" in body
++    assert "enforcement_layer" in body
++    assert any("iptables" in layer for layer in body["enforcement_layer"])
++    assert any("DOCKER-USER" in layer for layer in body["enforcement_layer"])
++
++
++def test_transparency_egress_allowlist_uses_env_override(
++    app_with_transparency, tmp_path, monkeypatch
++):
++    allowlist_path = tmp_path / "egress_allowlist.txt"
++    allowlist_path.write_text(
++        "# comment\n"
++        "openrouter.ai\n"
++        "google.serper.dev\n"
++        "\n"
++        "api.semanticscholar.org\n",
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("POLARIS_EGRESS_ALLOWLIST", str(allowlist_path))
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency")
++    body = resp.json()
++    assert "openrouter.ai" in body["egress_allowlist"]
++    assert "google.serper.dev" in body["egress_allowlist"]
++    assert "api.semanticscholar.org" in body["egress_allowlist"]
++    assert len(body["egress_allowlist"]) == 3  # comment + blank skipped
++
++
++def test_transparency_egress_allowlist_default_path_is_in_container(
++    app_with_transparency, monkeypatch
++):
++    """Codex diff iter-1 P1-004 production-default test: with no env override
++    and no /app/config/egress_allowlist.txt file (test env doesn't have it),
++    the response must NOT be 'unrestricted' if the path is reachable. We
++    verify the DEFAULT path is the in-container path (/app/config/...),
++    not /etc/polaris/* which the container cannot see.
++    """
++    from polaris_v6.api import transparency as tmod
++    assert tmod.DEFAULT_EGRESS_ALLOWLIST.startswith("/app/"), (
++        f"Default egress allowlist path must be in-container; got {tmod.DEFAULT_EGRESS_ALLOWLIST}"
++    )
++    # On a real deploy with Dockerfile.v6, /app/config/egress_allowlist.txt
++    # exists (COPY config/ config/) → /transparency returns the 17 domains.
++    # In the test env, file doesn't exist → response is 'unrestricted'.
++    monkeypatch.delenv("POLARIS_EGRESS_ALLOWLIST", raising=False)
++    client = TestClient(app_with_transparency)
++    resp = client.get("/transparency")
++    assert resp.status_code == 200
++    # The default path is correct shape, even if the file isn't there in tests.
+diff --git a/web/next.config.ts b/web/next.config.ts
+index f4428495..dface1e3 100644
+--- a/web/next.config.ts
++++ b/web/next.config.ts
+@@ -16,6 +16,17 @@ const nextConfig: NextConfig = {
+         source: "/api/v6/:path*",
+         destination: `${internal}/:path*`,
+       },
++      // I-carney-003 P1-001: expose FastAPI /transparency directly so
++      // reviewers (incl. Carney's office) can audit the deploy without
++      // going through /api/v6 prefix routing.
++      {
++        source: "/transparency",
++        destination: `${internal}/transparency`,
++      },
++      {
++        source: "/transparency/:path*",
++        destination: `${internal}/transparency/:path*`,
++      },
+     ];
+   },
+ };
