@@ -1,0 +1,35 @@
+# I-carney-002 — example tfvars. Copy to terraform.tfvars (gitignored) and fill in.
+
+# ----- Cloud + DNS -----
+aws_region        = "ca-central-1"
+tf_state_bucket   = "polaris-carney-tf-state"  # bootstrap separately before `terraform init`
+domain_name       = "example.ca"
+route53_zone_name = "example.ca"
+polaris_subdomain = "polaris"
+
+# ----- Workload sizing -----
+ec2_instance_type = "m7i-flex.4xlarge"
+root_volume_gb    = 200
+data_volume_gb    = 500
+
+# ----- Repo pin -----
+polaris_repo_url    = "https://github.com/aldrinor/polaris.git"
+polaris_repo_branch = "polaris"
+polaris_repo_commit = "dcdb6c6defe2e318571ff5ffe0f17cc8cd5006d6"  # I-carney-005 merge
+
+# ----- Secrets (sensitive — DO NOT commit terraform.tfvars) -----
+openrouter_api_key       = "sk-or-v1-REPLACE_ME"
+serper_api_key           = "REPLACE_ME"
+semantic_scholar_api_key = ""  # optional
+polaris_gpg_key_id       = "REPLACE_ME_FINGERPRINT"  # output of scripts/bootstrap_gpg_demo_key.sh
+
+# ASCII-armored public key (from outputs/polaris_demo_pubkey.asc). Multi-line
+# heredoc; preserve line breaks exactly.
+polaris_gpg_pubkey = <<EOT
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+REPLACE_ME_PUBLIC_KEY_BODY
+-----END PGP PUBLIC KEY BLOCK-----
+EOT
+
+# ----- Ops -----
+ebs_backup_retention_days = 7

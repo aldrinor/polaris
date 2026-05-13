@@ -1,0 +1,6 @@
+# I-carney-002 brief APPROVE verdict (force-approved at iter 1 per §8.3.1)
+# Brief design accepted (all P2 nudges); P1 "implementation absent" was
+# diff-stage scope, not brief-stage scope. Diff APPROVE'd at iter 3.
+# Parsed by .github/workflows/codex-required.yml.
+
+verdict: APPROVE

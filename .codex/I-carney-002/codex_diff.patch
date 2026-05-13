@@ -1,0 +1,1335 @@
+diff --git a/.gitignore b/.gitignore
+index 64134425..d286c763 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -12,6 +12,15 @@
+ # leaving .private/codex_hmac.key NOT ignored (cleanup_audit.md §3.6).
+ .private/
+ 
++# --- Terraform (I-carney-002) ---
++infra/aws/terraform.tfvars
++infra/aws/.terraform/
++infra/aws/.terraform.lock.hcl
++infra/aws/*.tfstate
++infra/aws/*.tfstate.*
++infra/aws/plan.bin
++!infra/aws/terraform.tfvars.example
++
+ # --- Python ---
+ __pycache__/
+ *.pyc
+diff --git a/infra/aws/README.md b/infra/aws/README.md
+new file mode 100644
+index 00000000..ee919d2d
+--- /dev/null
++++ b/infra/aws/README.md
+@@ -0,0 +1,131 @@
++# I-carney-002 — AWS Canada Central deploy
++
++Terraform module that provisions the Carney demo on AWS ca-central-1 (Montréal). Hosts the `docker-compose.v6.yml` stack from I-carney-005.
++
++## Prereqs
++
++- Terraform >= 1.6.0
++- AWS CLI configured (`aws sts get-caller-identity` resolves)
++- Pre-existing Route 53 public hosted zone for `<domain_name>`
++- IAM permissions: VPC + EC2 + ELB + ACM + Route 53 + KMS + S3 + SSM + IAM + WAF + Backup
++- An S3 bucket for Terraform state (created out-of-band; bootstrap one with
++  `aws s3 mb s3://polaris-carney-tf-state --region ca-central-1` then
++  `aws s3api put-bucket-versioning --bucket polaris-carney-tf-state --versioning-configuration Status=Enabled`)
++- The Carney demo GPG signing key has been generated via
++  `scripts/bootstrap_gpg_demo_key.sh` from the I-carney-005 substrate;
++  you have `state/polaris_gpg_keyid.txt` and `outputs/polaris_demo_pubkey.asc`
++
++## Step 1 — `terraform init`
++
++```bash
++cd infra/aws
++terraform init \
++    -backend-config="bucket=polaris-carney-tf-state" \
++    -backend-config="region=ca-central-1" \
++    -backend-config="key=polaris-carney/terraform.tfstate"
++```
++
++## Step 2 — fill in tfvars
++
++```bash
++cp terraform.tfvars.example terraform.tfvars
++# Edit terraform.tfvars: set domain_name, route53_zone_name, secrets,
++# polaris_repo_commit (current polaris HEAD SHA), polaris_gpg_key_id,
++# polaris_gpg_pubkey (paste from outputs/polaris_demo_pubkey.asc).
++```
++
++`terraform.tfvars` is gitignored via the repo-root `.gitignore` — never commit it.
++
++## Step 3 — `terraform plan` then `terraform apply`
++
++```bash
++terraform plan -out plan.bin
++terraform apply plan.bin
++```
++
++Takes ~10 minutes. Watch for:
++- VPC + NAT (~3 min)
++- ACM cert + DNS validation (~3 min for Route 53 propagation)
++- EC2 boot + cloud-init (~5 min — docker pulls + compose build)
++
++## Step 4 — smoke test
++
++```bash
++# Public endpoint:
++curl -fsS https://polaris.<your-domain>/health
++
++# Webui:
++curl -fsS https://polaris.<your-domain>/
++
++# Submit a run:
++curl -fsS -X POST https://polaris.<your-domain>/api/v6/runs \
++    -H 'content-type: application/json' \
++    -d '{"template":"clinical","question":"smoke test"}'
++
++# SSH-via-SSM into the host:
++$(terraform output -raw ssm_start_session_command)
++```
++
++## Private GPG key transfer (manual; one-time)
++
++Cloud-init imports only the public key into the EC2 GNUPGHOME. The private key signing capability requires you to transfer the secret key from your operator workstation:
++
++```bash
++# On operator workstation:
++gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "<fingerprint>" > /tmp/polaris-secret.asc
++
++# Open an SSM session to the EC2:
++aws ssm start-session --target $(terraform output -raw ec2_instance_id) --region ca-central-1
++
++# On the EC2 host:
++sudo cat > /tmp/polaris-secret.asc <<EOF
++<paste the armored secret key here>
++EOF
++sudo GNUPGHOME=/var/lib/polaris/gpg gpg --import /tmp/polaris-secret.asc
++sudo shred -u /tmp/polaris-secret.asc
++
++# Restart the api + worker so the GPG signer picks up the now-present
++# private key:
++cd /opt/polaris
++sudo docker compose -f docker-compose.v6.yml restart api worker
++```
++
++This is intentionally manual — burning the private key into Terraform / SSM SecureString would put it inside CloudTrail decryption logs and create a longer audit trail than the demo requires.
++
++## Rollback
++
++```bash
++terraform destroy
++```
++
++WARN: destroys VPC + EC2 + EBS + S3 audit bucket (with all bundles). EBS snapshots in AWS Backup survive `terraform destroy` (separately governed by the backup vault retention) but the vault itself is also torn down — recover snapshots BEFORE destroy if needed.
++
++## Cost (ca-central-1, May 2026 prices)
++
++| Resource | Hourly | Monthly |
++|---|---|---|
++| m7i-flex.4xlarge | $0.244 | $176 |
++| ALB + WAF | ~$0.03 | $22 |
++| NAT gateway (single AZ) | $0.045 | $33 |
++| EBS gp3 700 GB | ~$0.10/GB/mo | $70 |
++| S3 + KMS | low | <$5 |
++| **Total demo-window** | | **~$306/mo** |
++
++For Carney demo timeframe only — tear down after the meeting.
++
++## Files in this module
++
++| File | Purpose |
++|---|---|
++| `main.tf` | Provider + S3 backend |
++| `variables.tf` | All inputs |
++| `outputs.tf` | Operator outputs (FQDN, instance id, SSM cmd) |
++| `vpc.tf` | VPC + subnets + NAT + flow logs |
++| `ec2.tf` | EC2 instance + IAM + SG + data EBS + AWS Backup |
++| `alb.tf` | ALB + 2 target groups + listener rules + WAF + log bucket |
++| `acm.tf` | ACM cert with DNS validation |
++| `route53.tf` | A + AAAA aliases to ALB |
++| `ssm_parameters.tf` | SSM Parameter Store entries for secrets |
++| `s3_audit_bucket.tf` | KMS-encrypted versioned bucket for audit bundles |
++| `cloud-init.sh` | EC2 user-data (apt, compose pull, SSM secrets, stack up) |
++| `terraform.tfvars.example` | Template tfvars; copy to terraform.tfvars |
+diff --git a/infra/aws/acm.tf b/infra/aws/acm.tf
+new file mode 100644
+index 00000000..cf7b4c75
+--- /dev/null
++++ b/infra/aws/acm.tf
+@@ -0,0 +1,42 @@
++# I-carney-002 — ACM cert with Route 53 DNS validation.
++
++data "aws_route53_zone" "polaris" {
++  name         = var.route53_zone_name
++  private_zone = false
++}
++
++locals {
++  polaris_fqdn = "${var.polaris_subdomain}.${var.domain_name}"
++}
++
++resource "aws_acm_certificate" "polaris" {
++  domain_name               = local.polaris_fqdn
++  subject_alternative_names = ["*.${local.polaris_fqdn}"]
++  validation_method         = "DNS"
++
++  lifecycle {
++    create_before_destroy = true
++  }
++}
++
++resource "aws_route53_record" "acm_validation" {
++  for_each = {
++    for dvo in aws_acm_certificate.polaris.domain_validation_options : dvo.domain_name => {
++      name   = dvo.resource_record_name
++      record = dvo.resource_record_value
++      type   = dvo.resource_record_type
++    }
++  }
++
++  allow_overwrite = true
++  name            = each.value.name
++  records         = [each.value.record]
++  ttl             = 60
++  type            = each.value.type
++  zone_id         = data.aws_route53_zone.polaris.zone_id
++}
++
++resource "aws_acm_certificate_validation" "polaris" {
++  certificate_arn         = aws_acm_certificate.polaris.arn
++  validation_record_fqdns = [for r in aws_route53_record.acm_validation : r.fqdn]
++}
+diff --git a/infra/aws/alb.tf b/infra/aws/alb.tf
+new file mode 100644
+index 00000000..1b16e9fc
+--- /dev/null
++++ b/infra/aws/alb.tf
+@@ -0,0 +1,277 @@
++# I-carney-002 — ALB + target groups + listener rules + WAF.
++
++# ALB security group: 443 + 80 from anywhere.
++resource "aws_security_group" "alb" {
++  name        = "polaris-carney-alb"
++  description = "POLARIS Carney ALB — public 80+443"
++  vpc_id      = module.vpc.vpc_id
++
++  ingress {
++    description = "HTTPS"
++    from_port   = 443
++    to_port     = 443
++    protocol    = "tcp"
++    cidr_blocks = ["0.0.0.0/0"]
++  }
++
++  ingress {
++    description = "HTTP → 301 to HTTPS"
++    from_port   = 80
++    to_port     = 80
++    protocol    = "tcp"
++    cidr_blocks = ["0.0.0.0/0"]
++  }
++
++  egress {
++    description = "ALB → EC2 webui:3000 + api:8000"
++    from_port   = 0
++    to_port     = 0
++    protocol    = "-1"
++    cidr_blocks = ["0.0.0.0/0"]
++  }
++}
++
++# ----- ALB ----- #
++
++resource "aws_lb" "polaris" {
++  name                       = "polaris-carney"
++  internal                   = false
++  load_balancer_type         = "application"
++  security_groups            = [aws_security_group.alb.id]
++  subnets                    = module.vpc.public_subnets
++  enable_deletion_protection = false # demo
++  # Codex diff iter-2 P1: dualstack requires VPC + public subnet IPv6 CIDRs;
++  # not enabled in this demo VPC. Default ipv4 is fine — Carney demo doesn't
++  # require IPv6 reachability. IPv6 + dualstack are a Phase-2 follow-up.
++  ip_address_type = "ipv4"
++
++  # SSE keepalive: ALB closes idle conns after this many seconds. Pipeline-A
++  # runs can take several minutes; SSE keepalive frames are emitted every 5s
++  # by stream.py, so 300s comfortably covers the gap.
++  idle_timeout = 300
++
++  access_logs {
++    bucket  = aws_s3_bucket.alb_logs.id
++    prefix  = "alb"
++    enabled = true
++  }
++
++  # Codex diff iter-1 P1-004: explicit ordering so the bucket policy is in
++  # place BEFORE ELB enables access logging (otherwise apply fails with
++  # AccessDenied trying to validate write access during ALB creation).
++  depends_on = [aws_s3_bucket_policy.alb_logs]
++}
++
++# ----- Target groups ----- #
++
++resource "aws_lb_target_group" "webui" {
++  name        = "polaris-carney-webui"
++  port        = 3000
++  protocol    = "HTTP"
++  vpc_id      = module.vpc.vpc_id
++  target_type = "instance"
++
++  health_check {
++    path                = "/"
++    matcher             = "200-399"
++    interval            = 30
++    timeout             = 10
++    healthy_threshold   = 2
++    unhealthy_threshold = 3
++  }
++}
++
++resource "aws_lb_target_group_attachment" "webui" {
++  target_group_arn = aws_lb_target_group.webui.arn
++  target_id        = aws_instance.polaris.id
++  port             = 3000
++}
++
++resource "aws_lb_target_group" "api" {
++  name        = "polaris-carney-api"
++  port        = 8000
++  protocol    = "HTTP"
++  vpc_id      = module.vpc.vpc_id
++  target_type = "instance"
++
++  health_check {
++    path                = "/health"
++    matcher             = "200"
++    interval            = 30
++    timeout             = 10
++    healthy_threshold   = 2
++    unhealthy_threshold = 3
++  }
++}
++
++resource "aws_lb_target_group_attachment" "api" {
++  target_group_arn = aws_lb_target_group.api.arn
++  target_id        = aws_instance.polaris.id
++  port             = 8000
++}
++
++# ----- HTTPS listener ----- #
++
++resource "aws_lb_listener" "https" {
++  load_balancer_arn = aws_lb.polaris.arn
++  port              = 443
++  protocol          = "HTTPS"
++  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
++  certificate_arn   = aws_acm_certificate_validation.polaris.certificate_arn
++
++  default_action {
++    type             = "forward"
++    target_group_arn = aws_lb_target_group.webui.arn
++  }
++}
++
++# Codex diff iter-1 P1-001: I-carney-005 has the frontend call /api/v6/*
++# (browser-relative) which Next.js then REWRITES server-side to api:8000/*
++# (the FastAPI surface does NOT serve /api/v6 prefix). Routing /api/v6/*
++# directly at the ALB to FastAPI would 404 because FastAPI sees /api/v6/runs
++# not /runs. So the only listener rule we need at the ALB is sending
++# EVERYTHING to webui; Next.js handles the rewrite + SSE pass-through.
++#
++# Operator /health probe goes direct to the api target group (skipping
++# Next.js) for clean liveness signals.
++resource "aws_lb_listener_rule" "health" {
++  listener_arn = aws_lb_listener.https.arn
++  priority     = 10
++
++  action {
++    type             = "forward"
++    target_group_arn = aws_lb_target_group.api.arn
++  }
++
++  condition {
++    path_pattern {
++      values = ["/health"]
++    }
++  }
++}
++
++# ----- HTTP → 301 HTTPS redirect ----- #
++
++resource "aws_lb_listener" "http_redirect" {
++  load_balancer_arn = aws_lb.polaris.arn
++  port              = 80
++  protocol          = "HTTP"
++
++  default_action {
++    type = "redirect"
++    redirect {
++      protocol    = "HTTPS"
++      port        = "443"
++      status_code = "HTTP_301"
++    }
++  }
++}
++
++# ----- WAF v2 ----- #
++
++resource "aws_wafv2_web_acl" "polaris" {
++  name  = "polaris-carney"
++  scope = "REGIONAL"
++
++  default_action {
++    allow {}
++  }
++
++  rule {
++    name     = "AWSManagedRulesCommonRuleSet"
++    priority = 1
++    override_action {
++      none {}
++    }
++    statement {
++      managed_rule_group_statement {
++        name        = "AWSManagedRulesCommonRuleSet"
++        vendor_name = "AWS"
++      }
++    }
++    visibility_config {
++      cloudwatch_metrics_enabled = true
++      metric_name                = "common-rule-set"
++      sampled_requests_enabled   = true
++    }
++  }
++
++  rule {
++    name     = "AWSManagedRulesKnownBadInputsRuleSet"
++    priority = 2
++    override_action {
++      none {}
++    }
++    statement {
++      managed_rule_group_statement {
++        name        = "AWSManagedRulesKnownBadInputsRuleSet"
++        vendor_name = "AWS"
++      }
++    }
++    visibility_config {
++      cloudwatch_metrics_enabled = true
++      metric_name                = "known-bad-inputs"
++      sampled_requests_enabled   = true
++    }
++  }
++
++  visibility_config {
++    cloudwatch_metrics_enabled = true
++    metric_name                = "polaris-carney-acl"
++    sampled_requests_enabled   = true
++  }
++}
++
++resource "aws_wafv2_web_acl_association" "polaris" {
++  resource_arn = aws_lb.polaris.arn
++  web_acl_arn  = aws_wafv2_web_acl.polaris.arn
++}
++
++# ----- ALB access log bucket ----- #
++
++resource "aws_s3_bucket" "alb_logs" {
++  bucket = "polaris-carney-alb-logs-${data.aws_caller_identity.current.account_id}"
++  # Demo-window only; let terraform destroy clean up.
++  force_destroy = true
++}
++
++resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
++  bucket = aws_s3_bucket.alb_logs.id
++
++  rule {
++    id     = "expire-30d"
++    status = "Enabled"
++    filter {} # empty filter = match all objects
++    expiration {
++      days = 30
++    }
++  }
++}
++
++# Allow the regional AWS Elastic Load Balancing service account to write logs.
++# ca-central-1 ELB log delivery account: 985666609251 (per AWS docs as of 2026).
++data "aws_iam_policy_document" "alb_logs_bucket" {
++  statement {
++    actions   = ["s3:PutObject"]
++    resources = ["${aws_s3_bucket.alb_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.current.account_id}/*"]
++
++    principals {
++      type        = "AWS"
++      identifiers = ["arn:aws:iam::985666609251:root"]
++    }
++  }
++
++  statement {
++    actions   = ["s3:GetBucketAcl"]
++    resources = [aws_s3_bucket.alb_logs.arn]
++    principals {
++      type        = "Service"
++      identifiers = ["delivery.logs.amazonaws.com"]
++    }
++  }
++}
++
++resource "aws_s3_bucket_policy" "alb_logs" {
++  bucket = aws_s3_bucket.alb_logs.id
++  policy = data.aws_iam_policy_document.alb_logs_bucket.json
++}
+diff --git a/infra/aws/cloud-init.sh b/infra/aws/cloud-init.sh
+new file mode 100644
+index 00000000..6ce5cea9
+--- /dev/null
++++ b/infra/aws/cloud-init.sh
+@@ -0,0 +1,130 @@
++#!/bin/bash
++# I-carney-002 — EC2 user-data executed on first boot.
++#
++# Brings the docker compose v6 stack online on a fresh Ubuntu 24.04 host.
++# Idempotent on reboot (`docker compose up -d` is idempotent; SSM fetches
++# overwrite .env each boot).
++
++set -euxo pipefail
++
++AWS_REGION="${aws_region}"
++POLARIS_REPO_URL="${polaris_repo_url}"
++POLARIS_REPO_BRANCH="${polaris_repo_branch}"
++POLARIS_REPO_COMMIT="${polaris_repo_commit}"
++AUDIT_BUCKET_NAME="${audit_bucket_name}"
++
++# ----- 1. apt + docker compose v2 + git + awscli -----
++export DEBIAN_FRONTEND=noninteractive
++apt-get update
++apt-get install -y \
++    docker.io \
++    docker-compose-v2 \
++    git \
++    awscli \
++    gnupg \
++    curl \
++    jq
++
++systemctl enable --now docker
++
++# ----- 2. mount /var/lib/polaris on the attached data EBS -----
++# Codex diff iter-1 P2 + iter-2 P2: never unconditionally `mkfs -F`; tolerate
++# slow EBS attachment by polling for the device for up to 120s. Resolve by
++# device-name across instance generations (nvme* on Nitro, xvd* on Xen).
++DATA_DEV=""
++for attempt in $(seq 1 60); do
++    for candidate in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
++        if [ -b "$candidate" ]; then
++            DATA_DEV="$candidate"
++            break 2
++        fi
++    done
++    echo "[cloud-init] waiting for data EBS to attach (attempt $attempt/60)"
++    sleep 2
++done
++if [ -z "$DATA_DEV" ]; then
++    echo "[cloud-init] ERROR: data EBS device not attached after 120s — failing loud per LAW II" >&2
++    exit 1
++fi
++echo "[cloud-init] data EBS detected at $DATA_DEV"
++
++# Only mkfs if the device has NO existing filesystem (idempotent on replacement).
++if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
++    echo "[cloud-init] new data volume — formatting $DATA_DEV with ext4"
++    mkfs.ext4 -L polaris-data "$DATA_DEV"
++else
++    echo "[cloud-init] existing filesystem on $DATA_DEV — skipping mkfs"
++fi
++
++mkdir -p /var/lib/polaris
++mount LABEL=polaris-data /var/lib/polaris || mount "$DATA_DEV" /var/lib/polaris
++grep -q "polaris-data" /etc/fstab || \
++    echo "LABEL=polaris-data /var/lib/polaris ext4 defaults,nofail,noatime 0 2" >> /etc/fstab
++
++mkdir -p /var/lib/polaris/{outputs,logs,data,state,gpg}
++chmod 700 /var/lib/polaris/gpg
++
++# ----- 3. clone POLARIS at pinned commit -----
++mkdir -p /opt
++if [ ! -d /opt/polaris/.git ]; then
++    git clone "$POLARIS_REPO_URL" /opt/polaris
++fi
++cd /opt/polaris
++git fetch origin "$POLARIS_REPO_BRANCH"
++git checkout "$POLARIS_REPO_COMMIT"
++
++# ----- 4. fetch SSM secrets → /opt/polaris/.env -----
++ssm_get() {
++    aws ssm get-parameter \
++        --name "$1" \
++        --with-decryption \
++        --region "$AWS_REGION" \
++        --query Parameter.Value \
++        --output text 2>/dev/null
++}
++
++OPENROUTER_API_KEY=$(ssm_get /polaris/v6/openrouter_api_key)
++SERPER_API_KEY=$(ssm_get /polaris/v6/serper_api_key)
++SEMANTIC_SCHOLAR_API_KEY=$(ssm_get /polaris/v6/semantic_scholar_api_key || true)
++POLARIS_GPG_KEY_ID=$(ssm_get /polaris/v6/polaris_gpg_key_id)
++POLARIS_GPG_PUBKEY=$(ssm_get /polaris/v6/polaris_gpg_pubkey || true)
++
++cat > /opt/polaris/.env <<EOF
++OPENROUTER_API_KEY=$OPENROUTER_API_KEY
++SERPER_API_KEY=$SERPER_API_KEY
++SEMANTIC_SCHOLAR_API_KEY=$SEMANTIC_SCHOLAR_API_KEY
++POLARIS_GPG_KEY_ID=$POLARIS_GPG_KEY_ID
++POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg
++POLARIS_API_PORT=8000
++POLARIS_WEB_PORT=3000
++PG_MAX_COST_PER_RUN=5.00
++POLARIS_AUDIT_S3_BUCKET=$AUDIT_BUCKET_NAME
++EOF
++chmod 600 /opt/polaris/.env
++
++# ----- 5. import the published GPG public key into the demo keyring -----
++# I-carney-002 P1-pending: only the public key is published via SSM; the
++# private key MUST be generated/imported by operator out-of-band (the
++# bootstrap script runs on the operator workstation per the I-carney-005
++# runbook, then the operator copies the private key into the EC2 keyring
++# via SSM Session Manager). Cloud-init only imports the public half so
++# `bundle.tar.gz` requests will return 503 gpg_unavailable until the
++# operator finishes the private-key transfer.
++if [ -n "$POLARIS_GPG_PUBKEY" ]; then
++    export GNUPGHOME=/var/lib/polaris/gpg
++    echo "$POLARIS_GPG_PUBKEY" | gpg --import || true
++fi
++
++# ----- 6. bring up the compose stack -----
++cd /opt/polaris
++docker compose -f docker-compose.v6.yml up -d --build
++
++# ----- 7. self-test -----
++sleep 30
++for i in $(seq 1 20); do
++    if curl -fsS http://localhost:8000/health > /dev/null; then
++        echo "[cloud-init] api healthy at boot+$((i*5))s"
++        break
++    fi
++    sleep 5
++done
+diff --git a/infra/aws/ec2.tf b/infra/aws/ec2.tf
+new file mode 100644
+index 00000000..af1f3b4d
+--- /dev/null
++++ b/infra/aws/ec2.tf
+@@ -0,0 +1,253 @@
++# I-carney-002 — Single EC2 workload host.
++
++# Latest Ubuntu 24.04 LTS AMI (Canonical's public publisher).
++data "aws_ami" "ubuntu_2404" {
++  most_recent = true
++  owners      = ["099720109477"] # Canonical
++  filter {
++    name   = "name"
++    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
++  }
++  filter {
++    name   = "virtualization-type"
++    values = ["hvm"]
++  }
++}
++
++# ----- IAM ----- #
++
++data "aws_iam_policy_document" "ec2_trust" {
++  statement {
++    actions = ["sts:AssumeRole"]
++    principals {
++      type        = "Service"
++      identifiers = ["ec2.amazonaws.com"]
++    }
++  }
++}
++
++resource "aws_iam_role" "polaris_ec2" {
++  name               = "polaris-carney-ec2"
++  assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
++}
++
++# SSM Session Manager — Claude / operator SSH replacement.
++resource "aws_iam_role_policy_attachment" "ssm_managed" {
++  role       = aws_iam_role.polaris_ec2.name
++  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
++}
++
++# Read POLARIS secrets from SSM Parameter Store.
++data "aws_iam_policy_document" "ssm_read" {
++  statement {
++    actions = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
++    resources = [
++      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/polaris/v6/*",
++    ]
++  }
++  statement {
++    actions   = ["kms:Decrypt"]
++    resources = ["*"]
++    condition {
++      test     = "StringEquals"
++      variable = "kms:ViaService"
++      values   = ["ssm.${var.aws_region}.amazonaws.com"]
++    }
++  }
++}
++
++resource "aws_iam_policy" "ssm_read" {
++  name   = "polaris-carney-ssm-read"
++  policy = data.aws_iam_policy_document.ssm_read.json
++}
++
++resource "aws_iam_role_policy_attachment" "ssm_read" {
++  role       = aws_iam_role.polaris_ec2.name
++  policy_arn = aws_iam_policy.ssm_read.arn
++}
++
++# Write daily audit-bundle exports to the S3 bucket.
++# Codex diff iter-1 P1-003: bucket is KMS-CMK encrypted, so PutObject requires
++# kms:GenerateDataKey on the audit key. Without this, S3 PutObject fails with
++# AccessDenied — the iam policy must grant both S3 actions AND the KMS data-key
++# generation actions on aws_kms_key.audit.
++data "aws_iam_policy_document" "s3_audit_write" {
++  statement {
++    actions   = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]
++    resources = [aws_s3_bucket.audit.arn, "${aws_s3_bucket.audit.arn}/*"]
++  }
++  statement {
++    actions   = ["kms:Encrypt", "kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
++    resources = [aws_kms_key.audit.arn]
++  }
++}
++
++resource "aws_iam_policy" "s3_audit_write" {
++  name   = "polaris-carney-s3-audit-write"
++  policy = data.aws_iam_policy_document.s3_audit_write.json
++}
++
++resource "aws_iam_role_policy_attachment" "s3_audit_write" {
++  role       = aws_iam_role.polaris_ec2.name
++  policy_arn = aws_iam_policy.s3_audit_write.arn
++}
++
++resource "aws_iam_instance_profile" "polaris_ec2" {
++  name = "polaris-carney-ec2"
++  role = aws_iam_role.polaris_ec2.name
++}
++
++# ----- Security group ----- #
++# No inbound 22, no inbound 80/443 from internet — ALB is the only public surface.
++# ALB's SG is permitted on 3000 + 8000; outbound 443 to anywhere (Docker pulls,
++# LLM API egress).
++
++resource "aws_security_group" "polaris_ec2" {
++  name        = "polaris-carney-ec2"
++  description = "POLARIS Carney workload — ALB-only inbound on 3000+8000"
++  vpc_id      = module.vpc.vpc_id
++
++  ingress {
++    description     = "webui from ALB"
++    from_port       = 3000
++    to_port         = 3000
++    protocol        = "tcp"
++    security_groups = [aws_security_group.alb.id]
++  }
++
++  ingress {
++    description     = "api from ALB (HTTP + SSE)"
++    from_port       = 8000
++    to_port         = 8000
++    protocol        = "tcp"
++    security_groups = [aws_security_group.alb.id]
++  }
++
++  egress {
++    description = "all outbound (Docker pulls, LLM API calls)"
++    from_port   = 0
++    to_port     = 0
++    protocol    = "-1"
++    cidr_blocks = ["0.0.0.0/0"]
++  }
++}
++
++# ----- EC2 instance ----- #
++
++resource "aws_instance" "polaris" {
++  ami                    = data.aws_ami.ubuntu_2404.id
++  instance_type          = var.ec2_instance_type
++  iam_instance_profile   = aws_iam_instance_profile.polaris_ec2.name
++  subnet_id              = module.vpc.private_subnets[0]
++  vpc_security_group_ids = [aws_security_group.polaris_ec2.id]
++  user_data              = templatefile("${path.module}/cloud-init.sh", {
++    aws_region          = var.aws_region
++    polaris_repo_url    = var.polaris_repo_url
++    polaris_repo_branch = var.polaris_repo_branch
++    polaris_repo_commit = var.polaris_repo_commit
++    audit_bucket_name   = aws_s3_bucket.audit.id
++  })
++
++  root_block_device {
++    volume_type           = "gp3"
++    volume_size           = var.root_volume_gb
++    delete_on_termination = false
++    encrypted             = true
++  }
++
++  metadata_options {
++    http_tokens               = "required"   # IMDSv2 only
++    http_put_response_hop_limit = 2
++  }
++
++  monitoring = true
++
++  tags = {
++    Name = "polaris-carney"
++  }
++
++  # Codex diff iter-1 P1-002: cloud-init.sh runs `aws ssm get-parameter ...`
++  # under `set -e`. If the instance launches before the SSM parameters exist
++  # or before the SSM read IAM policy is attached to the role, the user-data
++  # script fails and compose never starts. Explicit depends_on forces both
++  # secrets-in-Parameter-Store + IAM permission to be in place at boot.
++  depends_on = [
++    aws_ssm_parameter.openrouter_api_key,
++    aws_ssm_parameter.serper_api_key,
++    aws_ssm_parameter.polaris_gpg_key_id,
++    aws_ssm_parameter.polaris_gpg_pubkey,
++    aws_iam_role_policy_attachment.ssm_managed,
++    aws_iam_role_policy_attachment.ssm_read,
++    aws_iam_role_policy_attachment.s3_audit_write,
++  ]
++}
++
++# Dedicated data volume mounted at /var/lib/polaris on the EC2 host —
++# survives instance replacement.
++resource "aws_ebs_volume" "polaris_data" {
++  availability_zone = "${var.aws_region}a"
++  size              = var.data_volume_gb
++  type              = "gp3"
++  encrypted         = true
++
++  tags = {
++    Name = "polaris-carney-data"
++  }
++}
++
++resource "aws_volume_attachment" "polaris_data" {
++  device_name = "/dev/sdf"
++  volume_id   = aws_ebs_volume.polaris_data.id
++  instance_id = aws_instance.polaris.id
++}
++
++# ----- Daily EBS snapshots via AWS Backup ----- #
++
++resource "aws_backup_vault" "polaris" {
++  name = "polaris-carney"
++}
++
++resource "aws_backup_plan" "polaris_daily" {
++  name = "polaris-carney-daily"
++
++  rule {
++    rule_name         = "daily-2am-utc"
++    target_vault_name = aws_backup_vault.polaris.name
++    schedule          = "cron(0 2 * * ? *)"
++
++    lifecycle {
++      delete_after = var.ebs_backup_retention_days
++    }
++  }
++}
++
++data "aws_iam_policy_document" "backup_trust" {
++  statement {
++    actions = ["sts:AssumeRole"]
++    principals {
++      type        = "Service"
++      identifiers = ["backup.amazonaws.com"]
++    }
++  }
++}
++
++resource "aws_iam_role" "backup" {
++  name               = "polaris-carney-backup"
++  assume_role_policy = data.aws_iam_policy_document.backup_trust.json
++}
++
++resource "aws_iam_role_policy_attachment" "backup_managed" {
++  role       = aws_iam_role.backup.name
++  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
++}
++
++resource "aws_backup_selection" "polaris_volumes" {
++  iam_role_arn = aws_iam_role.backup.arn
++  name         = "polaris-carney-volumes"
++  plan_id      = aws_backup_plan.polaris_daily.id
++
++  resources = [
++    aws_instance.polaris.arn,
++    aws_ebs_volume.polaris_data.arn,
++  ]
++}
+diff --git a/infra/aws/main.tf b/infra/aws/main.tf
+new file mode 100644
+index 00000000..1578c042
+--- /dev/null
++++ b/infra/aws/main.tf
+@@ -0,0 +1,41 @@
++# I-carney-002 — AWS Canada Central (ca-central-1) root Terraform module.
++#
++# Provisions the Carney production environment: VPC + EC2 + ALB + ACM +
++# Route 53 + SSM Parameter Store + S3 audit bucket + EBS backups. The
++# docker compose v6 stack from I-carney-005 runs on the EC2 instance.
++#
++# Tear down with `terraform destroy` after the Carney demo window.
++
++terraform {
++  required_version = ">= 1.6.0"
++  required_providers {
++    aws = {
++      source  = "hashicorp/aws"
++      version = "~> 5.70"
++    }
++  }
++
++  # S3 backend for state. Bootstrap the bucket separately (chicken-and-egg).
++  # Bucket must exist BEFORE `terraform init`. See infra/aws/README.md.
++  backend "s3" {
++    # `bucket`, `region`, `key` set via terraform init -backend-config=...
++    encrypt = true
++  }
++}
++
++provider "aws" {
++  region = var.aws_region
++
++  default_tags {
++    tags = {
++      Project   = "POLARIS"
++      Issue     = "I-carney-002"
++      Workload  = "carney-demo"
++      ManagedBy = "terraform"
++    }
++  }
++}
++
++# Pull the AWS account ID + caller for resource naming + IAM policy doc.
++data "aws_caller_identity" "current" {}
++data "aws_region" "current" {}
+diff --git a/infra/aws/outputs.tf b/infra/aws/outputs.tf
+new file mode 100644
+index 00000000..fbe48058
+--- /dev/null
++++ b/infra/aws/outputs.tf
+@@ -0,0 +1,31 @@
++# I-carney-002 — Terraform outputs for operator hand-off.
++
++output "alb_dns_name" {
++  description = "Internal AWS DNS name of the ALB (for CNAME debugging)."
++  value       = aws_lb.polaris.dns_name
++}
++
++output "polaris_fqdn" {
++  description = "Public hostname for the Carney demo."
++  value       = local.polaris_fqdn
++}
++
++output "polaris_url" {
++  description = "Public URL for the Carney demo."
++  value       = "https://${local.polaris_fqdn}/"
++}
++
++output "ec2_instance_id" {
++  description = "Instance ID for SSM Session Manager access."
++  value       = aws_instance.polaris.id
++}
++
++output "ssm_start_session_command" {
++  description = "Command to SSM into the EC2 host from operator workstation."
++  value       = "aws ssm start-session --target ${aws_instance.polaris.id} --region ${var.aws_region}"
++}
++
++output "audit_bucket" {
++  description = "S3 bucket holding daily exported audit bundles."
++  value       = aws_s3_bucket.audit.id
++}
+diff --git a/infra/aws/route53.tf b/infra/aws/route53.tf
+new file mode 100644
+index 00000000..bc882016
+--- /dev/null
++++ b/infra/aws/route53.tf
+@@ -0,0 +1,16 @@
++# I-carney-002 — Route 53 A-alias to the ALB.
++#
++# Codex diff iter-2 P1: AAAA dropped because dualstack ALB needs VPC IPv6
++# (not enabled in demo VPC). IPv6 reachability is a Phase-2 follow-up.
++
++resource "aws_route53_record" "polaris" {
++  zone_id = data.aws_route53_zone.polaris.zone_id
++  name    = local.polaris_fqdn
++  type    = "A"
++
++  alias {
++    name                   = aws_lb.polaris.dns_name
++    zone_id                = aws_lb.polaris.zone_id
++    evaluate_target_health = true
++  }
++}
+diff --git a/infra/aws/s3_audit_bucket.tf b/infra/aws/s3_audit_bucket.tf
+new file mode 100644
+index 00000000..3716a5a5
+--- /dev/null
++++ b/infra/aws/s3_audit_bucket.tf
+@@ -0,0 +1,93 @@
++# I-carney-002 — S3 audit bundle bucket with KMS-CMK encryption + TLS-only policy.
++
++resource "aws_kms_key" "audit" {
++  description             = "POLARIS Carney audit bundle encryption key"
++  deletion_window_in_days = 7
++  enable_key_rotation     = true
++}
++
++resource "aws_kms_alias" "audit" {
++  name          = "alias/polaris-carney-audit"
++  target_key_id = aws_kms_key.audit.key_id
++}
++
++resource "aws_s3_bucket" "audit" {
++  bucket = "polaris-carney-audit-${data.aws_caller_identity.current.account_id}"
++  # Codex diff iter-1 P2: force_destroy lets `terraform destroy` empty the
++  # bucket before deletion. The demo-window stack is meant to be torn down
++  # after the meeting; recover the bundles to local storage BEFORE destroy.
++  force_destroy = true
++}
++
++resource "aws_s3_bucket_versioning" "audit" {
++  bucket = aws_s3_bucket.audit.id
++  versioning_configuration {
++    status = "Enabled"
++  }
++}
++
++resource "aws_s3_bucket_server_side_encryption_configuration" "audit" {
++  bucket = aws_s3_bucket.audit.id
++
++  rule {
++    apply_server_side_encryption_by_default {
++      kms_master_key_id = aws_kms_key.audit.arn
++      sse_algorithm     = "aws:kms"
++    }
++    bucket_key_enabled = true
++  }
++}
++
++resource "aws_s3_bucket_public_access_block" "audit" {
++  bucket                  = aws_s3_bucket.audit.id
++  block_public_acls       = true
++  block_public_policy     = true
++  ignore_public_acls      = true
++  restrict_public_buckets = true
++}
++
++resource "aws_s3_bucket_lifecycle_configuration" "audit" {
++  bucket = aws_s3_bucket.audit.id
++
++  rule {
++    id     = "glacier-after-30d-expire-1y"
++    status = "Enabled"
++    filter {}
++
++    transition {
++      days          = 30
++      storage_class = "GLACIER_IR"
++    }
++
++    expiration {
++      days = 365
++    }
++  }
++}
++
++# TLS-only bucket policy: deny any GetObject/PutObject not via aws:SecureTransport.
++data "aws_iam_policy_document" "audit_tls_only" {
++  statement {
++    sid     = "DenyNonTlsAccess"
++    effect  = "Deny"
++    actions = ["s3:*"]
++    resources = [
++      aws_s3_bucket.audit.arn,
++      "${aws_s3_bucket.audit.arn}/*",
++    ]
++    principals {
++      type        = "*"
++      identifiers = ["*"]
++    }
++    condition {
++      test     = "Bool"
++      variable = "aws:SecureTransport"
++      values   = ["false"]
++    }
++  }
++}
++
++resource "aws_s3_bucket_policy" "audit" {
++  bucket = aws_s3_bucket.audit.id
++  policy = data.aws_iam_policy_document.audit_tls_only.json
++}
+diff --git a/infra/aws/ssm_parameters.tf b/infra/aws/ssm_parameters.tf
+new file mode 100644
+index 00000000..d4a195b1
+--- /dev/null
++++ b/infra/aws/ssm_parameters.tf
+@@ -0,0 +1,41 @@
++# I-carney-002 — SSM Parameter Store entries for POLARIS secrets.
++#
++# EC2 cloud-init pulls these with `aws ssm get-parameter --with-decryption`
++# and writes them to /opt/polaris/.env at boot.
++
++resource "aws_ssm_parameter" "openrouter_api_key" {
++  name        = "/polaris/v6/openrouter_api_key"
++  type        = "SecureString"
++  value       = var.openrouter_api_key
++  description = "OpenRouter API key for pipeline-A LLM calls"
++}
++
++resource "aws_ssm_parameter" "serper_api_key" {
++  name        = "/polaris/v6/serper_api_key"
++  type        = "SecureString"
++  value       = var.serper_api_key
++  description = "Serper API key for live retrieval"
++}
++
++resource "aws_ssm_parameter" "semantic_scholar_api_key" {
++  count       = var.semantic_scholar_api_key == "" ? 0 : 1
++  name        = "/polaris/v6/semantic_scholar_api_key"
++  type        = "SecureString"
++  value       = var.semantic_scholar_api_key
++  description = "Optional Semantic Scholar API key"
++}
++
++resource "aws_ssm_parameter" "polaris_gpg_key_id" {
++  name        = "/polaris/v6/polaris_gpg_key_id"
++  type        = "SecureString"
++  value       = var.polaris_gpg_key_id
++  description = "GPG fingerprint of the Carney demo signing key"
++}
++
++# Public key body — fetched by the transparency endpoint (I-carney-003).
++resource "aws_ssm_parameter" "polaris_gpg_pubkey" {
++  name        = "/polaris/v6/polaris_gpg_pubkey"
++  type        = "String"
++  value       = var.polaris_gpg_pubkey
++  description = "ASCII-armored public key for transparency.md"
++}
+diff --git a/infra/aws/terraform.tfvars.example b/infra/aws/terraform.tfvars.example
+new file mode 100644
+index 00000000..dab2dab8
+--- /dev/null
++++ b/infra/aws/terraform.tfvars.example
+@@ -0,0 +1,35 @@
++# I-carney-002 — example tfvars. Copy to terraform.tfvars (gitignored) and fill in.
++
++# ----- Cloud + DNS -----
++aws_region        = "ca-central-1"
++tf_state_bucket   = "polaris-carney-tf-state"  # bootstrap separately before `terraform init`
++domain_name       = "example.ca"
++route53_zone_name = "example.ca"
++polaris_subdomain = "polaris"
++
++# ----- Workload sizing -----
++ec2_instance_type = "m7i-flex.4xlarge"
++root_volume_gb    = 200
++data_volume_gb    = 500
++
++# ----- Repo pin -----
++polaris_repo_url    = "https://github.com/aldrinor/polaris.git"
++polaris_repo_branch = "polaris"
++polaris_repo_commit = "dcdb6c6defe2e318571ff5ffe0f17cc8cd5006d6"  # I-carney-005 merge
++
++# ----- Secrets (sensitive — DO NOT commit terraform.tfvars) -----
++openrouter_api_key       = "sk-or-v1-REPLACE_ME"
++serper_api_key           = "REPLACE_ME"
++semantic_scholar_api_key = ""  # optional
++polaris_gpg_key_id       = "REPLACE_ME_FINGERPRINT"  # output of scripts/bootstrap_gpg_demo_key.sh
++
++# ASCII-armored public key (from outputs/polaris_demo_pubkey.asc). Multi-line
++# heredoc; preserve line breaks exactly.
++polaris_gpg_pubkey = <<EOT
++-----BEGIN PGP PUBLIC KEY BLOCK-----
++REPLACE_ME_PUBLIC_KEY_BODY
++-----END PGP PUBLIC KEY BLOCK-----
++EOT
++
++# ----- Ops -----
++ebs_backup_retention_days = 7
+diff --git a/infra/aws/variables.tf b/infra/aws/variables.tf
+new file mode 100644
+index 00000000..f556275d
+--- /dev/null
++++ b/infra/aws/variables.tf
+@@ -0,0 +1,112 @@
++# I-carney-002 — Terraform variable declarations.
++#
++# Set values via `terraform.tfvars` (gitignored) — see
++# `terraform.tfvars.example` for the canonical shape.
++
++variable "aws_region" {
++  description = "AWS region for the Carney demo. ca-central-1 (Montréal) for Canadian data residency."
++  type        = string
++  default     = "ca-central-1"
++}
++
++variable "tf_state_bucket" {
++  description = "Pre-existing S3 bucket name for Terraform state. Must be in aws_region."
++  type        = string
++}
++
++variable "vpc_cidr" {
++  description = "CIDR block for the demo VPC."
++  type        = string
++  default     = "10.0.0.0/16"
++}
++
++variable "domain_name" {
++  description = "Apex domain (e.g., example.ca). The deploy creates polaris.<domain_name>."
++  type        = string
++}
++
++variable "route53_zone_name" {
++  description = "Route 53 hosted zone name. Often equal to domain_name."
++  type        = string
++}
++
++variable "polaris_subdomain" {
++  description = "Subdomain hosting the Carney demo (full host = <polaris_subdomain>.<domain_name>)."
++  type        = string
++  default     = "polaris"
++}
++
++variable "ec2_instance_type" {
++  description = "EC2 instance type. m7i-flex.4xlarge: 16 vCPU / 64 GB / 5 Gbps net."
++  type        = string
++  default     = "m7i-flex.4xlarge"
++}
++
++variable "root_volume_gb" {
++  description = "Size of the EC2 root EBS volume (gp3)."
++  type        = number
++  default     = 200
++}
++
++variable "data_volume_gb" {
++  description = "Size of the dedicated /var/lib/polaris data volume (gp3)."
++  type        = number
++  default     = 500
++}
++
++variable "polaris_repo_url" {
++  description = "Git URL the EC2 cloud-init clones POLARIS from."
++  type        = string
++  default     = "https://github.com/aldrinor/polaris.git"
++}
++
++variable "polaris_repo_commit" {
++  description = "Specific commit SHA the EC2 instance checks out — pinned for reproducibility."
++  type        = string
++}
++
++variable "polaris_repo_branch" {
++  description = "Branch to clone before checking out polaris_repo_commit (typically `polaris`)."
++  type        = string
++  default     = "polaris"
++}
++
++# Secrets — Terraform writes these to SSM Parameter Store as SecureString.
++# Supply via `terraform.tfvars` (gitignored).
++
++variable "openrouter_api_key" {
++  description = "OpenRouter API key for pipeline-A LLM calls."
++  type        = string
++  sensitive   = true
++}
++
++variable "serper_api_key" {
++  description = "Serper API key for live retrieval."
++  type        = string
++  sensitive   = true
++}
++
++variable "semantic_scholar_api_key" {
++  description = "Optional Semantic Scholar API key."
++  type        = string
++  sensitive   = true
++  default     = ""
++}
++
++variable "polaris_gpg_key_id" {
++  description = "GPG fingerprint of the demo signing key (from bootstrap_gpg_demo_key.sh)."
++  type        = string
++  sensitive   = true
++}
++
++variable "polaris_gpg_pubkey" {
++  description = "ASCII-armored public key body of the demo signing key (transparency endpoint)."
++  type        = string
++  sensitive   = false
++}
++
++variable "ebs_backup_retention_days" {
++  description = "Daily EBS snapshot retention (days). 7 = Carney demo window."
++  type        = number
++  default     = 7
++}
+diff --git a/infra/aws/vpc.tf b/infra/aws/vpc.tf
+new file mode 100644
+index 00000000..ebaa6585
+--- /dev/null
++++ b/infra/aws/vpc.tf
+@@ -0,0 +1,35 @@
++# I-carney-002 — VPC + subnets + NAT.
++
++module "vpc" {
++  source  = "terraform-aws-modules/vpc/aws"
++  version = "~> 5.13"
++
++  name = "polaris-carney"
++  cidr = var.vpc_cidr
++  azs  = ["${var.aws_region}a", "${var.aws_region}b"]
++
++  # Public subnets host the ALB (one per AZ).
++  public_subnets = [
++    cidrsubnet(var.vpc_cidr, 8, 0),  # 10.0.0.0/24
++    cidrsubnet(var.vpc_cidr, 8, 1),  # 10.0.1.0/24
++  ]
++
++  # Private subnets host the EC2 workload (one per AZ; demo uses one EC2 in az a).
++  private_subnets = [
++    cidrsubnet(var.vpc_cidr, 8, 10), # 10.0.10.0/24
++    cidrsubnet(var.vpc_cidr, 8, 11), # 10.0.11.0/24
++  ]
++
++  enable_nat_gateway     = true
++  single_nat_gateway     = true # demo cost optimization; HA-NAT is a Phase-2 follow-up
++  enable_vpn_gateway     = false
++  enable_dns_hostnames   = true
++  enable_dns_support     = true
++
++  # Flow logs to CloudWatch with 30-day retention.
++  enable_flow_log                                 = true
++  create_flow_log_cloudwatch_log_group            = true
++  create_flow_log_cloudwatch_iam_role             = true
++  flow_log_cloudwatch_log_group_retention_in_days = 30
++  flow_log_traffic_type                           = "ALL"
++}

@@ -12,6 +12,15 @@
 # leaving .private/codex_hmac.key NOT ignored (cleanup_audit.md §3.6).
 .private/
 
+# --- Terraform (I-carney-002) ---
+infra/aws/terraform.tfvars
+infra/aws/.terraform/
+infra/aws/.terraform.lock.hcl
+infra/aws/*.tfstate
+infra/aws/*.tfstate.*
+infra/aws/plan.bin
+!infra/aws/terraform.tfvars.example
+
 # --- Python ---
 __pycache__/
 *.pyc
