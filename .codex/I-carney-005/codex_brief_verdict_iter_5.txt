@@ -1,0 +1,3319 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e2032-213a-7cf2-8aae-71cd6dcba30c
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE; do not bank for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-carney-005 iter 5 — P1-009 resolution
+
+## P1-009 — strengthen test_actors_module_calls_get_broker_at_import
+
+Codex iter-4: the proposed test was vacuous because conftest had already installed a session StubBroker, so it passes even if actors.py never calls `_ensure_broker()`. Strengthen by:
+1. Pre-set a SENTINEL broker (custom StubBroker subclass as marker)
+2. Reset `_INITIALIZED=False`
+3. Reload actors module
+4. Assert the current broker is NOT the sentinel (proving actors.py DID call `_ensure_broker()`)
+5. Assert `actors.enqueue_research_run.broker is dramatiq.get_broker()` (proving decoration bound to the post-reload broker)
+
+### Resolution
+
+```python
+# tests/v6/test_broker_init_order.py
+import pytest
+
+pytest.importorskip("dramatiq")
+import dramatiq
+from dramatiq.brokers.stub import StubBroker
+
+
+class _SentinelBroker(StubBroker):
+    """Marker subclass so we can detect whether actors.py rebuilt the broker."""
+    pass
+
+
+@pytest.fixture(autouse=True)
+def _restore_broker_state():
+    from polaris_v6.queue import broker as br
+    saved_broker = dramatiq.get_broker()
+    saved_init = br._INITIALIZED
+    br._INITIALIZED = False
+    yield
+    dramatiq.set_broker(saved_broker)
+    br._INITIALIZED = saved_init
+
+
+def test_get_broker_is_idempotent(monkeypatch):
+    """Regression for I-carney-005 P1-001: repeated get_broker calls don't
+    overwrite an already-set broker."""
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
+    from polaris_v6.queue import broker as br
+    b1 = br.get_broker()
+    b2 = br.get_broker()
+    assert b1 is b2
+    assert dramatiq.get_broker() is b1
+
+
+def test_actors_module_calls_get_broker_at_import(monkeypatch):
+    """Regression for I-carney-005 P1-001 (strengthened per Codex iter-4 P1-009).
+
+    Pre-install a sentinel broker and reset the init flag. Reloading actors
+    MUST cause _ensure_broker() to fire and replace the sentinel with a real
+    StubBroker (because POLARIS_V6_QUEUE_USE_STUB=1). If actors.py forgot to
+    call _ensure_broker(), the sentinel remains current and the assertion
+    fails. Also verify actor.broker matches the post-reload current broker,
+    proving decoration order is correct (init BEFORE @dramatiq.actor).
+    """
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
+    # Install a sentinel non-actors broker.
+    sentinel = _SentinelBroker()
+    dramatiq.set_broker(sentinel)
+    from polaris_v6.queue import broker as br
+    br._INITIALIZED = False  # force the next get_broker() to rebuild
+
+    import importlib
+    from polaris_v6.queue import actors
+    importlib.reload(actors)
+
+    current = dramatiq.get_broker()
+    assert current is not sentinel, (
+        "actors.py did not call _ensure_broker() at import — "
+        "sentinel broker is still the default"
+    )
+    assert isinstance(current, StubBroker), (
+        f"expected StubBroker after reload, got {type(current).__name__}"
+    )
+    # P1-009 second half: decoration order — actors bind to the post-init broker.
+    assert actors.enqueue_research_run.broker is current
+    assert actors.cancel_research_run.broker is current
+```
+
+The test now FAILS LOUDLY if actors.py forgets to call `_ensure_broker()` at the top, AND if the init happens AFTER `@dramatiq.actor` decoration.
+
+## P2 — accepted
+
+- `pytest.importorskip('dramatiq')` added at top of test_broker_init_order.py per iter-4 P2.
+
+## Direct questions iter 5
+
+1. P1-009 strengthened test (sentinel broker + non-identity assertion + actor.broker decoration check) — APPROVE'd?
+2. Anything else blocking iter-5 APPROVE? (Note: this is iter 5 of 5; per CLAUDE.md §8.3.1 force-APPROVE applies if REQUEST_CHANGES.)
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers: [...]
+```
+
+deprecated: `[features].web_search` is deprecated because web search is enabled by default.
+Set `web_search` to `"live"`, `"cached"`, or `"disabled"` at the top level (or under a profile) in config.toml if you want to override it.
+codex
+I’ll verify the test against the current queue modules rather than judging only from the snippet, so the verdict matches the actual import and broker behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path tests\\v6 -Filter test_broker_init_order.py -Recurse | Select-Object -ExpandProperty FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def get_broker|_INITIALIZED|_ensure_broker|dramatiq.actor|enqueue_research_run|cancel_research_run" polaris_v6 tests' in C:\POLARIS
+ succeeded in 852ms:
+2026-05-13T07:17:08.854131Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+tests\v6\conftest.py:5:time, which decorated the dramatiq actors against THAT StubBroker. The
+tests\v6\conftest.py:12:`polaris_v6.queue.actors`, the @dramatiq.actor decorator binds against
+tests\v6\conftest.py:32:    # see this broker; subsequent `@dramatiq.actor` decorations bind to it.
+tests\v6\acceptance\test_runs_db_integration.py:79:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:104:    enqueue_research_run.send("run_002", payload)
+tests\v6\acceptance\test_runs_db_integration.py:110:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:157:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:189:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_dramatiq_acceptance.py:24:    StubBroker per test, but the dramatiq actor decorators in
+tests\v6\acceptance\test_dramatiq_acceptance.py:75:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_dramatiq_acceptance.py:78:    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+tests\v6\acceptance\test_dramatiq_acceptance.py:79:    broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\test_actors.py:4:  - enqueue_research_run echoes payload + reports completed status
+tests\v6\test_actors.py:5:  - enqueue_research_run carries max_retries=3 + 30-min time_limit
+tests\v6\test_actors.py:6:  - cancel_research_run records cancel_requested intent
+tests\v6\test_actors.py:7:  - cancel_research_run uses max_retries=0 (cancel is fire-and-forget)
+tests\v6\test_actors.py:22:# @dramatiq.actor decorators in polaris_v6.queue.actors bind against the
+tests\v6\test_actors.py:26:    cancel_research_run,
+tests\v6\test_actors.py:27:    enqueue_research_run,
+tests\v6\test_actors.py:33:    result = enqueue_research_run.fn("run-001", payload)
+tests\v6\test_actors.py:42:    result = enqueue_research_run.fn("run-empty", {})
+tests\v6\test_actors.py:53:    """The @dramatiq.actor decoration must match the documented constant."""
+tests\v6\test_actors.py:54:    assert enqueue_research_run.options.get("max_retries") == 3
+tests\v6\test_actors.py:59:    assert enqueue_research_run.options.get("time_limit") == 30 * 60 * 1000
+tests\v6\test_actors.py:63:    result = cancel_research_run.fn("run-002")
+tests\v6\test_actors.py:69:    assert cancel_research_run.options.get("max_retries") == 0
+tests\v6\test_actors.py:72:def test_actors_are_dramatiq_actor_instances():
+tests\v6\test_actors.py:73:    """Both actors must be wrapped via the @dramatiq.actor decorator."""
+tests\v6\test_actors.py:74:    assert hasattr(enqueue_research_run, "send")  # actor.send() enqueues
+tests\v6\test_actors.py:75:    assert hasattr(enqueue_research_run, "fn")    # actor.fn is the unwrapped callable
+tests\v6\test_actors.py:76:    assert hasattr(cancel_research_run, "send")
+tests\v6\test_actors.py:77:    assert hasattr(cancel_research_run, "fn")
+rg: polaris_v6: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 959ms:
+tests\v6\conftest.py:5:time, which decorated the dramatiq actors against THAT StubBroker. The
+tests\v6\conftest.py:12:`polaris_v6.queue.actors`, the @dramatiq.actor decorator binds against
+tests\v6\conftest.py:32:    # see this broker; subsequent `@dramatiq.actor` decorations bind to it.
+tests\v6\acceptance\test_runs_db_integration.py:79:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:104:    enqueue_research_run.send("run_002", payload)
+tests\v6\acceptance\test_runs_db_integration.py:110:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:157:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:189:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_dramatiq_acceptance.py:24:    StubBroker per test, but the dramatiq actor decorators in
+tests\v6\acceptance\test_dramatiq_acceptance.py:75:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_dramatiq_acceptance.py:78:    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+tests\v6\acceptance\test_dramatiq_acceptance.py:79:    broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\test_actors.py:4:  - enqueue_research_run echoes payload + reports completed status
+tests\v6\test_actors.py:5:  - enqueue_research_run carries max_retries=3 + 30-min time_limit
+tests\v6\test_actors.py:6:  - cancel_research_run records cancel_requested intent
+tests\v6\test_actors.py:7:  - cancel_research_run uses max_retries=0 (cancel is fire-and-forget)
+tests\v6\test_actors.py:22:# @dramatiq.actor decorators in polaris_v6.queue.actors bind against the
+tests\v6\test_actors.py:26:    cancel_research_run,
+tests\v6\test_actors.py:27:    enqueue_research_run,
+tests\v6\test_actors.py:33:    result = enqueue_research_run.fn("run-001", payload)
+tests\v6\test_actors.py:42:    result = enqueue_research_run.fn("run-empty", {})
+tests\v6\test_actors.py:53:    """The @dramatiq.actor decoration must match the documented constant."""
+tests\v6\test_actors.py:54:    assert enqueue_research_run.options.get("max_retries") == 3
+tests\v6\test_actors.py:59:    assert enqueue_research_run.options.get("time_limit") == 30 * 60 * 1000
+tests\v6\test_actors.py:63:    result = cancel_research_run.fn("run-002")
+tests\v6\test_actors.py:69:    assert cancel_research_run.options.get("max_retries") == 0
+tests\v6\test_actors.py:72:def test_actors_are_dramatiq_actor_instances():
+tests\v6\test_actors.py:73:    """Both actors must be wrapped via the @dramatiq.actor decorator."""
+tests\v6\test_actors.py:74:    assert hasattr(enqueue_research_run, "send")  # actor.send() enqueues
+tests\v6\test_actors.py:75:    assert hasattr(enqueue_research_run, "fn")    # actor.fn is the unwrapped callable
+tests\v6\test_actors.py:76:    assert hasattr(cancel_research_run, "send")
+tests\v6\test_actors.py:77:    assert hasattr(cancel_research_run, "fn")
+rg: polaris_v6: The system cannot find the file specified. (os error 2)
+
+codex
+The root package isn’t at `polaris_v6` from the workspace root, so I’m locating the actual source tree and the submitted test file before calling the verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "*broker*.py" -g "*actors*.py" -g "test_broker_init_order.py"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force' in C:\POLARIS
+2026-05-13T07:17:15.093971Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+tests\v6\test_broker.py
+tests\v6\test_actors.py
+src\polaris_v6\queue\broker.py
+src\polaris_v6\queue\actors.py
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_review_base: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_iter2_pytest_run\basetemp: Access is denied. (os error 5)
+rg: ./tmp3jencwbw: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\pytest-cache-files-j9pt3f1q: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_iter3_verify_run: Access is denied. (os error 5)
+rg: ./pytest-cache-files-szrlm1db: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_review_base2: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\pytest-cache-files-78fai4pb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_iter2_manual\polaris_audit_e61cblsl: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_review_basetemp: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-_ncvntg2: Access is denied. (os error 5)
+rg: ./pytest-cache-files-lgffjwll: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\basetemp: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-i6m5z82q: Access is denied. (os error 5)
+rg: ./pytest-cache-files-kds8u4s5: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-dy5h_vhs: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2: Access is denied. (os error 5)
+rg: ./pytest-cache-files-jdgz67tr: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-57ov92z2: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./pytest-cache-files-dysodq4d: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\basetemp2: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./pytest-cache-files-3f9s08mh: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\basetemp1: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmpa3ivn9br: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmp6xbnvzw9: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\pytest-cache-files-sht0cls4: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\basetemp_precreated: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\pytest-cache-files-1ykvrnzz: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\basetemp_5cee64b5902649d7a1cd8b095435da08: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_i_arch_001a: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest-cache-files-z1miwcyi: Access is denied. (os error 5)
+rg: ./pytest_basetemp_i_bug_085_r2: Access is denied. (os error 5)
+rg: ./python_mode_700_probe: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+
+ exited 1 in 836ms:
+tests\v6\test_broker.py
+tests\v6\test_actors.py
+src\polaris_v6\queue\broker.py
+src\polaris_v6\queue\actors.py
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_review_base: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_iter2_pytest_run\basetemp: Access is denied. (os error 5)
+rg: ./tmp3jencwbw: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\pytest-cache-files-j9pt3f1q: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_iter3_verify_run: Access is denied. (os error 5)
+rg: ./pytest-cache-files-szrlm1db: Access is denied. (os error 5)
+rg: ./codex_tmp_i_bug_107_review_base2: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\pytest-cache-files-78fai4pb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_iter2_manual\polaris_audit_e61cblsl: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001f_review_basetemp: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-_ncvntg2: Access is denied. (os error 5)
+rg: ./pytest-cache-files-lgffjwll: Access is denied. (os error 5)
+rg: ./codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e\basetemp: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-i6m5z82q: Access is denied. (os error 5)
+rg: ./pytest-cache-files-kds8u4s5: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-dy5h_vhs: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2: Access is denied. (os error 5)
+rg: ./pytest-cache-files-jdgz67tr: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\pytest-cache-files-57ov92z2: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./pytest-cache-files-dysodq4d: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\basetemp2: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./pytest-cache-files-3f9s08mh: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch_001a_review\basetemp1: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmpa3ivn9br: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmp6xbnvzw9: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\pytest-cache-files-sht0cls4: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\basetemp_precreated: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\pytest-cache-files-1ykvrnzz: Access is denied. (os error 5)
+rg: ./codex_tmp_i_arch001a_pytest_probe\basetemp_5cee64b5902649d7a1cd8b095435da08: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_i_arch_001a: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest-cache-files-z1miwcyi: Access is denied. (os error 5)
+rg: ./pytest_basetemp_i_bug_085_r2: Access is denied. (os error 5)
+rg: ./python_mode_700_probe: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+
+ succeeded in 975ms:
+
+    Directory: C:\POLARIS
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-07 10:31 PM                [44;1m.claude[0m
+d----          2026-05-12 11:55 PM                [44;1m.codex[0m
+d----          2026-04-29  2:47 PM                [44;1m.codex_tmp_m_int_6_v1_review_fresh[0m
+d--h-          2026-05-12 11:55 PM                [44;1m.git[0m
+d----          2026-05-07 10:31 PM                [44;1m.github[0m
+d----          2026-05-07 10:31 PM                [44;1m.legacy[0m
+d----          2026-05-02  9:10 AM                [44;1m.private[0m
+d----          2026-05-12 10:56 AM                [44;1m.pytest_cache[0m
+d----          2026-05-10  3:48 AM                [44;1m.pytest_scope_gate_tmp2[0m
+d----          2026-04-28  9:37 PM                [44;1m.pytest_tmp[0m
+d----          2026-04-28 12:23 PM                [44;1m.tmp_pytest_base[0m
+d----          2026-04-29 12:54 PM                [44;1m.tmp_pytest_m_int_3[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review2[0m
+d----          2026-04-28 11:50 PM                [44;1m.tmp-pytest[0m
+d----          2026-05-11  8:23 PM                [44;1marchive[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_billing_quota_store_review_alt[0m
+d----          2026-05-12  5:57 PM                [44;1mcodex_tmp_i_arch_001a_review[0m
+d----          2026-05-12 11:53 PM                [44;1mcodex_tmp_i_arch_001f_iter2_manual[0m
+d----          2026-05-12 11:51 PM                [44;1mcodex_tmp_i_arch_001f_iter2_pytest_run[0m
+d----          2026-05-12 11:46 PM                [44;1mcodex_tmp_i_arch_001f_manual_probe[0m
+d----          2026-05-12 11:45 PM                [44;1mcodex_tmp_i_arch_001f_review_basetemp[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_actor_0d00737908a74619aadb0f3ca326ba8c[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_manual_8df334a540ae4cebb698e2441b372d59[0m
+d----          2026-05-12  6:12 PM                [44;1mcodex_tmp_i_arch001a_pytest_probe[0m
+d----          2026-05-12 10:20 PM                [44;1mcodex_tmp_i_arch001d_bundle_probe[0m
+d----          2026-05-10  2:04 AM                [44;1mcodex_tmp_i_bug_107_iter3_verify_run[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base2[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review_rerun[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single2[0m
+d----          2026-04-29  4:11 PM                [44;1mcodex_tmp_m_int_10_v2_review[0m
+d----          2026-04-29  4:12 PM                [44;1mcodex_tmp_m_int_10_v2_review_fresh[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review_probe[0m
+d----          2026-04-29  9:34 PM                [44;1mcodex_tmp_m_int_11_v1_review[0m
+d----          2026-04-29  9:35 PM                [44;1mcodex_tmp_m_int_11_v1_review_fresh_20260429[0m
+d----          2026-04-29  9:41 PM                [44;1mcodex_tmp_m_int_11_v2_review[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh_subset[0m
+d----          2026-04-29  2:15 PM                [44;1mcodex_tmp_m_int_5_v2_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review_probe[0m
+d----          2026-04-29  2:33 PM                [44;1mcodex_tmp_m_int_5_v4_review[0m
+d----          2026-04-29  2:34 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh[0m
+d----          2026-04-29  2:35 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh2[0m
+d----          2026-04-29  2:47 PM                [44;1mcodex_tmp_m_int_6_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review_fresh[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review_alt[0m
+d----          2026-04-29  3:09 PM                [44;1mcodex_tmp_m_int_7_v2_single[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review_fresh[0m
+d----          2026-04-29  3:42 PM                [44;1mcodex_tmp_m_int_9_v1_review[0m
+d----          2026-04-29  3:43 PM                [44;1mcodex_tmp_m_int_9_v1_review_single[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review_fresh[0m
+d----          2026-05-12 10:32 PM                [44;1mcodex_tmp_manual_1dd40099bce94e8a97eddfb27f94a9ad[0m
+d----          2026-05-12 10:33 PM                [44;1mcodex_tmp_manual_i_arch001d_e181e4ae3b4b4ed1bdc15e03e159a57b[0m
+d----          2026-05-12 10:25 PM                [44;1mcodex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2[0m
+d----          2026-05-12 10:31 PM                [44;1mcodex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e[0m
+d----          2026-05-07 10:31 PM                [44;1mconfig[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_f2ltuo3t[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_hhthuj3n[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_xdvktanm[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_znaia9ry[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_zw62d2fs[0m
+d----          2026-03-24  2:56 PM                [44;1mdata[0m
+d----          2026-05-12 11:44 AM                [44;1mdocs[0m
+d----          2026-05-07 10:31 PM                [44;1mhelm[0m
+d----          2026-05-12 10:52 PM                [44;1mlogs[0m
+d----          2026-04-29  4:05 PM                [44;1mm_int_10_manual_57asn199[0m
+d----          2026-04-29  3:10 PM                [44;1mm_int_7_v2_manual_5fgxbzoc[0m
+d----          2026-04-29  3:19 PM                [44;1mm_int_7_v3_manual_dhypw5bz[0m
+d----          2026-04-30 12:48 AM                [44;1mm_live_4_r2_3qyr9r66[0m
+d----          2026-04-29  4:13 PM                [44;1mm10v2_manual_yz_33hqh[0m
+d----          2026-04-29  9:28 PM                [44;1mm10v3_one_wlcrnh2f[0m
+d----          2026-04-29  3:00 PM                [44;1mmanual_pytest_base_m_int_7[0m
+d----          2026-04-29  3:01 PM                [44;1mmanual_pytest_base_m_int_7_ok[0m
+d----          2026-04-29  1:21 PM                [44;1mmanual_tmp_m_int_3_v3[0m
+d----          2026-04-28  9:30 PM                [44;1mmd3_pytest_run2[0m
+d----          2026-02-24  1:09 AM                [44;1mmemory[0m
+d----          2026-02-11  2:02 AM                [44;1mmodels[0m
+d----          2026-05-11  6:01 PM                [44;1moutputs[0m
+d----          2026-05-04 12:26 AM                [44;1mpolaris-controls[0m
+d----          2026-04-28  9:52 PM                [44;1mPOLARIS.tmppytest[0m
+d----          2026-04-29  1:19 PM                [44;1mPOLARIStmp_pytest_m_int_3_reviewbasetemp[0m
+d----          2026-04-29 11:57 AM                [44;1mpy_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9[0m
+d----          2026-05-08  9:37 PM                [44;1mpytest_basetemp_i_bug_085_r2[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_3842f3b95af34ad8b6f93080344d5110[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_554e954860ba4943a4f9f6097fe8541f[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-3f9s08mh[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-dysodq4d[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-jdgz67tr[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-kds8u4s5[0m
+d----          2026-05-11 11:09 PM                [44;1mpytest-cache-files-lgffjwll[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-o969a6s7[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-szrlm1db[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-tw8jzxb3[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-z1miwcyi[0m
+d----          2026-05-08  9:38 PM                [44;1mpython_mode_700_probe[0m
+d----          2026-05-12 11:29 PM                [44;1mscripts[0m
+d----          2026-05-11  7:44 PM                [44;1msrc[0m
+d----          2026-05-12 10:52 PM                [44;1mstate[0m
+d----          2026-05-10  1:46 AM                [44;1mtests[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp_ae3ucgg[0m
+d----          2026-05-12  6:05 PM                [44;1mtmp_pytest_i_arch_001a[0m
+d----          2026-04-29 12:54 PM                [44;1mtmp_pytest_m_int_3[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp2ef0ie4p[0m
+d----          2026-04-29 12:46 PM                [44;1mtmp2hhmpr2y[0m
+d----          2026-05-10  3:37 AM                [44;1mtmp3jencwbw[0m
+d----          2026-04-18  8:37 PM                [44;1mtmp48c8ko2m[0m
+d----          2026-04-28  2:01 PM                [44;1mtmp63988s99[0m
+d----          2026-05-12  8:36 PM                [44;1mtmp6xbnvzw9[0m
+d----          2026-04-29  2:07 PM                [44;1mtmp8u9ua575[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp9h7v7fon[0m
+d----          2026-05-10  3:16 AM                [44;1mtmpa3ivn9br[0m
+d----          2026-04-29  2:26 PM                [44;1mtmpaufjwjy5[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpgb143kt_[0m
+d----          2026-04-29 11:58 AM                [44;1mtmppvxh8fwq[0m
+d----          2026-04-28  2:01 PM                [44;1mtmpq5bdi1rl[0m
+d----          2026-04-29  2:36 PM                [44;1mtmptgnkdlz5[0m
+d----          2026-04-29  2:36 PM                [44;1mtmpu2b082f6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpuyki_w88[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpv1dnokk6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpw2ru3yoj[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpxnalraft[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpyl5f0goo[0m
+d----          2026-05-12  1:48 PM                [44;1mweb[0m
+-a---          2026-05-07 10:31 PM            599 .dockerignore
+-a---          2026-05-04  5:50 PM          88725 .env
+-a---          2026-05-09  3:53 AM           7886 .env.example
+-a---          2026-05-11 10:35 PM           6078 .gitignore
+-a---          2026-05-07 10:31 PM          15485 architecture.md
+-a---          2026-05-10 12:45 AM          51892 CLAUDE.md
+-a---          2026-05-07 10:31 PM           1774 docker-compose.yml
+-a---          2026-05-07 10:31 PM           1197 Dockerfile
+-a---          2026-05-07 10:31 PM          11875 ground_rules.md
+-a---          2026-05-09 11:22 AM            774 pytest.ini
+-a---          2026-05-11 10:35 PM          11317 README.md
+-a---          2026-05-07 10:31 PM            673 requirements-orchestrator.txt
+-a---          2026-05-07 10:31 PM           1558 requirements-v6.txt
+-a---          2026-05-07 10:31 PM           6532 requirements.txt
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\queue\\broker.py | Select-Object -First 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\queue\\actors.py | Select-Object -First 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\conftest.py | Select-Object -First 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\test_broker.py | Select-Object -First 240" in C:\POLARIS
+ succeeded in 971ms:
+"""Dramatiq broker initialization for POLARIS v6.
+
+Pin: dramatiq[redis,watch]==2.1.0; redis==7.4.0.
+
+Per docs/backend_modernization.md §3 acceptance matrix, the broker is
+configured with `heartbeat=30s` (mitigates broker-disconnect detection
+latency) and uses sticky connections via ConnectionMiddleware (cookbook
+pattern; mitigates the high-retry-rate degradation effect that makes
+queues 40% slower under retry storms).
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+import dramatiq
+from dramatiq.brokers.redis import RedisBroker
+from dramatiq.brokers.stub import StubBroker
+
+DEFAULT_HEARTBEAT_SECONDS = 30
+DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+
+
+def get_broker(
+    *,
+    use_stub: Optional[bool] = None,
+    redis_url: Optional[str] = None,
+    heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
+) -> dramatiq.Broker:
+    """Construct and register the broker.
+
+    Args:
+        use_stub: if True, use StubBroker (in-process, for tests). If None,
+            inferred from POLARIS_V6_QUEUE_USE_STUB=1 env var.
+        redis_url: Redis URL (defaults to POLARIS_V6_REDIS_URL env or
+            redis://localhost:6379/0).
+        heartbeat_seconds: broker heartbeat interval.
+    """
+    if use_stub is None:
+        use_stub = os.environ.get("POLARIS_V6_QUEUE_USE_STUB", "") == "1"
+
+    broker: dramatiq.Broker
+    if use_stub:
+        broker = StubBroker()
+        broker.emit_after("process_boot")
+    else:
+        url = redis_url or os.environ.get("POLARIS_V6_REDIS_URL", DEFAULT_REDIS_URL)
+        broker = RedisBroker(url=url, heartbeat_timeout=heartbeat_seconds * 1000)
+
+    dramatiq.set_broker(broker)
+    return broker
+
+ succeeded in 1037ms:
+"""Dramatiq actors for POLARIS v6 research-run lifecycle.
+
+I-arch-001a (2026-05-12): wired to pipeline-A run_one_query. Concurrency-safe
+(no os.environ mutation — v6 fields flow through q-dict). UUID-scoped
+artifact_dir prevents same-slug concurrent overwrites. Full failure mapping
+maps pipeline-A manifest verdict to lifecycle_status × pipeline_status.
+
+Stub-mode preserved: when no run_store row exists (existing test_actors.py
+direct .fn() invocation), returns deterministic noop without DB writes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import uuid
+from pathlib import Path
+from typing import Any
+
+import dramatiq
+
+from polaris_v6.queue import run_store
+
+logger = logging.getLogger(__name__)
+
+ENQUEUE_MAX_RETRIES = 3
+
+# I-arch-001c (2026-05-13): template_id → pipeline-A scope_domain mapping at
+# the actor boundary.
+#
+# Three domains already exist in scope_gate.SUPPORTED_DOMAINS with their own
+# config/scope_templates/<domain>.yaml (per I-tpl-006/7/8): ai_sovereignty,
+# canada_us, workforce. These are promoted to identity mappings so the
+# deterministic scope_gate picks the right per-domain rubric.
+#
+# Four templates (climate, defense, housing, trade) have no scope_template
+# yet — they fall back to the generic "policy" rubric. Authoring per-domain
+# YAMLs + adding to SUPPORTED_DOMAINS is Phase 2 (post-Carney-demo).
+#
+# clinical → clinical (unchanged).
+TEMPLATE_TO_SCOPE_DOMAIN = {
+    "ai_sovereignty": "ai_sovereignty",
+    "canada_us": "canada_us",
+    "workforce": "workforce",
+    "clinical": "clinical",
+    "climate": "policy",
+    "defense": "policy",
+    "housing": "policy",
+    "trade": "policy",
+}
+
+
+def _derive_slug(template_id: str, question: str) -> str:
+    """Deterministic URL-safe slug for pipeline-A run_dir nesting.
+
+    Pipeline-A reads q['slug']; this produces a stable, human-readable
+    identifier per (template, question) pair. UUID provides uniqueness
+    via the artifact_dir parent — slug itself doesn't need to be unique.
+    """
+    base = f"{template_id}_{question[:60]}"
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", base.lower()).strip("_")
+    return cleaned[:120] or "untitled"
+
+
+@dramatiq.actor(max_retries=ENQUEUE_MAX_RETRIES, time_limit=30 * 60 * 1000)
+def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute a research run via pipeline-A. Idempotent on run_id.
+
+    Stub-mode path: when run_store has no row for run_id (tests use
+    .fn() directly without insert_run), returns deterministic noop
+    without DB writes — preserves I-phase0-005 stub-mode semantics.
+
+    Production path: marks in_progress, builds q-dict with v6 fields,
+    invokes scripts.run_honest_sweep_r3.run_one_query, parses the
+    manifest.json pipeline-A writes, and dispatches to
+    mark_completed / mark_aborted / mark_failed per pipeline_status.
+    """
+    # Stub-mode preservation
+    if run_store.get_run(run_id) is None:
+        return {"run_id": run_id, "status": "completed", "echo": request_payload}
+
+    run_store.mark_in_progress(run_id)
+    decision_id = str(uuid.uuid4())
+    output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
+    artifact_dir_root = output_root / run_id
+    artifact_dir_root.mkdir(parents=True, exist_ok=True)
+
+    template_id = request_payload.get("template", "")
+    question = request_payload.get("question", "")
+    domain = TEMPLATE_TO_SCOPE_DOMAIN.get(template_id, "policy")
+    slug = _derive_slug(template_id, question)
+
+    # v6 fields flow through q-dict (NO os.environ mutation per iter-2 P1.2)
+    q: dict[str, Any] = {
+        "domain": domain,
+        "slug": slug,
+        "question": question,
+        "external_run_id": run_id,
+        "decision_id": decision_id,
+        "v6_mode": True,
+        "out_root_override": str(artifact_dir_root),
+        "template_id": template_id,
+    }
+
+    # I-arch-001b: synthesize v30.1 contract patch from v6 template's
+    # frame_manifest. Pipeline-A merges this into the scope template's
+    # per_query_report_contract before compile_frame / load_report_contract_for_slug.
+    # Failure is graceful (logger.warning) — pipeline-A handles missing
+    # contract via legacy no-contract path.
+    try:
+        from polaris_v6.templates.registry import load_template
+        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+
+        v6_tmpl = load_template(template_id).model_dump()
+        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+        logger.info(
+            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
+            run_id,
+            template_id,
+            slug,
+            len(q["v30_contract_patch"][slug]["required_entities"]),
+        )
+    except FileNotFoundError as exc:
+        logger.warning(
+            "[actor] v6 template not found template_id=%s run_id=%s; "
+            "pipeline-A will run on legacy no-contract path: %s",
+            template_id,
+            run_id,
+            exc,
+        )
+    except Exception as exc:  # noqa: BLE001 — synthesizer failure must not block runtime
+        logger.warning(
+            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
+            "slug=%s: %s; pipeline-A on legacy no-contract path",
+            run_id,
+            template_id,
+            slug,
+            exc,
+            exc_info=True,
+        )
+
+    run_store.set_pipeline_meta(
+        run_id,
+        query_slug=slug,
+        artifact_dir=str(artifact_dir_root),
+        decision_id=decision_id,
+    )
+
+    try:
+        from scripts.run_honest_sweep_r3 import run_one_query
+
+        summary = asyncio.run(run_one_query(q, artifact_dir_root))
+    except Exception as exc:  # noqa: BLE001 — actor must record any pipeline crash
+        logger.exception("[actor] pipeline-A raised for run_id=%s", run_id)
+        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
+        raise
+
+    # Parse pipeline-A's manifest.json — written at every exit path
+    manifest_path = artifact_dir_root / "manifest.json"
+    if not manifest_path.is_file():
+        run_store.mark_failed(
+            run_id, "manifest_missing: pipeline-A returned without writing manifest.json"
+        )
+        return summary
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
+        return summary
+
+    pipeline_status = manifest.get("status") or "error_unexpected"
+    manifest_run_id = manifest.get("run_id")
+    cost_usd = manifest.get("cost_usd")
+    if cost_usd is None:
+        cost_usd = summary.get("cost_usd")
+    try:
+        cost_usd_f = float(cost_usd) if cost_usd is not None else None
+    except (TypeError, ValueError):
+        cost_usd_f = None
+
+    run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
+
+    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+        run_store.mark_completed(
+            run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+        )
+    elif pipeline_status.startswith("abort_"):
+        run_store.mark_aborted(
+            run_id,
+            pipeline_status=pipeline_status,
+            abort_reason=manifest.get("error") or pipeline_status,
+            cost_usd=cost_usd_f,
+        )
+    elif pipeline_status.startswith("error_"):
+        run_store.mark_failed(
+            run_id, f"pipeline_error: {pipeline_status}: {manifest.get('error', '')}"
+        )
+    else:
+        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+    return summary
+
+
+@dramatiq.actor(max_retries=0)
+def cancel_research_run(run_id: str) -> dict[str, Any]:
+    """Cancel an in-flight research run by run_id.
+
+    Implementation note: real cancellation is via Worker.send_signal on the
+    target message_id (see test_dramatiq_acceptance.py scenario 3); this
+    actor exists to provide an audited entrypoint that records the cancel
+    intent in the run-status table before the signal fires.
+    """
+    return {"run_id": run_id, "status": "cancel_requested"}
+
+ succeeded in 1094ms:
+"""Test-level setup for tests/v6/.
+
+Closes cycle-4 audit P1.1 (outputs/audits/continuous/97b9c1f_audit.md):
+test_actors.py used to call `get_broker(use_stub=True)` at module import
+time, which decorated the dramatiq actors against THAT StubBroker. The
+acceptance suite then created a DIFFERENT StubBroker in its fixture,
+producing `QueueNotFound: default` when calling `broker.join(...)`.
+
+Fix: install ONE shared StubBroker at conftest IMPORT time (not via a
+fixture). Module-level execution here runs BEFORE any test module is
+imported by pytest collection — so when test_actors.py later imports
+`polaris_v6.queue.actors`, the @dramatiq.actor decorator binds against
+this StubBroker. Both test_actors.py and the acceptance suite reuse the
+same broker via `dramatiq.get_broker()`.
+
+Tested: `pytest tests/v6/` runs with deterministic broker state — no
+QueueNotFound, no accidental Redis connection attempts.
+"""
+
+from __future__ import annotations
+
+import os
+
+# Force StubBroker BEFORE any other test module imports `dramatiq` —
+# otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
+os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
+
+try:
+    from polaris_v6.queue.broker import get_broker as _get_broker
+
+    # Eagerly install the StubBroker. Subsequent `import dramatiq` calls
+    # see this broker; subsequent `@dramatiq.actor` decorations bind to it.
+    _SHARED_TEST_BROKER = _get_broker(use_stub=True)
+except ImportError:
+    # dramatiq isn't installed — let individual tests use pytest.importorskip
+    _SHARED_TEST_BROKER = None
+
+ succeeded in 1126ms:
+"""Tests for queue.broker.get_broker.
+
+Verifies:
+  - StubBroker path (default for tests / CI without Redis)
+  - Env-var override (POLARIS_V6_QUEUE_USE_STUB=1)
+  - Redis URL resolution precedence: arg > env > default
+  - heartbeat_seconds * 1000 conversion to ms for RedisBroker
+  - dramatiq global broker is registered after construction
+"""
+
+from __future__ import annotations
+
+import os
+from unittest.mock import patch
+
+import pytest
+
+pytest.importorskip("dramatiq")
+
+import dramatiq  # noqa: E402
+from dramatiq.brokers.redis import RedisBroker  # noqa: E402
+from dramatiq.brokers.stub import StubBroker  # noqa: E402
+
+from polaris_v6.queue.broker import (  # noqa: E402
+    DEFAULT_HEARTBEAT_SECONDS,
+    DEFAULT_REDIS_URL,
+    get_broker,
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_session_broker():
+    """Save the session-shared broker before each test and restore after.
+
+    Cycle-4 audit P3.1 fix: get_broker() side-effects dramatiq.set_broker(),
+    so calling it in a test would replace the session-shared StubBroker
+    installed by tests/v6/conftest.py. Subsequent tests (notably the
+    acceptance suite that depends on the session broker) would then run
+    against whatever broker the last test left behind.
+    """
+    saved = dramatiq.get_broker()
+    yield
+    dramatiq.set_broker(saved)
+
+
+def test_use_stub_explicit_true_returns_stubbroker():
+    broker = get_broker(use_stub=True)
+    assert isinstance(broker, StubBroker)
+    # Registered globally as the active broker.
+    assert dramatiq.get_broker() is broker
+
+
+def test_use_stub_via_env_var():
+    with patch.dict(os.environ, {"POLARIS_V6_QUEUE_USE_STUB": "1"}, clear=False):
+        broker = get_broker()
+    assert isinstance(broker, StubBroker)
+
+
+def test_use_stub_env_var_zero_uses_redis_path():
+    """Only `1` enables stub. `0`, `false`, etc. fall through to RedisBroker."""
+    with patch.dict(os.environ, {"POLARIS_V6_QUEUE_USE_STUB": "0"}, clear=False):
+        # Construct against a phony URL that the broker doesn't actually
+        # connect to until first send; just verify the type.
+        broker = get_broker(redis_url="redis://test-host:6379/0")
+    assert isinstance(broker, RedisBroker)
+
+
+def test_redis_url_arg_overrides_env(monkeypatch):
+    monkeypatch.setenv("POLARIS_V6_REDIS_URL", "redis://env-host:6379/0")
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "0")
+    # Connection won't actually fire until a message is sent; we only verify
+    # that the arg-provided URL is recorded.
+    broker = get_broker(redis_url="redis://arg-host:6379/0")
+    # RedisBroker stores the parsed URL on its client connection_kwargs.
+    assert "arg-host" in str(broker.client.connection_pool.connection_kwargs)
+
+
+def test_redis_url_env_used_when_arg_missing(monkeypatch):
+    monkeypatch.setenv("POLARIS_V6_REDIS_URL", "redis://env-host:6379/0")
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "0")
+    broker = get_broker()
+    assert "env-host" in str(broker.client.connection_pool.connection_kwargs)
+
+
+def test_redis_url_default_when_neither_set(monkeypatch):
+    monkeypatch.delenv("POLARIS_V6_REDIS_URL", raising=False)
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "0")
+    broker = get_broker()
+    # Default is redis://localhost:6379/0.
+    assert "localhost" in str(broker.client.connection_pool.connection_kwargs)
+
+
+def test_default_heartbeat_seconds_is_30():
+    assert DEFAULT_HEARTBEAT_SECONDS == 30
+
+
+def test_default_redis_url_is_canonical():
+    assert DEFAULT_REDIS_URL == "redis://localhost:6379/0"
+
+
+def test_set_broker_registers_globally():
+    """dramatiq.get_broker() must return the broker get_broker() built."""
+    broker = get_broker(use_stub=True)
+    assert dramatiq.get_broker() is broker
+
+codex
+The submitted test is logically stronger than the earlier one, but I’m also checking one subtlety: whether the explicit `import` followed by `reload` can collide with Dramatiq actor declaration when the module was not already loaded.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import inspect
+import dramatiq
+from dramatiq.brokers.stub import StubBroker
+print('dramatiq', getattr(dramatiq, '__version__', 'unknown'))
+print(inspect.getsource(StubBroker.declare_actor))
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import inspect
+import dramatiq
+from dramatiq.broker import Broker
+print(inspect.getsource(Broker.declare_actor))
+'@ | python -" in C:\POLARIS
+ succeeded in 1990ms:
+    def declare_actor(self, actor: Actor) -> None:  # pragma: no cover
+        """Declare a new actor on this broker.  Declaring an Actor
+        twice replaces the first actor with the second by name.
+
+        Parameters:
+          actor(Actor): The actor being declared.
+        """
+        self.emit_before("declare_actor", actor)
+        self.declare_queue(actor.queue_name)
+        self.actors[actor.actor_name] = actor
+        self.emit_after("declare_actor", actor)
+
+
+ succeeded in 2005ms:
+dramatiq 2.1.0
+    def declare_actor(self, actor: Actor) -> None:  # pragma: no cover
+        """Declare a new actor on this broker.  Declaring an Actor
+        twice replaces the first actor with the second by name.
+
+        Parameters:
+          actor(Actor): The actor being declared.
+        """
+        self.emit_before("declare_actor", actor)
+        self.declare_queue(actor.queue_name)
+        self.actors[actor.actor_name] = actor
+        self.emit_after("declare_actor", actor)
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_v6/queue/broker.py src/polaris_v6/queue/actors.py tests/v6/test_broker_init_order.py tests/v6/test_broker.py' in C:\POLARIS
+ succeeded in 810ms:
+ succeeded in 980ms:
+?? .claude/hooks/__pycache__/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-carney-005/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_1.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_2.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_3.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_4.txt
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-snowball-001/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_tmp_i_arch001a_actor_0d00737908a74619aadb0f3ca326ba8c/
+?? codex_tmp_i_arch001a_manual_8df334a540ae4cebb698e2441b372d59/
+?? codex_tmp_i_arch001a_pytest_probe/
+?? codex_tmp_i_arch_001a_review/
+?? codex_tmp_i_arch_001f_iter2_manual/
+?? codex_tmp_i_arch_001f_manual_probe/
+?? codex_tmp_manual_1dd40099bce94e8a97eddfb27f94a9ad/
+?? codex_tmp_manual_i_arch001d_e181e4ae3b4b4ed1bdc15e03e159a57b/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_scope_gate_tmp2/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/basetemp_5cee64b5902649d7a1cd8b095435da08/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/basetemp_precreated/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/pytest-cache-files-1ykvrnzz/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/pytest-cache-files-sht0cls4/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001a_review/basetemp1/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001a_review/basetemp2/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001f_iter2_pytest_run/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001f_review_basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_iter3_verify_run/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/pytest-cache-files-78fai4pb/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/pytest-cache-files-j9pt3f1q/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-3f9s08mh/': Permission denied
+warning: could not open directory 'pytest-cache-files-dysodq4d/': Permission denied
+warning: could not open directory 'pytest-cache-files-jdgz67tr/': Permission denied
+warning: could not open directory 'pytest-cache-files-kds8u4s5/': Permission denied
+warning: could not open directory 'pytest-cache-files-lgffjwll/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-szrlm1db/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest-cache-files-z1miwcyi/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp3jencwbw/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp6xbnvzw9/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpa3ivn9br/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_i_arch_001a/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\acceptance\\test_runs_db_integration.py | Select-Object -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\acceptance\\test_dramatiq_acceptance.py | Select-Object -First 140" in C:\POLARIS
+ succeeded in 938ms:
+"""Integration tests for I-phase0-005 — POST /runs -> Dramatiq -> SQLite.
+
+Per Codex APPROVE iter 4 brief, exercises the queue-to-DB loop:
+- Schema applied via init_db.
+- Actor success path persists status + result_json.
+- POST /runs persists row + enqueues actor.
+- GET /runs/{id} reads from store.
+
+Existing scenario 1 (test_dramatiq_acceptance.py) covers the strengthened
+"row reaches completed after broker drain" assertion.
+
+Out of scope this Issue (deferred to follow-up I-phase0-005b):
+- mark_failed + error_json + failure-path test
+- Idempotency-on-completed short-circuit + test
+- Missing-row direct .fn() RuntimeError (inverted by stub-mode contract)
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+
+import pytest
+
+pytest.importorskip("dramatiq")
+pytest.importorskip("fastapi")
+
+
+@pytest.fixture
+def isolated_db(monkeypatch, tmp_path):
+    """Per-test SQLite DB + StubBroker flush before/after.
+
+    Per brief P2-I4-002 closure: imports MUST stay inside test bodies /
+    fixtures so monkeypatch.setenv lands before run_store reads env.
+    """
+    db_path = tmp_path / "runs_integration.sqlite"
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+    import dramatiq
+    broker = dramatiq.get_broker()
+    broker.flush_all()
+    yield db_path
+    broker.flush_all()
+
+
+def test_init_db_creates_schema(isolated_db):
+    """Acceptance #1: init_db creates the runs table with 9 named columns."""
+    from polaris_v6.queue import run_store
+
+    run_store.init_db()
+
+    conn = sqlite3.connect(str(isolated_db))
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    finally:
+        conn.close()
+    # I-arch-001a (2026-05-12): status -> lifecycle_status + new metadata columns.
+    expected = {
+        "run_id", "template", "question", "lifecycle_status",
+        "queued_at", "started_at", "finished_at",
+        "result_json", "error_json",
+        # New I-arch-001a columns:
+        "query_slug", "manifest_run_id", "artifact_dir",
+        "pipeline_status", "cost_usd", "decision_id",
+    }
+    assert cols == expected
+
+
+def test_actor_marks_completed_after_pre_insert(isolated_db, monkeypatch, tmp_path):
+    """Acceptance #2: pre-inserted row reaches lifecycle_status=completed after broker drain.
+
+    I-arch-001a (2026-05-12): actor now invokes pipeline-A via
+    scripts.run_honest_sweep_r3.run_one_query and reads the manifest it
+    writes. The test mocks the import to return a synthetic summary +
+    write a minimal valid manifest, keeping the acceptance hermetic.
+    """
+    import dramatiq
+    from dramatiq.worker import Worker
+    from polaris_v6.queue import run_store
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    # Mock pipeline-A: write a minimal manifest and return a summary dict.
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.01,
+            "slug": q["slug"],
+            "domain": q["domain"],
+            "question": q["question"],
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.01, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    run_store.insert_run("run_002", "clinical", "noop?")
+    payload = {"template": "clinical", "question": "noop?", "document_ids": []}
+    enqueue_research_run.send("run_002", payload)
+
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    try:
+        broker.join(enqueue_research_run.queue_name, timeout=10000)
+        worker.join()
+    finally:
+        worker.stop()
+
+    record = run_store.get_run("run_002")
+    assert record is not None
+    assert record.lifecycle_status == "completed"
+    assert record.pipeline_status == "success"
+    assert record.status == "completed"  # computed_field backcompat alias
+    assert record.query_slug is not None
+    assert record.artifact_dir is not None
+    assert record.cost_usd == 0.01
+
+
+def test_post_runs_persists_row(isolated_db):
+    """Acceptance #3: POST /runs returns 202 with status='queued' and persists a row."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.runs import router
+    from polaris_v6.queue import run_store
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "queued"
+    run_id = body["run_id"]
+
+    record = run_store.get_run(run_id)
+    assert record is not None
+    assert record.status == "queued"
+
+
+def test_get_run_after_drain_returns_completed(isolated_db, monkeypatch, tmp_path):
+    """Acceptance #4: full POST + drain + GET loop returns lifecycle_status=completed.
+
+    I-arch-001a (2026-05-12): mock pipeline-A as in test #2.
+    """
+    import dramatiq
+    from dramatiq.worker import Worker
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.runs import router
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.02,
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.02, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    post_resp = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+    assert post_resp.status_code == 202
+    run_id = post_resp.json()["run_id"]
+    assert post_resp.json()["status"] == "queued"  # computed_field alias works at API surface
+
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    try:
+        broker.join(enqueue_research_run.queue_name, timeout=10000)
+        worker.join()
+    finally:
+        worker.stop()
+
+    get_resp = client.get(f"/runs/{run_id}")
+    assert get_resp.status_code == 200
+    body = get_resp.json()
+    assert body["status"] == "completed"  # alias
+    assert body["lifecycle_status"] == "completed"
+    assert body["pipeline_status"] == "success"
+    assert body["cost_usd"] == 0.02
+
+ succeeded in 1013ms:
+"""Dramatiq queue acceptance test matrix — Phase 0 Task 0.5 GREEN gate.
+
+Per docs/backend_modernization.md §3, eight scenarios must pass before
+Dramatiq is committed as the queue. This module ships scenario 1 in a
+form that runs against StubBroker (in-process; no real Redis cluster
+needed). Scenarios 2-8 are stubs marked xfail until the Vast.ai dev
+cluster (Task 0.3) is live with real Redis + multi-worker Dramatiq.
+
+The point of shipping scenario 1 now is to prove the actor + broker
+contract is wired correctly so that scenarios 2-8 are pure additions
+in Phase 0 / Phase 1 once the cluster is live.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture
+def stub_broker(monkeypatch):
+    """Reuse the session-shared StubBroker installed by tests/v6/conftest.py.
+
+    Cycle-4 audit P1.1 fix: previously this fixture created a NEW
+    StubBroker per test, but the dramatiq actor decorators in
+    polaris_v6.queue.actors are bound to whatever broker exists at
+    first-import. Creating a fresh broker here breaks that binding and
+    raises `QueueNotFound: default` on broker.join().
+    """
+    pytest.importorskip("dramatiq")
+    import dramatiq
+    from dramatiq.worker import Worker
+
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    yield broker, worker
+    worker.stop()
+    # Don't close the broker — it's session-shared (see conftest.py).
+
+
+def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
+    """Scenario 1: actor returns; lifecycle_status `completed`.
+
+    I-phase0-005: strengthened to assert the run row reaches `completed`
+    in the run_store DB after broker drain.
+
+    I-arch-001a (2026-05-12): mocks pipeline-A (run_one_query) to write
+    a minimal valid manifest. Without the mock the actor would attempt
+    a real pipeline-A invocation and hit retrieval / LLM dependencies.
+    """
+    import json
+
+    broker, worker = stub_broker
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.01,
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.01, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+
+    from polaris_v6.queue import run_store
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    run_store.insert_run("run_001", "clinical", "noop?")
+    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+    broker.join(enqueue_research_run.queue_name, timeout=10000)
+    worker.join()
+
+    record = run_store.get_run("run_001")
+    assert record is not None
+    assert record.lifecycle_status == "completed"
+    assert record.pipeline_status == "success"
+    assert record.status == "completed"  # computed_field backcompat alias
+
+
+@pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")
+def test_scenario_2_retry_on_transient_failure():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 3 requires Worker.send_signal against real broker (Task 0.3)")
+def test_scenario_3_cancel_mid_execution():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 4 requires SIGKILL fixture + idempotency key store (Task 0.3)")
+def test_scenario_4_worker_kill_resume():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 5 requires ConnectionMiddleware + broker restart fixture (Task 0.3)")
+def test_scenario_5_resume_after_broker_restart():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 6 requires otel_propagate middleware (next file)")
+def test_scenario_6_trace_id_propagation():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 7 requires throttle middleware + 100-message fixture (Task 0.3)")
+def test_scenario_7_high_retry_rate_degradation():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 8 requires real broker disconnect simulation (Task 0.3)")
+def test_scenario_8_broker_heartbeat():
+    raise NotImplementedError
+
+codex
+One remaining review point is test hygiene: reloading `actors` mutates module globals for the rest of the pytest process. I’m checking the current collection shape to decide whether that is blocking or just a follow-up note.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest --collect-only -q tests/v6' in C:\POLARIS
+2026-05-13T07:20:16.338333Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.9 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m --collect-only -q tests/v6[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 1850ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m --collect-only -q tests/v6[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest --collect-only -q tests/v6' in C:\POLARIS
+2026-05-13T07:20:27.101256Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.3 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 395 items / 1 error
+
+<Dir POLARIS>
+  <Package tests>
+    <Package v6>
+      <Package acceptance>
+        <Module test_dramatiq_acceptance.py>
+          <Function test_scenario_1_enqueue_and_complete>
+          <Function test_scenario_2_retry_on_transient_failure>
+          <Function test_scenario_3_cancel_mid_execution>
+          <Function test_scenario_4_worker_kill_resume>
+          <Function test_scenario_5_resume_after_broker_restart>
+          <Function test_scenario_6_trace_id_propagation>
+          <Function test_scenario_7_high_retry_rate_degradation>
+          <Function test_scenario_8_broker_heartbeat>
+        <Module test_runs_db_integration.py>
+          <Function test_init_db_creates_schema>
+          <Function test_actor_marks_completed_after_pre_insert>
+          <Function test_post_runs_persists_row>
+          <Function test_get_run_after_drain_returns_completed>
+      <Dir benchmark>
+        <Module test_api_benchmark_runner_smoke.py>
+          <Function test_question_schema_accepts_all_rubric_fields>
+          <Function test_factual_accuracy_full_match>
+          <Function test_factual_accuracy_partial_match>
+          <Function test_factual_accuracy_error_returns_zero>
+          <Function test_citation_health_at_threshold>
+          <Function test_citation_health_below_threshold>
+          <Function test_frame_coverage_underscore_normalized>
+          <Function test_contradiction_handling_correct_surface>
+          <Function test_contradiction_handling_silent_suppression>
+          <Function test_refusal_calibration_correct_refusal>
+          <Function test_refusal_calibration_under_refusal>
+          <Function test_user_traceability_polaris_provenance_tokens>
+          <Function test_user_traceability_chatgpt_footnotes>
+          <Function test_two_family_na_for_chatgpt>
+          <Function test_two_family_polaris_surfaces_signal_when_expected>
+          <Function test_sycophancy_resistance_resists_leading>
+          <Function test_sycophancy_resistance_caves_to_leading>
+          <Function test_sycophancy_na_when_not_paired>
+          <Function test_score_question_returns_eight_dimensions>
+          <Function test_cost_cap_records_error_continues_other_systems>
+          <Function test_match_or_beat_polaris_wins>
+          <Function test_match_or_beat_polaris_loses>
+          <Function test_match_or_beat_insufficient_data_dry_run_zeros>
+          <Function test_match_or_beat_dry_run_blocks_approve>
+          <Function test_match_or_beat_incomplete_carney_templates>
+          <Function test_match_or_beat_approve_with_full_carney_set_and_live>
+          <Function test_match_or_beat_competitor_must_have_all_dims>
+          <Function test_nan_to_null_replaces_floats>
+          <Function test_runner_output_has_no_bare_nan>
+          <Function test_match_or_beat_insufficient_data_missing_polaris_dim>
+          <Function test_match_or_beat_insufficient_data_no_competitor_data>
+          <Function test_run_benchmark_fails_loud_on_unknown_system>
+          <Function test_run_benchmark_fails_loud_on_missing_required_system>
+          <Function test_run_benchmark_subset_allowed_with_explicit_flag>
+          <Function test_refusal_calibration_detects_over_refusal_via_generic_marker>
+          <Function test_runner_dry_run_end_to_end>
+        <Module test_benchmark_proof_package.py>
+          <Function test_harness_runs_end_to_end>
+          <Function test_score_uses_coverage_scorer>
+          <Function test_missing_response_yields_empty>
+          <Function test_dimensions_always_six_with_filter[dims0]>
+          <Function test_dimensions_always_six_with_filter[dims1]>
+          <Function test_subprocess_runs_end_to_end>
+        <Module test_coverage_scorer.py>
+          <Function test_aspirin_migraine_with_keywords_scores_1>
+          <Function test_keywords_present_takes_precedence_over_anchors>
+          <Function test_no_keywords_falls_back_to_anchors_pass>
+          <Function test_no_keywords_falls_back_to_anchors_fail>
+          <Function test_no_targets_returns_zero>
+      <Package compare>
+        <Module test_claim_diff.py>
+          <Function test_agreement_high_overlap_shared_evidence>
+          <Function test_partial_mid_overlap_either_evidence[ev0]>
+          <Function test_partial_mid_overlap_either_evidence[ev1]>
+          <Function test_partial_low_overlap_shared_evidence>
+          <Function test_disagreement_low_overlap_disjoint_evidence>
+          <Function test_only_left_section_missing_right>
+          <Function test_counts_aggregated>
+          <Function test_provenance_tokens_in_text_stripped_before_jaccard>
+          <Function test_dropped_sentences_excluded_and_same_run_id_rejected>
+        <Module test_jurisdictional_diff.py>
+          <Function test_two_jurisdictions_one_pair>
+          <Function test_three_jurisdictions_three_pairs>
+          <Function test_pairs_sorted_alphabetically_by_jurisdiction>
+          <Function test_question_mismatch_rejected>
+          <Function test_single_jurisdiction_rejected>
+      <Module test_actors.py>
+        <Function test_enqueue_returns_completed_status_and_echoes_payload>
+        <Function test_enqueue_handles_empty_payload>
+        <Function test_enqueue_max_retries_constant_is_3>
+        <Function test_enqueue_actor_carries_max_retries_3>
+        <Function test_enqueue_actor_time_limit_is_30_minutes_in_ms>
+        <Function test_cancel_returns_cancel_requested_status>
+        <Function test_cancel_actor_max_retries_is_0>
+        <Function test_actors_are_dramatiq_actor_instances>
+      <Module test_ambiguity_detector.py>
+        <Function test_unambiguous_single_topic_returns_false>
+        <Function test_bpei_pattern_detects_ambiguity>
+        <Function test_empty_snippets_returns_unambiguous>
+        <Function test_min_cluster_size_filter>
+        <Function test_max_clusters_surfaced_caps>
+      <Module test_anti_sycophancy_ci_gate.py>
+        <Function test_gate_passes_on_clean_responses>
+        <Function test_gate_fails_on_drift_responses>
+        <Function test_gate_rejects_unknown_paired_id>
+        <Function test_gate_rejects_empty_responses>
+        <Function test_gate_rejects_missing_paired_id>
+        <Function test_gate_rejects_duplicate_paired_id>
+      <Module test_api_ambiguity.py>
+        <Function test_check_ambiguity_unambiguous_housing>
+        <Function test_check_ambiguity_bpei_pattern>
+        <Function test_check_ambiguity_rejects_short_question>
+        <Function test_check_ambiguity_empty_candidates>
+      <Module test_api_bundle.py>
+        <Function test_bundle_returns_404_for_unknown_run>
+        <Function test_bundle_returns_clinical_golden_run>
+        <Function test_bundle_returns_contradiction_golden_run>
+        <Function test_bundle_returns_abort_run>
+      <Module test_api_charts.py>
+        <Function test_charts_for_clinical_golden[forest_plot]>
+        <Function test_charts_for_clinical_golden[comparison_table]>
+        <Function test_charts_for_clinical_golden[timeline]>
+        <Function test_charts_404_for_unknown_run>
+        <Function test_charts_422_for_unknown_chart_type>
+        <Function test_contradiction_run_forest_plot_has_contradiction_label>
+        <Function test_climate_timeline_uses_verified_sentence_steps>
+      <Module test_api_followup_compare.py>
+        <Function test_followup_returns_answered_for_overlap>
+        <Function test_followup_out_of_scope>
+        <Function test_followup_404_unknown_run>
+        <Function test_followup_422_short_question>
+        <Function test_compare_two_distinct_runs>
+        <Function test_compare_same_run_400>
+        <Function test_compare_unknown_run_404>
+        <Function test_compare_defense_vs_climate_shared_zero>
+      <Module test_api_health_and_runs.py>
+        <Function test_health_returns_ok>
+        <Function test_create_run_returns_202_and_queued>
+        <Function test_create_run_rejects_invalid_template>
+        <Function test_create_run_rejects_short_question>
+        <Function test_get_run_returns_404_for_unknown>
+        <Function test_create_then_get_run_round_trip>
+      <Module test_api_memory.py>
+        <Function test_remember_then_recall>
+        <Function test_workspace_isolation_via_http>
+        <Function test_forget>
+        <Function test_list_workspace>
+        <Function test_invalid_kind_rejected>
+        <Function test_short_content_rejected>
+      <Module test_api_stream.py>
+        <Function test_stream_translates_pipeline_a_events_to_v6_protocol>
+        <Function test_stream_run_complete_carries_pipeline_status>
+        <Function test_stream_last_event_id_header_resumes>
+        <Function test_stream_redis_unreachable_emits_stream_unavailable_run_complete>
+      <Module test_api_templates.py>
+        <Function test_list_returns_all_templates>
+        <Function test_get_one_returns_full_content>
+        <Function test_get_unknown_template_404>
+      <Module test_api_upload.py>
+        <Function test_upload_text_file_returns_document_id>
+        <Function test_upload_default_classification_is_unknown>
+        <Function test_upload_pdf_returns_queued_status>
+        <Function test_upload_rejects_unsupported_extension>
+        <Function test_upload_rejects_empty_file>
+        <Function test_upload_round_trip_via_get>
+        <Function test_upload_get_404_for_unknown>
+      <Module test_benchmark_schema.py>
+        <Function test_minimum_question_validates>
+        <Function test_dimension_score_clamps>
+        <Function test_benchmark_score_requires_six_dimensions>
+        <Function test_suite_design_requires_min_two_systems>
+        <Function test_suite_design_minimum_valid>
+        <Function test_difficulty_levels_enum_only>
+      <Module test_broker.py>
+        <Function test_use_stub_explicit_true_returns_stubbroker>
+        <Function test_use_stub_via_env_var>
+        <Function test_use_stub_env_var_zero_uses_redis_path>
+        <Function test_redis_url_arg_overrides_env>
+        <Function test_redis_url_env_used_when_arg_missing>
+        <Function test_redis_url_default_when_neither_set>
+        <Function test_default_heartbeat_seconds_is_30>
+        <Function test_default_redis_url_is_canonical>
+        <Function test_set_broker_registers_globally>
+      <Module test_chart_provenance.py>
+        <Function test_validate_forest_plot_provenance>
+        <Function test_validate_comparison_table_provenance>
+        <Function test_validate_timeline_provenance>
+        <Function test_missing_polaris_provenance_raises>
+        <Function test_polaris_provenance_not_dict_raises>
+        <Function test_empty_evidence_ids_raises>
+        <Function test_blank_evidence_id_raises>
+        <Function test_unknown_chart_type_raises>
+        <Function test_timeline_without_period_kind_raises>
+        <Function test_non_timeline_with_period_kind_raises>
+        <Function test_extra_field_forbidden>
+      <Module test_charts.py>
+        <Function test_forest_plot_basic_shape>
+        <Function test_forest_plot_empty_raises>
+        <Function test_comparison_table_basic_shape>
+        <Function test_comparison_table_n2_renders_correctly>
+        <Function test_comparison_table_n5_renders_correctly>
+        <Function test_timeline_quarter_kind>
+        <Function test_timeline_date_kind_uses_temporal>
+        <Function test_forest_plot_meta_analysis_with_negative_estimates>
+        <Function test_all_charts_carry_evidence_ids>
+        <Function test_from_bundle_comparison_table_falls_back_to_evidence_pool>
+        <Function test_from_bundle_timeline_falls_back_when_no_verified_sentences>
+        <Function test_from_bundle_unknown_chart_type_raises>
+      <Module test_chroma_workspace_memory.py>
+        <Function test_remember_and_recall_basic>
+        <Function test_workspace_isolation>
+        <Function test_kind_filter>
+        <Function test_top_k_caps_results>
+        <Function test_forget_respects_workspace>
+        <Function test_default_embed_fn_fails_loudly>
+        <Function test_persistent_client_round_trip>
+        <Function test_pre_existing_collection_with_wrong_metric_raises>
+      <Module test_code_executor_sovereignty.py>
+        <Function test_blocks_socket_import>
+        <Function test_blocks_underscore_socket_import>
+        <Function test_blocks_urllib_import>
+        <Function test_blocks_requests_import>
+        <Function test_blocks_subprocess_import>
+        <Function test_blocks_os_import>
+        <Function test_blocks_comma_separated_socket_import>
+        <Function test_blocks_comma_separated_urllib_import>
+        <Function test_blocks_non_allowlisted_module>
+        <Function test_blocks_operator_import>
+        <Function test_blocks_open_call>
+        <Function test_blocks_exec_call>
+        <Function test_blocks_eval_call>
+        <Function test_blocks_dunder_import>
+        <Function test_blocks_compile_call>
+        <Function test_blocks_builtins_direct_reference>
+        <Function test_blocks_builtins_subscript>
+        <Function test_blocks_builtins_dict_attr>
+        <Function test_blocks_sys_getframe>
+        <Function test_blocks_dynamic_import_via_frame>
+        <Function test_blocks_class_subclasses_chain>
+        <Function test_blocks_numpy_ctypeslib>
+        <Function test_blocks_sys_modules_subscript>
+        <Function test_blocks_vars_sys_modules>
+        <Function test_blocks_dir_call>
+        <Function test_blocks_globals_call>
+        <Function test_blocks_eval_alias>
+        <Function test_blocks_open_alias>
+        <Function test_blocks_vars_alias_sys_modules>
+        <Function test_blocks_getattr_alias>
+        <Function test_allowed_pandas_numpy_passes>
+        <Function test_allowed_imports_with_alias_passes>
+        <Function test_time_module_allowed>
+        <Coroutine test_runtime_timeout_cap_kills_runaway_loop>
+        <Coroutine test_runtime_socket_preamble_does_not_leak_to_user_globals>
+      <Module test_compare.py>
+        <Function test_same_run_id_raises>
+        <Function test_evidence_overlap_calculation>
+        <Function test_disjoint_evidence_pools>
+        <Function test_template_and_question_flags>
+        <Function test_frame_overlap>
+        <Function test_pipeline_status_match>
+        <Function test_family_segregation_both_pass_only_when_both_true>
+      <Module test_end_to_end_arch_001f.py>
+        <Function test_e2e_post_run_through_stream_resume_and_bundle>
+      <Module test_evidence_contract_gate.py>
+        <Function test_golden_artifact_parses[golden_run_clinical.json]>
+        <Function test_golden_artifact_parses[golden_run_with_contradiction.json]>
+        <Function test_golden_artifact_parses[golden_run_abort_no_verified.json]>
+        <Function test_golden_artifact_parses[golden_run_defense.json]>
+        <Function test_golden_artifact_parses[golden_run_climate.json]>
+        <Function test_golden_artifact_parses[golden_run_ai_sovereignty.json]>
+        <Function test_family_segregation_invariant_holds>
+        <Function test_abort_no_verified_has_empty_sentences>
+        <Function test_provenance_tokens_reference_pool>
+        <Function test_contradiction_evidence_resolves_to_pool>
+        <Function test_negative_cost_rejected>
+        <Function test_invalid_span_bounds_rejected>
+        <Function test_wrong_contract_version_rejected>
+      <Module test_evidence_pool_memory.py>
+        <Function test_memory_summaries_appear_in_pool>
+        <Function test_memory_summaries_dedup_internal>
+        <Function test_uploaded_takes_priority_over_memory>
+        <Function test_retrieval_takes_priority_over_memory>
+        <Function test_pool_with_all_three_kinds>
+      <Module test_evidence_pool_merger.py>
+        <Function test_uploaded_chunks_appear_in_pool>
+        <Function test_retrieval_and_upload_both_in_pool>
+        <Function test_upload_takes_priority_on_duplicate>
+        <Function test_dedup_normalizes_whitespace_and_case>
+        <Function test_evidence_ids_are_stable>
+        <Function test_empty_inputs_return_empty_pool>
+      <Module test_followup_agent.py>
+        <Function test_answer_with_overlap_returns_answered>
+        <Function test_answer_out_of_scope_when_no_overlap>
+        <Function test_answer_evidence_insufficient_for_no_content_tokens>
+        <Function test_answer_caps_to_top_three_evidence>
+        <Function test_provenance_tokens_match_used_evidence>
+      <Module test_industry_benchmark_adapters.py>
+        <Function test_browsecomp_basic>
+        <Function test_browsecomp_missing_required_raises>
+        <Function test_gaia_basic>
+        <Function test_gaia_missing_question_raises>
+        <Function test_deepresearch_bench_basic>
+        <Function test_dispatch_known_and_unknown>
+        <Function test_round_trip_via_dispatch>
+      <Module test_log_redact.py>
+        <Function test_public_synthetic_passes_through>
+        <Function test_can_real_redacts_prompt_and_completion>
+        <Function test_private_and_client_also_redact>
+        <Function test_unknown_classification_does_not_redact>
+        <Function test_password_and_apikey_keys_redacted>
+        <Function test_list_value_redacted_per_item>
+        <Function test_redact_for_log_passes_through_when_safe>
+        <Function test_redact_for_log_hashes_can_real>
+        <Function test_redact_kinds_constant>
+        <Function test_set_span_attributes_safe_redacts_for_can_real>
+        <Function test_set_span_attributes_safe_passes_through_for_public>
+        <Function test_set_span_attributes_safe_handles_none_span>
+        <Function test_set_span_attributes_safe_continues_past_per_attribute_error>
+      <Module test_otel_init.py>
+        <Function test_init_otel_raises_when_env_missing>
+        <Function test_init_otel_rejects_legacy_gen_ai_dev>
+        <Function test_init_otel_accepts_correct_value>
+        <Function test_init_otel_accepts_in_csv_list>
+      <Module test_otel_propagate_middleware.py>
+        <Function test_before_enqueue_injects_carrier_when_span_active>
+        <Function test_before_enqueue_no_op_without_active_span_carrier_can_be_empty>
+        <Function test_before_process_message_attaches_token_when_carrier_present>
+        <Function test_before_process_message_no_op_when_no_carrier>
+        <Function test_after_process_message_detaches_token>
+        <Function test_after_process_message_no_op_when_no_token>
+        <Function test_full_round_trip_preserves_carrier_until_handler>
+      <Module test_paired_prompts_corpus.py>
+        <Function test_corpus_has_at_least_twenty_entries>
+        <Function test_all_entries_validate_against_pydantic>
+        <Function test_anti_001_carney_priority_domains_present_and_defense_anchor_current>
+      <Module test_regression_lab.py>
+        <Function test_clean_baseline_passes>
+        <Function test_one_regression_fails_ci>
+        <Function test_unmatched_baseline_does_not_fail>
+        <Function test_unmatched_candidate_is_new_test>
+        <Function test_warns_recorded_separately_from_regressions>
+        <Function test_format_ci_summary_includes_verdict>
+        <Function test_format_ci_summary_lists_unmatched_baselines>
+        <Function test_format_ci_summary_lists_new_candidates>
+        <Function test_format_ci_summary_lists_regression_details>
+      <Module test_replay.py>
+        <Function test_identical_pins_produce_empty_diff_modulo_ids>
+        <Function test_same_pin_id_raises>
+        <Function test_generator_model_swap_is_warn>
+        <Function test_question_change_is_regression>
+        <Function test_pipeline_status_success_to_abort_is_regression>
+        <Function test_sentence_count_drop_over_10pct_is_regression>
+        <Function test_sentence_count_small_drop_not_regression>
+        <Function test_evidence_pool_added_and_dropped>
+      <Module test_run_benchmark_script.py>
+        <Function test_build_suite_from_browsecomp_records>
+        <Function test_build_suite_from_gaia_records>
+        <Function test_difficulty_mapping>
+        <Function test_dry_run_writes_suite_design>
+        <Function test_main_errors_on_missing_input>
+        <Function test_main_errors_when_backend_missing_and_not_dry_run>
+      <Module test_schemas.py>
+        <Function test_run_request_accepts_valid_clinical>
+        <Function test_run_request_rejects_invalid_template>
+        <Function test_run_request_question_too_short>
+        <Function test_evidence_contract_round_trip>
+        <Function test_verifier_verdict_uses_pass_alias>
+      <Module test_scope.py>
+        <Function test_research_question_is_accepted>
+        <Function test_personal_treatment_request_rejected>
+        <Function test_short_question_needs_clarification>
+        <Function test_personal_legal_advice_rejected>
+        <Function test_political_endorsement_rejected>
+      <Module test_scripts_v6_handover.py>
+        <Function test_cost_summary_reads_real_bundles_and_reports>
+        <Function test_cost_summary_empty_dir_exits_1>
+        <Function test_cost_summary_since_filter_excludes_old>
+        <Function test_replay_pin_no_change_exits_0_no_regression>
+        <Function test_replay_pin_pipeline_status_regression_exits_1>
+        <Function test_replay_pin_json_emit>
+        <Function test_run_pin_replay_clean_pass>
+        <Function test_run_pin_replay_regression_fails>
+        <Function test_run_pin_replay_missing_baseline_dir_exits_2>
+      <Module test_sticky_connection_middleware.py>
+        <Function test_no_op_when_broker_lacks_client_attribute>
+        <Function test_pins_client_on_worker_boot_when_broker_has_one>
+        <Function test_clean_close_on_worker_shutdown>
+        <Function test_close_errors_are_logged_not_swallowed>
+        <Function test_no_op_on_shutdown_when_no_client_pinned>
+      <Module test_sycophancy_ci.py>
+        <Function test_non_sycophantic_model_passes>
+        <Function test_sycophantic_model_fails_drift_threshold>
+        <Function test_anchor_missing_from_some_framings_fails>
+        <Function test_inconsistent_refusal_fails>
+        <Function test_consistent_refusal_when_acceptable_passes>
+        <Function test_jaccard_returns_zero_on_empty_sets>
+        <Function test_score_raises_on_paired_id_mismatch>
+        <Function test_score_raises_on_wrong_response_count>
+      <Module test_sycophancy_fixtures.py>
+        <Function test_fixtures_load>
+        <Function test_each_paired_prompt_has_four_framings>
+        <Function test_paired_prompt_validates_against_pydantic[syc_clinical_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_housing_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_trade_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_defense_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_climate_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_clinical_refuse_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_workforce_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_ai_sov_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_canada_us_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_indigenous_consultation_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_personal_legal_refuse_001]>
+        <Function test_refusal_acceptable_marked_correctly>
+        <Function test_factual_anchors_are_short>
+        <Function test_no_duplicate_paired_ids>
+      <Module test_template_registry.py>
+        <Function test_all_six_templates_load>
+        <Function test_template_validates_against_schema[defense]>
+        <Function test_template_validates_against_schema[climate]>
+        <Function test_template_validates_against_schema[ai_sovereignty]>
+        <Function test_template_validates_against_schema[canada_us]>
+        <Function test_template_validates_against_schema[workforce]>
+        <Function test_defense_has_norad_frame>
+        <Function test_climate_has_emissions_intensity_frame>
+        <Function test_load_unknown_template_raises>
+        <Function test_sample_questions_non_empty>
+      <Module test_throttle_middleware.py>
+        <Function test_no_backoff_when_failure_ratio_below_threshold>
+        <Function test_backoff_applied_when_ratio_at_or_above_threshold>
+        <Function test_per_actor_isolation>
+        <Function test_window_size_caps_history>
+        <Function test_threshold_parameterized[0.25-True]>
+        <Function test_threshold_parameterized[0.5-True]>
+        <Function test_threshold_parameterized[0.75-False]>
+      <Module test_verdict_gate_substrate_prep.py>
+        <Function test_substrate_prep_entry_is_implicated_when_glob_matches>
+        <Function test_task_level_glob_still_works_alongside_substrate_prep>
+        <Function test_substrate_prep_without_id_is_skipped>
+        <Function test_substrate_prep_prefers_task_id_field_over_id>
+        <Function test_real_matrix_substrate_prep_entries_match_canonical_globs>
+        <Function test_unrelated_files_implicate_no_task>
+      <Module test_workspace_memory.py>
+        <Function test_remember_and_recall_basic>
+        <Function test_workspace_isolation>
+        <Function test_workspace_id_normalization>
+        <Function test_kind_filter>
+        <Function test_top_k_caps_results>
+        <Function test_recall_increments_use_count>
+        <Function test_forget_respects_workspace>
+        <Function test_recall_empty_workspace_returns_empty>
+
+=================================== ERRORS ====================================
+_______ ERROR collecting tests/v6/anti_sycophancy/test_nightly_eval.py ________
+ImportError while importing test module 'C:\POLARIS\tests\v6\anti_sycophancy\test_nightly_eval.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\v6\anti_sycophancy\test_nightly_eval.py:17: in <module>
+    from polaris_v6.anti_sycophancy import nightly_eval as ne
+E   ModuleNotFoundError: No module named 'polaris_v6'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/v6/anti_sycophancy/test_nightly_eval.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+==================== 395 tests collected, 1 error in 3.56s ====================
+
+ exited 1 in 7301ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 395 items / 1 error
+
+<Dir POLARIS>
+  <Package tests>
+    <Package v6>
+      <Package acceptance>
+        <Module test_dramatiq_acceptance.py>
+          <Function test_scenario_1_enqueue_and_complete>
+          <Function test_scenario_2_retry_on_transient_failure>
+          <Function test_scenario_3_cancel_mid_execution>
+          <Function test_scenario_4_worker_kill_resume>
+          <Function test_scenario_5_resume_after_broker_restart>
+          <Function test_scenario_6_trace_id_propagation>
+          <Function test_scenario_7_high_retry_rate_degradation>
+          <Function test_scenario_8_broker_heartbeat>
+        <Module test_runs_db_integration.py>
+          <Function test_init_db_creates_schema>
+          <Function test_actor_marks_completed_after_pre_insert>
+          <Function test_post_runs_persists_row>
+          <Function test_get_run_after_drain_returns_completed>
+      <Dir benchmark>
+        <Module test_api_benchmark_runner_smoke.py>
+          <Function test_question_schema_accepts_all_rubric_fields>
+          <Function test_factual_accuracy_full_match>
+          <Function test_factual_accuracy_partial_match>
+          <Function test_factual_accuracy_error_returns_zero>
+          <Function test_citation_health_at_threshold>
+          <Function test_citation_health_below_threshold>
+          <Function test_frame_coverage_underscore_normalized>
+          <Function test_contradiction_handling_correct_surface>
+          <Function test_contradiction_handling_silent_suppression>
+          <Function test_refusal_calibration_correct_refusal>
+          <Function test_refusal_calibration_under_refusal>
+          <Function test_user_traceability_polaris_provenance_tokens>
+          <Function test_user_traceability_chatgpt_footnotes>
+          <Function test_two_family_na_for_chatgpt>
+          <Function test_two_family_polaris_surfaces_signal_when_expected>
+          <Function test_sycophancy_resistance_resists_leading>
+          <Function test_sycophancy_resistance_caves_to_leading>
+          <Function test_sycophancy_na_when_not_paired>
+          <Function test_score_question_returns_eight_dimensions>
+          <Function test_cost_cap_records_error_continues_other_systems>
+          <Function test_match_or_beat_polaris_wins>
+          <Function test_match_or_beat_polaris_loses>
+          <Function test_match_or_beat_insufficient_data_dry_run_zeros>
+          <Function test_match_or_beat_dry_run_blocks_approve>
+          <Function test_match_or_beat_incomplete_carney_templates>
+          <Function test_match_or_beat_approve_with_full_carney_set_and_live>
+          <Function test_match_or_beat_competitor_must_have_all_dims>
+          <Function test_nan_to_null_replaces_floats>
+          <Function test_runner_output_has_no_bare_nan>
+          <Function test_match_or_beat_insufficient_data_missing_polaris_dim>
+          <Function test_match_or_beat_insufficient_data_no_competitor_data>
+          <Function test_run_benchmark_fails_loud_on_unknown_system>
+          <Function test_run_benchmark_fails_loud_on_missing_required_system>
+          <Function test_run_benchmark_subset_allowed_with_explicit_flag>
+          <Function test_refusal_calibration_detects_over_refusal_via_generic_marker>
+          <Function test_runner_dry_run_end_to_end>
+        <Module test_benchmark_proof_package.py>
+          <Function test_harness_runs_end_to_end>
+          <Function test_score_uses_coverage_scorer>
+          <Function test_missing_response_yields_empty>
+          <Function test_dimensions_always_six_with_filter[dims0]>
+          <Function test_dimensions_always_six_with_filter[dims1]>
+          <Function test_subprocess_runs_end_to_end>
+        <Module test_coverage_scorer.py>
+          <Function test_aspirin_migraine_with_keywords_scores_1>
+          <Function test_keywords_present_takes_precedence_over_anchors>
+          <Function test_no_keywords_falls_back_to_anchors_pass>
+          <Function test_no_keywords_falls_back_to_anchors_fail>
+          <Function test_no_targets_returns_zero>
+      <Package compare>
+        <Module test_claim_diff.py>
+          <Function test_agreement_high_overlap_shared_evidence>
+          <Function test_partial_mid_overlap_either_evidence[ev0]>
+          <Function test_partial_mid_overlap_either_evidence[ev1]>
+          <Function test_partial_low_overlap_shared_evidence>
+          <Function test_disagreement_low_overlap_disjoint_evidence>
+          <Function test_only_left_section_missing_right>
+          <Function test_counts_aggregated>
+          <Function test_provenance_tokens_in_text_stripped_before_jaccard>
+          <Function test_dropped_sentences_excluded_and_same_run_id_rejected>
+        <Module test_jurisdictional_diff.py>
+          <Function test_two_jurisdictions_one_pair>
+          <Function test_three_jurisdictions_three_pairs>
+          <Function test_pairs_sorted_alphabetically_by_jurisdiction>
+          <Function test_question_mismatch_rejected>
+          <Function test_single_jurisdiction_rejected>
+      <Module test_actors.py>
+        <Function test_enqueue_returns_completed_status_and_echoes_payload>
+        <Function test_enqueue_handles_empty_payload>
+        <Function test_enqueue_max_retries_constant_is_3>
+        <Function test_enqueue_actor_carries_max_retries_3>
+        <Function test_enqueue_actor_time_limit_is_30_minutes_in_ms>
+        <Function test_cancel_returns_cancel_requested_status>
+        <Function test_cancel_actor_max_retries_is_0>
+        <Function test_actors_are_dramatiq_actor_instances>
+      <Module test_ambiguity_detector.py>
+        <Function test_unambiguous_single_topic_returns_false>
+        <Function test_bpei_pattern_detects_ambiguity>
+        <Function test_empty_snippets_returns_unambiguous>
+        <Function test_min_cluster_size_filter>
+        <Function test_max_clusters_surfaced_caps>
+      <Module test_anti_sycophancy_ci_gate.py>
+        <Function test_gate_passes_on_clean_responses>
+        <Function test_gate_fails_on_drift_responses>
+        <Function test_gate_rejects_unknown_paired_id>
+        <Function test_gate_rejects_empty_responses>
+        <Function test_gate_rejects_missing_paired_id>
+        <Function test_gate_rejects_duplicate_paired_id>
+      <Module test_api_ambiguity.py>
+        <Function test_check_ambiguity_unambiguous_housing>
+        <Function test_check_ambiguity_bpei_pattern>
+        <Function test_check_ambiguity_rejects_short_question>
+        <Function test_check_ambiguity_empty_candidates>
+      <Module test_api_bundle.py>
+        <Function test_bundle_returns_404_for_unknown_run>
+        <Function test_bundle_returns_clinical_golden_run>
+        <Function test_bundle_returns_contradiction_golden_run>
+        <Function test_bundle_returns_abort_run>
+      <Module test_api_charts.py>
+        <Function test_charts_for_clinical_golden[forest_plot]>
+        <Function test_charts_for_clinical_golden[comparison_table]>
+        <Function test_charts_for_clinical_golden[timeline]>
+        <Function test_charts_404_for_unknown_run>
+        <Function test_charts_422_for_unknown_chart_type>
+        <Function test_contradiction_run_forest_plot_has_contradiction_label>
+        <Function test_climate_timeline_uses_verified_sentence_steps>
+      <Module test_api_followup_compare.py>
+        <Function test_followup_returns_answered_for_overlap>
+        <Function test_followup_out_of_scope>
+        <Function test_followup_404_unknown_run>
+        <Function test_followup_422_short_question>
+        <Function test_compare_two_distinct_runs>
+        <Function test_compare_same_run_400>
+        <Function test_compare_unknown_run_404>
+        <Function test_compare_defense_vs_climate_shared_zero>
+      <Module test_api_health_and_runs.py>
+        <Function test_health_returns_ok>
+        <Function test_create_run_returns_202_and_queued>
+        <Function test_create_run_rejects_invalid_template>
+        <Function test_create_run_rejects_short_question>
+        <Function test_get_run_returns_404_for_unknown>
+        <Function test_create_then_get_run_round_trip>
+      <Module test_api_memory.py>
+        <Function test_remember_then_recall>
+        <Function test_workspace_isolation_via_http>
+        <Function test_forget>
+        <Function test_list_workspace>
+        <Function test_invalid_kind_rejected>
+        <Function test_short_content_rejected>
+      <Module test_api_stream.py>
+        <Function test_stream_translates_pipeline_a_events_to_v6_protocol>
+        <Function test_stream_run_complete_carries_pipeline_status>
+        <Function test_stream_last_event_id_header_resumes>
+        <Function test_stream_redis_unreachable_emits_stream_unavailable_run_complete>
+      <Module test_api_templates.py>
+        <Function test_list_returns_all_templates>
+        <Function test_get_one_returns_full_content>
+        <Function test_get_unknown_template_404>
+      <Module test_api_upload.py>
+        <Function test_upload_text_file_returns_document_id>
+        <Function test_upload_default_classification_is_unknown>
+        <Function test_upload_pdf_returns_queued_status>
+        <Function test_upload_rejects_unsupported_extension>
+        <Function test_upload_rejects_empty_file>
+        <Function test_upload_round_trip_via_get>
+        <Function test_upload_get_404_for_unknown>
+      <Module test_benchmark_schema.py>
+        <Function test_minimum_question_validates>
+        <Function test_dimension_score_clamps>
+        <Function test_benchmark_score_requires_six_dimensions>
+        <Function test_suite_design_requires_min_two_systems>
+        <Function test_suite_design_minimum_valid>
+        <Function test_difficulty_levels_enum_only>
+      <Module test_broker.py>
+        <Function test_use_stub_explicit_true_returns_stubbroker>
+        <Function test_use_stub_via_env_var>
+        <Function test_use_stub_env_var_zero_uses_redis_path>
+        <Function test_redis_url_arg_overrides_env>
+        <Function test_redis_url_env_used_when_arg_missing>
+        <Function test_redis_url_default_when_neither_set>
+        <Function test_default_heartbeat_seconds_is_30>
+        <Function test_default_redis_url_is_canonical>
+        <Function test_set_broker_registers_globally>
+      <Module test_chart_provenance.py>
+        <Function test_validate_forest_plot_provenance>
+        <Function test_validate_comparison_table_provenance>
+        <Function test_validate_timeline_provenance>
+        <Function test_missing_polaris_provenance_raises>
+        <Function test_polaris_provenance_not_dict_raises>
+        <Function test_empty_evidence_ids_raises>
+        <Function test_blank_evidence_id_raises>
+        <Function test_unknown_chart_type_raises>
+        <Function test_timeline_without_period_kind_raises>
+        <Function test_non_timeline_with_period_kind_raises>
+        <Function test_extra_field_forbidden>
+      <Module test_charts.py>
+        <Function test_forest_plot_basic_shape>
+        <Function test_forest_plot_empty_raises>
+        <Function test_comparison_table_basic_shape>
+        <Function test_comparison_table_n2_renders_correctly>
+        <Function test_comparison_table_n5_renders_correctly>
+        <Function test_timeline_quarter_kind>
+        <Function test_timeline_date_kind_uses_temporal>
+        <Function test_forest_plot_meta_analysis_with_negative_estimates>
+        <Function test_all_charts_carry_evidence_ids>
+        <Function test_from_bundle_comparison_table_falls_back_to_evidence_pool>
+        <Function test_from_bundle_timeline_falls_back_when_no_verified_sentences>
+        <Function test_from_bundle_unknown_chart_type_raises>
+      <Module test_chroma_workspace_memory.py>
+        <Function test_remember_and_recall_basic>
+        <Function test_workspace_isolation>
+        <Function test_kind_filter>
+        <Function test_top_k_caps_results>
+        <Function test_forget_respects_workspace>
+        <Function test_default_embed_fn_fails_loudly>
+        <Function test_persistent_client_round_trip>
+        <Function test_pre_existing_collection_with_wrong_metric_raises>
+      <Module test_code_executor_sovereignty.py>
+        <Function test_blocks_socket_import>
+        <Function test_blocks_underscore_socket_import>
+        <Function test_blocks_urllib_import>
+        <Function test_blocks_requests_import>
+        <Function test_blocks_subprocess_import>
+        <Function test_blocks_os_import>
+        <Function test_blocks_comma_separated_socket_import>
+        <Function test_blocks_comma_separated_urllib_import>
+        <Function test_blocks_non_allowlisted_module>
+        <Function test_blocks_operator_import>
+        <Function test_blocks_open_call>
+        <Function test_blocks_exec_call>
+        <Function test_blocks_eval_call>
+        <Function test_blocks_dunder_import>
+        <Function test_blocks_compile_call>
+        <Function test_blocks_builtins_direct_reference>
+        <Function test_blocks_builtins_subscript>
+        <Function test_blocks_builtins_dict_attr>
+        <Function test_blocks_sys_getframe>
+        <Function test_blocks_dynamic_import_via_frame>
+        <Function test_blocks_class_subclasses_chain>
+        <Function test_blocks_numpy_ctypeslib>
+        <Function test_blocks_sys_modules_subscript>
+        <Function test_blocks_vars_sys_modules>
+        <Function test_blocks_dir_call>
+        <Function test_blocks_globals_call>
+        <Function test_blocks_eval_alias>
+        <Function test_blocks_open_alias>
+        <Function test_blocks_vars_alias_sys_modules>
+        <Function test_blocks_getattr_alias>
+        <Function test_allowed_pandas_numpy_passes>
+        <Function test_allowed_imports_with_alias_passes>
+        <Function test_time_module_allowed>
+        <Coroutine test_runtime_timeout_cap_kills_runaway_loop>
+        <Coroutine test_runtime_socket_preamble_does_not_leak_to_user_globals>
+      <Module test_compare.py>
+        <Function test_same_run_id_raises>
+        <Function test_evidence_overlap_calculation>
+        <Function test_disjoint_evidence_pools>
+        <Function test_template_and_question_flags>
+        <Function test_frame_overlap>
+        <Function test_pipeline_status_match>
+        <Function test_family_segregation_both_pass_only_when_both_true>
+      <Module test_end_to_end_arch_001f.py>
+        <Function test_e2e_post_run_through_stream_resume_and_bundle>
+      <Module test_evidence_contract_gate.py>
+        <Function test_golden_artifact_parses[golden_run_clinical.json]>
+        <Function test_golden_artifact_parses[golden_run_with_contradiction.json]>
+        <Function test_golden_artifact_parses[golden_run_abort_no_verified.json]>
+        <Function test_golden_artifact_parses[golden_run_defense.json]>
+        <Function test_golden_artifact_parses[golden_run_climate.json]>
+        <Function test_golden_artifact_parses[golden_run_ai_sovereignty.json]>
+        <Function test_family_segregation_invariant_holds>
+        <Function test_abort_no_verified_has_empty_sentences>
+        <Function test_provenance_tokens_reference_pool>
+        <Function test_contradiction_evidence_resolves_to_pool>
+        <Function test_negative_cost_rejected>
+        <Function test_invalid_span_bounds_rejected>
+        <Function test_wrong_contract_version_rejected>
+      <Module test_evidence_pool_memory.py>
+        <Function test_memory_summaries_appear_in_pool>
+        <Function test_memory_summaries_dedup_internal>
+        <Function test_uploaded_takes_priority_over_memory>
+        <Function test_retrieval_takes_priority_over_memory>
+        <Function test_pool_with_all_three_kinds>
+      <Module test_evidence_pool_merger.py>
+        <Function test_uploaded_chunks_appear_in_pool>
+        <Function test_retrieval_and_upload_both_in_pool>
+        <Function test_upload_takes_priority_on_duplicate>
+        <Function test_dedup_normalizes_whitespace_and_case>
+        <Function test_evidence_ids_are_stable>
+        <Function test_empty_inputs_return_empty_pool>
+      <Module test_followup_agent.py>
+        <Function test_answer_with_overlap_returns_answered>
+        <Function test_answer_out_of_scope_when_no_overlap>
+        <Function test_answer_evidence_insufficient_for_no_content_tokens>
+        <Function test_answer_caps_to_top_three_evidence>
+        <Function test_provenance_tokens_match_used_evidence>
+      <Module test_industry_benchmark_adapters.py>
+        <Function test_browsecomp_basic>
+        <Function test_browsecomp_missing_required_raises>
+        <Function test_gaia_basic>
+        <Function test_gaia_missing_question_raises>
+        <Function test_deepresearch_bench_basic>
+        <Function test_dispatch_known_and_unknown>
+        <Function test_round_trip_via_dispatch>
+      <Module test_log_redact.py>
+        <Function test_public_synthetic_passes_through>
+        <Function test_can_real_redacts_prompt_and_completion>
+        <Function test_private_and_client_also_redact>
+        <Function test_unknown_classification_does_not_redact>
+        <Function test_password_and_apikey_keys_redacted>
+        <Function test_list_value_redacted_per_item>
+        <Function test_redact_for_log_passes_through_when_safe>
+        <Function test_redact_for_log_hashes_can_real>
+        <Function test_redact_kinds_constant>
+        <Function test_set_span_attributes_safe_redacts_for_can_real>
+        <Function test_set_span_attributes_safe_passes_through_for_public>
+        <Function test_set_span_attributes_safe_handles_none_span>
+        <Function test_set_span_attributes_safe_continues_past_per_attribute_error>
+      <Module test_otel_init.py>
+        <Function test_init_otel_raises_when_env_missing>
+        <Function test_init_otel_rejects_legacy_gen_ai_dev>
+        <Function test_init_otel_accepts_correct_value>
+        <Function test_init_otel_accepts_in_csv_list>
+      <Module test_otel_propagate_middleware.py>
+        <Function test_before_enqueue_injects_carrier_when_span_active>
+        <Function test_before_enqueue_no_op_without_active_span_carrier_can_be_empty>
+        <Function test_before_process_message_attaches_token_when_carrier_present>
+        <Function test_before_process_message_no_op_when_no_carrier>
+        <Function test_after_process_message_detaches_token>
+        <Function test_after_process_message_no_op_when_no_token>
+        <Function test_full_round_trip_preserves_carrier_until_handler>
+      <Module test_paired_prompts_corpus.py>
+        <Function test_corpus_has_at_least_twenty_entries>
+        <Function test_all_entries_validate_against_pydantic>
+        <Function test_anti_001_carney_priority_domains_present_and_defense_anchor_current>
+      <Module test_regression_lab.py>
+        <Function test_clean_baseline_passes>
+        <Function test_one_regression_fails_ci>
+        <Function test_unmatched_baseline_does_not_fail>
+        <Function test_unmatched_candidate_is_new_test>
+        <Function test_warns_recorded_separately_from_regressions>
+        <Function test_format_ci_summary_includes_verdict>
+        <Function test_format_ci_summary_lists_unmatched_baselines>
+        <Function test_format_ci_summary_lists_new_candidates>
+        <Function test_format_ci_summary_lists_regression_details>
+      <Module test_replay.py>
+        <Function test_identical_pins_produce_empty_diff_modulo_ids>
+        <Function test_same_pin_id_raises>
+        <Function test_generator_model_swap_is_warn>
+        <Function test_question_change_is_regression>
+        <Function test_pipeline_status_success_to_abort_is_regression>
+        <Function test_sentence_count_drop_over_10pct_is_regression>
+        <Function test_sentence_count_small_drop_not_regression>
+        <Function test_evidence_pool_added_and_dropped>
+      <Module test_run_benchmark_script.py>
+        <Function test_build_suite_from_browsecomp_records>
+        <Function test_build_suite_from_gaia_records>
+        <Function test_difficulty_mapping>
+        <Function test_dry_run_writes_suite_design>
+        <Function test_main_errors_on_missing_input>
+        <Function test_main_errors_when_backend_missing_and_not_dry_run>
+      <Module test_schemas.py>
+        <Function test_run_request_accepts_valid_clinical>
+        <Function test_run_request_rejects_invalid_template>
+        <Function test_run_request_question_too_short>
+        <Function test_evidence_contract_round_trip>
+        <Function test_verifier_verdict_uses_pass_alias>
+      <Module test_scope.py>
+        <Function test_research_question_is_accepted>
+        <Function test_personal_treatment_request_rejected>
+        <Function test_short_question_needs_clarification>
+        <Function test_personal_legal_advice_rejected>
+        <Function test_political_endorsement_rejected>
+      <Module test_scripts_v6_handover.py>
+        <Function test_cost_summary_reads_real_bundles_and_reports>
+        <Function test_cost_summary_empty_dir_exits_1>
+        <Function test_cost_summary_since_filter_excludes_old>
+        <Function test_replay_pin_no_change_exits_0_no_regression>
+        <Function test_replay_pin_pipeline_status_regression_exits_1>
+        <Function test_replay_pin_json_emit>
+        <Function test_run_pin_replay_clean_pass>
+        <Function test_run_pin_replay_regression_fails>
+        <Function test_run_pin_replay_missing_baseline_dir_exits_2>
+      <Module test_sticky_connection_middleware.py>
+        <Function test_no_op_when_broker_lacks_client_attribute>
+        <Function test_pins_client_on_worker_boot_when_broker_has_one>
+        <Function test_clean_close_on_worker_shutdown>
+        <Function test_close_errors_are_logged_not_swallowed>
+        <Function test_no_op_on_shutdown_when_no_client_pinned>
+      <Module test_sycophancy_ci.py>
+        <Function test_non_sycophantic_model_passes>
+        <Function test_sycophantic_model_fails_drift_threshold>
+        <Function test_anchor_missing_from_some_framings_fails>
+        <Function test_inconsistent_refusal_fails>
+        <Function test_consistent_refusal_when_acceptable_passes>
+        <Function test_jaccard_returns_zero_on_empty_sets>
+        <Function test_score_raises_on_paired_id_mismatch>
+        <Function test_score_raises_on_wrong_response_count>
+      <Module test_sycophancy_fixtures.py>
+        <Function test_fixtures_load>
+        <Function test_each_paired_prompt_has_four_framings>
+        <Function test_paired_prompt_validates_against_pydantic[syc_clinical_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_housing_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_trade_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_defense_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_climate_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_clinical_refuse_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_workforce_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_ai_sov_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_canada_us_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_indigenous_consultation_001]>
+        <Function test_paired_prompt_validates_against_pydantic[syc_personal_legal_refuse_001]>
+        <Function test_refusal_acceptable_marked_correctly>
+        <Function test_factual_anchors_are_short>
+        <Function test_no_duplicate_paired_ids>
+      <Module test_template_registry.py>
+        <Function test_all_six_templates_load>
+        <Function test_template_validates_against_schema[defense]>
+        <Function test_template_validates_against_schema[climate]>
+        <Function test_template_validates_against_schema[ai_sovereignty]>
+        <Function test_template_validates_against_schema[canada_us]>
+        <Function test_template_validates_against_schema[workforce]>
+        <Function test_defense_has_norad_frame>
+        <Function test_climate_has_emissions_intensity_frame>
+        <Function test_load_unknown_template_raises>
+        <Function test_sample_questions_non_empty>
+      <Module test_throttle_middleware.py>
+        <Function test_no_backoff_when_failure_ratio_below_threshold>
+        <Function test_backoff_applied_when_ratio_at_or_above_threshold>
+        <Function test_per_actor_isolation>
+        <Function test_window_size_caps_history>
+        <Function test_threshold_parameterized[0.25-True]>
+        <Function test_threshold_parameterized[0.5-True]>
+        <Function test_threshold_parameterized[0.75-False]>
+      <Module test_verdict_gate_substrate_prep.py>
+        <Function test_substrate_prep_entry_is_implicated_when_glob_matches>
+        <Function test_task_level_glob_still_works_alongside_substrate_prep>
+        <Function test_substrate_prep_without_id_is_skipped>
+        <Function test_substrate_prep_prefers_task_id_field_over_id>
+        <Function test_real_matrix_substrate_prep_entries_match_canonical_globs>
+        <Function test_unrelated_files_implicate_no_task>
+      <Module test_workspace_memory.py>
+        <Function test_remember_and_recall_basic>
+        <Function test_workspace_isolation>
+        <Function test_workspace_id_normalization>
+        <Function test_kind_filter>
+        <Function test_top_k_caps_results>
+        <Function test_recall_increments_use_count>
+        <Function test_forget_respects_workspace>
+        <Function test_recall_empty_workspace_returns_empty>
+
+=================================== ERRORS ====================================
+_______ ERROR collecting tests/v6/anti_sycophancy/test_nightly_eval.py ________
+ImportError while importing test module 'C:\POLARIS\tests\v6\anti_sycophancy\test_nightly_eval.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\v6\anti_sycophancy\test_nightly_eval.py:17: in <module>
+    from polaris_v6.anti_sycophancy import nightly_eval as ne
+E   ModuleNotFoundError: No module named 'polaris_v6'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/v6/anti_sycophancy/test_nightly_eval.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+==================== 395 tests collected, 1 error in 3.56s ====================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"queue\\.actors|enqueue_research_run|dramatiq\\.get_broker|Worker\\(\" tests\\v6 -g \"*.py\"" in C:\POLARIS
+ succeeded in 721ms:
+tests\v6\conftest.py:12:`polaris_v6.queue.actors`, the @dramatiq.actor decorator binds against
+tests\v6\conftest.py:14:same broker via `dramatiq.get_broker()`.
+tests\v6\test_actors.py:1:"""Tests for queue.actors — research-run actor stubs.
+tests\v6\test_actors.py:4:  - enqueue_research_run echoes payload + reports completed status
+tests\v6\test_actors.py:5:  - enqueue_research_run carries max_retries=3 + 30-min time_limit
+tests\v6\test_actors.py:22:# @dramatiq.actor decorators in polaris_v6.queue.actors bind against the
+tests\v6\test_actors.py:24:from polaris_v6.queue.actors import (  # noqa: E402
+tests\v6\test_actors.py:27:    enqueue_research_run,
+tests\v6\test_actors.py:33:    result = enqueue_research_run.fn("run-001", payload)
+tests\v6\test_actors.py:42:    result = enqueue_research_run.fn("run-empty", {})
+tests\v6\test_actors.py:54:    assert enqueue_research_run.options.get("max_retries") == 3
+tests\v6\test_actors.py:59:    assert enqueue_research_run.options.get("time_limit") == 30 * 60 * 1000
+tests\v6\test_actors.py:74:    assert hasattr(enqueue_research_run, "send")  # actor.send() enqueues
+tests\v6\test_actors.py:75:    assert hasattr(enqueue_research_run, "fn")    # actor.fn is the unwrapped callable
+tests\v6\test_broker.py:41:    saved = dramatiq.get_broker()
+tests\v6\test_broker.py:50:    assert dramatiq.get_broker() is broker
+tests\v6\test_broker.py:102:    """dramatiq.get_broker() must return the broker get_broker() built."""
+tests\v6\test_broker.py:104:    assert dramatiq.get_broker() is broker
+tests\v6\test_end_to_end_arch_001f.py:61:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_dramatiq_acceptance.py:25:    polaris_v6.queue.actors are bound to whatever broker exists at
+tests\v6\acceptance\test_dramatiq_acceptance.py:34:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_dramatiq_acceptance.py:35:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_dramatiq_acceptance.py:75:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_dramatiq_acceptance.py:78:    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+tests\v6\acceptance\test_dramatiq_acceptance.py:79:    broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:39:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:79:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:104:    enqueue_research_run.send("run_002", payload)
+tests\v6\acceptance\test_runs_db_integration.py:106:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:107:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_runs_db_integration.py:110:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:157:    from polaris_v6.queue.actors import enqueue_research_run
+tests\v6\acceptance\test_runs_db_integration.py:185:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:186:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_runs_db_integration.py:189:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\test_end_to_end_arch_001f.py | Select-Object -First 120" in C:\POLARIS
+ succeeded in 731ms:
+"""I-arch-001f — end-to-end capstone test for the I-arch-001a..001e seam.
+
+POST /runs → simulate pipeline-A side-effects → GET /runs/{id} →
+GET /stream/{id} → GET /stream/{id} with Last-Event-ID resume →
+GET /runs/{id}/bundle.tar.gz → extract tar → cross-validate manifest.yaml
++ verified_report.json IDs.
+
+Hermetic via fakeredis + synthetic AuditIR fixture (no real Redis, no LLM,
+no network). Pins the I-arch-001a..001e architectural seam end-to-end so
+any future drift breaks one obvious assertion. Brief APPROVE iter 3 of 5
+at .codex/I-arch-001f/codex_brief_verdict_iter_3.txt.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import tarfile
+
+import pytest
+import yaml
+
+# Force StubBroker BEFORE importing actors / runs (tests/v6/conftest.py
+# already does this, but be defensive when this module is collected alone).
+pytest.importorskip("dramatiq")
+pytest.importorskip("fakeredis")
+pytest.importorskip("fastapi")
+pytest.importorskip("sse_starlette")
+
+from polaris_v6.queue import run_events as _run_events_module
+from polaris_v6.queue import run_store
+from polaris_graph.api.audit_bundle_route import get_sign_fn
+
+# Reuse the synthetic AuditIR fixture builder from I-arch-001d tests.
+from tests.polaris_v6.api.test_artifact_to_slice_chain import (
+    _write_synthetic_artifact_dir,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def isolated_runs_db(tmp_path, monkeypatch):
+    """Per Codex iter-2 P1-002: isolate POLARIS_V6_RUN_DB so the test does NOT
+    write to state/v6_runs.sqlite or bleed into other tests."""
+    db_path = tmp_path / "e2e_v6_runs.sqlite"
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+    run_store.init_db(str(db_path))
+    yield db_path
+
+
+@pytest.fixture(autouse=True)
+def flush_stub_broker():
+    """Per Codex iter-3 P1-005: StubBroker uses flush_all(), not flush_queue().
+    Guarded by hasattr so a real-Redis broker (no flush_all) is a no-op."""
+    import dramatiq
+
+    broker = dramatiq.get_broker()
+    if hasattr(broker, "flush_all"):
+        broker.flush_all()
+    yield
+    if hasattr(broker, "flush_all"):
+        broker.flush_all()
+
+
+@pytest.fixture
+def fake_server():
+    import fakeredis
+
+    return fakeredis.FakeServer()
+
+
+@pytest.fixture
+def sync_fake(fake_server):
+    import fakeredis
+
+    return fakeredis.FakeStrictRedis(server=fake_server)
+
+
+@pytest.fixture
+def async_fake(fake_server):
+    import fakeredis
+
+    return fakeredis.aioredis.FakeRedis(server=fake_server)
+
+
+@pytest.fixture
+def app_with_v6_routers(isolated_runs_db):
+    """Mount the v6 routers needed for the e2e chain: runs, stream, bundle."""
+    from fastapi import FastAPI
+    from polaris_v6.api import bundle as bundle_module
+    from polaris_v6.api import runs as runs_module
+    from polaris_v6.api import stream as stream_module
+
+    app = FastAPI()
+    app.include_router(runs_module.router)
+    app.include_router(stream_module.router)
+    app.include_router(bundle_module.router)
+    return app
+
+
+def _stub_sign_fn():
+    """Per I-arch-001d test_get_bundle_targz_signer_override_fires."""
+    def _sign(_data: bytes) -> bytes:
+        return b"-----BEGIN PGP SIGNATURE-----\nstub\n-----END PGP SIGNATURE-----\n"
+
+    return _sign
+
+
+def _parse_sse_block(raw: str) -> list[dict]:
+    """Parse SSE wire format into list of dicts with optional id/event/data."""
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+    events: list[dict] = []
+    for block in normalized.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\test_end_to_end_arch_001f.py | Select-Object -Skip 120 -First 160" in C:\POLARIS
+ succeeded in 729ms:
+        evt: dict = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                evt["event"] = line[len("event:"):].strip()
+            elif line.startswith("data:"):
+                evt["data"] = json.loads(line[len("data:"):].strip())
+            elif line.startswith("id:"):
+                evt["id"] = line[len("id:"):].strip()
+        if evt.get("event"):
+            events.append(evt)
+    return events
+
+
+# ---------------------------------------------------------------------------
+# E2E capstone test
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_post_run_through_stream_resume_and_bundle(
+    app_with_v6_routers,
+    isolated_runs_db,
+    fake_server,
+    sync_fake,
+    async_fake,
+    tmp_path,
+    monkeypatch,
+):
+    """Capstone test pinning POST/runs → stream → resume → bundle chain."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app_with_v6_routers)
+
+    # ----- Step 1: POST /runs ---------------------------------------------
+    create_resp = client.post(
+        "/runs", json={"template": "clinical", "question": "synthetic question"}
+    )
+    assert create_resp.status_code == 202, create_resp.text
+    create_body = create_resp.json()
+    posted_run_id = create_body["run_id"]
+    assert create_body["lifecycle_status"] == "queued"
+
+    # ----- Step 2: simulate pipeline-A side-effects -----------------------
+    # 2a. Build a synthetic AuditIR-shape artifact directory.
+    artifact_dir = _write_synthetic_artifact_dir(tmp_path)
+
+    # 2b. Patch the source manifest.json to thread the POST uuid + decision_id
+    #     consistently — per Codex iter-2 P1-001. The augment_v6_manifest helper
+    #     would normally do this inside pipeline-A; in the test we set the
+    #     final values directly so artifact_to_slice_chain produces a
+    #     ScopeDecision with our decision_id.
+    manifest_path = artifact_dir / "manifest.json"
+    src_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    src_manifest["external_run_id"] = posted_run_id
+    src_manifest["scope"]["decision_id"] = f"dec-{posted_run_id}"
+    src_manifest["slug"] = "synthetic_e2e"
+    manifest_path.write_text(json.dumps(src_manifest, sort_keys=True), encoding="utf-8")
+
+    # 2b-bis. Per Codex diff iter-1 P1: write evidence_pool.json so source
+    # full_text is long enough to cover the cited span (0-100). Without this,
+    # `snapshot_sources` raises 'cited span unreachable after snapshot' and
+    # the bundle endpoint returns HTTP 400 instead of the 200 tar.gz this
+    # test must verify.
+    evidence_pool_path = artifact_dir / "evidence_pool.json"
+    long_text = (
+        "Pinned-fixture evidence body intentionally padded to exceed the "
+        "100-character span boundary so snapshot_sources can resolve the "
+        "[#ev:ev_001:0-100] token cleanly. "
+        "Padding lorem ipsum dolor sit amet consectetur adipiscing elit."
+    )
+    evidence_pool_path.write_text(json.dumps({
+        "sources": [
+            {"evidence_id": "ev_001", "full_text": long_text},
+            {"evidence_id": "ev_002", "full_text": long_text},
+        ],
+    }, sort_keys=True), encoding="utf-8")
+
+    # 2c. run_store transitions (the Phase-0 actor stub does NOT call these;
+    #     the real pipeline-A actor will).
+    run_store.mark_in_progress(posted_run_id, path=str(isolated_runs_db))
+    run_store.set_pipeline_meta(
+        posted_run_id,
+        query_slug="synthetic_e2e",
+        artifact_dir=str(artifact_dir),
+        manifest_run_id=src_manifest["run_id"],
+        decision_id=f"dec-{posted_run_id}",
+        path=str(isolated_runs_db),
+    )
+    # 2d. Emit pipeline-A events into fakeredis.
+    _run_events_module.emit_event(
+        posted_run_id,
+        "scope_gate.completed",
+        {"decision": "in_scope", "reason": "synthetic"},
+        redis_client=sync_fake,
+    )
+    _run_events_module.emit_terminal_event(
+        posted_run_id, "success", redis_client=sync_fake,
+    )
+    # 2e. Final run_store transition.
+    run_store.mark_completed(
+        posted_run_id,
+        {"manifest": {"status": "success"}, "status": "success"},
+        pipeline_status="success",
+        cost_usd=0.42,
+        path=str(isolated_runs_db),
+    )
+
+    # ----- Step 3: GET /runs/{id} -----------------------------------------
+    get_resp = client.get(f"/runs/{posted_run_id}")
+    assert get_resp.status_code == 200, get_resp.text
+    get_body = get_resp.json()
+    assert get_body["lifecycle_status"] == "completed"
+    assert get_body["pipeline_status"] == "success"
+
+    # ----- Step 4: GET /stream/{id} ---------------------------------------
+    # Monkeypatch stream module's read_events to feed pre-seeded fakeredis to
+    # the async reader (same pattern as I-arch-001e tests).
+    from polaris_v6.api import stream as stream_module
+    real_read = _run_events_module.read_events
+
+    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
+        async for sid, raw in real_read(
+            run_id, last_event_id=last_event_id, block_ms=50, redis_client_async=async_fake
+        ):
+            yield sid, raw
+
+    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
+
+    stream_resp = client.get(f"/stream/{posted_run_id}")
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers["content-type"]
+    events_seen = _parse_sse_block(stream_resp.text)
+    names = [e["event"] for e in events_seen]
+    assert names == ["scope_decision", "run_complete"]
+    first_event_id = events_seen[0]["id"]
+    run_complete_payload = events_seen[1]["data"]
+    assert run_complete_payload["run_id"] == posted_run_id
+    assert run_complete_payload["status"] == "success"
+
+    # ----- Step 5: GET /stream/{id} with Last-Event-ID resume -------------
+    # Per Codex iter-2 P1-003: pin the resume semantics. After consuming
+    # scope_decision, a reconnect with Last-Event-ID=<first_id> should
+    # return only run_complete (replay starts after the consumed event).
+    resume_resp = client.get(
+        f"/stream/{posted_run_id}", headers={"Last-Event-ID": first_event_id}
+    )
+    assert resume_resp.status_code == 200
+    resume_events = _parse_sse_block(resume_resp.text)
+    assert [e["event"] for e in resume_events] == ["run_complete"]
+
+    # ----- Step 6: GET /runs/{id}/bundle.tar.gz ---------------------------
+    app_with_v6_routers.dependency_overrides[get_sign_fn] = _stub_sign_fn
+    bundle_resp = client.get(f"/runs/{posted_run_id}/bundle.tar.gz")
+    # Critical I-arch-001d P1-001 regression check + Codex diff iter-1 P1:
+    # must be 200 (signer override fires + spans reachable). 503 means
+    # signer wiring is wrong; 400 means evidence_pool.json snapshot is wrong.
+    assert bundle_resp.status_code == 200, (
+        f"bundle endpoint did not return 200. Got {bundle_resp.status_code}: "
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"enqueue_research_run|actors\" src\\polaris_v6\\api\\runs.py src\\polaris_v6 -g \"*.py\"" in C:\POLARIS
+ succeeded in 678ms:
+src\polaris_v6\api\runs.py:16:from polaris_v6.queue.actors import enqueue_research_run
+src\polaris_v6\api\runs.py:35:    enqueue_research_run.send(run_id, payload.model_dump())
+src\polaris_v6\api\runs.py:16:from polaris_v6.queue.actors import enqueue_research_run
+src\polaris_v6\api\runs.py:35:    enqueue_research_run.send(run_id, payload.model_dump())
+src\polaris_v6\queue\actors.py:1:"""Dramatiq actors for POLARIS v6 research-run lifecycle.
+src\polaris_v6\queue\actors.py:8:Stub-mode preserved: when no run_store row exists (existing test_actors.py
+src\polaris_v6\queue\actors.py:69:def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+src\polaris_v6\queue\run_store.py:234:    mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Accepted/non-blocking: teardown restores dramatiq.get_broker() and br._INITIALIZED, but not the reloaded actors module's broker binding. If test order randomization is introduced, reload actors under the restored broker in teardown."
+p3_cosmetic: []
+convergence_call: accept_remaining
+remaining_blockers: []
+```
+tokens used
+114,782
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Accepted/non-blocking: teardown restores dramatiq.get_broker() and br._INITIALIZED, but not the reloaded actors module's broker binding. If test order randomization is introduced, reload actors under the restored broker in teardown."
+p3_cosmetic: []
+convergence_call: accept_remaining
+remaining_blockers: []
+```

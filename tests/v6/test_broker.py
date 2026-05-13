@@ -37,10 +37,18 @@ def _restore_session_broker():
     installed by tests/v6/conftest.py. Subsequent tests (notably the
     acceptance suite that depends on the session broker) would then run
     against whatever broker the last test left behind.
+
+    I-carney-005 P1-007 extension: also save/restore the `_INITIALIZED`
+    sentinel (introduced for same-process broker init) and reset it
+    before yield so each test gets a fresh construction via get_broker().
     """
-    saved = dramatiq.get_broker()
+    from polaris_v6.queue import broker as br
+    saved_broker = dramatiq.get_broker()
+    saved_init = br._INITIALIZED
+    br._INITIALIZED = False  # let each test construct fresh
     yield
-    dramatiq.set_broker(saved)
+    dramatiq.set_broker(saved_broker)
+    br._INITIALIZED = saved_init
 
 
 def test_use_stub_explicit_true_returns_stubbroker():

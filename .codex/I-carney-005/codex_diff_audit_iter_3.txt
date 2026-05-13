@@ -1,3 +1,269 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e204b-ded3-7312-9582-34e762e08db6
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-carney-005 diff iter 3 — INTERNAL_API_URL as build ARG
+
+## Continuing P1-B from iter 2 (resolved)
+
+Codex iter-2: Next.js evaluates `rewrites()` destinations during `next build` and bakes them into the routes manifest, so `INTERNAL_API_URL` must be a build arg, not a runtime env. With only-runtime env, the standalone image bakes the `localhost:8000` fallback and `/api/v6/*` proxies to webui itself (broken).
+
+### Fix
+
+**web/Dockerfile builder stage:**
+```dockerfile
+ARG INTERNAL_API_URL=http://api:8000
+ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+...
+RUN npm run build
+```
+
+`ARG` makes the value available during `npm run build`; the `ENV` line keeps `next.config.ts:process.env.INTERNAL_API_URL` populated for the build's `rewrites()` evaluation. The destination `http://api:8000` is then baked into the standalone routes manifest.
+
+**docker-compose.v6.yml webui service:**
+```yaml
+webui:
+  build:
+    context: ./web
+    dockerfile: Dockerfile
+    args:
+      INTERNAL_API_URL: http://api:8000
+  environment:
+    NODE_ENV: production
+```
+
+`INTERNAL_API_URL` is passed as build arg (NOT runtime env). It's not prefixed `NEXT_PUBLIC_*`, so it does NOT leak into the client bundle — only the server-side routes manifest sees it.
+
+`web/lib/api.ts` stays unchanged (`BACKEND_URL = "/api/v6"` — browser-relative).
+`web/next.config.ts` stays unchanged (process.env.INTERNAL_API_URL reads the build-time ARG).
+
+### Verification
+
+`docker compose -f docker-compose.v6.yml config --quiet` → exit 0.
+
+Build behavior: when Next.js builds, `process.env.INTERNAL_API_URL=http://api:8000` is set (from ENV), so `rewrites()` returns `{ source: '/api/v6/:path*', destination: 'http://api:8000/:path*' }` and Next bakes this into `.next/routes-manifest.json`. The standalone runner serves with this baked destination.
+
+## Direct questions iter 3
+
+1. INTERNAL_API_URL as ARG+ENV in builder stage, then build arg in compose — APPROVE'd?
+2. No client-bundle leak (verified: only NEXT_PUBLIC_* prefix leaks; INTERNAL_API_URL stays server-side) — APPROVE'd?
+3. Anything else blocking iter-3 APPROVE?
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers: [...]
+```
+
+deprecated: `[features].web_search` is deprecated because web search is enabled by default.
+Set `web_search` to `"live"`, `"cached"`, or `"disabled"` at the top level (or under a profile) in config.toml if you want to override it.
+codex
+I’ll check the actual Dockerfile, compose file, and Next config paths so the verdict is based on the repo state rather than only the written summary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path docker-compose.v6.yml' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/Dockerfile' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/Dockerfile docker-compose.v6.yml web/next.config.ts web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/next.config.ts' in C:\POLARIS
+ succeeded in 1292ms:
+# I-carney-005 — POLARIS v6 production stack (Carney demo).
+#
+# Stack: redis + api + worker + webui.
+# Legacy pipeline-B compose (docker-compose.yml) stays untouched per
+# I-carney-005 acceptance criterion 8.
+#
+# Bring up:  docker compose -f docker-compose.v6.yml up -d
+# Tear down: docker compose -f docker-compose.v6.yml down -v   (NB: drops volumes)
+
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1000"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.v6
+    command: api
+    env_file:
+      - .env
+    environment:
+      POLARIS_V6_REDIS_URL: redis://redis:6379/0
+      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
+      GNUPGHOME: /app/gpg
+      # POLARIS_GPG_KEY_ID is read from .env via env_file
+    volumes:
+      - shared_state:/app/state
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+      # P1-006: writable GPG homedir bind-mount.
+      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+    ports:
+      - "${POLARIS_API_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.v6
+    command: worker
+    env_file:
+      - .env
+    environment:
+      POLARIS_V6_REDIS_URL: redis://redis:6379/0
+      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
+      GNUPGHOME: /app/gpg
+    volumes:
+      - shared_state:/app/state
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  webui:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # P1-B from Codex diff iter-2: Next.js bakes rewrites() destinations
+        # at build time, so INTERNAL_API_URL must be a build arg. NOT
+        # prefixed NEXT_PUBLIC_, so it does NOT leak into the client bundle —
+        # only the server-side routes manifest sees it.
+        INTERNAL_API_URL: http://api:8000
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${POLARIS_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  shared_state:
+
+ succeeded in 1384ms:
+# I-carney-005 — POLARIS webui (Next.js 16) production image.
+#
+# Multi-stage build: deps → builder → runner with .next/standalone output.
+# Per memory next_16_breaking_changes.md, Next 16 has standalone output that
+# bundles only the minimum runtime deps; runner stage is tiny.
+#
+# Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is intentionally NOT a build
+# arg. Baking it would freeze an absolute URL (e.g., http://api:8000, a
+# Docker service hostname) into the client bundle and break production
+# browsers. Instead web/lib/api.ts hard-codes `/api/v6` for browser-relative
+# fetch, and INTERNAL_API_URL (server-side only, read at runtime) feeds the
+# Next.js rewrite. INTERNAL_API_URL is set in compose for the webui service,
+# NOT baked at build time.
+
+# ----------- Stage 1: deps -----------
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+# ----------- Stage 2: builder -----------
+FROM node:20-alpine AS builder
+WORKDIR /app
+# Codex diff iter-2 P1-B (continuing): Next.js evaluates rewrites()
+# DESTINATIONS at build time and bakes them into the routes manifest.
+# INTERNAL_API_URL must therefore be a build arg, not a runtime env. It is
+# NOT prefixed with NEXT_PUBLIC_, so it does NOT leak into the client bundle
+# — only the server-side route table sees it. Compose sets the build arg to
+# `http://api:8000` via build.args.INTERNAL_API_URL.
+ARG INTERNAL_API_URL=http://api:8000
+ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# ----------- Stage 3: runner -----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+# Standalone output: contains a minimal server.js + only the deps needed
+# to run it. Requires output: 'standalone' in next.config.ts (P1-004).
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
+EXPOSE 3000
+
+# Healthcheck via wget --spider (busybox alpine built-in).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD wget --spider -q http://localhost:3000/ || exit 1
+
+CMD ["node", "server.js"]
+
+ succeeded in 1569ms:
+ succeeded in 1580ms:
 /**
  * POLARIS v6 API client.
  *
@@ -1132,3 +1398,146 @@ export async function getRunGraph(runId: string): Promise<GraphPayload> {
   }
   return res.json() as Promise<GraphPayload>;
 }
+
+ succeeded in 1598ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+codex
+The key files match the described behavior: the builder stage sets `ARG` and `ENV` before `npm run build`, compose passes `build.args.INTERNAL_API_URL`, and the browser client stays on `/api/v6`. I’m doing one more pass for config/env edge cases before giving the schema verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web -Force -Filter '.env*' | Select-Object -ExpandProperty Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'docker compose -f docker-compose.v6.yml config --quiet' in C:\POLARIS
+ succeeded in 976ms:
+ succeeded in 1127ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1234ms:
+WARNING: Error loading config file: open C:\Users\msn\.docker\config.json: Access is denied.
+WARNING: Error loading config file: open C:\Users\msn\.docker\config.json: Access is denied.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"INTERNAL_API_URL|NEXT_PUBLIC_BACKEND_URL|rewrites\\(|const BACKEND_URL\" web/Dockerfile docker-compose.v6.yml web/next.config.ts web/lib/api.ts" in C:\POLARIS
+ succeeded in 646ms:
+web/Dockerfile:7:# Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is intentionally NOT a build
+web/Dockerfile:11:# fetch, and INTERNAL_API_URL (server-side only, read at runtime) feeds the
+web/Dockerfile:12:# Next.js rewrite. INTERNAL_API_URL is set in compose for the webui service,
+web/Dockerfile:24:# Codex diff iter-2 P1-B (continuing): Next.js evaluates rewrites()
+web/Dockerfile:26:# INTERNAL_API_URL must therefore be a build arg, not a runtime env. It is
+web/Dockerfile:29:# `http://api:8000` via build.args.INTERNAL_API_URL.
+web/Dockerfile:30:ARG INTERNAL_API_URL=http://api:8000
+web/Dockerfile:31:ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+docker-compose.v6.yml:102:        # P1-B from Codex diff iter-2: Next.js bakes rewrites() destinations
+docker-compose.v6.yml:103:        # at build time, so INTERNAL_API_URL must be a build arg. NOT
+docker-compose.v6.yml:106:        INTERNAL_API_URL: http://api:8000
+web/next.config.ts:4:// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+web/next.config.ts:9:  async rewrites() {
+web/next.config.ts:11:      process.env.INTERNAL_API_URL ||
+web/next.config.ts:12:      process.env.NEXT_PUBLIC_BACKEND_URL ||
+web/lib/api.ts:8: * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+web/lib/api.ts:10: * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+web/lib/api.ts:14: * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+web/lib/api.ts:19:const BACKEND_URL = "/api/v6";
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+p3_cosmetic:
+  - "web/Dockerfile header comment still describes INTERNAL_API_URL as runtime-fed; behavior is fixed, but the stale comment could be cleaned up."
+convergence_call: accept_remaining
+remaining_blockers: []
+```
+tokens used
+19,779
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+p3_cosmetic:
+  - "web/Dockerfile header comment still describes INTERNAL_API_URL as runtime-fed; behavior is fixed, but the stale comment could be cleaned up."
+convergence_call: accept_remaining
+remaining_blockers: []
+```

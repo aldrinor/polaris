@@ -1,0 +1,78 @@
+# I-carney-005 — POLARIS v6 backend image (api + worker share this image).
+#
+# Single image, two entrypoint commands:
+#   api    → uvicorn polaris_v6.api.app:app
+#   worker → dramatiq polaris_v6.queue.actors
+#
+# Pipeline B legacy image (Dockerfile + docker_entrypoint.sh + docker-compose.yml)
+# stays untouched per I-carney-005 acceptance criterion 8.
+
+FROM python:3.11-slim
+
+# System deps:
+#   gnupg          — GPG signing of audit bundles
+#   curl           — healthcheck + diagnostic
+#   build-essential — wheel builds for pipeline-A native deps
+#   libpango/cairo + libffi/gdk-pixbuf — WeasyPrint (pipeline-A PDF export)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg \
+    curl \
+    build-essential \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install BOTH requirement files (P1-002 from Codex iter-2 brief):
+#   requirements.txt    — pipeline-A surface (langchain, numpy, openai,
+#                          aiohttp, python-gnupg, ...)
+#   requirements-v6.txt — v6 spine (fastapi, dramatiq, redis-py, OTLP, ...)
+#
+# Codex diff iter-1 P1-A: requirements.txt pins protobuf<5.0.0 because of
+# google-generativeai's transitive constraint; requirements-v6.txt pins
+# protobuf==6.33.6 for OTLP semconv. Conflict resolution: strip google-
+# generativeai (pipeline-C dead code per src/orchestration/FROZEN; only
+# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
+# neither reachable from pipeline-A or v6 backend) AND its protobuf<5
+# constraint from the v6 image only. Pipeline-B's separate `Dockerfile`
+# is untouched and retains both deps.
+COPY requirements.txt requirements-v6.txt ./
+RUN sed -e '/^google-generativeai/d' \
+        -e '/^protobuf</d' \
+        requirements.txt > /tmp/requirements-v6-pipeline-a.txt && \
+    pip install --no-cache-dir -r /tmp/requirements-v6-pipeline-a.txt -r requirements-v6.txt
+
+# Copy application code.
+COPY src/ src/
+COPY scripts/ scripts/
+COPY config/ config/
+COPY architecture.md ground_rules.md ./
+
+# PYTHONPATH so `from polaris_v6...` and `from polaris_graph...` resolve
+# without --app-dir flag (P2 from Codex iter-1 approved).
+ENV PYTHONPATH=/app/src:/app
+
+# Default broker URL points to the compose service `redis`. Override at
+# `docker run` / compose time with POLARIS_V6_REDIS_URL.
+ENV POLARIS_V6_REDIS_URL=redis://redis:6379/0
+
+# Dedicated writable GPG homedir (P1-006 from Codex iter-1).
+# `docker-compose.v6.yml` bind-mounts the operator's host keyring here.
+ENV GNUPGHOME=/app/gpg
+RUN mkdir -p /app/gpg && chmod 700 /app/gpg
+
+RUN mkdir -p /app/outputs /app/logs /app/state /app/data
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8000/health || exit 1
+
+COPY scripts/v6_entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["api"]

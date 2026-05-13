@@ -1,0 +1,4 @@
+# I-carney-005 brief APPROVE verdict (iter 5 of 5)
+# Parsed by .github/workflows/codex-required.yml — final `verdict:` line.
+
+verdict: APPROVE

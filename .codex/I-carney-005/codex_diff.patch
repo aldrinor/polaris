@@ -1,0 +1,955 @@
+diff --git a/Dockerfile.v6 b/Dockerfile.v6
+new file mode 100644
+index 00000000..810a16de
+--- /dev/null
++++ b/Dockerfile.v6
+@@ -0,0 +1,78 @@
++# I-carney-005 — POLARIS v6 backend image (api + worker share this image).
++#
++# Single image, two entrypoint commands:
++#   api    → uvicorn polaris_v6.api.app:app
++#   worker → dramatiq polaris_v6.queue.actors
++#
++# Pipeline B legacy image (Dockerfile + docker_entrypoint.sh + docker-compose.yml)
++# stays untouched per I-carney-005 acceptance criterion 8.
++
++FROM python:3.11-slim
++
++# System deps:
++#   gnupg          — GPG signing of audit bundles
++#   curl           — healthcheck + diagnostic
++#   build-essential — wheel builds for pipeline-A native deps
++#   libpango/cairo + libffi/gdk-pixbuf — WeasyPrint (pipeline-A PDF export)
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    gnupg \
++    curl \
++    build-essential \
++    libpango-1.0-0 \
++    libpangocairo-1.0-0 \
++    libgdk-pixbuf2.0-0 \
++    libffi-dev \
++    libcairo2 \
++    && rm -rf /var/lib/apt/lists/*
++
++WORKDIR /app
++
++# Install BOTH requirement files (P1-002 from Codex iter-2 brief):
++#   requirements.txt    — pipeline-A surface (langchain, numpy, openai,
++#                          aiohttp, python-gnupg, ...)
++#   requirements-v6.txt — v6 spine (fastapi, dramatiq, redis-py, OTLP, ...)
++#
++# Codex diff iter-1 P1-A: requirements.txt pins protobuf<5.0.0 because of
++# google-generativeai's transitive constraint; requirements-v6.txt pins
++# protobuf==6.33.6 for OTLP semconv. Conflict resolution: strip google-
++# generativeai (pipeline-C dead code per src/orchestration/FROZEN; only
++# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
++# neither reachable from pipeline-A or v6 backend) AND its protobuf<5
++# constraint from the v6 image only. Pipeline-B's separate `Dockerfile`
++# is untouched and retains both deps.
++COPY requirements.txt requirements-v6.txt ./
++RUN sed -e '/^google-generativeai/d' \
++        -e '/^protobuf</d' \
++        requirements.txt > /tmp/requirements-v6-pipeline-a.txt && \
++    pip install --no-cache-dir -r /tmp/requirements-v6-pipeline-a.txt -r requirements-v6.txt
++
++# Copy application code.
++COPY src/ src/
++COPY scripts/ scripts/
++COPY config/ config/
++COPY architecture.md ground_rules.md ./
++
++# PYTHONPATH so `from polaris_v6...` and `from polaris_graph...` resolve
++# without --app-dir flag (P2 from Codex iter-1 approved).
++ENV PYTHONPATH=/app/src:/app
++
++# Default broker URL points to the compose service `redis`. Override at
++# `docker run` / compose time with POLARIS_V6_REDIS_URL.
++ENV POLARIS_V6_REDIS_URL=redis://redis:6379/0
++
++# Dedicated writable GPG homedir (P1-006 from Codex iter-1).
++# `docker-compose.v6.yml` bind-mounts the operator's host keyring here.
++ENV GNUPGHOME=/app/gpg
++RUN mkdir -p /app/gpg && chmod 700 /app/gpg
++
++RUN mkdir -p /app/outputs /app/logs /app/state /app/data
++
++EXPOSE 8000
++
++HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
++    CMD curl -fsS http://localhost:8000/health || exit 1
++
++COPY scripts/v6_entrypoint.sh /entrypoint.sh
++RUN chmod +x /entrypoint.sh
++ENTRYPOINT ["/entrypoint.sh"]
++CMD ["api"]
+diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
+new file mode 100644
+index 00000000..7e828ea4
+--- /dev/null
++++ b/docker-compose.v6.yml
+@@ -0,0 +1,118 @@
++# I-carney-005 — POLARIS v6 production stack (Carney demo).
++#
++# Stack: redis + api + worker + webui.
++# Legacy pipeline-B compose (docker-compose.yml) stays untouched per
++# I-carney-005 acceptance criterion 8.
++#
++# Bring up:  docker compose -f docker-compose.v6.yml up -d
++# Tear down: docker compose -f docker-compose.v6.yml down -v   (NB: drops volumes)
++
++services:
++  redis:
++    image: redis:7-alpine
++    command:
++      - redis-server
++      - --appendonly
++      - "yes"
++      - --save
++      - "60"
++      - "1000"
++    volumes:
++      - redis_data:/data
++    healthcheck:
++      test: ["CMD", "redis-cli", "ping"]
++      interval: 5s
++      timeout: 3s
++      retries: 10
++    restart: unless-stopped
++
++  api:
++    build:
++      context: .
++      dockerfile: Dockerfile.v6
++    command: api
++    env_file:
++      - .env
++    environment:
++      POLARIS_V6_REDIS_URL: redis://redis:6379/0
++      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
++      GNUPGHOME: /app/gpg
++      # POLARIS_GPG_KEY_ID is read from .env via env_file
++    volumes:
++      - shared_state:/app/state
++      - ./outputs:/app/outputs
++      - ./logs:/app/logs
++      - ./data:/app/data
++      # P1-006: writable GPG homedir bind-mount.
++      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
++    ports:
++      - "${POLARIS_API_PORT:-8000}:8000"
++    depends_on:
++      redis:
++        condition: service_healthy
++    healthcheck:
++      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
++      interval: 30s
++      timeout: 10s
++      start_period: 30s
++      retries: 3
++    restart: unless-stopped
++    deploy:
++      resources:
++        limits:
++          memory: 6G
++        reservations:
++          memory: 2G
++
++  worker:
++    build:
++      context: .
++      dockerfile: Dockerfile.v6
++    command: worker
++    env_file:
++      - .env
++    environment:
++      POLARIS_V6_REDIS_URL: redis://redis:6379/0
++      POLARIS_V6_RUN_DB: /app/state/v6_runs.sqlite
++      GNUPGHOME: /app/gpg
++    volumes:
++      - shared_state:/app/state
++      - ./outputs:/app/outputs
++      - ./logs:/app/logs
++      - ./data:/app/data
++      - ${POLARIS_GPG_HOMEDIR:-~/.gnupg-polaris}:/app/gpg
++    depends_on:
++      redis:
++        condition: service_healthy
++      api:
++        condition: service_healthy
++    restart: unless-stopped
++    deploy:
++      resources:
++        limits:
++          memory: 8G
++        reservations:
++          memory: 4G
++
++  webui:
++    build:
++      context: ./web
++      dockerfile: Dockerfile
++      args:
++        # P1-B from Codex diff iter-2: Next.js bakes rewrites() destinations
++        # at build time, so INTERNAL_API_URL must be a build arg. NOT
++        # prefixed NEXT_PUBLIC_, so it does NOT leak into the client bundle —
++        # only the server-side routes manifest sees it.
++        INTERNAL_API_URL: http://api:8000
++    environment:
++      NODE_ENV: production
++    ports:
++      - "${POLARIS_WEB_PORT:-3000}:3000"
++    depends_on:
++      api:
++        condition: service_healthy
++    restart: unless-stopped
++
++volumes:
++  redis_data:
++  shared_state:
+diff --git a/docs/deploy_runbook.md b/docs/deploy_runbook.md
+new file mode 100644
+index 00000000..5a01fa2b
+--- /dev/null
++++ b/docs/deploy_runbook.md
+@@ -0,0 +1,104 @@
++# POLARIS v6 deploy runbook (Carney demo)
++
++**Scope:** single-host `docker compose` deployment for the Carney demo. Production AWS Canada Central infrastructure is tracked separately in **I-carney-002**.
++
++## Prereqs
++
++- Docker Engine + Compose v2 (`docker compose version` returns 2.x)
++- GPG installed on host (`gpg --version` returns 2.2+)
++- A `.env` file at repo root with at minimum:
++
++```
++OPENROUTER_API_KEY=<your-key>
++SERPER_API_KEY=<your-key>
++SEMANTIC_SCHOLAR_API_KEY=<optional>
++POLARIS_GPG_KEY_ID=<set after Step 1>
++POLARIS_GPG_HOMEDIR=~/.gnupg-polaris
++POLARIS_API_PORT=8000
++POLARIS_WEB_PORT=3000
++PG_MAX_COST_PER_RUN=5.00
++```
++
++`.env` is gitignored; do NOT commit it. A skeleton lives at `.env.example` (added in I-carney-004).
++
++## Step 1 — Bootstrap the GPG demo signing key
++
++```
++bash scripts/bootstrap_gpg_demo_key.sh
++```
++
++Idempotent: skips if the `POLARIS Carney Demo` key already exists under `$GNUPGHOME`. On success it prints the fingerprint and writes the public key to `outputs/polaris_demo_pubkey.asc`. Copy the printed `POLARIS_GPG_KEY_ID=<fingerprint>` line into your `.env`.
++
++## Step 2 — Bring up the stack
++
++```
++docker compose -f docker-compose.v6.yml up -d --build
++```
++
++This builds the v6 backend image (`Dockerfile.v6`) and the Next.js webui image (`web/Dockerfile`), then starts four services: `redis`, `api`, `worker`, `webui`.
++
++Watch the startup:
++
++```
++docker compose -f docker-compose.v6.yml logs -f
++```
++
++`api` and `worker` will wait for `redis` healthcheck before they start. Expect `[entrypoint] redis reachable` then `[entrypoint] starting uvicorn` (api) or `starting dramatiq worker` (worker).
++
++## Step 3 — Smoke test
++
++```
++# Backend health
++curl -fsS http://localhost:8000/health
++
++# Webui
++curl -fsS http://localhost:3000/
++
++# Submit a sample run (browser-side fetch lands here via /api/v6/runs)
++curl -fsS -X POST http://localhost:8000/runs \
++    -H 'content-type: application/json' \
++    -d '{"template":"clinical","question":"Is tirzepatide effective for type 2 diabetes?"}'
++```
++
++The response is a `RunStatusResponse` with `run_id` (UUID), `lifecycle_status="queued"`. Within a few seconds the Dramatiq worker picks it up and pipeline-A runs.
++
++Stream events:
++
++```
++curl -N http://localhost:8000/stream/<run_id>
++```
++
++## Step 4 — Rollback
++
++```
++docker compose -f docker-compose.v6.yml down
++```
++
++For a clean wipe (drops Redis AOF + sqlite v6_runs.sqlite — DATA LOSS):
++
++```
++docker compose -f docker-compose.v6.yml down -v
++```
++
++## Troubleshooting
++
++| Symptom | Likely cause | Fix |
++|---|---|---|
++| `api` keeps restarting; logs show `redis unreachable after 10s` | Redis service hasn't initialized | `docker compose logs redis` — usually first-run AOF setup; wait 30s |
++| 503 `gpg_unavailable` from `/runs/{id}/bundle.tar.gz` | `POLARIS_GPG_KEY_ID` empty or key missing | Re-run Step 1; verify `docker compose exec api gpg --list-keys` shows the key |
++| Webui returns 502 from `/api/v6/*` | Internal proxy can't reach `api` service | `docker compose exec webui wget --spider http://api:8000/health` |
++| `state/v6_runs.sqlite` not writable | `shared_state` volume permissions | `docker compose exec api ls -la /app/state`; rebuild volume |
++| Pipeline-A 400 `cited_span_unreachable_after_snapshot` | Evidence pool full_text shorter than cited span | Check `outputs/<run_id>/evidence_pool.json` snippet length |
++
++For env-var diagnostics:
++
++```
++docker compose -f docker-compose.v6.yml exec api /entrypoint.sh preflight
++```
++
++This runs `scripts/v6_preflight.py` which checks env vars, redis reachability, GPG keyring, and run_store write perms — exits non-zero with a checklist of failures.
++
++## Reference
++
++- I-carney-005 Codex artifacts: `.codex/I-carney-005/` (brief iters 1-5, diff iter 1+)
++- I-arch-001a..001f chain (run_store → SSE → bundle): merged in PRs #475-#480
+diff --git a/scripts/bootstrap_gpg_demo_key.sh b/scripts/bootstrap_gpg_demo_key.sh
+new file mode 100644
+index 00000000..dde33853
+--- /dev/null
++++ b/scripts/bootstrap_gpg_demo_key.sh
+@@ -0,0 +1,78 @@
++#!/bin/bash
++# I-carney-005 — bootstrap the POLARIS Carney demo GPG signing key.
++#
++# Idempotent: detects existing key under stable UID and exits 0 without
++# duplicating it. Generates an ed25519 signing-only subkey suitable for
++# signing audit bundles (no encryption, no certification).
++#
++# On success:
++#   - writes the fingerprint to state/polaris_gpg_keyid.txt
++#   - exports the public key to outputs/polaris_demo_pubkey.asc
++#   - prints the env var the operator must export
++
++set -euo pipefail
++
++KEY_UID="POLARIS Carney Demo <signing@polaris.local>"
++KEY_NAME_SHORT="POLARIS Carney Demo"
++GNUPGHOME="${GNUPGHOME:-$HOME/.gnupg-polaris}"
++STATE_FILE="state/polaris_gpg_keyid.txt"
++PUBKEY_FILE="outputs/polaris_demo_pubkey.asc"
++
++mkdir -p "$GNUPGHOME"
++chmod 700 "$GNUPGHOME"
++export GNUPGHOME
++
++# Idempotence check: does a key with our UID already exist?
++EXISTING_FPR=$(gpg --list-keys --with-colons "$KEY_NAME_SHORT" 2>/dev/null \
++    | awk -F: '/^fpr:/ {print $10; exit}')
++
++if [ -n "$EXISTING_FPR" ]; then
++    echo "[bootstrap_gpg] key already present (fpr=$EXISTING_FPR); skipping generation"
++else
++    echo "[bootstrap_gpg] generating ed25519 signing-only key for ${KEY_UID}"
++    BATCH_FILE=$(mktemp)
++    cat > "$BATCH_FILE" <<EOF
++%no-protection
++Key-Type: EDDSA
++Key-Curve: ed25519
++Key-Usage: sign
++Name-Real: POLARIS Carney Demo
++Name-Email: signing@polaris.local
++Name-Comment: Carney demo bundle signing
++Expire-Date: 1y
++%commit
++EOF
++    gpg --batch --gen-key "$BATCH_FILE"
++    rm -f "$BATCH_FILE"
++    EXISTING_FPR=$(gpg --list-keys --with-colons "$KEY_NAME_SHORT" \
++        | awk -F: '/^fpr:/ {print $10; exit}')
++    if [ -z "$EXISTING_FPR" ]; then
++        echo "[bootstrap_gpg] ERROR: key generation succeeded but fingerprint not found" >&2
++        exit 2
++    fi
++    echo "[bootstrap_gpg] generated key fpr=$EXISTING_FPR"
++fi
++
++# Write fingerprint + public key (idempotent overwrite).
++mkdir -p "$(dirname "$STATE_FILE")" "$(dirname "$PUBKEY_FILE")"
++echo "$EXISTING_FPR" > "$STATE_FILE"
++gpg --armor --export "$EXISTING_FPR" > "$PUBKEY_FILE"
++
++echo ""
++echo "=================================================================="
++echo "POLARIS Carney demo signing key ready."
++echo ""
++echo "  Fingerprint : $EXISTING_FPR"
++echo "  GNUPGHOME   : $GNUPGHOME"
++echo "  Fingerprint file : $STATE_FILE"
++echo "  Public key        : $PUBKEY_FILE"
++echo ""
++echo "Next steps:"
++echo "  1. Add to .env:"
++echo "       POLARIS_GPG_KEY_ID=$EXISTING_FPR"
++echo "       POLARIS_GPG_HOMEDIR=$GNUPGHOME"
++echo "  2. Bring up the stack:"
++echo "       docker compose -f docker-compose.v6.yml up -d"
++echo "  3. Verify:"
++echo "       curl http://localhost:8000/health"
++echo "=================================================================="
+diff --git a/scripts/v6_entrypoint.sh b/scripts/v6_entrypoint.sh
+new file mode 100644
+index 00000000..b0d00926
+--- /dev/null
++++ b/scripts/v6_entrypoint.sh
+@@ -0,0 +1,77 @@
++#!/bin/bash
++# I-carney-005 — POLARIS v6 container entrypoint.
++#
++# Subcommands: api | worker | migrate | preflight | shell
++#
++# Broker init (P1-001) happens IN-PROCESS at top of polaris_v6.queue.actors —
++# this script does NOT call a separate init helper because that would run in
++# a different Python interpreter than the uvicorn/dramatiq process. See
++# .codex/I-carney-005/brief_iter_3.md.
++
++set -euo pipefail
++
++echo "=== POLARIS v6 (${POLARIS_VERSION:-dev}) ==="
++echo "Mode: ${1:-api}"
++echo "Redis: ${POLARIS_V6_REDIS_URL:-redis://localhost:6379/0}"
++echo "GPG_KEY_ID: ${POLARIS_GPG_KEY_ID:-<unset>}"
++echo "==============================================="
++
++mkdir -p /app/outputs /app/logs /app/state /app/data
++
++wait_for_redis() {
++    # P1-001 safety net: don't crashloop the worker while redis comes up.
++    # 10s timeout per acceptance criterion 4.
++    local deadline=$(( $(date +%s) + 10 ))
++    while [ "$(date +%s)" -lt "$deadline" ]; do
++        if python -c "
++import os, sys
++import redis
++try:
++    r = redis.from_url(os.environ.get('POLARIS_V6_REDIS_URL', 'redis://redis:6379/0'))
++    r.ping()
++    sys.exit(0)
++except Exception as exc:
++    sys.exit(1)
++" 2>/dev/null; then
++            echo "[entrypoint] redis reachable"
++            return 0
++        fi
++        sleep 1
++    done
++    echo "[entrypoint] ERROR: redis unreachable after 10s — failing loud per LAW II" >&2
++    return 1
++}
++
++case "${1:-api}" in
++    api)
++        wait_for_redis
++        echo "[entrypoint] starting uvicorn polaris_v6.api.app:app on 0.0.0.0:8000"
++        exec python -m uvicorn polaris_v6.api.app:app --host 0.0.0.0 --port 8000 --workers 1
++        ;;
++    worker)
++        wait_for_redis
++        echo "[entrypoint] starting dramatiq worker (polaris_v6.queue.actors)"
++        exec python -m dramatiq polaris_v6.queue.actors --processes 1 --threads 2
++        ;;
++    migrate)
++        echo "[entrypoint] running run_store.init_db (idempotent migration)"
++        exec python -c "from polaris_v6.queue.run_store import init_db; init_db(); print('[migrate] OK')"
++        ;;
++    preflight)
++        echo "[entrypoint] running preflight diagnostics"
++        exec python scripts/v6_preflight.py
++        ;;
++    shell)
++        exec /bin/bash
++        ;;
++    *)
++        echo "Unknown command: ${1:-}" >&2
++        echo "Usage: ${0} [api|worker|migrate|preflight|shell]" >&2
++        echo "  api       — FastAPI server on :8000 (default)" >&2
++        echo "  worker    — Dramatiq worker consuming polaris_v6.queue.actors" >&2
++        echo "  migrate   — Idempotent run_store sqlite schema migration" >&2
++        echo "  preflight — Env-var + redis-ping + GPG keyring sanity" >&2
++        echo "  shell     — Interactive bash" >&2
++        exit 1
++        ;;
++esac
+diff --git a/scripts/v6_preflight.py b/scripts/v6_preflight.py
+new file mode 100644
+index 00000000..883b55db
+--- /dev/null
++++ b/scripts/v6_preflight.py
+@@ -0,0 +1,118 @@
++"""I-carney-005 — POLARIS v6 preflight diagnostics.
++
++Runs inside the container; checks:
++- Required env vars present
++- Redis broker reachable
++- GPG keyring contains the configured POLARIS_GPG_KEY_ID
++- run_store sqlite path writable
++
++Exits 0 on success, non-zero per failure type (LAW II: fail loud, not silent).
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++from pathlib import Path
++
++
++REQUIRED_VARS_API = [
++    "POLARIS_V6_REDIS_URL",
++    "POLARIS_V6_RUN_DB",
++]
++RECOMMENDED_VARS = [
++    "OPENROUTER_API_KEY",
++    "SERPER_API_KEY",
++    "POLARIS_GPG_KEY_ID",
++]
++
++
++def check_env() -> list[str]:
++    failures: list[str] = []
++    for var in REQUIRED_VARS_API:
++        if not os.environ.get(var):
++            failures.append(f"missing required env var: {var}")
++    for var in RECOMMENDED_VARS:
++        if not os.environ.get(var):
++            print(f"[preflight] WARN: recommended env var unset: {var}")
++    return failures
++
++
++def check_redis() -> list[str]:
++    failures: list[str] = []
++    url = os.environ.get("POLARIS_V6_REDIS_URL", "redis://redis:6379/0")
++    try:
++        import redis  # noqa: PLC0415
++        client = redis.from_url(url)
++        client.ping()
++        print(f"[preflight] redis reachable: {url}")
++    except Exception as exc:
++        failures.append(f"redis unreachable at {url}: {exc}")
++    return failures
++
++
++def check_gpg(strict: bool = True) -> list[str]:
++    """Per Codex diff iter-1 P2: in a GPG-deploy preflight, POLARIS_GPG_KEY_ID
++    being unset is a HARD failure (signed bundles are the deploy's reason
++    for existing). Set strict=False only for non-bundling subcommands.
++    """
++    failures: list[str] = []
++    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
++    if not key_id:
++        msg = "POLARIS_GPG_KEY_ID unset; signed bundles unavailable"
++        if strict:
++            failures.append(msg)
++        else:
++            print(f"[preflight] WARN: {msg}")
++        return failures
++    homedir = os.environ.get("GNUPGHOME", "/app/gpg")
++    if not Path(homedir).exists():
++        failures.append(f"GNUPGHOME {homedir} does not exist")
++        return failures
++    try:
++        import gnupg  # noqa: PLC0415
++        gpg = gnupg.GPG(gnupghome=homedir)
++        keys = gpg.list_keys(secret=True, keys=[key_id])
++        if not keys:
++            failures.append(f"GPG key {key_id} not in keyring at {homedir}")
++        else:
++            print(f"[preflight] GPG key {key_id} present in {homedir}")
++    except Exception as exc:
++        failures.append(f"GPG check failed: {exc}")
++    return failures
++
++
++def check_run_db() -> list[str]:
++    failures: list[str] = []
++    db_path = os.environ.get("POLARIS_V6_RUN_DB", "/app/state/v6_runs.sqlite")
++    parent = Path(db_path).parent
++    try:
++        parent.mkdir(parents=True, exist_ok=True)
++        # Touch a write probe to verify perms (idempotent).
++        probe = parent / ".preflight_probe"
++        probe.write_text("ok")
++        probe.unlink()
++        print(f"[preflight] run_db parent writable: {parent}")
++    except Exception as exc:
++        failures.append(f"run_db parent {parent} not writable: {exc}")
++    return failures
++
++
++def main() -> int:
++    all_failures: list[str] = []
++    all_failures.extend(check_env())
++    all_failures.extend(check_redis())
++    all_failures.extend(check_gpg())
++    all_failures.extend(check_run_db())
++
++    if all_failures:
++        print("\n[preflight] FAILED:")
++        for f in all_failures:
++            print(f"  - {f}")
++        return 1
++    print("\n[preflight] all checks passed")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index cfcbc6ed..104ddf1c 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -11,18 +11,25 @@ direct .fn() invocation), returns deterministic noop without DB writes.
+ 
+ from __future__ import annotations
+ 
+-import asyncio
+-import json
+-import logging
+-import os
+-import re
+-import uuid
+-from pathlib import Path
+-from typing import Any
+-
+-import dramatiq
+-
+-from polaris_v6.queue import run_store
++# I-carney-005 P1-001: broker init MUST happen BEFORE any @dramatiq.actor
++# decoration below, in the SAME interpreter that imports this module.
++# get_broker() is idempotent (broker._INITIALIZED sentinel) so test
++# environments where conftest already installed a StubBroker pay no cost.
++from polaris_v6.queue.broker import get_broker as _ensure_broker
++_ensure_broker()
++
++import asyncio  # noqa: E402 — must come after broker init
++import json  # noqa: E402
++import logging  # noqa: E402
++import os  # noqa: E402
++import re  # noqa: E402
++import uuid  # noqa: E402
++from pathlib import Path  # noqa: E402
++from typing import Any  # noqa: E402
++
++import dramatiq  # noqa: E402
++
++from polaris_v6.queue import run_store  # noqa: E402
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/src/polaris_v6/queue/broker.py b/src/polaris_v6/queue/broker.py
+index 994c748f..56d2e876 100644
+--- a/src/polaris_v6/queue/broker.py
++++ b/src/polaris_v6/queue/broker.py
+@@ -21,6 +21,25 @@ from dramatiq.brokers.stub import StubBroker
+ DEFAULT_HEARTBEAT_SECONDS = 30
+ DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+ 
++# I-carney-005 P1-001: same-process broker init guard. Set True after the
++# first successful get_broker(); subsequent calls return the existing
++# dramatiq broker (idempotent). Critical because polaris_v6.queue.actors
++# calls get_broker() at module import BEFORE @dramatiq.actor decorations,
++# and we don't want a second call to overwrite the broker the conftest
++# already installed.
++_INITIALIZED = False
++
++
++def _reset_for_testing() -> None:
++    """Test-only: reset the init sentinel so the next get_broker() rebuilds.
++
++    Callers (autouse fixtures in tests/) MUST also save and restore the
++    current `dramatiq.get_broker()` reference. Production code never calls
++    this — the sentinel is meant to be one-way per process.
++    """
++    global _INITIALIZED
++    _INITIALIZED = False
++
+ 
+ def get_broker(
+     *,
+@@ -30,6 +49,11 @@ def get_broker(
+ ) -> dramatiq.Broker:
+     """Construct and register the broker.
+ 
++    Idempotent: if `_INITIALIZED` is True, returns the current dramatiq
++    broker without reconstruction. Tests that need a fresh broker per case
++    use `_reset_for_testing()` in an autouse fixture; production code calls
++    this once at module import time and trusts the cached result thereafter.
++
+     Args:
+         use_stub: if True, use StubBroker (in-process, for tests). If None,
+             inferred from POLARIS_V6_QUEUE_USE_STUB=1 env var.
+@@ -37,6 +61,10 @@ def get_broker(
+             redis://localhost:6379/0).
+         heartbeat_seconds: broker heartbeat interval.
+     """
++    global _INITIALIZED
++    if _INITIALIZED:
++        return dramatiq.get_broker()
++
+     if use_stub is None:
+         use_stub = os.environ.get("POLARIS_V6_QUEUE_USE_STUB", "") == "1"
+ 
+@@ -49,4 +77,5 @@ def get_broker(
+         broker = RedisBroker(url=url, heartbeat_timeout=heartbeat_seconds * 1000)
+ 
+     dramatiq.set_broker(broker)
++    _INITIALIZED = True
+     return broker
+diff --git a/tests/v6/test_broker.py b/tests/v6/test_broker.py
+index 72716501..c62db211 100644
+--- a/tests/v6/test_broker.py
++++ b/tests/v6/test_broker.py
+@@ -37,10 +37,18 @@ def _restore_session_broker():
+     installed by tests/v6/conftest.py. Subsequent tests (notably the
+     acceptance suite that depends on the session broker) would then run
+     against whatever broker the last test left behind.
++
++    I-carney-005 P1-007 extension: also save/restore the `_INITIALIZED`
++    sentinel (introduced for same-process broker init) and reset it
++    before yield so each test gets a fresh construction via get_broker().
+     """
+-    saved = dramatiq.get_broker()
++    from polaris_v6.queue import broker as br
++    saved_broker = dramatiq.get_broker()
++    saved_init = br._INITIALIZED
++    br._INITIALIZED = False  # let each test construct fresh
+     yield
+-    dramatiq.set_broker(saved)
++    dramatiq.set_broker(saved_broker)
++    br._INITIALIZED = saved_init
+ 
+ 
+ def test_use_stub_explicit_true_returns_stubbroker():
+diff --git a/tests/v6/test_broker_init_order.py b/tests/v6/test_broker_init_order.py
+new file mode 100644
+index 00000000..2e3d6fb8
+--- /dev/null
++++ b/tests/v6/test_broker_init_order.py
+@@ -0,0 +1,96 @@
++"""I-carney-005 P1-001 regression: broker init must happen at module import
++of polaris_v6.queue.actors, BEFORE any @dramatiq.actor decoration.
++
++Without this, deploying api + worker as separate containers would bind
++actors against Dramatiq's default broker (localhost:6379), NOT the
++POLARIS_V6_REDIS_URL the entrypoint sets. Result: enqueued messages
++disappear into a phantom queue. This test pins the contract.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++pytest.importorskip("dramatiq")
++import dramatiq
++from dramatiq.brokers.stub import StubBroker
++
++
++class _SentinelBroker(StubBroker):
++    """Marker subclass so we can detect whether actors.py rebuilt the broker."""
++
++    pass
++
++
++@pytest.fixture(autouse=True)
++def _restore_broker_state():
++    """Same save/restore pattern as test_broker.py, scoped to this file."""
++    from polaris_v6.queue import broker as br
++
++    saved_broker = dramatiq.get_broker()
++    saved_init = br._INITIALIZED
++    br._INITIALIZED = False
++    yield
++    dramatiq.set_broker(saved_broker)
++    br._INITIALIZED = saved_init
++
++
++def test_get_broker_is_idempotent(monkeypatch):
++    """Repeated get_broker() calls don't overwrite an already-set broker."""
++    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
++    from polaris_v6.queue import broker as br
++
++    b1 = br.get_broker()
++    b2 = br.get_broker()
++    assert b1 is b2
++    assert dramatiq.get_broker() is b1
++
++
++def test_reset_for_testing_allows_fresh_construction(monkeypatch):
++    """`_reset_for_testing()` clears the sentinel so the NEXT get_broker
++    rebuilds. Required for tests that need a fresh broker per case.
++    """
++    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
++    from polaris_v6.queue import broker as br
++
++    b1 = br.get_broker()
++    br._reset_for_testing()
++    b2 = br.get_broker()
++    # Different instances (rebuilt), but both StubBrokers.
++    assert b1 is not b2
++    assert isinstance(b1, StubBroker)
++    assert isinstance(b2, StubBroker)
++
++
++def test_actors_module_calls_get_broker_at_import(monkeypatch):
++    """Strengthened per Codex iter-4 P1-009.
++
++    Pre-install a sentinel broker and reset the init flag. Reloading actors
++    MUST cause _ensure_broker() to fire and replace the sentinel with a real
++    StubBroker (because POLARIS_V6_QUEUE_USE_STUB=1). If actors.py forgot to
++    call _ensure_broker(), the sentinel remains current and the assertion
++    fails. Also verify actor.broker matches the post-reload current broker,
++    proving decoration order is correct (init BEFORE @dramatiq.actor).
++    """
++    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
++    sentinel = _SentinelBroker()
++    dramatiq.set_broker(sentinel)
++    from polaris_v6.queue import broker as br
++
++    br._INITIALIZED = False  # force the next get_broker() to rebuild
++
++    import importlib
++    from polaris_v6.queue import actors
++
++    importlib.reload(actors)
++
++    current = dramatiq.get_broker()
++    assert current is not sentinel, (
++        "actors.py did not call _ensure_broker() at import — "
++        "sentinel broker is still the default"
++    )
++    assert isinstance(current, StubBroker), (
++        f"expected StubBroker after reload, got {type(current).__name__}"
++    )
++    assert actors.enqueue_research_run.broker is current
++    assert actors.cancel_research_run.broker is current
+diff --git a/web/Dockerfile b/web/Dockerfile
+new file mode 100644
+index 00000000..198dbbd6
+--- /dev/null
++++ b/web/Dockerfile
+@@ -0,0 +1,53 @@
++# I-carney-005 — POLARIS webui (Next.js 16) production image.
++#
++# Multi-stage build: deps → builder → runner with .next/standalone output.
++# Per memory next_16_breaking_changes.md, Next 16 has standalone output that
++# bundles only the minimum runtime deps; runner stage is tiny.
++#
++# Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is intentionally NOT a build
++# arg. Baking it would freeze an absolute URL (e.g., http://api:8000, a
++# Docker service hostname) into the client bundle and break production
++# browsers. Instead web/lib/api.ts hard-codes `/api/v6` for browser-relative
++# fetch, and INTERNAL_API_URL (server-side only, read at runtime) feeds the
++# Next.js rewrite. INTERNAL_API_URL is set in compose for the webui service,
++# NOT baked at build time.
++
++# ----------- Stage 1: deps -----------
++FROM node:20-alpine AS deps
++WORKDIR /app
++COPY package.json package-lock.json ./
++RUN npm ci --no-audit --no-fund
++
++# ----------- Stage 2: builder -----------
++FROM node:20-alpine AS builder
++WORKDIR /app
++# Codex diff iter-2 P1-B (continuing): Next.js evaluates rewrites()
++# DESTINATIONS at build time and bakes them into the routes manifest.
++# INTERNAL_API_URL must therefore be a build arg, not a runtime env. It is
++# NOT prefixed with NEXT_PUBLIC_, so it does NOT leak into the client bundle
++# — only the server-side route table sees it. Compose sets the build arg to
++# `http://api:8000` via build.args.INTERNAL_API_URL.
++ARG INTERNAL_API_URL=http://api:8000
++ENV INTERNAL_API_URL=${INTERNAL_API_URL}
++COPY --from=deps /app/node_modules ./node_modules
++COPY . .
++RUN npm run build
++
++# ----------- Stage 3: runner -----------
++FROM node:20-alpine AS runner
++WORKDIR /app
++ENV NODE_ENV=production
++ENV PORT=3000
++# Standalone output: contains a minimal server.js + only the deps needed
++# to run it. Requires output: 'standalone' in next.config.ts (P1-004).
++COPY --from=builder /app/.next/standalone ./
++COPY --from=builder /app/.next/static ./.next/static
++COPY --from=builder /app/public ./public
++
++EXPOSE 3000
++
++# Healthcheck via wget --spider (busybox alpine built-in).
++HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
++    CMD wget --spider -q http://localhost:3000/ || exit 1
++
++CMD ["node", "server.js"]
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index b53fbf13..6f9d9049 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -2,12 +2,21 @@
+  * POLARIS v6 API client.
+  *
+  * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+- * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+- * http://127.0.0.1:8000 for local development).
++ *
++ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
++ * browser only ever talks to the webui origin. Next.js server-side rewrites
++ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
++ * in production compose is `http://api:8000` (a Docker service name the
++ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
++ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
++ * backend works without any client-side configuration.
++ *
++ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
++ * runtime — baking an absolute http://api:8000 into the client bundle would
++ * make production browsers attempt direct Docker-network reach and fail.
+  */
+ 
+-const BACKEND_URL =
+-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
++const BACKEND_URL = "/api/v6";
+ 
+ export type TemplateId =
+   | "clinical"
+diff --git a/web/next.config.ts b/web/next.config.ts
+index e9ffa308..f4428495 100644
+--- a/web/next.config.ts
++++ b/web/next.config.ts
+@@ -1,7 +1,23 @@
+ import type { NextConfig } from "next";
+ 
++// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
++// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
++// fetch only talks to the webui container (Next.js then proxies to the
++// api container by Docker service name, which the browser can't resolve).
+ const nextConfig: NextConfig = {
+-  /* config options here */
++  output: "standalone",
++  async rewrites() {
++    const internal =
++      process.env.INTERNAL_API_URL ||
++      process.env.NEXT_PUBLIC_BACKEND_URL ||
++      "http://localhost:8000";
++    return [
++      {
++        source: "/api/v6/:path*",
++        destination: `${internal}/:path*`,
++      },
++    ];
++  },
+ };
+ 
+ export default nextConfig;
