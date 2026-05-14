@@ -103,6 +103,16 @@ class BudgetExceededError(RuntimeError):
     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
 
 
+class ReasoningFirstTruncationError(RuntimeError):
+    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
+    Flash) ran out of token budget while still planning — content is
+    empty and reasoning_content has no provenance markers and ends
+    mid-sentence. Typed (not bare RuntimeError) so the multi_section
+    generator's _call_section can catch *only* this case and let the
+    bounded regen loop retry with a larger budget, while every other
+    RuntimeError still propagates as a real fault."""
+
+
 def reset_run_cost() -> None:
     """Reset the current task's run-cost accumulator to 0. Call at the
     start of a run. Uses ContextVar so concurrent async tasks each get
@@ -1204,14 +1214,18 @@ class OpenRouterClient:
             else:
                 reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
             body["reasoning"] = reasoning_dict
-            # I-bug-090: OpenRouter does NOT enforce reasoning.max_tokens for
-            # V4 Pro on the provider side — the model still emits ~2500
-            # reasoning tokens regardless. Floor max_tokens to a value large
-            # enough that 40/60 split leaves room for both reasoning AND
-            # content. Empirically observed at 2400 max: reasoning eats the
-            # whole budget, content empty, I-bug-089 fail-loud raises.
-            # 6000 floor → ~2500 reasoning + ~3500 content, both fit.
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "6000"))
+            # I-bug-090 / I-gen-003: OpenRouter does NOT enforce
+            # reasoning.max_tokens for V4 Pro on the provider side — the
+            # model reasons until it hits the OVERALL max_tokens ceiling.
+            # The I-bug-090 estimate of "~2500 reasoning tokens" was wrong:
+            # the I-gen-003 V4 Pro smoke (2026-05-14) showed V4 Pro emit
+            # 21284 chars (~5300+ tokens) of reasoning and STILL truncate
+            # mid-sentence at the 6000-token ceiling — it never reached the
+            # content. Floor must give V4 Pro room to FINISH planning AND
+            # write the cited paragraph. 20000 floor → ~5-8k reasoning +
+            # ~12-15k content headroom. Env-tunable; the I-gen-003 regen
+            # loop in multi_section_generator escalates further per retry.
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
 
@@ -2007,7 +2021,7 @@ class OpenRouterClient:
                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
                 ):
                     self.usage.total_errors += 1
-                    raise RuntimeError(
+                    raise ReasoningFirstTruncationError(
                         f"I-bug-089: reasoning-first model {self.model} "
                         f"truncated mid-planning. content empty, reasoning "
                         f"has {len(result.reasoning)} chars but no [#ev:] "

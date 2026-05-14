@@ -800,6 +800,7 @@ async def _call_section(
     """
     from src.polaris_graph.llm.openrouter_client import (
         OpenRouterClient,
+        ReasoningFirstTruncationError,
         _REASONING_FIRST_MODELS,
     )
 
@@ -901,6 +902,24 @@ async def _call_section(
             max_tokens=max_tokens,
             temperature=temperature,
         )
+    except ReasoningFirstTruncationError as exc:
+        # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
+        # of token budget mid-planning. Do NOT let this crash the whole
+        # run — return an empty draft so _run_section's bounded regen
+        # loop can retry with an ESCALATED max_tokens budget. The
+        # I-bug-089 raise comment names exactly this caller-side
+        # recovery ("retry with bigger budget"). Logged loud, not
+        # silent — the failure surfaces in the section telemetry and
+        # the regen loop's own logging, and if all retries truncate the
+        # section ends empty → honest abort_no_verified_sections, not a
+        # hard error_unexpected crash.
+        logger.warning(
+            "[multi_section] %s: reasoning-first truncation on %s "
+            "(max_tokens=%d, tighter_retry=%s) — empty draft returned "
+            "for regen loop. detail: %s",
+            section.title, model, max_tokens, tighter_retry, exc,
+        )
+        return "", 0, 0
     finally:
         if hasattr(client, "close"):
             try:
@@ -1249,6 +1268,24 @@ async def _run_section(
     _is_reasoning_first = model in _REASONING_FIRST_MODELS
     _max_regens = 3 if _is_reasoning_first else 1
 
+    # I-gen-003: reasoning-first models get an ESCALATED max_tokens on
+    # each regen. A model that truncated mid-planning at budget B will
+    # truncate again at the same B — a better prompt alone does not
+    # recover it (advisor 2026-05-14); the I-bug-089 raise comment names
+    # "retry with bigger budget" as the recovery. The escalation base is
+    # the floor-aware value: PG_REASONING_FIRST_MIN_MAX_TOKENS dominates
+    # the default per-section budget for V4 Pro, and openrouter_client
+    # applies that same floor independently, so passing a value above it
+    # genuinely raises the provider ceiling. Non-reasoning-first models
+    # pass the unchanged per-section budget — exact prior behavior.
+    _reasoning_first_floor = int(
+        os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000")
+    )
+    _regen_base_max_tokens = (
+        max(max_tokens_per_section, _reasoning_first_floor)
+        if _is_reasoning_first else max_tokens_per_section
+    )
+
     def _regen_needed() -> bool:
         if post_filter_fraction >= min_kept_fraction:
             return False
@@ -1261,15 +1298,23 @@ async def _run_section(
     _regen_count = 0
     while _regen_needed() and _regen_count < _max_regens:
         _regen_count += 1
+        # I-gen-003: escalate the budget for reasoning-first retries —
+        # regen 1 → base*1.5, regen 2 → base*2.0, regen 3 → base*2.5.
+        _retry_max_tokens = (
+            int(_regen_base_max_tokens * (1 + 0.5 * _regen_count))
+            if _is_reasoning_first else max_tokens_per_section
+        )
         logger.info(
             "[multi_section] %s post-M-41c kept_fraction=%.2f below "
-            "min %.2f — regen %d/%d (reasoning_first=%s, total_in=%d)",
+            "min %.2f — regen %d/%d (reasoning_first=%s, total_in=%d, "
+            "retry_max_tokens=%d)",
             section.title, post_filter_fraction, min_kept_fraction,
             _regen_count, _max_regens, _is_reasoning_first, report.total_in,
+            _retry_max_tokens,
         )
         regen_attempted = True
         raw2, in_tok2, out_tok2 = await _call_section(
-            section, ev_subset, model, temperature, max_tokens_per_section,
+            section, ev_subset, model, temperature, _retry_max_tokens,
             tighter_retry=True,
             contradictions=contradictions,
             cross_trial_block=cross_trial_block,
