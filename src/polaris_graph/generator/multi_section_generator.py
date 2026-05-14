@@ -801,7 +801,6 @@ async def _call_section(
     from src.polaris_graph.llm.openrouter_client import (
         OpenRouterClient,
         ReasoningFirstTruncationError,
-        _REASONING_FIRST_MODELS,
     )
 
     blocks = []
@@ -862,30 +861,6 @@ async def _call_section(
             "that evidence's direct_quote. When in doubt, cite multiple "
             "sources or drop the claim."
         )
-        # I-gen-003: reasoning-first models (DeepSeek V4 Pro) emit
-        # chain-of-thought planning instead of the final cited prose —
-        # strict_verify then drops the whole draft because the planning
-        # text carries no [ev_XXX] markers. A generic "cite your sources"
-        # nudge is not enough; the model needs an explicit, hard anti-CoT
-        # instruction to skip the thinking-out-loud and emit ONLY the
-        # final paragraph body with markers. Harmless for non-reasoning-
-        # first models (they already produce direct prose).
-        if model in _REASONING_FIRST_MODELS:
-            system += (
-                "\n\nHARD OUTPUT CONTRACT (reasoning-first model): your "
-                "PREVIOUS draft was rejected because it contained planning, "
-                "deliberation, or thinking-out-loud instead of the final "
-                "cited paragraph. DO NOT write any of: 'Let me...', 'First, "
-                "I will...', 'The evidence shows...', 'I need to...', "
-                "'Looking at...', step lists, or any meta-commentary about "
-                "how you will write. Output ONLY the finished paragraph "
-                "body. EVERY sentence — with no exception — ends with at "
-                "least one [ev_XXX] marker that exists in the evidence "
-                "blocks above. If a sentence cannot carry a real [ev_XXX] "
-                "marker, do not write that sentence. Start the response "
-                "with the first word of the paragraph; end it with the "
-                "last [ev_XXX] marker. Nothing before, nothing after."
-            )
 
     prompt = (
         f"Research question context: (see overall corpus)\n\n"
@@ -904,19 +879,17 @@ async def _call_section(
         )
     except ReasoningFirstTruncationError as exc:
         # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
-        # of token budget mid-planning. Do NOT let this crash the whole
-        # run — return an empty draft so _run_section's bounded regen
-        # loop can retry with an ESCALATED max_tokens budget. The
-        # I-bug-089 raise comment names exactly this caller-side
-        # recovery ("retry with bigger budget"). Logged loud, not
-        # silent — the failure surfaces in the section telemetry and
-        # the regen loop's own logging, and if all retries truncate the
-        # section ends empty → honest abort_no_verified_sections, not a
-        # hard error_unexpected crash.
+        # of token budget mid-planning even at the 20000-token floor.
+        # Do NOT let this crash the whole run — return an empty draft.
+        # An empty section is handled honestly downstream: if every
+        # section ends empty the pipeline reports abort_no_verified_
+        # sections (a real verdict per §9.3), not a hard error_unexpected
+        # crash. Logged loud, not silent — the failure surfaces in the
+        # section telemetry and this WARNING.
         logger.warning(
             "[multi_section] %s: reasoning-first truncation on %s "
-            "(max_tokens=%d, tighter_retry=%s) — empty draft returned "
-            "for regen loop. detail: %s",
+            "(max_tokens=%d, tighter_retry=%s) — empty draft returned. "
+            "detail: %s",
             section.title, model, max_tokens, tighter_retry, exc,
         )
         return "", 0, 0
@@ -1111,6 +1084,36 @@ def filter_underframed_trial_sentences(
     return kept, dropped
 
 
+# I-gen-003 (2026-05-14): citation/punctuation normalization, applied
+# AFTER provenance resolution. A reasoning-first generator (DeepSeek
+# V4 Pro) sometimes ends a sentence with a citation marker but no
+# terminal period, jamming two sentences together
+# ("...insulin secretion[1] GLP-1 receptor activation enhances...").
+# That hurts readability (Qwen flow axis) and the evaluator's PT11
+# sentence-boundary detection. This pass inserts the missing terminator
+# at genuine sentence boundaries and normalizes marker spacing. It is
+# DELIBERATELY cosmetic: it never adds, removes, or changes a citation
+# marker or an evidence ID — only punctuation/whitespace AROUND already-
+# resolved markers. The provenance invariant (§9.1) is untouched.
+_CITE_MARKER_RE_FRAG = r"(?:\[\d+\]|\[#ev:[^\]]+\])"
+_MISSING_TERMINATOR_RE = re.compile(
+    # <non-terminator char> <optional ws> <one+ citation markers>
+    # <ws> <Capital letter starting the next sentence>
+    rf"(?<=[^.!?:;\s])(\s*)({_CITE_MARKER_RE_FRAG}(?:\s*{_CITE_MARKER_RE_FRAG})*)"
+    rf"(\s+)(?=[A-Z])"
+)
+
+
+def _normalize_citation_punctuation(text: str) -> str:
+    """Insert a missing sentence-terminal period before citation
+    marker(s) at a genuine sentence boundary, and normalize the marker
+    to a single trailing space. Cosmetic only — markers and evidence
+    IDs are byte-preserved. See the module comment above for rationale."""
+    if not text:
+        return text
+    return _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -1250,71 +1253,16 @@ async def _run_section(
     # Use post-filter count for the retry decision.
     post_filter_fraction = post_filter_kept / max(1, report.total_in)
 
-    # I-gen-003: reasoning-first models (DeepSeek V4 Pro) emit CoT
-    # planning that strict_verify drops wholesale. The retry below is now:
-    #   (a) reasoning-first-aware in its GATE — fires even when
-    #       report.total_in == 0 (V4 Pro emitted unparseable planning
-    #       with no sentence structure; the old `total_in > 0` gate
-    #       silently skipped the retry and shipped an empty section).
-    #   (b) bounded-multi-retry for reasoning-first models — one hard
-    #       anti-CoT nudge often is not enough; allow up to 3.
-    #   (c) backed by _call_section's reasoning-first HARD OUTPUT
-    #       CONTRACT (the tighter_retry=True path).
-    # Non-reasoning-first models keep the prior exact behavior: a single
-    # retry, gated on total_in > 0.
-    from src.polaris_graph.llm.openrouter_client import (
-        _REASONING_FIRST_MODELS,
-    )
-    _is_reasoning_first = model in _REASONING_FIRST_MODELS
-    _max_regens = 3 if _is_reasoning_first else 1
-
-    # I-gen-003: reasoning-first models get an ESCALATED max_tokens on
-    # each regen. A model that truncated mid-planning at budget B will
-    # truncate again at the same B — a better prompt alone does not
-    # recover it (advisor 2026-05-14); the I-bug-089 raise comment names
-    # "retry with bigger budget" as the recovery. The escalation base is
-    # the floor-aware value: PG_REASONING_FIRST_MIN_MAX_TOKENS dominates
-    # the default per-section budget for V4 Pro, and openrouter_client
-    # applies that same floor independently, so passing a value above it
-    # genuinely raises the provider ceiling. Non-reasoning-first models
-    # pass the unchanged per-section budget — exact prior behavior.
-    _reasoning_first_floor = int(
-        os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000")
-    )
-    _regen_base_max_tokens = (
-        max(max_tokens_per_section, _reasoning_first_floor)
-        if _is_reasoning_first else max_tokens_per_section
-    )
-
-    def _regen_needed() -> bool:
-        if post_filter_fraction >= min_kept_fraction:
-            return False
-        # non-reasoning-first: preserve the original `total_in > 0` gate.
-        # reasoning-first: also retry when total_in == 0 (all-planning,
-        # unparseable draft) — that is exactly the failure to recover.
-        return report.total_in > 0 or _is_reasoning_first
-
     regen_attempted = False
-    _regen_count = 0
-    while _regen_needed() and _regen_count < _max_regens:
-        _regen_count += 1
-        # I-gen-003: escalate the budget for reasoning-first retries —
-        # regen 1 → base*1.5, regen 2 → base*2.0, regen 3 → base*2.5.
-        _retry_max_tokens = (
-            int(_regen_base_max_tokens * (1 + 0.5 * _regen_count))
-            if _is_reasoning_first else max_tokens_per_section
-        )
+    if post_filter_fraction < min_kept_fraction and report.total_in > 0:
         logger.info(
             "[multi_section] %s post-M-41c kept_fraction=%.2f below "
-            "min %.2f — regen %d/%d (reasoning_first=%s, total_in=%d, "
-            "retry_max_tokens=%d)",
+            "min %.2f — retrying",
             section.title, post_filter_fraction, min_kept_fraction,
-            _regen_count, _max_regens, _is_reasoning_first, report.total_in,
-            _retry_max_tokens,
         )
         regen_attempted = True
         raw2, in_tok2, out_tok2 = await _call_section(
-            section, ev_subset, model, temperature, _retry_max_tokens,
+            section, ev_subset, model, temperature, max_tokens_per_section,
             tighter_retry=True,
             contradictions=contradictions,
             cross_trial_block=cross_trial_block,
@@ -1334,11 +1282,6 @@ async def _run_section(
             raw, rewritten, report = raw2, rewritten2, report2
             report_kept_after_m41c = report2_kept_after_m41c
             report_dropped_m41c = report2_dropped_m41c
-            # I-gen-003: recompute the post-filter metrics so
-            # _regen_needed() re-evaluates against the winning draft,
-            # not the stale first pass.
-            post_filter_kept = len(report2_kept_after_m41c)
-            post_filter_fraction = post_filter_kept / max(1, report.total_in)
 
     # Apply the already-computed M-41c filtered list to the chosen
     # report (either first pass or retry, whichever won post-filter).
@@ -1357,6 +1300,11 @@ async def _run_section(
     verified_text, biblio_slice = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,
     )
+    # I-gen-003: cosmetic citation/punctuation normalization on the
+    # resolved section text — inserts missing sentence terminators at
+    # genuine boundaries, normalizes marker spacing. Markers + evidence
+    # IDs are byte-preserved (see _normalize_citation_punctuation).
+    verified_text = _normalize_citation_punctuation(verified_text)
 
     dropped_due_to_failure = len(report.kept_sentences) == 0
 

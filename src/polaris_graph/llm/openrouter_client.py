@@ -277,22 +277,22 @@ PG_GENERATOR_MODEL = os.getenv(
     # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
     #
     # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
-    # because V4 Pro is reasoning-first — it emits CoT-style planning that
-    # often lacks [#ev:] markers, and the multi_section_generator's single
-    # generic retry could not recover it, so strict_verify dropped the
-    # whole draft and the pipeline aborted. That revert named the unblock:
-    # "add explicit re-prompt + retry handler for V4 Pro's CoT pattern."
+    # because V4 Pro is reasoning-first — it emits CoT-style planning and,
+    # critically, exhausted max_tokens mid-planning, tripping the I-bug-089
+    # SF-15 fail-loud and crashing the pipeline before any section was
+    # written.
     #
-    # I-gen-003 (2026-05-14) delivered exactly that:
-    #   - _call_section now appends a HARD OUTPUT CONTRACT (anti-CoT
-    #     instruction) on the tighter_retry path for reasoning-first models
-    #   - _run_section's regen gate fires even when total_in == 0 (V4 Pro
-    #     emitted unparseable planning), and allows up to 3 bounded retries
-    #     for reasoning-first models instead of 1
-    #   - I-bug-089's reasoning-token budget cap (V4 Pro is already in
-    #     _REASONING_FIRST_MODELS) prevents budget-exhaustion mid-planning
-    # With I-gen-003 in place, V4 Pro produces clean [#ev:]-anchored prose.
-    # V3.2-Exp is obsolete — NOT a fallback.
+    # I-gen-003 (2026-05-14) fixes the crash:
+    #   - ReasoningFirstTruncationError (typed) + a 20000-token
+    #     PG_REASONING_FIRST_MIN_MAX_TOKENS floor give V4 Pro room to both
+    #     finish reasoning AND emit the cited paragraph — smoke #3 ran all
+    #     6 sections with zero truncation crash.
+    #   - _call_section catches that exception and returns an empty draft
+    #     so a truncation degrades to an honest abort_no_verified_sections
+    #     rather than a hard error_unexpected.
+    # V4 Pro's report-layer citation tightness vs the evaluator gate is
+    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
+    # is obsolete — NOT a fallback.
     "deepseek/deepseek-v4-pro",
 )
 PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
@@ -1223,8 +1223,9 @@ class OpenRouterClient:
             # mid-sentence at the 6000-token ceiling — it never reached the
             # content. Floor must give V4 Pro room to FINISH planning AND
             # write the cited paragraph. 20000 floor → ~5-8k reasoning +
-            # ~12-15k content headroom. Env-tunable; the I-gen-003 regen
-            # loop in multi_section_generator escalates further per retry.
+            # ~12-15k content headroom. Env-tunable. Smoke #3 (2026-05-14)
+            # confirmed: at 20000, V4 Pro completed all 6 sections with
+            # zero ReasoningFirstTruncationError.
             _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
