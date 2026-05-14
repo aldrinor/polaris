@@ -5,7 +5,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
 **Hosting:** Vexxhost (Canadian-owned, Montréal datacenter).
 **LLM inference:** OVH BHS H200 (French-owned, Beauharnois QC) running self-hosted DeepSeek V4 Pro + Gemma 4 31B via vLLM. See `docs/ovh_h200_procurement_spec.md`.
 **Search:** Serper (`google.serper.dev`), US-based — a disclosed exception per operator directive 2026-05-13. Search queries carry no confidential content; the sovereign constraint protects the LLM inference path + report data. See `docs/transparency.md` §4.
-**No US company anywhere in the runtime path.**
+**Sovereignty posture:** the LLM inference path and the generated report data run on Canadian / non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). Serper web search is the one disclosed US exception in the runtime path — see §4 of `docs/transparency.md` for the rationale and what Serper does/does not see.
 
 ## Prereqs (operator, T-7 before demo)
 
@@ -131,7 +131,7 @@ The Vexxhost OpenStack Terraform provider exists, but for a single VM the operat
 | Orchestrator hosting | Vexxhost | Canadian | Canada (PIPEDA + Quebec Law 25) |
 | LLM inference (when OVH H200 online + GH#199 ships) | OVH Canada | French (parent: OVH SAS) | Canada (OVH Canada entity is the data controller) |
 | LLM inference (transition default) | OpenRouter | US | US (transitional only — disclosed in `/transparency`) |
-| Live search | Serper (`google.serper.dev`) | US (Serper / thatware LLC) | US — disclosed exception per operator directive 2026-05-13: search queries carry no confidential content; sovereignty protects the LLM inference path + report data, not the keyword query. See `docs/transparency.md` §4. |
+| Live search | Serper (`google.serper.dev`) | US-based search API (legal entity not independently verified; Serper's Terms at serper.dev/terms specify the governing law) | Disclosed exception per operator directive 2026-05-13: search queries carry no confidential content; sovereignty protects the LLM inference path + report data, not the keyword query. See `docs/transparency.md` §4. |
 | Source corpora (T1) | Government sites (FDA, EMA, Health Canada, NICE, MHRA, WHO, NCBI) | Sovereign per source | Each source jurisdiction |
 | Bib / DOI infrastructure | doi.org (CNRI US), Crossref (UK), Unpaywall + OpenAlex (US non-profits), arXiv (Cornell US), SEC EDGAR (US govt) | Mixed; disclosed | Mixed |
 | DNS | easyDNS or Cira | Canadian | Canada |
