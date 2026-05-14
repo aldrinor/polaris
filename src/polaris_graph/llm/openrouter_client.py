@@ -254,20 +254,26 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 # Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
-    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
-    # multi_section_generator's strict_verify provenance-token requirement.
-    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
-    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
-    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
-    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
-    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
-    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
-    # and continues to protect against any future reasoning-first generator
-    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
-    # when the multi_section caller adds explicit "include [#ev:...] tokens"
-    # re-prompt + retry handler for V4 Pro's CoT pattern.
-    "deepseek/deepseek-v3.2-exp",
+    # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
+    #
+    # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
+    # because V4 Pro is reasoning-first — it emits CoT-style planning that
+    # often lacks [#ev:] markers, and the multi_section_generator's single
+    # generic retry could not recover it, so strict_verify dropped the
+    # whole draft and the pipeline aborted. That revert named the unblock:
+    # "add explicit re-prompt + retry handler for V4 Pro's CoT pattern."
+    #
+    # I-gen-003 (2026-05-14) delivered exactly that:
+    #   - _call_section now appends a HARD OUTPUT CONTRACT (anti-CoT
+    #     instruction) on the tighter_retry path for reasoning-first models
+    #   - _run_section's regen gate fires even when total_in == 0 (V4 Pro
+    #     emitted unparseable planning), and allows up to 3 bounded retries
+    #     for reasoning-first models instead of 1
+    #   - I-bug-089's reasoning-token budget cap (V4 Pro is already in
+    #     _REASONING_FIRST_MODELS) prevents budget-exhaustion mid-planning
+    # With I-gen-003 in place, V4 Pro produces clean [#ev:]-anchored prose.
+    # V3.2-Exp is obsolete — NOT a fallback.
+    "deepseek/deepseek-v4-pro",
 )
 PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
 

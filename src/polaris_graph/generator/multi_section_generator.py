@@ -798,7 +798,10 @@ async def _call_section(
     per-section cross-trial synthesis suggestions block. The LLM
     integrates 1-2 of these inferences into the body narrative.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        _REASONING_FIRST_MODELS,
+    )
 
     blocks = []
     for ev in evidence_subset:
@@ -858,6 +861,30 @@ async def _call_section(
             "that evidence's direct_quote. When in doubt, cite multiple "
             "sources or drop the claim."
         )
+        # I-gen-003: reasoning-first models (DeepSeek V4 Pro) emit
+        # chain-of-thought planning instead of the final cited prose —
+        # strict_verify then drops the whole draft because the planning
+        # text carries no [ev_XXX] markers. A generic "cite your sources"
+        # nudge is not enough; the model needs an explicit, hard anti-CoT
+        # instruction to skip the thinking-out-loud and emit ONLY the
+        # final paragraph body with markers. Harmless for non-reasoning-
+        # first models (they already produce direct prose).
+        if model in _REASONING_FIRST_MODELS:
+            system += (
+                "\n\nHARD OUTPUT CONTRACT (reasoning-first model): your "
+                "PREVIOUS draft was rejected because it contained planning, "
+                "deliberation, or thinking-out-loud instead of the final "
+                "cited paragraph. DO NOT write any of: 'Let me...', 'First, "
+                "I will...', 'The evidence shows...', 'I need to...', "
+                "'Looking at...', step lists, or any meta-commentary about "
+                "how you will write. Output ONLY the finished paragraph "
+                "body. EVERY sentence — with no exception — ends with at "
+                "least one [ev_XXX] marker that exists in the evidence "
+                "blocks above. If a sentence cannot carry a real [ev_XXX] "
+                "marker, do not write that sentence. Start the response "
+                "with the first word of the paragraph; end it with the "
+                "last [ev_XXX] marker. Nothing before, nothing after."
+            )
 
     prompt = (
         f"Research question context: (see overall corpus)\n\n"
@@ -1204,12 +1231,41 @@ async def _run_section(
     # Use post-filter count for the retry decision.
     post_filter_fraction = post_filter_kept / max(1, report.total_in)
 
+    # I-gen-003: reasoning-first models (DeepSeek V4 Pro) emit CoT
+    # planning that strict_verify drops wholesale. The retry below is now:
+    #   (a) reasoning-first-aware in its GATE — fires even when
+    #       report.total_in == 0 (V4 Pro emitted unparseable planning
+    #       with no sentence structure; the old `total_in > 0` gate
+    #       silently skipped the retry and shipped an empty section).
+    #   (b) bounded-multi-retry for reasoning-first models — one hard
+    #       anti-CoT nudge often is not enough; allow up to 3.
+    #   (c) backed by _call_section's reasoning-first HARD OUTPUT
+    #       CONTRACT (the tighter_retry=True path).
+    # Non-reasoning-first models keep the prior exact behavior: a single
+    # retry, gated on total_in > 0.
+    from src.polaris_graph.llm.openrouter_client import (
+        _REASONING_FIRST_MODELS,
+    )
+    _is_reasoning_first = model in _REASONING_FIRST_MODELS
+    _max_regens = 3 if _is_reasoning_first else 1
+
+    def _regen_needed() -> bool:
+        if post_filter_fraction >= min_kept_fraction:
+            return False
+        # non-reasoning-first: preserve the original `total_in > 0` gate.
+        # reasoning-first: also retry when total_in == 0 (all-planning,
+        # unparseable draft) — that is exactly the failure to recover.
+        return report.total_in > 0 or _is_reasoning_first
+
     regen_attempted = False
-    if post_filter_fraction < min_kept_fraction and report.total_in > 0:
+    _regen_count = 0
+    while _regen_needed() and _regen_count < _max_regens:
+        _regen_count += 1
         logger.info(
             "[multi_section] %s post-M-41c kept_fraction=%.2f below "
-            "min %.2f — retrying",
+            "min %.2f — regen %d/%d (reasoning_first=%s, total_in=%d)",
             section.title, post_filter_fraction, min_kept_fraction,
+            _regen_count, _max_regens, _is_reasoning_first, report.total_in,
         )
         regen_attempted = True
         raw2, in_tok2, out_tok2 = await _call_section(
@@ -1233,6 +1289,11 @@ async def _run_section(
             raw, rewritten, report = raw2, rewritten2, report2
             report_kept_after_m41c = report2_kept_after_m41c
             report_dropped_m41c = report2_dropped_m41c
+            # I-gen-003: recompute the post-filter metrics so
+            # _regen_needed() re-evaluates against the winning draft,
+            # not the stale first pass.
+            post_filter_kept = len(report2_kept_after_m41c)
+            post_filter_fraction = post_filter_kept / max(1, report.total_in)
 
     # Apply the already-computed M-41c filtered list to the chosen
     # report (either first pass or retry, whichever won post-filter).
