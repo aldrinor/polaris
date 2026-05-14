@@ -4,7 +4,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
 
 **Hosting:** Vexxhost (Canadian-owned, Montréal datacenter).
 **LLM inference:** OVH BHS H200 (French-owned, Beauharnois QC) running self-hosted DeepSeek V4 Pro + Gemma 4 31B via vLLM. See `docs/ovh_h200_procurement_spec.md`.
-**Search:** DEFERRED to GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE candidates — non-US). Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), so the original Brave plan is invalid.
+**Search:** Serper (`google.serper.dev`), US-based — a disclosed exception per operator directive 2026-05-13. Search queries carry no confidential content; the sovereign constraint protects the LLM inference path + report data. See `docs/transparency.md` §4.
 **No US company anywhere in the runtime path.**
 
 ## Prereqs (operator, T-7 before demo)
@@ -17,7 +17,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
    - SSH key uploaded
 3. Domain registered + DNS A record for `polaris.<your-domain>` pointing at the VM's floating IPv4. Use a Canadian registrar (easyDNS, Cira, Hover-Canada-billing) for the sovereignty story.
 4. GPG demo signing key generated on operator workstation: `bash scripts/bootstrap_gpg_demo_key.sh`. Produces `outputs/polaris_demo_pubkey.asc` and a fingerprint in `state/polaris_gpg_keyid.txt`. ALSO export the secret: `gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo" > polaris_demo_secret.asc`.
-5. Non-US web search API key per GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE — pick at PR time; OPTIONAL during transition while pipeline-A runs on cached corpus + direct T1 government endpoints).
+5. Serper API key from https://serper.dev/ — the web search backend. US-based, disclosed exception per operator directive 2026-05-13 (search queries non-confidential; reports stay sovereign). REQUIRED.
 6. OVH H200 server provisioned in BHS — see `docs/ovh_h200_procurement_spec.md`. Note its private IP; default vLLM endpoint is `http://10.0.0.42:8000/v1`.
 7. bcrypt-hashed `static_accounts.yaml` prepared locally (template at `config/static_accounts.example.yaml`).
 
@@ -114,7 +114,7 @@ All four chains must show DROP rules at the bottom + the allowlisted IPs as ACCE
                               └──────────────────────────┘
                                           │
                                           ▼
-                                 Non-US search API (GH#487, pending)
+                                 Serper web search (US, disclosed)
                                  + government T1 sources
                                  (FDA, NICE, EMA, MHRA,
                                   Health Canada, WHO, NCBI)
@@ -131,7 +131,7 @@ The Vexxhost OpenStack Terraform provider exists, but for a single VM the operat
 | Orchestrator hosting | Vexxhost | Canadian | Canada (PIPEDA + Quebec Law 25) |
 | LLM inference (when OVH H200 online + GH#199 ships) | OVH Canada | French (parent: OVH SAS) | Canada (OVH Canada entity is the data controller) |
 | LLM inference (transition default) | OpenRouter | US | US (transitional only — disclosed in `/transparency`) |
-| Live search | DEFERRED to GH#487 | Non-US (Mojeek UK / Qwant FR / Ecosia DE candidates) | TBD per provider; Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), invalidating the original Brave plan |
+| Live search | Serper (`google.serper.dev`) | US (Serper / thatware LLC) | US — disclosed exception per operator directive 2026-05-13: search queries carry no confidential content; sovereignty protects the LLM inference path + report data, not the keyword query. See `docs/transparency.md` §4. |
 | Source corpora (T1) | Government sites (FDA, EMA, Health Canada, NICE, MHRA, WHO, NCBI) | Sovereign per source | Each source jurisdiction |
 | Bib / DOI infrastructure | doi.org (CNRI US), Crossref (UK), Unpaywall + OpenAlex (US non-profits), arXiv (Cornell US), SEC EDGAR (US govt) | Mixed; disclosed | Mixed |
 | DNS | easyDNS or Cira | Canadian | Canada |
