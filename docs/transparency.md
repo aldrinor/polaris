@@ -54,9 +54,10 @@ A successful verification prints `Good signature from "POLARIS Carney Demo <sign
 
 The Vexxhost host (Canadian-owned hosting, Montréal) runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
 
-Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008):
+Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008, search per I-carney-010):
 
 - `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
+- `google.serper.dev` — Serper web search (US-based; see "Web search provider" below)
 - `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; disclosed; removable for stricter sovereignty)
 - T1 corpus endpoints — `fda.gov`, `accessdata.fda.gov`, `clinicaltrials.gov`, `ncbi.nlm.nih.gov`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov`, `ema.europa.eu`, `nice.org.uk`, `mhra.gov.uk`, `www.gov.uk`, `canada.ca`, `hc-sc.gc.ca`, `recalls-rappels.canada.ca`, `health-products.canada.ca`, `hres.ca`, `cda-amc.ca`, `who.int`, `iarc.who.int`
 - Bibliographic / DOI infrastructure — `doi.org`, `dx.doi.org`, `api.crossref.org` (UK non-profit), `api.unpaywall.org`, `api.openalex.org`, `arxiv.org`, `export.arxiv.org`, `efts.sec.gov`, `www.sec.gov`
@@ -64,7 +65,11 @@ Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-00
 - `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
 - `acme-v02.api.letsencrypt.org`, `r3.o.lencr.org` — Let's Encrypt TLS cert renewal (public attestation only; no data leaves)
 
-**Web search provider:** DEFERRED to GH#487 I-carney-009. Serper (US) is removed from the sovereign allowlist; under lockdown, Serper calls fail loudly. The chosen non-US replacement (Mojeek UK / Qwant FR / Ecosia DE) lands in that follow-up Issue, at which point its API host is added here.
+**Web search provider:** Serper (`google.serper.dev`), a US-based search API. This is a deliberate, disclosed exception to the "no US company" posture, accepted per operator directive 2026-05-13.
+
+What Serper receives: the search query string itself, plus the normal request metadata any HTTP API call carries — the API account/key, source IP, timestamp, and user-agent — which Serper's privacy policy (serper.dev/privacy) describes it logging as system/access activity. What Serper does NOT receive: the uploaded corpus, the evidence pool, the generated report, or any operator-entered content. Serper returns only result URLs + snippets; POLARIS then fetches the actual T1 evidence directly from the government corpus endpoints listed above.
+
+The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
 
 Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
 

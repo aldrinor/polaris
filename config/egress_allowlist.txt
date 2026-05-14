@@ -1,9 +1,9 @@
 # I-carney-003 — POLARIS Carney demo egress allowlist.
-# Updated I-carney-008 — sovereign pivot. Brave Search REMOVED 2026-05-13
-# (Brave Software Inc. is a Delaware corporation; fails the "no US company
-# anywhere" bar per Codex iter-1 P1-1). Search-provider selection moved to
-# GH#487 I-carney-009 — until that lands, search calls fail loudly under
-# lockdown (intentional; the no-search smoke shows the failure mode honestly).
+# Updated I-carney-010 2026-05-13 — Serper stays as the search backend per
+# user directive: "search provider is OK to stay serper, as I don't need to
+# share confidential information in it." The sovereignty threat model is the
+# LLM inference path + report-data jurisdiction, NOT search queries (which
+# carry no confidential content). Serper (US) is disclosed in /transparency.
 #
 # scripts/egress_lockdown.sh resolves each domain to A AND AAAA records and
 # installs iptables (IPv4) + ip6tables (IPv6) rules in OUTPUT (host) +
@@ -20,11 +20,13 @@
 openrouter.ai
 api.openrouter.ai
 
-# ----- Live retrieval — DEFERRED to GH#487 I-carney-009 -----
-# Search-provider selection (Mojeek UK / Qwant FR / Ecosia DE) is the
-# follow-up Issue. NO search API host is in this allowlist for the sovereign
-# deploy. With lockdown on, search-tier-1 corpus fetch still works (govt
-# endpoints listed below); Serper/etc. calls fail loudly under lockdown.
+# ----- Live retrieval (Serper US — disclosed; user-accepted I-carney-010) -----
+# Serper is US-based. Per user directive 2026-05-13 it stays as the search
+# backend: search queries carry no confidential content, and the generated
+# reports stay on sovereign infrastructure. Disclosed plainly in
+# /transparency §4. The sovereignty constraint is the LLM inference path +
+# report-data jurisdiction, not the search-query egress.
+google.serper.dev
 # Semantic Scholar (US AI2 non-profit) — disclosed in /transparency,
 # kept for the academic-bib path; remove for stricter sovereignty.
 api.semanticscholar.org

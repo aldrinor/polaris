@@ -11,7 +11,7 @@ This is the single source of truth for the PM Mark Carney POLARIS demo. Read end
 | Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
 | LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
 | LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
-| Live search | DEFERRED to GH#487 (Mojeek UK / Qwant FR / Ecosia DE candidates) | Non-US — Codex iter-1 caught Brave Software is Delaware-incorporated |
+| Live search | Serper (`google.serper.dev`) | US — disclosed exception per operator directive 2026-05-13; search queries carry no confidential content, reports stay sovereign. See `docs/transparency.md` §4. |
 | Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
 | DNS | easyDNS or Cira | Canadian |
 | TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
@@ -30,7 +30,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 | Canadian-registrar domain + DNS A record `polaris.<domain>` → VM floating IPv4 | Ops | `dig +short polaris.<domain>` returns the IP |
 | `gh` + `ssh` + `scp` CLIs installed | Ops | `gh --version && ssh -V` |
 | Demo signing GPG key generated | Ops | `bash scripts/bootstrap_gpg_demo_key.sh` |
-| Non-US web search API key (see GH#487 — Mojeek UK / Qwant FR / Ecosia DE) | Ops | provider-specific signup |
+| Serper API key (web search — US, disclosed) | Ops | https://serper.dev/ |
 | OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
 | OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
 | `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
@@ -41,7 +41,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 
 ## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
 
-**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, non-US search API key obtained per GH#487 (or transitional Serper with disclosure), OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
 ```bash
 # 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)

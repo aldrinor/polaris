@@ -1,0 +1,165 @@
+diff --git a/config/egress_allowlist.txt b/config/egress_allowlist.txt
+index 5510f3f1..777101c0 100644
+--- a/config/egress_allowlist.txt
++++ b/config/egress_allowlist.txt
+@@ -1,9 +1,9 @@
+ # I-carney-003 — POLARIS Carney demo egress allowlist.
+-# Updated I-carney-008 — sovereign pivot. Brave Search REMOVED 2026-05-13
+-# (Brave Software Inc. is a Delaware corporation; fails the "no US company
+-# anywhere" bar per Codex iter-1 P1-1). Search-provider selection moved to
+-# GH#487 I-carney-009 — until that lands, search calls fail loudly under
+-# lockdown (intentional; the no-search smoke shows the failure mode honestly).
++# Updated I-carney-010 2026-05-13 — Serper stays as the search backend per
++# user directive: "search provider is OK to stay serper, as I don't need to
++# share confidential information in it." The sovereignty threat model is the
++# LLM inference path + report-data jurisdiction, NOT search queries (which
++# carry no confidential content). Serper (US) is disclosed in /transparency.
+ #
+ # scripts/egress_lockdown.sh resolves each domain to A AND AAAA records and
+ # installs iptables (IPv4) + ip6tables (IPv6) rules in OUTPUT (host) +
+@@ -20,11 +20,13 @@
+ openrouter.ai
+ api.openrouter.ai
+ 
+-# ----- Live retrieval — DEFERRED to GH#487 I-carney-009 -----
+-# Search-provider selection (Mojeek UK / Qwant FR / Ecosia DE) is the
+-# follow-up Issue. NO search API host is in this allowlist for the sovereign
+-# deploy. With lockdown on, search-tier-1 corpus fetch still works (govt
+-# endpoints listed below); Serper/etc. calls fail loudly under lockdown.
++# ----- Live retrieval (Serper US — disclosed; user-accepted I-carney-010) -----
++# Serper is US-based. Per user directive 2026-05-13 it stays as the search
++# backend: search queries carry no confidential content, and the generated
++# reports stay on sovereign infrastructure. Disclosed plainly in
++# /transparency §4. The sovereignty constraint is the LLM inference path +
++# report-data jurisdiction, not the search-query egress.
++google.serper.dev
+ # Semantic Scholar (US AI2 non-profit) — disclosed in /transparency,
+ # kept for the academic-bib path; remove for stricter sovereignty.
+ api.semanticscholar.org
+diff --git a/docs/carney_demo_runbook.md b/docs/carney_demo_runbook.md
+index ee2f567e..1dfdc0f1 100644
+--- a/docs/carney_demo_runbook.md
++++ b/docs/carney_demo_runbook.md
+@@ -11,7 +11,7 @@ This is the single source of truth for the PM Mark Carney POLARIS demo. Read end
+ | Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
+ | LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
+ | LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
+-| Live search | DEFERRED to GH#487 (Mojeek UK / Qwant FR / Ecosia DE candidates) | Non-US — Codex iter-1 caught Brave Software is Delaware-incorporated |
++| Live search | Serper (`google.serper.dev`) | US — disclosed exception per operator directive 2026-05-13; search queries carry no confidential content, reports stay sovereign. See `docs/transparency.md` §4. |
+ | Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
+ | DNS | easyDNS or Cira | Canadian |
+ | TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
+@@ -30,7 +30,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
+ | Canadian-registrar domain + DNS A record `polaris.<domain>` → VM floating IPv4 | Ops | `dig +short polaris.<domain>` returns the IP |
+ | `gh` + `ssh` + `scp` CLIs installed | Ops | `gh --version && ssh -V` |
+ | Demo signing GPG key generated | Ops | `bash scripts/bootstrap_gpg_demo_key.sh` |
+-| Non-US web search API key (see GH#487 — Mojeek UK / Qwant FR / Ecosia DE) | Ops | provider-specific signup |
++| Serper API key (web search — US, disclosed) | Ops | https://serper.dev/ |
+ | OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
+ | OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
+ | `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
+@@ -41,7 +41,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
+ 
+ ## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
+ 
+-**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, non-US search API key obtained per GH#487 (or transitional Serper with disclosure), OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
++**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+ 
+ ```bash
+ # 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)
+diff --git a/docs/transparency.md b/docs/transparency.md
+index d5907adb..bb9fb698 100644
+--- a/docs/transparency.md
++++ b/docs/transparency.md
+@@ -54,9 +54,10 @@ A successful verification prints `Good signature from "POLARIS Carney Demo <sign
+ 
+ The Vexxhost host (Canadian-owned hosting, Montréal) runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
+ 
+-Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008):
++Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008, search per I-carney-010):
+ 
+ - `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
++- `google.serper.dev` — Serper web search (US-based; see "Web search provider" below)
+ - `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; disclosed; removable for stricter sovereignty)
+ - T1 corpus endpoints — `fda.gov`, `accessdata.fda.gov`, `clinicaltrials.gov`, `ncbi.nlm.nih.gov`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov`, `ema.europa.eu`, `nice.org.uk`, `mhra.gov.uk`, `www.gov.uk`, `canada.ca`, `hc-sc.gc.ca`, `recalls-rappels.canada.ca`, `health-products.canada.ca`, `hres.ca`, `cda-amc.ca`, `who.int`, `iarc.who.int`
+ - Bibliographic / DOI infrastructure — `doi.org`, `dx.doi.org`, `api.crossref.org` (UK non-profit), `api.unpaywall.org`, `api.openalex.org`, `arxiv.org`, `export.arxiv.org`, `efts.sec.gov`, `www.sec.gov`
+@@ -64,7 +65,11 @@ Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-00
+ - `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
+ - `acme-v02.api.letsencrypt.org`, `r3.o.lencr.org` — Let's Encrypt TLS cert renewal (public attestation only; no data leaves)
+ 
+-**Web search provider:** DEFERRED to GH#487 I-carney-009. Serper (US) is removed from the sovereign allowlist; under lockdown, Serper calls fail loudly. The chosen non-US replacement (Mojeek UK / Qwant FR / Ecosia DE) lands in that follow-up Issue, at which point its API host is added here.
++**Web search provider:** Serper (`google.serper.dev`), a US-based search API. This is a deliberate, disclosed exception to the "no US company" posture, accepted per operator directive 2026-05-13.
++
++What Serper receives: the search query string itself, plus the normal request metadata any HTTP API call carries — the API account/key, source IP, timestamp, and user-agent — which Serper's privacy policy (serper.dev/privacy) describes it logging as system/access activity. What Serper does NOT receive: the uploaded corpus, the evidence pool, the generated report, or any operator-entered content. Serper returns only result URLs + snippets; POLARIS then fetches the actual T1 evidence directly from the government corpus endpoints listed above.
++
++The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+ 
+ Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
+ 
+diff --git a/infra/vexxhost/.env.example b/infra/vexxhost/.env.example
+index 6a71e84b..d346f0b1 100644
+--- a/infra/vexxhost/.env.example
++++ b/infra/vexxhost/.env.example
+@@ -14,13 +14,12 @@ POLARIS_VLLM_BASE_URL=http://10.0.0.42:8000/v1   # only used when backend=vllm
+ OPENROUTER_API_KEY=REPLACE_ME_OR_REMOVE_AFTER_VLLM_CUTOVER
+ 
+ # ---- Live retrieval ----
+-# Search-provider selection is GH#487 I-carney-009 follow-up. Until then the
+-# code-side still uses Serper (US, fails the no-US-company bar). Keep
+-# SERPER_API_KEY populated for transitional runs; the egress allowlist
+-# already drops Serper for the sovereign deploy — runs will fail loudly.
+-# Replace SERPER_API_KEY with the chosen non-US provider's key once
+-# GH#487 picks Mojeek (UK) / Qwant (FR) / Ecosia (DE).
+-SERPER_API_KEY=REPLACE_ME_OR_LEAVE_BLANK_FOR_NO_SEARCH_PHASE
++# Serper is the search backend. It is US-based and that is accepted per
++# user directive 2026-05-13: search queries carry no confidential content,
++# and the generated reports stay on sovereign infrastructure. Serper is
++# disclosed plainly in /transparency §4. REQUIRED — runs fail loudly
++# without it.
++SERPER_API_KEY=REPLACE_ME
+ # Semantic Scholar is hosted by AI2 (US non-profit, public corpus). Disclosed
+ # in /transparency; remove for stricter sovereignty.
+ SEMANTIC_SCHOLAR_API_KEY=
+diff --git a/infra/vexxhost/README.md b/infra/vexxhost/README.md
+index 5ed14ec5..7dc25026 100644
+--- a/infra/vexxhost/README.md
++++ b/infra/vexxhost/README.md
+@@ -4,8 +4,8 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
+ 
+ **Hosting:** Vexxhost (Canadian-owned, Montréal datacenter).
+ **LLM inference:** OVH BHS H200 (French-owned, Beauharnois QC) running self-hosted DeepSeek V4 Pro + Gemma 4 31B via vLLM. See `docs/ovh_h200_procurement_spec.md`.
+-**Search:** DEFERRED to GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE candidates — non-US). Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), so the original Brave plan is invalid.
+-**No US company anywhere in the runtime path.**
++**Search:** Serper (`google.serper.dev`), US-based — a disclosed exception per operator directive 2026-05-13. Search queries carry no confidential content; the sovereign constraint protects the LLM inference path + report data. See `docs/transparency.md` §4.
++**Sovereignty posture:** the LLM inference path and the generated report data run on Canadian / non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). Serper web search is the one disclosed US exception in the runtime path — see §4 of `docs/transparency.md` for the rationale and what Serper does/does not see.
+ 
+ ## Prereqs (operator, T-7 before demo)
+ 
+@@ -17,7 +17,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
+    - SSH key uploaded
+ 3. Domain registered + DNS A record for `polaris.<your-domain>` pointing at the VM's floating IPv4. Use a Canadian registrar (easyDNS, Cira, Hover-Canada-billing) for the sovereignty story.
+ 4. GPG demo signing key generated on operator workstation: `bash scripts/bootstrap_gpg_demo_key.sh`. Produces `outputs/polaris_demo_pubkey.asc` and a fingerprint in `state/polaris_gpg_keyid.txt`. ALSO export the secret: `gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo" > polaris_demo_secret.asc`.
+-5. Non-US web search API key per GH#487 I-carney-009 (Mojeek UK / Qwant FR / Ecosia DE — pick at PR time; OPTIONAL during transition while pipeline-A runs on cached corpus + direct T1 government endpoints).
++5. Serper API key from https://serper.dev/ — the web search backend. US-based, disclosed exception per operator directive 2026-05-13 (search queries non-confidential; reports stay sovereign). REQUIRED.
+ 6. OVH H200 server provisioned in BHS — see `docs/ovh_h200_procurement_spec.md`. Note its private IP; default vLLM endpoint is `http://10.0.0.42:8000/v1`.
+ 7. bcrypt-hashed `static_accounts.yaml` prepared locally (template at `config/static_accounts.example.yaml`).
+ 
+@@ -114,7 +114,7 @@ All four chains must show DROP rules at the bottom + the allowlisted IPs as ACCE
+                               └──────────────────────────┘
+                                           │
+                                           ▼
+-                                 Non-US search API (GH#487, pending)
++                                 Serper web search (US, disclosed)
+                                  + government T1 sources
+                                  (FDA, NICE, EMA, MHRA,
+                                   Health Canada, WHO, NCBI)
+@@ -131,7 +131,7 @@ The Vexxhost OpenStack Terraform provider exists, but for a single VM the operat
+ | Orchestrator hosting | Vexxhost | Canadian | Canada (PIPEDA + Quebec Law 25) |
+ | LLM inference (when OVH H200 online + GH#199 ships) | OVH Canada | French (parent: OVH SAS) | Canada (OVH Canada entity is the data controller) |
+ | LLM inference (transition default) | OpenRouter | US | US (transitional only — disclosed in `/transparency`) |
+-| Live search | DEFERRED to GH#487 | Non-US (Mojeek UK / Qwant FR / Ecosia DE candidates) | TBD per provider; Codex iter-1 caught Brave Software Inc. is Delaware-incorporated (US), invalidating the original Brave plan |
++| Live search | Serper (`google.serper.dev`) | US-based search API (legal entity not independently verified; Serper's Terms at serper.dev/terms specify the governing law) | Disclosed exception per operator directive 2026-05-13: search queries carry no confidential content; sovereignty protects the LLM inference path + report data, not the keyword query. See `docs/transparency.md` §4. |
+ | Source corpora (T1) | Government sites (FDA, EMA, Health Canada, NICE, MHRA, WHO, NCBI) | Sovereign per source | Each source jurisdiction |
+ | Bib / DOI infrastructure | doi.org (CNRI US), Crossref (UK), Unpaywall + OpenAlex (US non-profits), arXiv (Cornell US), SEC EDGAR (US govt) | Mixed; disclosed | Mixed |
+ | DNS | easyDNS or Cira | Canadian | Canada |
+# canonical-diff-sha256: 89809d82a32cbdf9c2bc43fd229eda53a84923ba1e5398936c1e7e25ad7246a8
