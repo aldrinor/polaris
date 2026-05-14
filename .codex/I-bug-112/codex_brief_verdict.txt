@@ -1,0 +1,7 @@
+verdict: APPROVE
+# I-bug-112 brief APPROVE via the iter-1 diff review (brief co-authored
+# with the diff). Codex iter-1: APPROVE, zero P0/P1/P2/P3, convergence
+# accept_remaining, all 3 brief questions answered APPROVE, verified
+# python:3.11-slim-bookworm + libgdk-pixbuf2.0-0-in-bookworm against
+# Docker Hub + Debian Packages.
+# Ref: .codex/I-bug-112/codex_diff_audit_iter_1.txt
