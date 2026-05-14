@@ -46,12 +46,22 @@ OPENROUTER_BASE_URL = os.getenv(
 OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
-# R-2 (readiness gate): hard per-run cost cap. A single honest-rebuild
-# run (scope+retrieval+generate+judge) should cost $0.005-$0.01. Cap at
-# $0.10 default so a runaway regen loop or recursive outline can't burn
-# hours of budget before we notice. Measured by cumulative cost across
-# ALL OpenRouterClient instances instantiated within a single run.
-PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
+# R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+# not an economic limit. Measured by cumulative cost across ALL
+# OpenRouterClient instances within a single run.
+#
+# I-gen-003 (2026-05-14): raised the default from $0.10 to $10.00.
+# The $0.10 default was tuned for the V3.2-Exp generator
+# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
+# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
+# observed) and the I-gen-003 CoT-recovery regen loop adds up to 3
+# extra section calls. Under the stale $0.10 cap a normal V4 Pro run
+# trips BudgetExceededError before it can finish — i.e. the guard
+# false-fires on the new generator's NORMAL cost profile. $10.00
+# matches the v30_runner.py default and still catches a genuine
+# infinite loop / recursive-outline runaway. Override per-run via the
+# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
 
 # BUG-B-201 fix (pass 2 remediation): per-task ambient state via
 # contextvars so concurrent async run_one_query() calls don't stomp
