@@ -1,37 +1,18 @@
 {
-  "active_issue_id": null,
-  "current_step": "awaiting_user_assignment",
+  "active_issue_id": "I-sov-001",
+  "active_issue_gh_number": 199,
+  "branch": "bot/I-sov-001-vllm-base-url",
+  "current_step": "implement_diff",
+  "next_action": "make real_completion.py + entailment_judge.py read OPENROUTER_BASE_URL; add reasoning_content to real_completion _extract_text fallback; add dual-shape parser test; Codex diff review; PR; merge",
+  "assigned_at_utc": "2026-05-13",
+  "investigation": "G2 dual-backend test complete — .codex/I-sov-001/g2_dual_backend_findings.md. Cutover surface measured at ~20 LOC across 2 peripheral files. openrouter_client.py (central, 56 importers) already vLLM-ready via OPENROUTER_BASE_URL + reasoning_content handling.",
+  "demo_target_window_utc": "2026-06-05 to 2026-06-09",
   "last_completed_issue": {
     "id": "I-carney-008",
     "github": 486,
     "pr": 488,
-    "merge_sha": "fefa96abddb8714c3633271eef2a0b4acc7d588b",
-    "completed_at_utc": "2026-05-13T19:30:00Z",
-    "verdict": "Codex APPROVE iter 5/5 (zero P0/P1/P2/P3, convergence_call: accept_remaining)"
+    "merge_sha": "fefa96abddb8714c3633271eef2a0b4acc7d588b"
   },
-  "next_candidates": {
-    "I-carney-009": {
-      "github": 487,
-      "title": "Replace Serper with non-US search provider (Mojeek/Qwant/Ecosia)",
-      "depends_on": "user-side: pick Mojeek vs Qwant vs Ecosia + obtain API key",
-      "scope": "src/polaris_v6/api/* + src/polaris_graph/retrieval/* + tests; replace google.serper.dev calls with chosen provider; remap response shape to existing SearchResult schema"
-    },
-    "I-sov-001": {
-      "github": 199,
-      "title": "Replace OpenRouter with sovereign vLLM",
-      "depends_on": "HARD GATE — GH#90 OVH BHS H200 procurement landing (operator email this week)"
-    },
-    "I-carney-006": {
-      "github": 473,
-      "title": "Live-submission rehearsal: 5 canonical + 5 staff-style questions §-1.1 audit",
-      "depends_on": "Vexxhost deploy live (operator runs infra/vexxhost/provision.sh + scripts/egress_lockdown.sh + scripts/egress_runtime_tighten.sh)"
-    }
-  },
-  "operator_actions_this_week": [
-    "Email docs/ovh_h200_procurement_spec.md to OVH Canada sales (salescanada@ovhcloud.com) — kicks off GH#90 (5-10 business day lead time)",
-    "Pick non-US search provider for GH#487: Mojeek (UK, paid Search API), Qwant (FR, enterprise), Ecosia (DE, Bing-derived caveat), Startpage (NL)",
-    "Provision Vexxhost VM + Canadian-registrar domain (T-7 before demo)"
-  ],
-  "demo_target_window_utc": "2026-06-05 to 2026-06-09",
-  "last_updated_utc": "2026-05-13T19:30:00Z"
+  "parallel_prep_tracking": "16-item 7-day plan in tasks #302-#319 (G3+G4 deleted per user directive 2026-05-13 — out of sovereignty threat model)",
+  "last_updated_utc": "2026-05-13T22:10:00Z"
 }
