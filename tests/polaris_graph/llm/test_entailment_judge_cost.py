@@ -212,6 +212,47 @@ def test_judge_falls_back_to_estimate_when_usage_block_absent(monkeypatch, tmp_p
     assert cost == pytest.approx(expected, rel=1e-6)
 
 
+# ---------- I-sov-001: env-configurable endpoint ----------
+
+def test_judge_endpoint_defaults_to_openrouter(monkeypatch):
+    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-4-31b-it")
+    judge = entailment_judge._EntailmentJudge()
+    assert judge._endpoint == "https://openrouter.ai/api/v1/chat/completions"
+
+
+def test_judge_endpoint_respects_vllm_base_url(monkeypatch):
+    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
+    flips the entailment judge to the sovereign backend. Trailing slash
+    tolerated (mirrors openrouter_client + real_completion)."""
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-4-31b-it")
+    judge = entailment_judge._EntailmentJudge()
+    assert judge._endpoint == "http://10.0.0.42:8000/v1/chat/completions"
+
+
+def test_judge_posts_to_configured_endpoint(monkeypatch):
+    """The judge's httpx POST targets self._endpoint, not a hardcoded URL."""
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1")
+    payload = {
+        "choices": [{"message": {"content": json.dumps({
+            "verdict": "ENTAILED", "reason": "ok",
+        })}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+    }
+    judge = _make_judge_with_mock_response(monkeypatch, payload)
+    judge.judge("sentence", "span")
+    # First positional arg to post() is the endpoint URL.
+    call_args = judge._client.post.call_args
+    posted_url = call_args[0][0] if call_args[0] else call_args[1].get("url")
+    assert posted_url == "http://10.0.0.42:8000/v1/chat/completions"
+
+
 def test_judge_raises_budget_exceeded_when_cap_breached(monkeypatch, tmp_path):
     """When the judge call would push cumulative run cost past
     `PG_MAX_COST_PER_RUN`, `BudgetExceededError` is raised — NOT

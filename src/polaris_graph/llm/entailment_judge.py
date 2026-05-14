@@ -120,6 +120,14 @@ class _EntailmentJudge:
                 "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
             )
         self._api_key = api_key
+        # I-sov-001: endpoint is env-configurable so the sovereign deploy
+        # can point the entailment judge at the OVH H200 vLLM endpoint
+        # (set OPENROUTER_BASE_URL=http://<priv-ip>:8000/v1). Default keeps
+        # OpenRouter. Mirrors openrouter_client.py:43-45.
+        base_url = os.environ.get(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        ).rstrip("/")
+        self._endpoint = f"{base_url}/chat/completions"
         self._model = os.environ.get(
             "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
         )
@@ -152,7 +160,7 @@ class _EntailmentJudge:
         started = time.monotonic()
         try:
             response = self._client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
+                self._endpoint,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
