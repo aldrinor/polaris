@@ -1,0 +1,209 @@
+diff --git a/src/polaris_graph/generator2/real_completion.py b/src/polaris_graph/generator2/real_completion.py
+index bfd89a36..95f9d9e6 100644
+--- a/src/polaris_graph/generator2/real_completion.py
++++ b/src/polaris_graph/generator2/real_completion.py
+@@ -37,7 +37,14 @@ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ 
+ _LOG = logging.getLogger(__name__)
+ 
+-OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
++# I-sov-001: endpoint is env-configurable so the sovereign deploy can point
++# the generator at the OVH H200 vLLM endpoint (set OPENROUTER_BASE_URL=
++# http://<priv-ip>:8000/v1). Default keeps OpenRouter. Mirrors
++# openrouter_client.py:43-45 — one env var flips the whole stack.
++_OPENROUTER_BASE_URL = os.environ.get(
++    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
++).rstrip("/")
++OPENROUTER_ENDPOINT = f"{_OPENROUTER_BASE_URL}/chat/completions"
+ DEFAULT_TIMEOUT_S = 60.0
+ DEFAULT_TEMPERATURE = 0.2
+ DEFAULT_MAX_TOKENS = 800
+@@ -199,8 +206,9 @@ class RealCompletion:
+         text = _extract_text(data)
+         if not text.strip():
+             raise RuntimeError(
+-                f"OpenRouter returned empty content for section "
+-                f"{section_plan.section_id!r}; model={self.config.model!r}"
++                f"LLM backend returned empty content for section "
++                f"{section_plan.section_id!r}; model={self.config.model!r}; "
++                f"endpoint={OPENROUTER_ENDPOINT!r}"
+             )
+         return text
+ 
+@@ -246,14 +254,18 @@ def _extract_text(response_json: dict[str, Any]) -> str:
+             return joined
+ 
+     # Fallback: some routes return reasoning when content is suppressed.
+-    reasoning = message.get("reasoning")
++    # I-sov-001: check BOTH `reasoning_content` (vLLM-native key, what the
++    # OVH H200 sovereign deploy emits) AND `reasoning` (OpenRouter's key).
++    # openrouter_client.py already does this at lines 1044-1050,1389-1393;
++    # this aligns real_completion.py's fallback with the central client.
++    reasoning = message.get("reasoning_content") or message.get("reasoning")
+     if isinstance(reasoning, str) and reasoning.strip():
+         return reasoning
+ 
+     raise RuntimeError(
+-        "OpenRouter response 'message.content' missing or not a string "
++        "LLM response 'message.content' missing or not a string "
+         f"(got type={type(content).__name__}); reasoning_present="
+-        f"{bool(message.get('reasoning'))}"
++        f"{bool(message.get('reasoning_content') or message.get('reasoning'))}"
+     )
+ 
+ 
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index 7829baf4..acfa8adf 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -120,6 +120,14 @@ class _EntailmentJudge:
+                 "PG_STRICT_VERIFY_ENTAILMENT requires OPENROUTER_API_KEY"
+             )
+         self._api_key = api_key
++        # I-sov-001: endpoint is env-configurable so the sovereign deploy
++        # can point the entailment judge at the OVH H200 vLLM endpoint
++        # (set OPENROUTER_BASE_URL=http://<priv-ip>:8000/v1). Default keeps
++        # OpenRouter. Mirrors openrouter_client.py:43-45.
++        base_url = os.environ.get(
++            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
++        ).rstrip("/")
++        self._endpoint = f"{base_url}/chat/completions"
+         self._model = os.environ.get(
+             "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+         )
+@@ -152,7 +160,7 @@ class _EntailmentJudge:
+         started = time.monotonic()
+         try:
+             response = self._client.post(
+-                "https://openrouter.ai/api/v1/chat/completions",
++                self._endpoint,
+                 headers={
+                     "Authorization": f"Bearer {self._api_key}",
+                     "Content-Type": "application/json",
+diff --git a/tests/polaris_graph/generator2/test_real_completion.py b/tests/polaris_graph/generator2/test_real_completion.py
+index b4d1c8c1..db32b9f1 100644
+--- a/tests/polaris_graph/generator2/test_real_completion.py
++++ b/tests/polaris_graph/generator2/test_real_completion.py
+@@ -206,6 +206,68 @@ def test_extract_text_falls_back_to_reasoning_when_content_empty():
+     assert "aspirin" in _extract_text(response)
+ 
+ 
++def test_extract_text_falls_back_to_reasoning_content_vllm_key():
++    """I-sov-001: vLLM (the OVH H200 sovereign backend) emits the reasoning
++    under `reasoning_content`, not OpenRouter's `reasoning`. The fallback
++    must check both keys."""
++    response = {
++        "choices": [
++            {
++                "message": {
++                    "content": "",
++                    "reasoning_content": "The trial showed aspirin reduced events.",
++                }
++            }
++        ]
++    }
++    assert "aspirin" in _extract_text(response)
++
++
++def test_extract_text_prefers_content_over_reasoning_content():
++    """When both content and reasoning_content are populated, content wins."""
++    response = {
++        "choices": [
++            {
++                "message": {
++                    "content": "Final prose [#ev:src-1:0-10].",
++                    "reasoning_content": "internal chain of thought",
++                }
++            }
++        ]
++    }
++    assert _extract_text(response) == "Final prose [#ev:src-1:0-10]."
++
++
++# ---------- I-sov-001: env-configurable endpoint ----------
++
++def test_endpoint_defaults_to_openrouter(monkeypatch: pytest.MonkeyPatch):
++    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
++    import importlib
++
++    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
++    import polaris_graph.generator2.real_completion as rc_mod
++
++    importlib.reload(rc_mod)
++    assert rc_mod.OPENROUTER_ENDPOINT == "https://openrouter.ai/api/v1/chat/completions"
++    # restore default module state for other tests
++    importlib.reload(rc_mod)
++
++
++def test_endpoint_respects_vllm_base_url(monkeypatch: pytest.MonkeyPatch):
++    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
++    flips the generator to the sovereign backend. Trailing slash tolerated."""
++    import importlib
++
++    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
++    import polaris_graph.generator2.real_completion as rc_mod
++
++    importlib.reload(rc_mod)
++    assert rc_mod.OPENROUTER_ENDPOINT == "http://10.0.0.42:8000/v1/chat/completions"
++    # restore default module state for other tests
++    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
++    importlib.reload(rc_mod)
++
++
+ # ---------- RealCompletion call (network mocked) ----------
+ 
+ def _success_handler(content: str):
+diff --git a/tests/polaris_graph/llm/test_entailment_judge_cost.py b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+index e10194af..b014e75f 100644
+--- a/tests/polaris_graph/llm/test_entailment_judge_cost.py
++++ b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+@@ -212,6 +212,47 @@ def test_judge_falls_back_to_estimate_when_usage_block_absent(monkeypatch, tmp_p
+     assert cost == pytest.approx(expected, rel=1e-6)
+ 
+ 
++# ---------- I-sov-001: env-configurable endpoint ----------
++
++def test_judge_endpoint_defaults_to_openrouter(monkeypatch):
++    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
++    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-4-31b-it")
++    judge = entailment_judge._EntailmentJudge()
++    assert judge._endpoint == "https://openrouter.ai/api/v1/chat/completions"
++
++
++def test_judge_endpoint_respects_vllm_base_url(monkeypatch):
++    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
++    flips the entailment judge to the sovereign backend. Trailing slash
++    tolerated (mirrors openrouter_client + real_completion)."""
++    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-4-31b-it")
++    judge = entailment_judge._EntailmentJudge()
++    assert judge._endpoint == "http://10.0.0.42:8000/v1/chat/completions"
++
++
++def test_judge_posts_to_configured_endpoint(monkeypatch):
++    """The judge's httpx POST targets self._endpoint, not a hardcoded URL."""
++    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1")
++    payload = {
++        "choices": [{"message": {"content": json.dumps({
++            "verdict": "ENTAILED", "reason": "ok",
++        })}}],
++        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++    judge.judge("sentence", "span")
++    # First positional arg to post() is the endpoint URL.
++    call_args = judge._client.post.call_args
++    posted_url = call_args[0][0] if call_args[0] else call_args[1].get("url")
++    assert posted_url == "http://10.0.0.42:8000/v1/chat/completions"
++
++
+ def test_judge_raises_budget_exceeded_when_cap_breached(monkeypatch, tmp_path):
+     """When the judge call would push cumulative run cost past
+     `PG_MAX_COST_PER_RUN`, `BudgetExceededError` is raised — NOT
+
+# canonical-diff-sha256: 01052feb0bba8982fdb5e5d24fd097bcc51a44e4f181528dd8496772cad2c5b6

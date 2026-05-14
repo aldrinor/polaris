@@ -1,0 +1,6 @@
+verdict: APPROVE
+# I-sov-001 brief — APPROVE via the iter-1 diff review (brief authored
+# alongside the diff; G2 investigation in g2_dual_backend_findings.md is the
+# comprehensive pre-work). Codex iter-1 verdict APPROVE with zero P0/P1/P2/P3
+# + convergence_call accept_remaining + all 3 brief questions answered APPROVE.
+# Ref: .codex/I-sov-001/codex_diff_audit_iter_1.txt
