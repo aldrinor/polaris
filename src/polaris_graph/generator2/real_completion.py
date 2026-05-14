@@ -37,7 +37,14 @@ from polaris_graph.retrieval2.evidence_pool import EvidencePool
 
 _LOG = logging.getLogger(__name__)
 
-OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+# I-sov-001: endpoint is env-configurable so the sovereign deploy can point
+# the generator at the OVH H200 vLLM endpoint (set OPENROUTER_BASE_URL=
+# http://<priv-ip>:8000/v1). Default keeps OpenRouter. Mirrors
+# openrouter_client.py:43-45 — one env var flips the whole stack.
+_OPENROUTER_BASE_URL = os.environ.get(
+    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+).rstrip("/")
+OPENROUTER_ENDPOINT = f"{_OPENROUTER_BASE_URL}/chat/completions"
 DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 800
@@ -199,8 +206,9 @@ class RealCompletion:
         text = _extract_text(data)
         if not text.strip():
             raise RuntimeError(
-                f"OpenRouter returned empty content for section "
-                f"{section_plan.section_id!r}; model={self.config.model!r}"
+                f"LLM backend returned empty content for section "
+                f"{section_plan.section_id!r}; model={self.config.model!r}; "
+                f"endpoint={OPENROUTER_ENDPOINT!r}"
             )
         return text
 
@@ -246,14 +254,18 @@ def _extract_text(response_json: dict[str, Any]) -> str:
             return joined
 
     # Fallback: some routes return reasoning when content is suppressed.
-    reasoning = message.get("reasoning")
+    # I-sov-001: check BOTH `reasoning_content` (vLLM-native key, what the
+    # OVH H200 sovereign deploy emits) AND `reasoning` (OpenRouter's key).
+    # openrouter_client.py already does this at lines 1044-1050,1389-1393;
+    # this aligns real_completion.py's fallback with the central client.
+    reasoning = message.get("reasoning_content") or message.get("reasoning")
     if isinstance(reasoning, str) and reasoning.strip():
         return reasoning
 
     raise RuntimeError(
-        "OpenRouter response 'message.content' missing or not a string "
+        "LLM response 'message.content' missing or not a string "
         f"(got type={type(content).__name__}); reasoning_present="
-        f"{bool(message.get('reasoning'))}"
+        f"{bool(message.get('reasoning_content') or message.get('reasoning'))}"
     )
 
 

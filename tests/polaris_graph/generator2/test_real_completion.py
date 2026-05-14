@@ -206,6 +206,68 @@ def test_extract_text_falls_back_to_reasoning_when_content_empty():
     assert "aspirin" in _extract_text(response)
 
 
+def test_extract_text_falls_back_to_reasoning_content_vllm_key():
+    """I-sov-001: vLLM (the OVH H200 sovereign backend) emits the reasoning
+    under `reasoning_content`, not OpenRouter's `reasoning`. The fallback
+    must check both keys."""
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning_content": "The trial showed aspirin reduced events.",
+                }
+            }
+        ]
+    }
+    assert "aspirin" in _extract_text(response)
+
+
+def test_extract_text_prefers_content_over_reasoning_content():
+    """When both content and reasoning_content are populated, content wins."""
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": "Final prose [#ev:src-1:0-10].",
+                    "reasoning_content": "internal chain of thought",
+                }
+            }
+        ]
+    }
+    assert _extract_text(response) == "Final prose [#ev:src-1:0-10]."
+
+
+# ---------- I-sov-001: env-configurable endpoint ----------
+
+def test_endpoint_defaults_to_openrouter(monkeypatch: pytest.MonkeyPatch):
+    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
+    import importlib
+
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    import polaris_graph.generator2.real_completion as rc_mod
+
+    importlib.reload(rc_mod)
+    assert rc_mod.OPENROUTER_ENDPOINT == "https://openrouter.ai/api/v1/chat/completions"
+    # restore default module state for other tests
+    importlib.reload(rc_mod)
+
+
+def test_endpoint_respects_vllm_base_url(monkeypatch: pytest.MonkeyPatch):
+    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
+    flips the generator to the sovereign backend. Trailing slash tolerated."""
+    import importlib
+
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
+    import polaris_graph.generator2.real_completion as rc_mod
+
+    importlib.reload(rc_mod)
+    assert rc_mod.OPENROUTER_ENDPOINT == "http://10.0.0.42:8000/v1/chat/completions"
+    # restore default module state for other tests
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    importlib.reload(rc_mod)
+
+
 # ---------- RealCompletion call (network mocked) ----------
 
 def _success_handler(content: str):
