@@ -7,7 +7,11 @@
 # Pipeline B legacy image (Dockerfile + docker_entrypoint.sh + docker-compose.yml)
 # stays untouched per I-carney-005 acceptance criterion 8.
 
-FROM python:3.11-slim
+# I-bug-112: pin to bookworm. `python:3.11-slim` floated to Debian trixie
+# (13), where `libgdk-pixbuf2.0-0` was renamed `libgdk-pixbuf-2.0-0` and the
+# apt block below fails with "no installation candidate" (exit 100). Pinning
+# the suite keeps the base deterministic + all current apt package names valid.
+FROM python:3.11-slim-bookworm
 
 # System deps:
 #   gnupg          — GPG signing of audit bundles
