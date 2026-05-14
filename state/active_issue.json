@@ -1,18 +1,25 @@
 {
-  "active_issue_id": "I-sov-001",
-  "active_issue_gh_number": 199,
-  "branch": "bot/I-sov-001-vllm-base-url",
-  "current_step": "implement_diff",
-  "next_action": "make real_completion.py + entailment_judge.py read OPENROUTER_BASE_URL; add reasoning_content to real_completion _extract_text fallback; add dual-shape parser test; Codex diff review; PR; merge",
-  "assigned_at_utc": "2026-05-13",
-  "investigation": "G2 dual-backend test complete — .codex/I-sov-001/g2_dual_backend_findings.md. Cutover surface measured at ~20 LOC across 2 peripheral files. openrouter_client.py (central, 56 importers) already vLLM-ready via OPENROUTER_BASE_URL + reasoning_content handling.",
+  "active_issue_id": null,
+  "current_step": "awaiting_user_assignment",
+  "last_completed_issues": [
+    {"id": "I-carney-008", "github": 486, "pr": 488, "merge_sha": "fefa96abddb8714c3633271eef2a0b4acc7d588b", "verdict": "Codex APPROVE iter 5/5"},
+    {"id": "I-sov-001", "github": 199, "pr": 489, "merge_sha": "48eb3107b94994ecd0ae0a22333cbaf94c27a6ea", "verdict": "Codex APPROVE iter 1/5 — vLLM endpoint cutover, 27 src LOC"}
+  ],
   "demo_target_window_utc": "2026-06-05 to 2026-06-09",
-  "last_completed_issue": {
-    "id": "I-carney-008",
-    "github": 486,
-    "pr": 488,
-    "merge_sha": "fefa96abddb8714c3633271eef2a0b4acc7d588b"
+  "seven_day_prep_plan": {
+    "consultation": ".codex/I-carney-prep-7day/codex_consultation_response.txt — 18 gaps; G3 + G4 killed per user directive (out of sovereignty threat model)",
+    "tracked_tasks": "#302-#319 (16 items)",
+    "done": ["G2 (#303) — vLLM↔OpenRouter dual-backend test + I-sov-001 cutover code shipped"],
+    "next_offline_able": [
+      "Serper-stays revert (re-add google.serper.dev to egress_allowlist, update transparency.md, close GH#487 as user-directive-WONTFIX) — owed per user directive 2026-05-13",
+      "#1 audit the 10 demo questions on current OpenRouter + snapshot T1 sources (G8 folded in) — critical path, the demo content itself",
+      "G5 (#306) fallback laptop drill — docker-compose.v6.yml local validation",
+      "G13 (#314) secret inventory sheet"
+    ],
+    "hardware_gated": ["G1 dress rehearsal", "G11 cold-start timing", "G12 real bundle verify"]
   },
-  "parallel_prep_tracking": "16-item 7-day plan in tasks #302-#319 (G3+G4 deleted per user directive 2026-05-13 — out of sovereignty threat model)",
-  "last_updated_utc": "2026-05-13T22:10:00Z"
+  "operator_actions_in_flight": [
+    "Admin sending OVH Canada sales email + Vexxhost subscription + Canadian DNS per docs/admin_provisioning_email_2026_05_13.md (5-10 business day OVH lead time)"
+  ],
+  "last_updated_utc": "2026-05-14T05:30:00Z"
 }
