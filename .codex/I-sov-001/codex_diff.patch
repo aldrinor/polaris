@@ -206,4 +206,4 @@ index e10194af..b014e75f 100644
      """When the judge call would push cumulative run cost past
      `PG_MAX_COST_PER_RUN`, `BudgetExceededError` is raised — NOT
 
-# canonical-diff-sha256: 01052feb0bba8982fdb5e5d24fd097bcc51a44e4f181528dd8496772cad2c5b6
+# canonical-diff-sha256: 04778299f875e948727a26044233fb5e10bd2a60e1de53dbc70791eba36830a7
