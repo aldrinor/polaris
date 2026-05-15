@@ -1,0 +1,49 @@
+{
+  "template_id": "policy",
+  "template_name": "Public policy",
+  "summary": "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons — grounded in government, regulator, and HTA-agency sources.",
+  "primary_domains": ["Health Canada", "FDA", "EMA", "NICE", "CADTH", "WHO"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/health-canada.html",
+      "https://www.fda.gov",
+      "https://www.ema.europa.eu",
+      "https://www.who.int",
+      "https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency"
+    ],
+    "T2": [
+      "https://www.nice.org.uk",
+      "https://www.cadth.ca",
+      "https://icer.org",
+      "https://www.iqwig.de",
+      "https://www.has-sante.fr"
+    ],
+    "T3": [
+      "https://www.healthaffairs.org",
+      "https://www.statnews.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "regulatory_decision", "frame_name": "Regulatory approval / labelling decisions" },
+    { "frame_id": "reimbursement_access", "frame_name": "Reimbursement + access policy" },
+    { "frame_id": "hta_assessment", "frame_name": "Health-technology-assessment findings" },
+    { "frame_id": "public_health_guidance", "frame_name": "Public-health guidance + recommendations" },
+    { "frame_id": "cross_jurisdiction", "frame_name": "Cross-jurisdiction access comparison" }
+  ],
+  "refusal_patterns": [
+    "individual_legal_compliance",
+    "individual_treatment_advice",
+    "partisan_political_advocacy"
+  ],
+  "sample_questions": [
+    "How did Health Canada and the FDA differ in their regulatory pathway for GLP-1 obesity indications?",
+    "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    "How does prescription-drug coverage compare across Canadian provinces as of 2025?",
+    "What public-health guidance changed on RSV immunization for infants in 2024?"
+  ],
+  "out_of_scope_examples": [
+    "Should my clinic prescribe this drug to a specific patient?",
+    "Which political party has the better health platform?"
+  ]
+}
