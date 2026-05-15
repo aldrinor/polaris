@@ -12,8 +12,8 @@ from polaris_graph.v30_contract_synthesizer import build_v30_contract
 from polaris_v6.templates.registry import load_template
 
 ALL_V6_TEMPLATES = [
-    "ai_sovereignty", "canada_us", "climate", "clinical",
-    "defense", "housing", "trade", "workforce",
+    "ai_sovereignty", "canada_us", "clinical", "custom",
+    "due_diligence", "policy", "tech", "workforce",
 ]
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "v30_contracts"

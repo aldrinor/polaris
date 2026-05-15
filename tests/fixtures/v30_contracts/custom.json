@@ -1,0 +1,70 @@
+{
+  "custom_fixture": {
+    "schema_version": "v30.1",
+    "required_entities": [
+      {
+        "id": "core_question_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "topic_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "core_question_slot",
+        "url_pattern": "https://www.canada.ca",
+        "anchor": "custom:core_question:custom_fixture:1230a02e"
+      },
+      {
+        "id": "context_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "topic_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "context_slot",
+        "url_pattern": "https://www150.statcan.gc.ca",
+        "anchor": "custom:context:custom_fixture:14a8b9a1"
+      },
+      {
+        "id": "open_questions_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "topic_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "open_questions_slot",
+        "url_pattern": "https://www.canada.ca",
+        "anchor": "custom:open_questions:custom_fixture:a06b6762"
+      }
+    ],
+    "rendering_slots": {
+      "core_question_slot": {
+        "section": "Background",
+        "subsection_title": "Core question + direct evidence",
+        "ordering": 1,
+        "required": true
+      },
+      "context_slot": {
+        "section": "Background",
+        "subsection_title": "Context + background",
+        "ordering": 2,
+        "required": true
+      },
+      "open_questions_slot": {
+        "section": "Findings",
+        "subsection_title": "Open questions + evidence gaps",
+        "ordering": 3,
+        "required": true
+      }
+    },
+    "section_order": [
+      "Background",
+      "Findings"
+    ]
+  }
+}

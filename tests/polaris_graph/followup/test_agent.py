@@ -30,8 +30,8 @@ def _ctx(
 
 def test_compose_preserves_parent_template():
     agent = FollowUpAgent()
-    composed = agent.compose(_ctx(template="trade"), "What about CETA?")
-    assert composed.inherited_template == "trade"
+    composed = agent.compose(_ctx(template="policy"), "What about CETA?")
+    assert composed.inherited_template == "policy"
 
 
 def test_compose_preserves_parent_run_id():

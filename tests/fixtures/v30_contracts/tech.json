@@ -1,0 +1,109 @@
+{
+  "tech_fixture": {
+    "schema_version": "v30.1",
+    "required_entities": [
+      {
+        "id": "novel_contribution_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "technology_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "novel_contribution_slot",
+        "url_pattern": "https://ieeexplore.ieee.org",
+        "anchor": "tech:novel_contribution:tech_fixture:6e59126d"
+      },
+      {
+        "id": "benchmark_results_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "technology_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "benchmark_results_slot",
+        "url_pattern": "https://dl.acm.org",
+        "anchor": "tech:benchmark_results:tech_fixture:3a7802e4"
+      },
+      {
+        "id": "methodology_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "technology_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "methodology_slot",
+        "url_pattern": "https://proceedings.neurips.cc",
+        "anchor": "tech:methodology:tech_fixture:2d57e006"
+      },
+      {
+        "id": "standards_compliance_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "technology_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "standards_compliance_slot",
+        "url_pattern": "https://aclanthology.org",
+        "anchor": "tech:standards_compliance:tech_fixture:92c0dad6"
+      },
+      {
+        "id": "limitations_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "technology_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "limitations_slot",
+        "url_pattern": "https://www.nature.com/natmachintell",
+        "anchor": "tech:limitations:tech_fixture:535485a1"
+      }
+    ],
+    "rendering_slots": {
+      "novel_contribution_slot": {
+        "section": "Background",
+        "subsection_title": "Novel-contribution claims + peer-reviewed evidence",
+        "ordering": 1,
+        "required": true
+      },
+      "benchmark_results_slot": {
+        "section": "Background",
+        "subsection_title": "Benchmark / evaluation results",
+        "ordering": 2,
+        "required": true
+      },
+      "methodology_slot": {
+        "section": "Findings",
+        "subsection_title": "Methodology + reproducibility",
+        "ordering": 3,
+        "required": true
+      },
+      "standards_compliance_slot": {
+        "section": "Findings",
+        "subsection_title": "Standards + interoperability",
+        "ordering": 4,
+        "required": true
+      },
+      "limitations_slot": {
+        "section": "Implications",
+        "subsection_title": "Known limitations + failure modes",
+        "ordering": 5,
+        "required": true
+      }
+    },
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

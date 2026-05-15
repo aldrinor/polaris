@@ -2,7 +2,7 @@
   "pin_id": "baseline_golden_climate_005",
   "workspace_id": "ws_baseline",
   "run_id": "golden_climate_005",
-  "template": "climate",
+  "template": "policy",
   "question": "How did Canadian oil-sands GHG emissions intensity per barrel change between 2010 and 2023 according to ECCC?",
   "document_ids": [],
   "pinned_at": "2026-05-01T14:00:00Z",

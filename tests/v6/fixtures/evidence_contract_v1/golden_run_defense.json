@@ -1,7 +1,7 @@
 {
   "contract_version": "1.0",
   "run_id": "golden_defense_004",
-  "template": "defense",
+  "template": "policy",
   "question": "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
   "queued_at": "2026-05-01T13:00:00Z",
   "finished_at": "2026-05-01T13:09:18Z",
