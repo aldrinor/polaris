@@ -16,7 +16,42 @@
  * make production browsers attempt direct Docker-network reach and fail.
  */
 
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
 const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
 
 export type TemplateId =
   | "clinical"
@@ -76,7 +111,7 @@ async function asJsonOrThrow<T>(response: Response): Promise<T> {
 export async function createRun(
   payload: RunRequest,
 ): Promise<RunStatusResponse> {
-  const response = await fetch(`${BACKEND_URL}/runs`, {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -85,7 +120,7 @@ export async function createRun(
 }
 
 export async function getRun(runId: string): Promise<RunStatusResponse> {
-  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
   return asJsonOrThrow<RunStatusResponse>(response);
 }
 
@@ -109,7 +144,7 @@ export interface UploadResponse {
 }
 
 export async function getUpload(document_id: string): Promise<UploadResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
   );
   return asJsonOrThrow<UploadResponse>(response);
@@ -122,7 +157,7 @@ export async function uploadDocument(
   const form = new FormData();
   form.append("file", file);
   form.append("classification", classification);
-  const response = await fetch(`${BACKEND_URL}/upload`, {
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
     method: "POST",
     body: form,
   });
@@ -167,7 +202,7 @@ export async function checkAmbiguity(
   question: string,
   candidates: AmbiguityCandidate[],
 ): Promise<AmbiguityResult> {
-  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -184,7 +219,7 @@ export async function checkScope(
   template: TemplateId,
   question: string,
 ): Promise<ScopeDecision> {
-  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ template, question }),
@@ -206,7 +241,7 @@ export interface TemplateContent {
 }
 
 export async function listTemplates(): Promise<TemplateContent[]> {
-  const response = await fetch(`${BACKEND_URL}/templates`);
+  const response = await authFetch(`${BACKEND_URL}/templates`);
   return asJsonOrThrow<TemplateContent[]>(response);
 }
 
@@ -260,7 +295,7 @@ export interface EvidenceContract {
 }
 
 export async function getBundle(runId: string): Promise<EvidenceContract> {
-  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
   return asJsonOrThrow<EvidenceContract>(response);
 }
 
@@ -285,7 +320,7 @@ export async function getChart(
   runId: string,
   chartType: ChartType,
 ): Promise<VegaLiteSpec> {
-  const response = await fetch(
+  const response = await authFetch(
     `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
   );
   return asJsonOrThrow<VegaLiteSpec>(response);
@@ -319,7 +354,7 @@ export function subscribeToRun(
   onEvent: (event: StreamEvent) => void,
   onError?: (error: Event) => void,
 ): EventSource {
-  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
+  const source = new EventSource(streamUrl(runId));
 
   const handler = (event: MessageEvent<string>) => {
     try {
@@ -401,7 +436,7 @@ export interface DisambiguationResponse {
 export async function runDisambiguation(
   candidates: { text: string; embedding: number[] }[],
 ): Promise<DisambiguationResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ candidates }),
@@ -436,7 +471,7 @@ export class IntakeBadRequestError extends Error {
 export async function runIntake(
   question: string,
 ): Promise<IntakeSuccessResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ question }),
@@ -460,7 +495,7 @@ export interface IntakeHealthResponse {
 }
 
 export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
   return asJsonOrThrow<IntakeHealthResponse>(response);
 }
 
@@ -534,7 +569,7 @@ export class RetrievalBadRequestError extends Error {
 export async function runRetrieval(
   decision: IntakeScopeDecision,
 ): Promise<RetrievalSuccessResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision }),
@@ -559,7 +594,7 @@ export interface RetrievalHealthResponse {
 }
 
 export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
   return asJsonOrThrow<RetrievalHealthResponse>(response);
 }
 
@@ -762,7 +797,7 @@ export async function runGeneration(
   pool: EvidencePool,
   scope_class?: string | null,
 ): Promise<GenerationSuccessResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
@@ -787,7 +822,7 @@ export interface GenerationHealthResponse {
 }
 
 export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
   return asJsonOrThrow<GenerationHealthResponse>(response);
 }
 
@@ -845,7 +880,7 @@ export async function downloadAuditBundle(
   pool: EvidencePool,
   report: VerifiedReport,
 ): Promise<Blob> {
-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, pool, report }),
@@ -880,7 +915,7 @@ export async function previewAuditBundle(
   pool: EvidencePool,
   report: VerifiedReport,
 ): Promise<BundlePreviewResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision, pool, report }),
@@ -904,7 +939,7 @@ export interface AuditBundleHealthResponse {
 }
 
 export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
   return asJsonOrThrow<AuditBundleHealthResponse>(response);
 }
 
@@ -983,14 +1018,14 @@ export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
 ];
 
 export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
   return asJsonOrThrow<BenchmarkHealthResponse>(response);
 }
 
 export async function getBenchmarkScoreboard(
   benchmark_id: string,
 ): Promise<BenchmarkScoreboard> {
-  const response = await fetch(
+  const response = await authFetch(
     `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
   );
   return asJsonOrThrow<BenchmarkScoreboard>(response);
@@ -999,7 +1034,7 @@ export async function getBenchmarkScoreboard(
 export async function getBenchmarkSummary(
   benchmark_id: string,
 ): Promise<string> {
-  const response = await fetch(
+  const response = await authFetch(
     `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
   );
   if (!response.ok) {
@@ -1031,7 +1066,7 @@ const _ws = (ws: string) =>
   `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
 
 export async function listMemory(ws: string): Promise<MemoryEntry[]> {
-  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
+  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
 }
 
 export async function rememberMemory(
@@ -1043,7 +1078,7 @@ export async function rememberMemory(
   },
 ): Promise<MemoryEntry> {
   return asJsonOrThrow<MemoryEntry>(
-    await fetch(_ws(ws), {
+    await authFetch(_ws(ws), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -1055,7 +1090,7 @@ export async function forgetMemory(
   ws: string,
   entry_id: string,
 ): Promise<void> {
-  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
     method: "DELETE",
   });
   if (!r.ok && r.status !== 404)
@@ -1121,7 +1156,7 @@ export interface GraphPayload {
 }
 
 export async function getRunGraph(runId: string): Promise<GraphPayload> {
-  const res = await fetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
   if (!res.ok) {
     const body = await res.text();
     const err = new Error(

@@ -1,5 +1,10 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import { login } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,6 +17,26 @@ import {
 import { Input } from "@/components/ui/input";
 
 export default function SignInPage() {
+  const router = useRouter();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    const result = await login(username.trim(), password);
+    setPending(false);
+    if (result.ok) {
+      router.push("/");
+      router.refresh();
+    } else {
+      setError(result.error ?? "Sign-in failed.");
+    }
+  }
+
   return (
     <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-sm flex-col gap-6">
@@ -25,62 +50,82 @@ export default function SignInPage() {
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>
-              Authentication is a placeholder for Phase 0. Single sign-on wires
-              up in Phase 2.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="email"
-                className="text-foreground text-sm font-medium"
+          <form onSubmit={handleSubmit}>
+            <CardHeader>
+              <CardTitle>Sign in</CardTitle>
+              <CardDescription>
+                Enter your POLARIS reviewer credentials.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="username"
+                  className="text-foreground text-sm font-medium"
+                >
+                  Username
+                </label>
+                <Input
+                  id="username"
+                  name="username"
+                  type="text"
+                  placeholder="reviewer"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="password"
+                  className="text-foreground text-sm font-medium"
+                >
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {error ? (
+                <p
+                  role="alert"
+                  className="text-destructive text-sm font-medium"
+                >
+                  {error}
+                </p>
+              ) : null}
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3">
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={pending || !username || !password}
               >
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="name@canada.ca"
-                autoComplete="email"
-                disabled
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="password"
-                className="text-foreground text-sm font-medium"
+                {pending ? "Signing in…" : "Continue"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                nativeButton={false}
+                render={<Link href="/" />}
               >
-                Password
-              </label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                disabled
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
-            <Button className="w-full" disabled>
-              Continue
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full"
-              nativeButton={false}
-              render={<Link href="/" />}
-            >
-              Back to dashboard
-            </Button>
-          </CardFooter>
+                Back to dashboard
+              </Button>
+            </CardFooter>
+          </form>
         </Card>
 
         <p className="text-muted-foreground text-center text-xs">
-          POLARIS v6.2 — Phase 0 scaffold
+          POLARIS v6.2 — sovereign Canadian deep research
         </p>
       </div>
     </div>
