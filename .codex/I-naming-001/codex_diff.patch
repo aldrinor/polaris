@@ -1,0 +1,742 @@
+diff --git a/docs/benchmark/scoring_rubric.md b/docs/benchmark/scoring_rubric.md
+index 237e37c1..54669e1f 100644
+--- a/docs/benchmark/scoring_rubric.md
++++ b/docs/benchmark/scoring_rubric.md
+@@ -86,7 +86,7 @@ frames_present = extract_named_entities(response.response_text) ∩ expected_fra
+ score = |frames_present| / |expected_frames|
+ ```
+ 
+-Phase 0 ships scoring scaffold; Phase 3 wires NER (using `src/polaris_v6/bpei/` extractors).
++Phase 0 ships scoring scaffold; Phase 3 wires NER (using `src/polaris_v6/ambiguity_detector/` extractors).
+ 
+ ### D4 — Contradiction handling
+ 
+diff --git a/docs/carney_delivery_plan_v6_2.md b/docs/carney_delivery_plan_v6_2.md
+index 6877d651..4f8a9537 100644
+--- a/docs/carney_delivery_plan_v6_2.md
++++ b/docs/carney_delivery_plan_v6_2.md
+@@ -279,7 +279,7 @@ Same 10 tasks as v5, plus:
+ - 0.11: Substrate audit verification (this doc) reviewed by Codex
+ - 0.12: Anti-sycophancy CI suite scaffold (paired prompts neutral/leading/opposite-frame)
+ 
+-### Phase 1 — BPEI spine + Evidence Contract Gate (3 weeks, May 13-31)
++### Phase 1 — research pipeline + Evidence Contract Gate (3 weeks, May 13-31)
+ F1, F2, F3 (upload), F15 (audit bundle), Evidence Contract Gate (Task 1.4 from v5.1).
+ 
+ ### Phase 2A — Core inspection (3 weeks, June 1 - June 21)
+diff --git a/docs/task_acceptance_matrix.yaml b/docs/task_acceptance_matrix.yaml
+index d67174f6..437083c9 100644
+--- a/docs/task_acceptance_matrix.yaml
++++ b/docs/task_acceptance_matrix.yaml
+@@ -265,7 +265,7 @@ phase_0:
+     dependencies: ["task_0_5"]
+ 
+ # ============================================================
+-# PHASE 1 — BPEI spine + Evidence Contract Gate (May 13-31)
++# PHASE 1 — research pipeline + Evidence Contract Gate (May 13-31)
+ # ============================================================
+ # Filled out 2026-05-02 per Plan v13 §K Step 0b. Tasks 1.1-1.7 substrate already
+ # shipped pre-bootstrap (cycle-11 lock); they receive synthetic APPROVE verdicts via
+@@ -296,22 +296,22 @@ phase_1:
+     blocking_consequence: "Phase 2A inspector cannot link to scope panel"
+ 
+   task_1_2:
+-    title: "F2 — BPEI ambiguity detector (substrate)"
++    title: "F2 — ambiguity detector (substrate)"
+     owner: "claude"
+     status: "COMPLETED 2026-05-01 (cycle-11 lock substrate)"
+     estimate_hours: 16
+     green_criteria:
+-      - "src/polaris_v6/bpei/ambiguity_detector.py — heuristic + clustering substrate"
++      - "src/polaris_v6/ambiguity_detector/ambiguity_detector.py — heuristic + clustering substrate"
+       - "src/polaris_v6/api/ambiguity.py — FastAPI route"
+       - "web/app/dashboard — ambiguity modal wired"
+       - "9+ tests passing (heuristic + integration)"
+       - "HDBSCAN swap deferred to cluster (Task 0.3) — substrate complete"
+     required_artifacts:
+-      - "src/polaris_v6/bpei/ambiguity_detector.py"
++      - "src/polaris_v6/ambiguity_detector/ambiguity_detector.py"
+       - "src/polaris_v6/api/ambiguity.py"
+       - "tests/v6/test_ambiguity_*.py"
+     changed_files_glob:
+-      - "src/polaris_v6/bpei/**"
++      - "src/polaris_v6/ambiguity_detector/**"
+       - "src/polaris_v6/api/ambiguity.py"
+     blocking_consequence: "Phase 2A inspector ambiguity surfacing blocked"
+ 
+diff --git a/docs/v6_substrate_audit_2026-05-01.md b/docs/v6_substrate_audit_2026-05-01.md
+index dfc37419..d510c325 100644
+--- a/docs/v6_substrate_audit_2026-05-01.md
++++ b/docs/v6_substrate_audit_2026-05-01.md
+@@ -31,14 +31,14 @@ sign-off after Phase 4.
+ 
+ ---
+ 
+-## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31)
++## Phase 1 — research pipeline + Evidence Contract Gate (May 13-31)
+ 
+ All 7 buildable subtasks shipped substrate-complete with tests:
+ 
+ | # | Task | Tests | Lib + Endpoint |
+ |---|---|---|---|
+ | 1.1 | F1 scope discovery panel | 5 | `src/polaris_v6/scope/decision.py` + `api/scope.py` |
+-| 1.2 | F2 ambiguity detector + endpoint | 9 (5 lib + 4 API) | `src/polaris_v6/bpei/ambiguity_detector.py` + `api/ambiguity.py` (BPEI regression test PASS) |
++| 1.2 | F2 ambiguity detector + endpoint | 9 (5 lib + 4 API) | `src/polaris_v6/ambiguity_detector/ambiguity_detector.py` + `api/ambiguity.py` (BPEI regression test PASS) |
+ | 1.3 | F3a evidence pool merger (graph_v4.py:149 fix) | 6 | `src/polaris_v6/adapters/evidence_pool_merger.py` |
+ | 1.4 | Evidence Contract Gate | 13 (10 schema + 3 fixtures) | `src/polaris_v6/schemas/evidence_contract.py` + 6 golden fixtures (clinical, contradiction, abort, defense, climate, ai_sovereignty) |
+ | 1.5 | F3b upload backend | 7 | `src/polaris_v6/api/upload.py` (extension whitelist + 25 MB cap + classification + sha256) + frontend dropzone wired |
+diff --git a/docs/walkthroughs/1.8/briefing.md b/docs/walkthroughs/1.8/briefing.md
+index 098ed0b9..ddc142c0 100644
+--- a/docs/walkthroughs/1.8/briefing.md
++++ b/docs/walkthroughs/1.8/briefing.md
+@@ -3,7 +3,7 @@
+ **Task:** `1.8` per `docs/task_acceptance_matrix.yaml`
+ **Substrate-prep:** `1.8_prep_briefing_pack` (orchestrator-completed 2026-05-02)
+ **Walkthrough deadline:** 2026-06-04 (latest, per Plan v13 §G #7)
+-**Scope:** Phase 1 BPEI spine + Evidence Contract Gate (features F1, F2, F3, F15)
++**Scope:** Phase 1 research pipeline + Evidence Contract Gate (features F1, F2, F3, F15)
+ 
+ > **Phase-1-PARTIAL bar (post halt-condition #4 resolution path 3 — 2026-05-02).**
+ > The walkthrough exercises Phase-1 substrate that has already shipped to HEAD
+@@ -20,7 +20,7 @@
+ | Feature | What it does | What to test |
+ |---|---|---|
+ | **F1 Scope discovery** | Dashboard surfaces 8 templates with in-scope examples; live template suggestion as user types | Type "tirzepatide" → expect Clinical drug audit suggestion within 200ms |
+-| **F2 BPEI ambiguity** | When a query has multiple plausible meanings, modal asks which entity user means | Type "What is BPEI?" → expect modal with at least 3 candidate meanings (syndrome/institute/chemical) |
++| **F2 ambiguity** | When a query has multiple plausible meanings, modal asks which entity user means | Type "What is BPEI?" → expect modal with at least 3 candidate meanings (syndrome/institute/chemical) |
+ | **F3a/F3b Document upload** | Drag-and-drop PDF; backend `/upload` accepts the file and returns a `document_id` (endpoint contract). Full parser + chunk + tier-assignment + cite-uploaded-doc loop is **Phase 1+** (see known-gaps below). | Drop a PDF, see upload progress + document_id returned. Citing the uploaded doc in a query is **out of scope** for this walkthrough — observe behavior if surfaced, do not fail. |
+ | **F15 Audit bundle export** | `GET /runs/{run_id}/bundle` returns the **EvidenceContract v1.0 JSON** for that run; frontend's "Export bundle" button calls `downloadBundleAsJson` and saves a single `.json` file. Phase 1 substrate at `src/polaris_v6/api/bundle.py` serves this from the golden-fixture suite. | Click export → single JSON file downloads; open it in any text editor and verify `contract_version: "1.0"`, `evidence_pool`, `verified_sentences`, and `family_segregation_passed` fields are present. |
+ 
+@@ -46,7 +46,7 @@ What the build operator pre-stages (must be online before walkthrough):
+ These are deferred-with-explicit-disclosure per Plan v13 §F (no SILENT fallback):
+ 
+ - **Live LLM cluster**: §G #3 pending. Backend may run with stub LLM responses
+-  for Block A (template suggestion) and Block B (BPEI ambiguity); the LLM-
++  for Block A (template suggestion) and Block B (ambiguity); the LLM-
+   augmented disambiguation is fully exercised only after cluster online.
+ - **F3 upload-as-evidence loop** (parser → chunking → tier T7 assignment →
+   cite uploaded doc in next query): Phase-1-END behavior, **not** Phase-1-PARTIAL.
+@@ -78,7 +78,7 @@ These are deferred-with-explicit-disclosure per Plan v13 §F (no SILENT fallback
+ ## What POLARIS is supposed to do (so you know when something's broken)
+ 
+ - F1 template browse: <200ms suggestion latency
+-- F2 BPEI ambiguity: modal appears within 1s of submit; offers 2-5 candidate meanings; refusing to disambiguate is not allowed (POLARIS must ask, not silently guess)
++- F2 ambiguity: modal appears within 1s of submit; offers 2-5 candidate meanings; refusing to disambiguate is not allowed (POLARIS must ask, not silently guess)
+ - F3 upload (endpoint contract only — Phase-1-PARTIAL): PDF up to **25 MB** accepts (`src/polaris_v6/api/upload.py` `MAX_BYTES = 25 * 1024 * 1024`); successful upload returns **HTTP 201 Created** with an `UploadResponse` body containing `document_id`, `filename`, `bytes`, `sha256`, `classification`, `parse_status`, `chunk_preview`. Parser + full chunk listing + tier-T7 assignment + cite-uploaded-doc-in-next-query are **Phase-1-END**, deferred per known-gaps. (HEAD ships only the endpoint contract; `parse_status` may be `"queued"` and `chunk_preview` may be empty.)
+ - F15 export: JSON downloads within 5s; the file is a single `EvidenceContract v1.0` artifact served by `GET /runs/{run_id}/bundle` (see `src/polaris_v6/api/bundle.py`, `response_model=EvidenceContract`). All 15 required top-level fields per `src/polaris_v6/schemas/evidence_contract.py` lines 86-105 must be present: `contract_version` (literal `"1.0"`), `run_id`, `template`, `question`, `queued_at`, `finished_at`, `pipeline_status`, `evidence_pool`, `verified_sentences`, `frame_coverage`, `contradictions`, `cost_usd`, `generator_model`, `verifier_model`, `family_segregation_passed`. **No ZIP / no `report.md` / no `evidence/` folder** — those are Phase-1-END artifacts not yet shipped.
+ 
+diff --git a/docs/walkthroughs/1.8/test_inputs.md b/docs/walkthroughs/1.8/test_inputs.md
+index abe8d7d6..0848b473 100644
+--- a/docs/walkthroughs/1.8/test_inputs.md
++++ b/docs/walkthroughs/1.8/test_inputs.md
+@@ -1,7 +1,7 @@
+ # Phase 1 Walkthrough — 17-Input Adversarial Corpus (Phase-1-PARTIAL bar)
+ 
+ > **Scope (post halt-condition #4 resolution path 3 — 2026-05-02):** F1 (scope
+-> discovery, 5 inputs) + F2 (BPEI ambiguity, 5 inputs) + F3 (document upload
++> discovery, 5 inputs) + F2 (ambiguity, 5 inputs) + F3 (document upload
+ > endpoint contract, 4 inputs) + F15 (audit bundle export, 3 inputs) = **17
+ > inputs**. Crown-jewel surface checks (Inspector, frame coverage,
+ > contradictions, two-family disagreement) are Phase 2A-B features
+@@ -20,7 +20,7 @@ Use this script in order. For each input: paste, observe, narrate.
+ 4. **Multi-word ambiguous**: type `quantum computing impact` → expect at least 2 templates (defense / AI sovereignty / climate) suggested; user picks.
+ 5. **French language**: type `bois d'œuvre canadien` → expect either Trade template suggested, or refusal with "supported language: English" message. NOT acceptable: silent acceptance of mangled-French response.
+ 
+-## Block B — F2 BPEI ambiguity (5 inputs)
++## Block B — F2 ambiguity (5 inputs)
+ 
+ 6. **Classic BPEI test**: type `What is BPEI?` → expect modal with at least 3 candidate meanings (e.g., Beth Israel Deaconess, biopsychosocial, business process, etc.). NOT acceptable: silent answer.
+ 7. **Acronym with one strong meaning**: type `What is FDA?` → expect single-candidate flow (no modal, FDA is unambiguous).
+diff --git a/docs/walkthroughs/2B.7/test_inputs.md b/docs/walkthroughs/2B.7/test_inputs.md
+index d10c0029..9faae084 100644
+--- a/docs/walkthroughs/2B.7/test_inputs.md
++++ b/docs/walkthroughs/2B.7/test_inputs.md
+@@ -44,4 +44,4 @@
+ 17. New session → previous memory still searchable
+ 18. Two workspaces → memories isolated (no cross-pollution)
+ 19. Memory size limit reached → eviction policy visible (LRU? user-configurable?)
+-20. Search "BPEI" in memory → returns prior runs that referenced BPEI ambiguity detector
++20. Search "BPEI" in memory → returns prior runs that referenced ambiguity detector
+diff --git a/docs/walkthroughs/2C.6/test_inputs.md b/docs/walkthroughs/2C.6/test_inputs.md
+index a5cb2156..470c73e5 100644
+--- a/docs/walkthroughs/2C.6/test_inputs.md
++++ b/docs/walkthroughs/2C.6/test_inputs.md
+@@ -16,7 +16,7 @@
+ 3. Type the template's golden query (see below per template).
+ 4. Verify: `POST /scope/check` returns within 200ms; in-scope template
+    surfaced inline.
+-5. If query has BPEI ambiguity (template's BPEI input below): `POST
++5. If query has ambiguity (template's BPEI input below): `POST
+    /ambiguity` returns modal candidates within 1s; pick clarification.
+ 6. **Phase-2C-PARTIAL substitution**: rather than submit-and-wait-for-
+    cluster, navigate directly to the golden-fixture Inspector page for
+@@ -62,7 +62,7 @@
+ | Template | Golden run ID | Inspector URL | Expected ambiguity? |
+ |---|---|---|---|
+ | Clinical | `golden_clinical_001` | `/inspector/golden_clinical_001` | No |
+-| Climate | `golden_climate_005` | `/inspector/golden_climate_005` | YES — BPEI ambiguity (test `/ambiguity` endpoint with the golden query) |
++| Climate | `golden_climate_005` | `/inspector/golden_climate_005` | YES — ambiguity (test `/ambiguity` endpoint with the golden query) |
+ | Trade / Defense | `golden_defense_004` | `/inspector/golden_defense_004` | No |
+ 
+ (Trade template currently uses the defense golden fixture; trade-specific
+@@ -73,7 +73,7 @@ fixture authoring is Phase-2C+ work.)
+ | Template | Query | Notes |
+ |---|---|---|
+ | Clinical | "What is the FDA-approved efficacy of tirzepatide for type 2 diabetes?" | exercises `POST /scope/check` + Inspector golden render |
+-| Climate | "What is the BPEI for net-zero pathways in Canadian electricity?" | exercises `POST /ambiguity` (BPEI ambiguity expected) |
++| Climate | "What is the BPEI for net-zero pathways in Canadian electricity?" | exercises `POST /ambiguity` (ambiguity expected) |
+ | Defense (placeholder for Trade) | "Has CUSMA Chapter 31 dispute on softwood lumber concluded?" | exercises `POST /scope/check` + Inspector golden render |
+ 
+ ## Browser matrix
+diff --git a/docs/walkthroughs/5.1/full_corpus_test_inputs.md b/docs/walkthroughs/5.1/full_corpus_test_inputs.md
+index f46486a7..aa884737 100644
+--- a/docs/walkthroughs/5.1/full_corpus_test_inputs.md
++++ b/docs/walkthroughs/5.1/full_corpus_test_inputs.md
+@@ -19,7 +19,7 @@
+ ### 3. Housing
+ **Query:** "What is the BPEI methodology for evaluating affordable housing supply gaps in Canadian census metropolitan areas?"
+ **Expected sources:** CMHC, Statistics Canada, OECD housing affordability reports
+-**Expected ambiguity:** YES — BPEI ambiguity should fire (modal asks if user means biopsychosocial / business process / etc.)
++**Expected ambiguity:** YES — ambiguity detector should fire (modal asks if user means biopsychosocial / business process / etc.)
+ 
+ ### 4. Defense
+ **Query:** "What CVE-2024 vulnerabilities affect critical Canadian defense infrastructure SCADA systems, and what is NATO's coordinated response?"
+diff --git a/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md b/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+index 9d656e8f..37ed5443 100644
+--- a/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
++++ b/docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md
+@@ -173,7 +173,7 @@ python -m pytest tests/v6/test_code_executor_sovereignty.py -v
+ 
+ - **Live LLM → tirzepatide-vs-semaglutide auto-table from real evidence retrieval.**
+   Substrate exists (chart builders + provenance contract + click-through + sandbox)
+-  but the production wiring from BPEI question → retrieval → spec generation → UI
++  but the production wiring from ambiguity-checked question → retrieval → spec generation → UI
+   render is not yet end-to-end. Tracked in v6 Phase 1..3 milestones.
+ - **Real evidence_id resolution from sovereign Canadian retrieval pipeline.** Demo
+   uses a frontend-only `SOURCE_REGISTRY`; production fetches from a backend route.
+diff --git a/scripts/autoloop/backfill_pre_bootstrap_verdicts.py b/scripts/autoloop/backfill_pre_bootstrap_verdicts.py
+index 88bc4620..fc82230b 100644
+--- a/scripts/autoloop/backfill_pre_bootstrap_verdicts.py
++++ b/scripts/autoloop/backfill_pre_bootstrap_verdicts.py
+@@ -67,15 +67,15 @@ PRE_BOOTSTRAP_COMPLETED = {
+         ],
+         "rationale": "OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental + semconv 1.36.0+ + 4 contract tests.",
+     },
+-    # Phase 1 — BPEI spine substrate (cycle-11 lock)
++    # Phase 1 — research-pipeline substrate (cycle-11 lock)
+     "1.1": {
+         "title": "F1 scope discovery substrate",
+         "evidence": ["src/polaris_v6/scope/decision.py", "src/polaris_v6/api/scope.py", "web/app/dashboard/page.tsx"],
+         "rationale": "Scope decision logic + FastAPI route + dashboard panel + 5 tests; LLM-augment deferred to cluster.",
+     },
+     "1.2": {
+-        "title": "F2 BPEI ambiguity detector substrate",
+-        "evidence": ["src/polaris_v6/bpei/ambiguity_detector.py", "src/polaris_v6/api/ambiguity.py"],
++        "title": "F2 ambiguity detector substrate",
++        "evidence": ["src/polaris_v6/ambiguity_detector/ambiguity_detector.py", "src/polaris_v6/api/ambiguity.py"],
+         "rationale": "Heuristic + clustering substrate + FastAPI route + 9 tests; HDBSCAN swap deferred to cluster.",
+     },
+     "1.3": {
+diff --git a/scripts/i_naming_001_migrate.py b/scripts/i_naming_001_migrate.py
+new file mode 100644
+index 00000000..90206fa6
+--- /dev/null
++++ b/scripts/i_naming_001_migrate.py
+@@ -0,0 +1,192 @@
++"""Migrate BPEI → ambiguity_detector references per I-naming-001 plan iter 3.
++
++Per Codex iter-3 APPROVE:
++- Test fixtures with literal 'BPEI' as adversarial probe input → PRESERVE.
++- Feature-name references → renamed per the convention below.
++- Memory filename 'bpei_phantom_completion_lessons.md' → PRESERVE (commemorative).
++- Module path 'polaris_v6.bpei' → 'polaris_v6.ambiguity_detector' (rename).
++- 'src/polaris_v6/bpei/' path → 'src/polaris_v6/ambiguity_detector/' (rename).
++"""
++import re
++import sys
++from pathlib import Path
++
++ROOT = Path("C:/POLARIS")
++
++# Files to migrate (per Codex iter-3 APPROVE'd plan). Test-input fixtures excluded.
++FILES = [
++    # src/ comment/docstring updates (Python)
++    "src/polaris_v6/ambiguity_detector/ambiguity_detector.py",
++    "src/polaris_v6/memory/__init__.py",
++    "src/polaris_v6/api/ambiguity.py",
++    "src/polaris_graph/api/audit_bundle_route.py",
++    "src/polaris_graph/api/intake.py",
++    "src/polaris_graph/api/intake_route.py",
++    "src/polaris_graph/api/__init__.py",
++    "src/polaris_graph/audit_bundle/bundle_schema.py",
++    "src/polaris_graph/audit_bundle/manifest_builder.py",
++    "src/polaris_graph/intake/cluster_labeler.py",
++    "src/polaris_graph/intake/disambiguation_clusterer.py",
++    "src/polaris_graph/intake/__init__.py",
++    "src/polaris_graph/scope/scope_decision.py",
++    # tests/ comment updates (preserve test-data literals)
++    "tests/e2e/frontend_replay_smoke.py",
++    "tests/polaris_graph/audit_bundle/test_bundle_builder.py",
++    "tests/polaris_graph/followup/test_agent.py",
++    "tests/polaris_graph/golden/test_slice_004_goldens.py",
++    "tests/v6/test_api_ambiguity.py",
++    "tests/v6/test_run_benchmark_script.py",
++    # Scripts
++    "scripts/autoloop/backfill_pre_bootstrap_verdicts.py",
++    "scripts/screenshot_walkthrough.js",
++    # Frontend (web/)
++    "web/app/dashboard/page.tsx",
++    "web/app/generation/page.tsx",
++    "web/app/intake/page.tsx",
++    "web/app/retrieval/page.tsx",
++    "web/lib/api.ts",
++    # Frontend tests (feature-name only; preserve typed-in-search-box probes)
++    "web/tests/e2e/command_palette_adversarial.spec.ts",
++    "web/tests/e2e/command_palette_suggest.spec.ts",
++    "web/tests/e2e/f2_walkthrough.spec.ts",
++    "web/tests/e2e/intake_disambiguation.spec.ts",
++    # Docs (CURRENT)
++    "docs/carney_delivery_plan_v6_2.md",
++    "docs/carney_handover/5min_video_script.md",
++    "docs/blockers.md",
++    "docs/blocked/blocked_on_user_action_tracker.md",
++    "docs/substrate_audit_2026-05-01.md",
++    "docs/v6_substrate_audit_2026-05-01.md",
++    "docs/task_acceptance_matrix.yaml",
++    "docs/benchmark/scoring_rubric.md",
++    "docs/walkthroughs/1.8/briefing.md",
++    "docs/walkthroughs/1.8/recording_template.md",
++    "docs/walkthroughs/2B.7/test_inputs.md",  # name-refs only; literal probes preserved
++    "docs/walkthroughs/2C.6/briefing.md",
++    "docs/walkthroughs/2C.6/test_inputs.md",
++    "docs/walkthroughs/1.8/test_inputs.md",
++    "docs/walkthroughs/I-f10-008-tirzepatide-vs-semaglutide.md",
++    # walkthroughs/5.1/full_corpus_test_inputs.md — line 22 comment only, line 20 literal preserved
++    "docs/walkthroughs/5.1/full_corpus_test_inputs.md",
++]
++
++# Phrase-level replacements (longest first to avoid partial overlaps).
++# These intentionally do NOT include bare 'BPEI' (that would catch test-input literals).
++PHRASE_REPLACEMENTS = [
++    # User-facing UI copy
++    ("BPEI ambiguity detector substrate", "ambiguity detector substrate"),
++    ("BPEI ambiguity detector", "ambiguity detector"),
++    ("F2 BPEI ambiguity detector", "F2 ambiguity detector"),
++    ("F2 BPEI ambiguity", "F2 ambiguity"),
++    ("BPEI ambiguity expected", "ambiguity expected"),
++    ("BPEI ambiguity should fire", "ambiguity detector should fire"),
++    ("BPEI ambiguity", "ambiguity"),
++    ("BPEI spine substrate", "research-pipeline substrate"),
++    ("BPEI spine", "research pipeline"),
++    ("full BPEI spine", "full research pipeline"),
++    ("BPEI front half", "scope + intake"),
++    ("BPEI front-half", "scope + intake"),
++    ("BPEI front-half pipeline", "scope + intake pipeline"),
++    ("BPEI retrieval half", "retrieval"),
++    ("BPEI retrieval-half", "retrieval"),
++    ("BPEI generator", "generator"),
++    ("BPEI chain", "research chain"),
++    ("BPEI guard", "ambiguity guard"),
++    ("BPEI question", "ambiguity-checked question"),
++    ("BPEI fix substrate", "ambiguity detector substrate"),
++    ("BPEI failure pattern", "ambiguity-failure pattern (memory: bpei_phantom_completion_lessons.md)"),
++    # Module path
++    ("polaris_v6.bpei.ambiguity_detector", "polaris_v6.ambiguity_detector.ambiguity_detector"),
++    ("polaris_v6.bpei", "polaris_v6.ambiguity_detector"),
++    # Filesystem path
++    ("src/polaris_v6/bpei/ambiguity_detector.py", "src/polaris_v6/ambiguity_detector/ambiguity_detector.py"),
++    ("src/polaris_v6/bpei/", "src/polaris_v6/ambiguity_detector/"),
++    ("src/polaris_v6/bpei", "src/polaris_v6/ambiguity_detector"),
++]
++
++# Per-file SKIP regexes — these lines/patterns are preserved verbatim
++# even if they contain replaceable phrases.
++# Format: {file_relpath: [regex, ...]}
++SKIP_LINES = {
++    # docs/walkthroughs/5.1/full_corpus_test_inputs.md line 20:
++    # `**Query:** "What is the BPEI methodology…"` is a literal adversarial probe.
++    "docs/walkthroughs/5.1/full_corpus_test_inputs.md": [
++        re.compile(r'^\*\*Query:\*\*.*"What is the BPEI'),
++    ],
++    # web/tests/e2e specs: any line that types `"BPEI"` into a search box is preserved.
++    # Pattern: lines containing `.fill(.*BPEI` or `.type(.*BPEI`.
++    "web/tests/e2e/command_palette_adversarial.spec.ts": [
++        re.compile(r"\.fill\([^)]*BPEI"),
++        re.compile(r"\.type\([^)]*BPEI"),
++    ],
++    "web/tests/e2e/command_palette_suggest.spec.ts": [
++        re.compile(r"\.fill\([^)]*BPEI"),
++        re.compile(r"\.type\([^)]*BPEI"),
++    ],
++    "web/tests/e2e/f2_walkthrough.spec.ts": [
++        re.compile(r"\.fill\([^)]*BPEI"),
++        re.compile(r"\.type\([^)]*BPEI"),
++    ],
++    "web/tests/e2e/intake_disambiguation.spec.ts": [
++        re.compile(r"\.fill\([^)]*BPEI"),
++        re.compile(r"\.type\([^)]*BPEI"),
++    ],
++    # tests/v6/test_api_ambiguity.py: function name `test_check_ambiguity_bpei_pattern`
++    # is preserved (commemorates the test pattern, not production code).
++    "tests/v6/test_api_ambiguity.py": [
++        re.compile(r"^def test_check_ambiguity_bpei_pattern"),
++        re.compile(r'""".*BPEI pattern'),
++    ],
++    # tests/v6/test_run_benchmark_script.py line 80: literal probe input
++    "tests/v6/test_run_benchmark_script.py": [
++        re.compile(r'"What is BPEI\?"'),
++    ],
++}
++
++
++def migrate_file(path: Path) -> tuple[int, list[int]]:
++    """Returns (replacements_made, skipped_line_numbers)."""
++    rel = str(path.relative_to(ROOT)).replace("\\", "/")
++    skip_patterns = SKIP_LINES.get(rel, [])
++    text = path.read_text(encoding="utf-8", errors="replace")
++    lines = text.split("\n")
++    skipped_lines = []
++    replacements = 0
++    for i, line in enumerate(lines):
++        if any(p.search(line) for p in skip_patterns):
++            skipped_lines.append(i + 1)
++            continue
++        new_line = line
++        for old, new in PHRASE_REPLACEMENTS:
++            if old in new_line:
++                new_line = new_line.replace(old, new)
++                replacements += 1
++        lines[i] = new_line
++    new_text = "\n".join(lines)
++    if new_text != text:
++        path.write_text(new_text, encoding="utf-8")
++    return replacements, skipped_lines
++
++
++def main():
++    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
++    total_replacements = 0
++    total_files_changed = 0
++    for rel in FILES:
++        p = ROOT / rel
++        if not p.exists():
++            print(f"SKIP (missing): {rel}")
++            continue
++        n, skipped = migrate_file(p)
++        if n > 0:
++            total_replacements += n
++            total_files_changed += 1
++            note = f" (preserved lines: {skipped})" if skipped else ""
++            print(f"{rel}: {n} replacements{note}")
++        elif skipped:
++            print(f"{rel}: 0 replacements, preserved lines: {skipped}")
++    print(f"\nTotal: {total_replacements} replacements across {total_files_changed} files")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/screenshot_walkthrough.js b/scripts/screenshot_walkthrough.js
+index 4f495f96..8b1d3a7c 100644
+--- a/scripts/screenshot_walkthrough.js
++++ b/scripts/screenshot_walkthrough.js
+@@ -1,5 +1,5 @@
+ // Headless browser walkthrough — captures screenshots at each stage of
+-// the BPEI chain. Reproducible end-to-end fitness check.
++// the research chain. Reproducible end-to-end fitness check.
+ //
+ // Prerequisites:
+ //   1. Backend up:   PYTHONPATH=src python -c "from dotenv import load_dotenv; load_dotenv(); import uvicorn; uvicorn.run('polaris_v6.api.app:app', host='127.0.0.1', port=8000)"
+diff --git a/src/polaris_graph/api/__init__.py b/src/polaris_graph/api/__init__.py
+index c528b1c9..9395706b 100644
+--- a/src/polaris_graph/api/__init__.py
++++ b/src/polaris_graph/api/__init__.py
+@@ -1,4 +1,4 @@
+-"""API — public entry points for the BPEI spine.
++"""API — public entry points for the research pipeline.
+ 
+ Slice 001: intake.py orchestrates intake → classify → ambiguity → decision.
+ Slice 002+: retrieval, generator, audit endpoints will live here.
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index e6e198c1..75b0b681 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -60,7 +60,7 @@ def get_sign_fn() -> SignFn | None:
+ class AuditBundleRequest(BaseModel):
+     """POST body for /api/audit-bundle.
+ 
+-    Carries the full BPEI chain (decision + pool + report). The route
++    Carries the full research chain (decision + pool + report). The route
+     re-validates the FK chain consistency before building.
+     """
+ 
+diff --git a/src/polaris_graph/api/intake.py b/src/polaris_graph/api/intake.py
+index ad9bb4dc..49159790 100644
+--- a/src/polaris_graph/api/intake.py
++++ b/src/polaris_graph/api/intake.py
+@@ -1,4 +1,4 @@
+-"""Intake orchestrator — wires the front half of the BPEI spine end-to-end.
++"""Intake orchestrator — wires the front half of the research pipeline end-to-end.
+ 
+ Per slice 001 architecture proposal §"Implementation order PR 6". The
+ function process_intake() is the single entry point that transforms a
+@@ -93,7 +93,7 @@ def process_intake(
+     *,
+     completion_fn: Callable[[str], str] | None = None,
+ ) -> ScopeDecision | IntakeError:
+-    """Orchestrate the front-half BPEI pipeline.
++    """Orchestrate the front-half ambiguity-detection pipeline.
+ 
+     Args:
+         raw_question: user-typed input, any string. Will be normalized.
+diff --git a/src/polaris_graph/api/intake_route.py b/src/polaris_graph/api/intake_route.py
+index c5eb8d4b..e00d50fb 100644
+--- a/src/polaris_graph/api/intake_route.py
++++ b/src/polaris_graph/api/intake_route.py
+@@ -68,7 +68,7 @@ class IntakeSuccessResponse(BaseModel):
+     response_model=None,  # union response — let FastAPI emit either shape
+ )
+ def post_intake(req: IntakeRequest) -> IntakeSuccessResponse | IntakeErrorResponse:
+-    """Run a question through the BPEI front-half pipeline.
++    """Run a question through the scope + intake pipeline.
+ 
+     Returns ScopeDecision on success (HTTP 200) or IntakeError shape
+     (HTTP 400) when the question is malformed.
+diff --git a/src/polaris_graph/audit_bundle/bundle_schema.py b/src/polaris_graph/audit_bundle/bundle_schema.py
+index 529cd350..d8265f52 100644
+--- a/src/polaris_graph/audit_bundle/bundle_schema.py
++++ b/src/polaris_graph/audit_bundle/bundle_schema.py
+@@ -92,7 +92,7 @@ class BundleManifest(BaseModel):
+     bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+     bundle_version: Literal["1.0"] = BUNDLE_VERSION
+ 
+-    # Foreign keys back through the BPEI spine
++    # Foreign keys back through the research pipeline
+     decision_id: str = Field(min_length=1, description="slice 001 ScopeDecision id")
+     pool_id: str = Field(min_length=1, description="slice 002 EvidencePool id")
+     report_id: str = Field(min_length=1, description="slice 003 VerifiedReport id")
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index ebe11847..bf6500e6 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -2,7 +2,7 @@
+ 
+ Per `.codex/slices/slice_004/architecture_proposal.md` §"manifest_builder".
+ 
+-Given a ScopeDecision + EvidencePool + VerifiedReport (the BPEI chain
++Given a ScopeDecision + EvidencePool + VerifiedReport (the research chain
+ output), serializes each to canonical JSON, snapshots cited source
+ texts, and assembles a BundleManifest with SHA256 anchors over every
+ content file.
+diff --git a/src/polaris_graph/intake/__init__.py b/src/polaris_graph/intake/__init__.py
+index 1518425b..32b43754 100644
+--- a/src/polaris_graph/intake/__init__.py
++++ b/src/polaris_graph/intake/__init__.py
+@@ -1,4 +1,4 @@
+-"""Intake — user-question entry point for the BPEI spine.
++"""Intake — user-question entry point for the research pipeline.
+ 
+ Slice 001 introduces:
+     - question_normalizer: deterministic pre-processing of raw user input
+diff --git a/src/polaris_graph/scope/scope_decision.py b/src/polaris_graph/scope/scope_decision.py
+index c993403a..323837df 100644
+--- a/src/polaris_graph/scope/scope_decision.py
++++ b/src/polaris_graph/scope/scope_decision.py
+@@ -1,7 +1,7 @@
+ """Scope decision schema + assembly.
+ 
+ Per slice 001 architecture proposal §"Data shapes". Defines the canonical
+-Pydantic types that flow through the front half of the BPEI spine:
++Pydantic types that flow through the front half of the research pipeline:
+ 
+     NormalizedQuestion (intake)
+         ↓
+diff --git a/src/polaris_v6/ambiguity_detector/__init__.py b/src/polaris_v6/ambiguity_detector/__init__.py
+new file mode 100644
+index 00000000..fc2de1d5
+--- /dev/null
++++ b/src/polaris_v6/ambiguity_detector/__init__.py
+@@ -0,0 +1,29 @@
++"""Ambiguity detector — HDBSCAN-based detection of multi-meaning queries
++before retrieval. Surfaces a disambiguation modal when ≥2 distinct
++concept-clusters share the query's entity space.
++
++Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
++with min_cluster_size sources, the question is ambiguous and the UI
++shows a disambiguation modal.
++
++Historical: this module was originally named ``bpei/`` after the
++2026-04-30 'phantom completion' incident where a user typed the literal
++string "BPEI" as an adversarial probe and the system fabricated an
++answer. The directory carried the commemorative tag through 2026-05-12,
++when I-naming-001 (GH#434) renamed it to its descriptive name. See
++``memory/bpei_phantom_completion_lessons.md`` (user-level memory at
++``~/.claude/projects/C--POLARIS/memory/``) for the incident write-up.
++"""
++from .ambiguity_detector import (
++    AmbiguityCluster,
++    AmbiguityResult,
++    CandidateSnippet,
++    detect_ambiguity,
++)
++
++__all__ = [
++    "AmbiguityCluster",
++    "AmbiguityResult",
++    "CandidateSnippet",
++    "detect_ambiguity",
++]
+diff --git a/src/polaris_v6/bpei/ambiguity_detector.py b/src/polaris_v6/ambiguity_detector/ambiguity_detector.py
+similarity index 100%
+rename from src/polaris_v6/bpei/ambiguity_detector.py
+rename to src/polaris_v6/ambiguity_detector/ambiguity_detector.py
+diff --git a/src/polaris_v6/api/ambiguity.py b/src/polaris_v6/api/ambiguity.py
+index c0d5cd55..03fc45e4 100644
+--- a/src/polaris_v6/api/ambiguity.py
++++ b/src/polaris_v6/api/ambiguity.py
+@@ -13,7 +13,7 @@ from __future__ import annotations
+ from fastapi import APIRouter
+ from pydantic import BaseModel, Field
+ 
+-from polaris_v6.bpei.ambiguity_detector import (
++from polaris_v6.ambiguity_detector import (
+     CandidateSnippet,
+     detect_ambiguity,
+ )
+diff --git a/src/polaris_v6/bpei/__init__.py b/src/polaris_v6/bpei/__init__.py
+deleted file mode 100644
+index 79683033..00000000
+--- a/src/polaris_v6/bpei/__init__.py
++++ /dev/null
+@@ -1,12 +0,0 @@
+-"""BPEI fix substrate — Phase 1 Task 1.2 (F2 ambiguity detector).
+-
+-The BPEI failure pattern (memory: bpei_phantom_completion_lessons.md): user
+-typed "What is BPEI" into the dashboard, scope gate accepted it, retrieval
+-mixed two unrelated meanings (banking terminology vs. blood-pressure
+-something else). This module provides the HDBSCAN-based ambiguity detector
+-that surfaces multi-meaning queries before any retrieval cost is incurred.
+-
+-Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
+-with min_cluster_size sources, the question is ambiguous and the UI
+-shows a disambiguation modal.
+-"""
+diff --git a/tests/polaris_graph/golden/test_slice_004_goldens.py b/tests/polaris_graph/golden/test_slice_004_goldens.py
+index a4865cdd..ee06214f 100644
+--- a/tests/polaris_graph/golden/test_slice_004_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_004_goldens.py
+@@ -103,7 +103,7 @@ def _stub_sign(payload: bytes) -> bytes:
+ 
+ 
+ def _build_inputs_from_spec(spec: dict) -> tuple[ScopeDecision, EvidencePool, VerifiedReport]:
+-    """Build the BPEI chain inputs from a golden test spec."""
++    """Build the research chain inputs from a golden test spec."""
+     iso = datetime.now(timezone.utc)
+     decision = ScopeDecision(
+         decision_id=spec["decision_id"],
+diff --git a/tests/v6/test_ambiguity_detector.py b/tests/v6/test_ambiguity_detector.py
+index 7de6503f..6621abe4 100644
+--- a/tests/v6/test_ambiguity_detector.py
++++ b/tests/v6/test_ambiguity_detector.py
+@@ -1,13 +1,14 @@
+ """Tests for the F2 ambiguity detector.
+ 
+-Per memory bpei_phantom_completion_lessons.md, the BPEI failure pattern
+-must be reproducible as a regression test: a short acronym question with
++Per memory bpei_phantom_completion_lessons.md (commemoratively named
++after the 2026-04-30 probe incident), the failure pattern must be
++reproducible as a regression test: a short acronym question with
+ candidate snippets covering 2+ unrelated meanings → is_ambiguous=True.
+ """
+ 
+ from __future__ import annotations
+ 
+-from polaris_v6.bpei.ambiguity_detector import (
++from polaris_v6.ambiguity_detector import (
+     AmbiguityResult,
+     CandidateSnippet,
+     detect_ambiguity,
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 5443da9b..98257b7b 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -391,7 +391,7 @@ export default function DashboardPage() {
+             >
+               <CardHeader>
+                 <CardDescription className="text-xs tracking-widest uppercase">
+-                  Disambiguation needed (BPEI guard)
++                  Disambiguation needed (ambiguity guard)
+                 </CardDescription>
+                 <CardTitle className="text-base">
+                   {ambiguity.clusters.length} possible meanings detected
+diff --git a/web/app/generation/page.tsx b/web/app/generation/page.tsx
+index dc8997cf..8b07d069 100644
+--- a/web/app/generation/page.tsx
++++ b/web/app/generation/page.tsx
+@@ -58,7 +58,7 @@ export default function GenerationPage() {
+             Verified clinical research, end-to-end
+           </h1>
+           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-            POLARIS chains the full BPEI spine: scope discovery (slice 001),
++            POLARIS chains the full research pipeline: scope discovery (slice 001),
+             retrieval against verified clinical sources (slice 002), and
+             generation with strict-verify (slice 003). Every shipped sentence
+             carries a provenance token of the form{" "}
+@@ -88,7 +88,7 @@ export default function GenerationPage() {
+ 
+       <footer className="border-border bg-background border-t">
+         <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — Slice 003 (BPEI generator + strict-verify)</span>
++          <span>POLARIS v6.2 — Slice 003 (generator + strict-verify)</span>
+           <span>Sovereign Canadian deep research</span>
+         </div>
+       </footer>
+diff --git a/web/app/intake/page.tsx b/web/app/intake/page.tsx
+index f475adb5..05eb00e0 100644
+--- a/web/app/intake/page.tsx
++++ b/web/app/intake/page.tsx
+@@ -44,7 +44,7 @@ export default function IntakePage() {
+           </h1>
+           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+             Type a clinical research question and POLARIS will run it through
+-            the BPEI front half: refusal-bait detection, scope classification
++            the scope + intake: refusal-bait detection, scope classification
+             (efficacy / safety / diagnosis / prognosis), and PICO axis ambiguity
+             detection. No retrieval is run yet — this is the gate that decides
+             if a question is researchable as written.
+@@ -58,7 +58,7 @@ export default function IntakePage() {
+ 
+       <footer className="border-border bg-background border-t">
+         <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — Slice 001 (BPEI front half)</span>
++          <span>POLARIS v6.2 — Slice 001 (scope + intake)</span>
+           <span>Sovereign Canadian deep research</span>
+         </div>
+       </footer>
+diff --git a/web/app/retrieval/page.tsx b/web/app/retrieval/page.tsx
+index f101d2dd..cf7262f0 100644
+--- a/web/app/retrieval/page.tsx
++++ b/web/app/retrieval/page.tsx
+@@ -76,7 +76,7 @@ export default function RetrievalPage() {
+ 
+       <footer className="border-border bg-background border-t">
+         <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — Slice 002 (BPEI retrieval half)</span>
++          <span>POLARIS v6.2 — Slice 002 (retrieval)</span>
+           <span>Sovereign Canadian deep research</span>
+         </div>
+       </footer>
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 98d98ed4..94d1b3cd 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -824,7 +824,7 @@ export class AuditBundleError extends Error {
+ }
+ 
+ /**
+- * Build + download a GPG-signed audit bundle for the given BPEI chain.
++ * Build + download a GPG-signed audit bundle for the given research chain.
+  *
+  * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+  * with a structured error body, throws AuditBundleError with the .code
+
+# canonical-diff-sha256: 548e336b6e6f9f3195dad9c04c40705136aaedca58178b59fda5ee4c5d721794
