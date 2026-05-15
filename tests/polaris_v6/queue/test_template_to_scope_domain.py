@@ -36,21 +36,23 @@ def test_every_mapping_value_is_a_supported_scope_domain() -> None:
         )
 
 
-def test_promoted_templates_use_identity_mapping() -> None:
-    """ai_sovereignty / canada_us / workforce have their own scope_templates
-    (I-tpl-006/7/8) and should map to themselves, not collapse to policy."""
-    for template_id in ("ai_sovereignty", "canada_us", "workforce", "clinical"):
+def test_all_templates_use_identity_mapping() -> None:
+    """Per I-rdy-005 (#501): all 8 canonical templates have their own
+    config/scope_templates/<id>.yaml and are scope_gate.SUPPORTED_DOMAINS
+    members, so TEMPLATE_TO_SCOPE_DOMAIN is all-identity — every template id
+    IS its own scope domain. (The earlier climate/defense/housing/trade
+    placeholders that fell back to a generic policy rubric were retired.)"""
+    for template_id in (
+        "clinical",
+        "policy",
+        "tech",
+        "due_diligence",
+        "ai_sovereignty",
+        "canada_us",
+        "workforce",
+        "custom",
+    ):
         assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == template_id, (
             f"{template_id!r} should map to itself (its scope_template exists), "
             f"but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
-        )
-
-
-def test_phase2_deferred_templates_fall_back_to_policy() -> None:
-    """climate / defense / housing / trade have no scope_template yet — they
-    must fall back to the generic policy rubric until Phase 2 authoring."""
-    for template_id in ("climate", "defense", "housing", "trade"):
-        assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == "policy", (
-            f"{template_id!r} has no scope_template; must map to 'policy' until "
-            f"Phase 2 authoring, but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
         )

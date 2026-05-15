@@ -18,7 +18,7 @@ def test_research_question_is_accepted(client):
     response = client.post(
         "/scope/check",
         json={
-            "template": "housing",
+            "template": "policy",
             "question": "What did Q3 2025 housing starts data show across major Canadian metros?",
         },
     )
@@ -46,7 +46,7 @@ def test_personal_treatment_request_rejected(client):
 def test_short_question_needs_clarification(client):
     response = client.post(
         "/scope/check",
-        json={"template": "trade", "question": "tariffs?"},
+        json={"template": "policy", "question": "tariffs?"},
     )
     assert response.status_code == 200
     body = response.json()

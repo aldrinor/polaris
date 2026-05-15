@@ -19,19 +19,24 @@ def test_list_returns_all_templates(client):
     assert response.status_code == 200
     body = response.json()
     ids = {t["template_id"] for t in body}
-    assert "defense" in ids
-    assert "climate" in ids
-    assert "ai_sovereignty" in ids
-    assert "canada_us" in ids
-    assert "workforce" in ids
+    assert ids == {
+        "clinical",
+        "policy",
+        "tech",
+        "due_diligence",
+        "ai_sovereignty",
+        "canada_us",
+        "workforce",
+        "custom",
+    }
 
 
 def test_get_one_returns_full_content(client):
-    response = client.get("/templates/defense")
+    response = client.get("/templates/policy")
     assert response.status_code == 200
     body = response.json()
-    assert body["template_id"] == "defense"
-    assert "norad_modernization" in {f["frame_id"] for f in body["frame_manifest"]}
+    assert body["template_id"] == "policy"
+    assert "regulatory_decision" in {f["frame_id"] for f in body["frame_manifest"]}
     assert len(body["sample_questions"]) >= 2
 
 
