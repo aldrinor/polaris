@@ -92,7 +92,13 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
 
     template_id = request_payload.get("template", "")
     question = request_payload.get("question", "")
-    domain = TEMPLATE_TO_SCOPE_DOMAIN.get(template_id, "policy")
+    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
+        raise ValueError(
+            f"unknown template_id {template_id!r} — not one of the canonical "
+            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
+            f"must fail loudly here, not silently run as a generic domain."
+        )
+    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
     slug = _derive_slug(template_id, question)
 
     # v6 fields flow through q-dict (NO os.environ mutation per iter-2 P1.2)

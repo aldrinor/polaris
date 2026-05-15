@@ -133,7 +133,7 @@ export default function HomePage() {
                 Research templates
               </h2>
               <span className="text-muted-foreground text-xs tracking-widest uppercase">
-                3 active · 5 to-build
+                1 active · 7 to-build
               </span>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
