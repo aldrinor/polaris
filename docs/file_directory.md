@@ -246,8 +246,10 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
   is broken until these are either restored or removed.
-- "Kimi K2.5 1T" — historical generator. Current generator is
-  DeepSeek V3.2-Exp. Current evaluator is Qwen3-8B.
+- "Kimi K2.5 1T" — historical generator. The locked generator/evaluator
+  for the Carney demo is DeepSeek V4 Pro + Gemma 4 31B (see
+  `docs/polaris_locked_scope.md` §1); earlier pipelines used DeepSeek
+  V3.2-Exp + Qwen3-8B.
 - "175 vectors exactly" — old invariant from P0-P12. Not applicable
   to any currently-active pipeline.
 
@@ -282,12 +284,7 @@ v6 (FastAPI 0.136, Pydantic 2.11, Dramatiq 2.1, OTEL 1.30, semconv
 - `docs/polaris_locked_scope.md` — the scope lock (LLM, architecture, 8
   templates, 15 features); single anti-drift source of truth. Codex-APPROVED
   (I-rdy-001 / #497).
-- `state/carney_demo_execution_plan_2026_05_15.md` — the 9-phase execution
-  plan to close the issues-done vs product-ready gap. Codex-APPROVED.
-- `state/carney_readiness_gaps_2026_05_15.md` — the gap register (8 P0 /
-  7 P1 / 4 P2) from the Codex gap analysis.
-- `state/canada_gpu_research_2026_05_15.md` — Canadian-GPU sovereignty
-  research (V4 Pro hardware needs; OVH/Vast/Vexxhost/ISAIC findings).
-- `state/gpu_vendor_outreach_2026_05_15.md` — Vexxhost + ISAIC outreach
-  emails.
-- `state/ovh_infra.md` — OVH BHS5 orchestrator deployment record.
+
+The Carney-demo execution plan, gap register, GPU-sovereignty research and
+vendor-outreach notes are session-state working docs under `state/`
+(gitignored per §5); they are not part of the tracked file inventory.

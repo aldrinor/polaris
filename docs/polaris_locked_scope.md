@@ -1,7 +1,7 @@
 # POLARIS — Locked Scope (Carney demo)
 
 **Status:** LOCKED 2026-05-15. **Issue:** I-rdy-001 (#497), Phase 0A of the
-Carney demo execution plan (`state/carney_demo_execution_plan_2026_05_15.md`).
+Carney demo execution plan.
 
 **Purpose:** the single anti-drift source of truth for the Carney demo. The
 LLM, the architecture, and the feature scope are frozen here. If a Codex
@@ -27,7 +27,7 @@ pin. §3 feature statuses are **PROVISIONAL** pending Phase 1 verification
 
 ### §1.2 Hardware / sovereignty
 - **Canadian sovereign GPU only.** V4 Pro requires 8× H200 or 12-16× H100 (Hopper-class — V100/A100 lack FP4/FP8 and cannot run it).
-- **Not** OVH Canada — its Canadian datacentre (Beauharnois, Québec) has only old V100/V100S GPUs, which lack FP4/FP8 and cannot run V4 Pro; OVH's Hopper-class H100/H200/A100 are France-only (verified via the OVH API; see `state/canada_gpu_research_2026_05_15.md`). **Not** France. **Not** any US company.
+- **Not** OVH Canada — its Canadian datacentre (Beauharnois, Québec) has only old V100/V100S GPUs, which lack FP4/FP8 and cannot run V4 Pro; OVH's Hopper-class H100/H200/A100 are France-only (verified via the OVH API). **Not** France. **Not** any US company.
 - Canadian sovereign GPU candidates: Vexxhost (Montréal), ISAIC (Edmonton) — both pending physical-location confirmation.
 - Sovereignty threat model is NARROW: no runtime US LLM vendor calls + no report data in US jurisdiction. Model lineage, build toolchain, and DNS registrar are out of scope of the threat model.
 - The orchestrator (CPU box) stays on OVH BHS5 — that is Canadian and acceptable; only the LLM inference must move to a Canadian GPU.
@@ -67,9 +67,9 @@ No template is added or removed without an operator-acknowledged change to §2 (
 
 ## §3. Feature scope — the 15 + cross-cutting capabilities
 
-**Status values are PROVISIONAL** — set from the Codex gap analysis
-(`state/carney_readiness_gaps_2026_05_15.md`), to be verified by Phase 1
-(I-rdy-002, #498) and re-pinned in Phase 0B (I-rdy-003, #499).
+**Status values are PROVISIONAL** — set from the Codex gap analysis,
+to be verified by Phase 1 (I-rdy-002, #498) and re-pinned in Phase 0B
+(I-rdy-003, #499).
 
 **Binding rule:** *harness-page evidence and golden-fixture tests do NOT count
 as feature-complete.* A feature is "complete" only when a live run exercises
