@@ -45,17 +45,19 @@ test.describe("Slice 005 — full demo walkthrough", () => {
     await expect(page.getByTestId("benchmark-page")).toBeVisible();
   });
 
-  test("home template grid surfaces 3 active + 5 to-build cards", async ({
+  test("home template grid surfaces 1 active + 7 to-build cards", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
-    const active = ["clinical", "housing", "climate"];
+    const active = ["clinical"];
     const to_build = [
+      "policy",
+      "tech",
+      "due_diligence",
       "ai_sovereignty",
       "canada_us",
-      "defense",
-      "trade",
       "workforce",
+      "custom",
     ];
     for (const id of active) {
       await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();

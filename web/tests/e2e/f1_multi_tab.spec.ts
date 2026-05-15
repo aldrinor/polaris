@@ -38,17 +38,17 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
 
   // Each tab types its distinct query.
   await pageA.getByTestId("command-palette-input").fill("tirzepatide");
-  await pageB.getByTestId("command-palette-input").fill("housing");
-  await pageC.getByTestId("command-palette-input").fill("tariff");
+  await pageB.getByTestId("command-palette-input").fill("public policy");
+  await pageC.getByTestId("command-palette-input").fill("due diligence");
 
   // Each settles on its own scored single result.
   await expect(pageA.getByTestId("palette-item-clinical")).toBeVisible({
     timeout: SUGGEST_BUDGET_MS,
   });
-  await expect(pageB.getByTestId("palette-item-housing")).toBeVisible({
+  await expect(pageB.getByTestId("palette-item-policy")).toBeVisible({
     timeout: SUGGEST_BUDGET_MS,
   });
-  await expect(pageC.getByTestId("palette-item-trade")).toBeVisible({
+  await expect(pageC.getByTestId("palette-item-due_diligence")).toBeVisible({
     timeout: SUGGEST_BUDGET_MS,
   });
   await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
@@ -57,14 +57,14 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
 
   // Active-index isolation: make tab B multi-result + active=1, then move
   // tab A active=2 over its own multi-result list. A leak would force B to
-  // index 2 (climate). Tab C (still single-result trade) is the symmetric
+  // index 2 (tech). Tab C (still single-result due_diligence) is the symmetric
   // list-isolation control.
   await pageB.getByTestId("command-palette-input").fill("");
   await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
     timeout: SUGGEST_BUDGET_MS,
   });
   await pageB.keyboard.press("ArrowDown");
-  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
+  await expect(pageB.getByTestId("palette-item-policy")).toHaveAttribute(
     "data-active",
     "true",
   );
@@ -75,7 +75,7 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
   });
   await pageA.keyboard.press("ArrowDown");
   await pageA.keyboard.press("ArrowDown");
-  await expect(pageA.getByTestId("palette-item-climate")).toHaveAttribute(
+  await expect(pageA.getByTestId("palette-item-tech")).toHaveAttribute(
     "data-active",
     "true",
   );
@@ -85,18 +85,18 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
   // debounced sync) has time to arrive before the unchanged-B/C checks.
   await pageB.waitForTimeout(SUGGEST_BUDGET_MS);
 
-  // Tab B unchanged (active still on housing).
-  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
+  // Tab B unchanged (active still on policy).
+  await expect(pageB.getByTestId("palette-item-policy")).toHaveAttribute(
     "data-active",
     "true",
   );
-  await expect(pageB.getByTestId("palette-item-climate")).not.toHaveAttribute(
+  await expect(pageB.getByTestId("palette-item-tech")).not.toHaveAttribute(
     "data-active",
     "true",
   );
-  // Tab C unchanged (single-result trade still active).
+  // Tab C unchanged (single-result due_diligence still active).
   await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
-  await expect(pageC.getByTestId("palette-item-trade")).toHaveAttribute(
+  await expect(pageC.getByTestId("palette-item-due_diligence")).toHaveAttribute(
     "data-active",
     "true",
   );
