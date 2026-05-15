@@ -21,24 +21,24 @@ from typing import Any
 # that don't exist for synthesized contracts.
 _TYPE_FOR_TEMPLATE: dict[str, str] = {
     "clinical": "drug",
+    "policy": "policy",
+    "tech": "policy",
+    "due_diligence": "policy",
     "ai_sovereignty": "policy",
     "canada_us": "policy",
-    "climate": "policy",
-    "defense": "policy",
-    "housing": "policy",
-    "trade": "policy",
     "workforce": "policy",
+    "custom": "policy",
 }
 
 _REQUIRED_FIELDS_FOR_TEMPLATE: dict[str, list[str]] = {
     "clinical": ["rxcui", "drugbank_id", "icd_10"],
+    "policy": ["jurisdiction", "policy_id", "year"],
+    "tech": ["jurisdiction", "technology_id", "year"],
+    "due_diligence": ["entity_id", "jurisdiction", "year"],
     "ai_sovereignty": ["bill_id", "jurisdiction", "year"],
     "canada_us": ["jurisdiction", "treaty_id", "year"],
-    "climate": ["jurisdiction", "policy_id", "target_year"],
-    "defense": ["program_id", "jurisdiction", "year"],
-    "housing": ["jurisdiction", "policy_id", "year"],
-    "trade": ["hs_code", "jurisdiction", "year"],
     "workforce": ["jurisdiction", "indicator_id", "year"],
+    "custom": ["jurisdiction", "topic_id", "year"],
 }
 
 # Last-resort URL when a template has empty T1. Per Codex iter-5 P2 accepted-

@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
 
 TemplateId = Literal[
     "clinical",
-    "trade",
-    "housing",
-    "defense",
-    "climate",
+    "policy",
+    "tech",
+    "due_diligence",
     "ai_sovereignty",
     "canada_us",
     "workforce",
+    "custom",
 ]
 
 

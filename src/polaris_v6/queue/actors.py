@@ -35,28 +35,23 @@ logger = logging.getLogger(__name__)
 
 ENQUEUE_MAX_RETRIES = 3
 
-# I-arch-001c (2026-05-13): template_id → pipeline-A scope_domain mapping at
-# the actor boundary.
+# I-arch-001c (2026-05-13) + I-rdy-005 (2026-05-15): template_id →
+# pipeline-A scope_domain mapping at the actor boundary.
 #
-# Three domains already exist in scope_gate.SUPPORTED_DOMAINS with their own
-# config/scope_templates/<domain>.yaml (per I-tpl-006/7/8): ai_sovereignty,
-# canada_us, workforce. These are promoted to identity mappings so the
-# deterministic scope_gate picks the right per-domain rubric.
-#
-# Four templates (climate, defense, housing, trade) have no scope_template
-# yet — they fall back to the generic "policy" rubric. Authoring per-domain
-# YAMLs + adding to SUPPORTED_DOMAINS is Phase 2 (post-Carney-demo).
-#
-# clinical → clinical (unchanged).
+# All 8 canonical templates are first-class scope domains: each has its own
+# config/scope_templates/<id>.yaml and is a member of scope_gate.SUPPORTED_DOMAINS.
+# The mapping is therefore all-identity — every template id IS its scope domain.
+# (The earlier climate/defense/housing/trade placeholders were retired by
+# I-rdy-005's reconcile to the canonical 8.)
 TEMPLATE_TO_SCOPE_DOMAIN = {
+    "clinical": "clinical",
+    "policy": "policy",
+    "tech": "tech",
+    "due_diligence": "due_diligence",
     "ai_sovereignty": "ai_sovereignty",
     "canada_us": "canada_us",
     "workforce": "workforce",
-    "clinical": "clinical",
-    "climate": "policy",
-    "defense": "policy",
-    "housing": "policy",
-    "trade": "policy",
+    "custom": "custom",
 }
 
 
