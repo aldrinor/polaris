@@ -93,7 +93,7 @@ def process_intake(
     *,
     completion_fn: Callable[[str], str] | None = None,
 ) -> ScopeDecision | IntakeError:
-    """Orchestrate the front-half BPEI pipeline.
+    """Orchestrate the front-half ambiguity-detection pipeline.
 
     Args:
         raw_question: user-typed input, any string. Will be normalized.
