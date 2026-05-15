@@ -20,13 +20,13 @@ const BACKEND_URL = "/api/v6";
 
 export type TemplateId =
   | "clinical"
-  | "trade"
-  | "housing"
-  | "defense"
-  | "climate"
+  | "policy"
+  | "tech"
+  | "due_diligence"
   | "ai_sovereignty"
   | "canada_us"
-  | "workforce";
+  | "workforce"
+  | "custom";
 
 export type RunStatus =
   | "queued"
