@@ -67,9 +67,9 @@ No template is added or removed without an operator-acknowledged change to §2 (
 
 ## §3. Feature scope — the 15 + cross-cutting capabilities
 
-**Status values are PROVISIONAL** — set from the Codex gap analysis,
-to be verified by Phase 1 (I-rdy-002, #498) and re-pinned in Phase 0B
-(I-rdy-003, #499).
+**Status values are VERIFIED 2026-05-15** via Phase 1 (I-rdy-002, #498) —
+grounded against the live deployed system + static code inspection. Full
+evidence: `.codex/I-rdy-002/verification_findings.md` (Codex-APPROVED iter 4).
 
 **Binding rule:** *harness-page evidence and golden-fixture tests do NOT count
 as feature-complete.* A feature is "complete" only when a live run exercises
@@ -77,7 +77,7 @@ it end-to-end in the deployed product.
 
 ### §3.1 The 15 user-visible features
 
-| F# | Feature | Provisional status |
+| F# | Feature | Verified status (I-rdy-002, 2026-05-15) |
 |---|---|---|
 | F1 | Scope discovery + template browse | substrate exists; template registry mismatch |
 | F2 | Ambiguity-detection disambiguation modal | substrate exists; not wired into main ask flow |
