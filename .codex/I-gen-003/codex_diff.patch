@@ -1,0 +1,382 @@
+diff --git a/src/polaris_graph/evaluator/external_evaluator.py b/src/polaris_graph/evaluator/external_evaluator.py
+index 5d919454..f17e6d0c 100644
+--- a/src/polaris_graph/evaluator/external_evaluator.py
++++ b/src/polaris_graph/evaluator/external_evaluator.py
+@@ -621,9 +621,27 @@ def run_rule_checks(
+     # contain protocol numbers (tier bounds like "30-60%", retrieval
+     # dates, model names with version numbers) that are specifications,
+     # not empirical claims needing citations.
++    # I-gen-003 (2026-05-14): also stop at the "Limitations" block. Like
++    # the Methods specs excluded above, the Limitations section is
++    # POLARIS-generated meta-prose — corpus-skew percentages, the
++    # contradiction-detector's own relative-difference telemetry
++    # (e.g. "relative difference 135.7%"), completeness-gap counts. These
++    # are NOT empirical claims from sources and must not be PT11-scored.
++    # Without this, POLARIS's own telemetry decimals false-fail PT11
++    # (V4 Pro smoke #3: 2 of 3 "uncited" decimals were Limitations
++    # telemetry, tripping the gate to abort_evaluator_critical). Match
++    # the heading at either "## " or "### " level, case-insensitively.
++    _cut_idxs: list[int] = []
+     methods_idx = report_text.lower().find("\n## methods")
+     if methods_idx > 0:
+-        prose_only = report_text[:methods_idx]
++        _cut_idxs.append(methods_idx)
++    _limitations_match = re.search(
++        r"\n#{2,3} +limitations\b", report_text, re.IGNORECASE
++    )
++    if _limitations_match:
++        _cut_idxs.append(_limitations_match.start())
++    if _cut_idxs:
++        prose_only = report_text[:min(_cut_idxs)]
+     else:
+         prose_only = report_text
+     text_stripped = re.sub(r"\[#ev:[^\]]+\]", "", prose_only)
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index fd165ce7..902eed07 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -798,7 +798,10 @@ async def _call_section(
+     per-section cross-trial synthesis suggestions block. The LLM
+     integrates 1-2 of these inferences into the body narrative.
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        ReasoningFirstTruncationError,
++    )
+ 
+     blocks = []
+     for ev in evidence_subset:
+@@ -874,6 +877,22 @@ async def _call_section(
+             max_tokens=max_tokens,
+             temperature=temperature,
+         )
++    except ReasoningFirstTruncationError as exc:
++        # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
++        # of token budget mid-planning even at the 20000-token floor.
++        # Do NOT let this crash the whole run — return an empty draft.
++        # An empty section is handled honestly downstream: if every
++        # section ends empty the pipeline reports abort_no_verified_
++        # sections (a real verdict per §9.3), not a hard error_unexpected
++        # crash. Logged loud, not silent — the failure surfaces in the
++        # section telemetry and this WARNING.
++        logger.warning(
++            "[multi_section] %s: reasoning-first truncation on %s "
++            "(max_tokens=%d, tighter_retry=%s) — empty draft returned. "
++            "detail: %s",
++            section.title, model, max_tokens, tighter_retry, exc,
++        )
++        return "", 0, 0
+     finally:
+         if hasattr(client, "close"):
+             try:
+@@ -1065,6 +1084,36 @@ def filter_underframed_trial_sentences(
+     return kept, dropped
+ 
+ 
++# I-gen-003 (2026-05-14): citation/punctuation normalization, applied
++# AFTER provenance resolution. A reasoning-first generator (DeepSeek
++# V4 Pro) sometimes ends a sentence with a citation marker but no
++# terminal period, jamming two sentences together
++# ("...insulin secretion[1] GLP-1 receptor activation enhances...").
++# That hurts readability (Qwen flow axis) and the evaluator's PT11
++# sentence-boundary detection. This pass inserts the missing terminator
++# at genuine sentence boundaries and normalizes marker spacing. It is
++# DELIBERATELY cosmetic: it never adds, removes, or changes a citation
++# marker or an evidence ID — only punctuation/whitespace AROUND already-
++# resolved markers. The provenance invariant (§9.1) is untouched.
++_CITE_MARKER_RE_FRAG = r"(?:\[\d+\]|\[#ev:[^\]]+\])"
++_MISSING_TERMINATOR_RE = re.compile(
++    # <non-terminator char> <optional ws> <one+ citation markers>
++    # <ws> <Capital letter starting the next sentence>
++    rf"(?<=[^.!?:;\s])(\s*)({_CITE_MARKER_RE_FRAG}(?:\s*{_CITE_MARKER_RE_FRAG})*)"
++    rf"(\s+)(?=[A-Z])"
++)
++
++
++def _normalize_citation_punctuation(text: str) -> str:
++    """Insert a missing sentence-terminal period before citation
++    marker(s) at a genuine sentence boundary, and normalize the marker
++    to a single trailing space. Cosmetic only — markers and evidence
++    IDs are byte-preserved. See the module comment above for rationale."""
++    if not text:
++        return text
++    return _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
++
++
+ async def _run_section(
+     section: SectionPlan,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -1251,6 +1300,11 @@ async def _run_section(
+     verified_text, biblio_slice = resolve_provenance_to_citations(
+         report.kept_sentences, evidence_pool,
+     )
++    # I-gen-003: cosmetic citation/punctuation normalization on the
++    # resolved section text — inserts missing sentence terminators at
++    # genuine boundaries, normalizes marker spacing. Markers + evidence
++    # IDs are byte-preserved (see _normalize_citation_punctuation).
++    verified_text = _normalize_citation_punctuation(verified_text)
+ 
+     dropped_due_to_failure = len(report.kept_sentences) == 0
+ 
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 95a6c957..52bf311e 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -46,12 +46,22 @@ OPENROUTER_BASE_URL = os.getenv(
+ OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
+ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+ 
+-# R-2 (readiness gate): hard per-run cost cap. A single honest-rebuild
+-# run (scope+retrieval+generate+judge) should cost $0.005-$0.01. Cap at
+-# $0.10 default so a runaway regen loop or recursive outline can't burn
+-# hours of budget before we notice. Measured by cumulative cost across
+-# ALL OpenRouterClient instances instantiated within a single run.
+-PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
++# R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
++# not an economic limit. Measured by cumulative cost across ALL
++# OpenRouterClient instances within a single run.
++#
++# I-gen-003 (2026-05-14): raised the default from $0.10 to $10.00.
++# The $0.10 default was tuned for the V3.2-Exp generator
++# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
++# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
++# observed) and the I-gen-003 CoT-recovery regen loop adds up to 3
++# extra section calls. Under the stale $0.10 cap a normal V4 Pro run
++# trips BudgetExceededError before it can finish — i.e. the guard
++# false-fires on the new generator's NORMAL cost profile. $10.00
++# matches the v30_runner.py default and still catches a genuine
++# infinite loop / recursive-outline runaway. Override per-run via the
++# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
++PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+ 
+ # BUG-B-201 fix (pass 2 remediation): per-task ambient state via
+ # contextvars so concurrent async run_one_query() calls don't stomp
+@@ -93,6 +103,16 @@ class BudgetExceededError(RuntimeError):
+     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+ 
+ 
++class ReasoningFirstTruncationError(RuntimeError):
++    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
++    Flash) ran out of token budget while still planning — content is
++    empty and reasoning_content has no provenance markers and ends
++    mid-sentence. Typed (not bare RuntimeError) so the multi_section
++    generator's _call_section can catch *only* this case and let the
++    bounded regen loop retry with a larger budget, while every other
++    RuntimeError still propagates as a real fault."""
++
++
+ def reset_run_cost() -> None:
+     """Reset the current task's run-cost accumulator to 0. Call at the
+     start of a run. Uses ContextVar so concurrent async tasks each get
+@@ -254,20 +274,26 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
+ # Family derivation uses OpenRouter publisher-slug prefix.
+ PG_GENERATOR_MODEL = os.getenv(
+     "PG_GENERATOR_MODEL",
+-    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
+-    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
+-    # multi_section_generator's strict_verify provenance-token requirement.
+-    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
+-    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
+-    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
+-    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
+-    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
+-    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
+-    # and continues to protect against any future reasoning-first generator
+-    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
+-    # when the multi_section caller adds explicit "include [#ev:...] tokens"
+-    # re-prompt + retry handler for V4 Pro's CoT pattern.
+-    "deepseek/deepseek-v3.2-exp",
++    # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
++    #
++    # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
++    # because V4 Pro is reasoning-first — it emits CoT-style planning and,
++    # critically, exhausted max_tokens mid-planning, tripping the I-bug-089
++    # SF-15 fail-loud and crashing the pipeline before any section was
++    # written.
++    #
++    # I-gen-003 (2026-05-14) fixes the crash:
++    #   - ReasoningFirstTruncationError (typed) + a 20000-token
++    #     PG_REASONING_FIRST_MIN_MAX_TOKENS floor give V4 Pro room to both
++    #     finish reasoning AND emit the cited paragraph — smoke #3 ran all
++    #     6 sections with zero truncation crash.
++    #   - _call_section catches that exception and returns an empty draft
++    #     so a truncation degrades to an honest abort_no_verified_sections
++    #     rather than a hard error_unexpected.
++    # V4 Pro's report-layer citation tightness vs the evaluator gate is
++    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
++    # is obsolete — NOT a fallback.
++    "deepseek/deepseek-v4-pro",
+ )
+ PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+ 
+@@ -1188,14 +1214,19 @@ class OpenRouterClient:
+             else:
+                 reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
+             body["reasoning"] = reasoning_dict
+-            # I-bug-090: OpenRouter does NOT enforce reasoning.max_tokens for
+-            # V4 Pro on the provider side — the model still emits ~2500
+-            # reasoning tokens regardless. Floor max_tokens to a value large
+-            # enough that 40/60 split leaves room for both reasoning AND
+-            # content. Empirically observed at 2400 max: reasoning eats the
+-            # whole budget, content empty, I-bug-089 fail-loud raises.
+-            # 6000 floor → ~2500 reasoning + ~3500 content, both fit.
+-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "6000"))
++            # I-bug-090 / I-gen-003: OpenRouter does NOT enforce
++            # reasoning.max_tokens for V4 Pro on the provider side — the
++            # model reasons until it hits the OVERALL max_tokens ceiling.
++            # The I-bug-090 estimate of "~2500 reasoning tokens" was wrong:
++            # the I-gen-003 V4 Pro smoke (2026-05-14) showed V4 Pro emit
++            # 21284 chars (~5300+ tokens) of reasoning and STILL truncate
++            # mid-sentence at the 6000-token ceiling — it never reached the
++            # content. Floor must give V4 Pro room to FINISH planning AND
++            # write the cited paragraph. 20000 floor → ~5-8k reasoning +
++            # ~12-15k content headroom. Env-tunable. Smoke #3 (2026-05-14)
++            # confirmed: at 20000, V4 Pro completed all 6 sections with
++            # zero ReasoningFirstTruncationError.
++            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
+             if body.get("max_tokens", 0) < _min_tokens:
+                 body["max_tokens"] = _min_tokens
+ 
+@@ -1991,7 +2022,7 @@ class OpenRouterClient:
+                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
+                 ):
+                     self.usage.total_errors += 1
+-                    raise RuntimeError(
++                    raise ReasoningFirstTruncationError(
+                         f"I-bug-089: reasoning-first model {self.model} "
+                         f"truncated mid-planning. content empty, reasoning "
+                         f"has {len(result.reasoning)} chars but no [#ev:] "
+diff --git a/tests/polaris_graph/test_i_gen_003_citation_normalization.py b/tests/polaris_graph/test_i_gen_003_citation_normalization.py
+new file mode 100644
+index 00000000..28ec9fb1
+--- /dev/null
++++ b/tests/polaris_graph/test_i_gen_003_citation_normalization.py
+@@ -0,0 +1,126 @@
++"""I-gen-003 (GH#495) — tests for the two deterministic report-layer
++fixes that replaced the inert V4 Pro regen loop:
++
++1. `_normalize_citation_punctuation` — cosmetic citation/punctuation
++   normalization applied after provenance resolution. Inserts a missing
++   sentence terminator at a genuine boundary, normalizes marker spacing,
++   and (critically) byte-preserves every citation marker + evidence ID.
++2. PT11 scope — the `Limitations` block is POLARIS-generated meta-prose
++   (corpus-skew %, contradiction-detector relative-difference telemetry,
++   completeness-gap counts), not empirical claims from sources. PT11
++   must NOT score it — same category as the already-excluded Methods
++   block. The Analyst Synthesis, by contrast, IS generator output and
++   MUST stay in PT11 scope.
++"""
++from __future__ import annotations
++
++from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
++from src.polaris_graph.generator.multi_section_generator import (
++    _normalize_citation_punctuation,
++)
++
++
++# ── _normalize_citation_punctuation ──────────────────────────────────
++
++
++def test_normalize_inserts_missing_terminator_at_boundary():
++    """`word[N] Capital` — two sentences jammed together — gets the
++    missing period inserted before the marker."""
++    out = _normalize_citation_punctuation(
++        "insulin secretion[1] GLP-1 receptor activation enhances it.[1]"
++    )
++    assert out == (
++        "insulin secretion.[1] GLP-1 receptor activation enhances it.[1]"
++    )
++
++
++def test_normalize_leaves_already_terminated_text_untouched():
++    text = "secretion.[1] GLP-1 activation rises.[2]"
++    assert _normalize_citation_punctuation(text) == text
++
++
++def test_normalize_byte_preserves_markers_and_evidence_ids():
++    """The pass must NEVER add, remove, or alter a citation marker or
++    an evidence ID — it is cosmetic-only (provenance invariant §9.1)."""
++    src = "binds receptors[#ev:src_A:0-10] GLP-1 enhances[2][3] Insulin rises."
++    out = _normalize_citation_punctuation(src)
++    assert src.count("[") == out.count("[")
++    assert src.count("]") == out.count("]")
++    assert "[#ev:src_A:0-10]" in out
++    assert "[2][3]" in out
++
++
++def test_normalize_does_not_touch_mid_sentence_decimal():
++    """A decimal mid-sentence followed by a lowercase continuation is
++    NOT a sentence boundary — must be left alone."""
++    text = "reduced HbA1c by 2.4%[1] and body weight fell"
++    assert _normalize_citation_punctuation(text) == text
++
++
++def test_normalize_handles_empty_and_marker_spacing():
++    assert _normalize_citation_punctuation("") == ""
++    # space before the marker is normalized away at a boundary
++    assert (
++        _normalize_citation_punctuation("secretion [1] GLP-1 rises.[1]")
++        == "secretion.[1] GLP-1 rises.[1]"
++    )
++
++
++# ── PT11 scope: Limitations excluded, Analyst Synthesis included ──────
++
++_PROTOCOL = {"sha256": "deadbeef" * 8}
++
++
++def _pt11(report_text: str):
++    results, _, _ = run_rule_checks(
++        report_text=report_text,
++        protocol=_PROTOCOL,
++        tier_distribution_report=None,
++        contradictions=[],
++        evidence_pool={},
++        generator_model="deepseek/deepseek-v4-pro",
++        evaluator_model="google/gemma-4-31b-it",
++    )
++    return next(r for r in results if r.item_id == "PT11")
++
++
++def test_pt11_ignores_limitations_telemetry_decimals():
++    """Uncited decimals that live ONLY in the Limitations block (the
++    contradiction-detector's own relative-difference telemetry) must
++    NOT fail PT11 — they are not empirical claims from sources."""
++    report = (
++        "# Research report\n\n"
++        "### Efficacy\n"
++        "Tirzepatide reduced HbA1c by 2.4 percentage points in trials.[1]\n\n"
++        "### Limitations\n"
++        "Limitations: sources disagree on body weight (relative difference "
++        "135.7%) and on weight loss (relative difference 269.0%).\n\n"
++        "## Methods\n"
++        "Tier bounds 30-60%. Retrieved 2026-05-14.\n"
++    )
++    pt11 = _pt11(report)
++    assert pt11.passed, (
++        f"PT11 must pass — the only uncited decimals are Limitations "
++        f"telemetry, not source claims. details={pt11.details!r}"
++    )
++
++
++def test_pt11_still_flags_uncited_decimals_in_body_and_synthesis():
++    """Control: the SAME decimals placed in body prose / Analyst
++    Synthesis (real generator output) MUST still be PT11-scored — the
++    exclusion is tightly scoped to the Limitations block only."""
++    report = (
++        "# Research report\n\n"
++        "### Efficacy\n"
++        "Body weight fell by 135.7 in one arm and 269.0 in another, "
++        "and a comparator dose of 2.0 mg was noted, with no citations.\n\n"
++        "### Limitations\n"
++        "Limitations: the corpus is skewed toward lower-tier evidence.\n\n"
++        "## Methods\n"
++        "Retrieved 2026-05-14.\n"
++    )
++    pt11 = _pt11(report)
++    assert not pt11.passed, (
++        "PT11 must still FAIL when uncited decimals are in body prose — "
++        "the Limitations exclusion must not leak into the rest of the report."
++    )
+# canonical-diff-sha256: 363be5e8cd916079a3ba74ba35c58949372661f85dbc797a117a5259b6222281
