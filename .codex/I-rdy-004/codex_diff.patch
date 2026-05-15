@@ -1,0 +1,724 @@
+diff --git a/scripts/v6_entrypoint.sh b/scripts/v6_entrypoint.sh
+index b0d00926..7b51d591 100644
+--- a/scripts/v6_entrypoint.sh
++++ b/scripts/v6_entrypoint.sh
+@@ -46,7 +46,12 @@ case "${1:-api}" in
+     api)
+         wait_for_redis
+         echo "[entrypoint] starting uvicorn polaris_v6.api.app:app on 0.0.0.0:8000"
+-        exec python -m uvicorn polaris_v6.api.app:app --host 0.0.0.0 --port 8000 --workers 1
++        # --no-access-log: SSE auth (I-rdy-004) carries the JWT as the
++        # ?access_token= query param on /stream/* (native EventSource cannot
++        # set headers). uvicorn's access log would write that full URL —
++        # including a live 12h token — to container stdout. Access logging is
++        # off so tokens never reach logs; the app's structured logging stays.
++        exec python -m uvicorn polaris_v6.api.app:app --host 0.0.0.0 --port 8000 --workers 1 --no-access-log
+         ;;
+     worker)
+         wait_for_redis
+diff --git a/src/polaris_v6/api/auth.py b/src/polaris_v6/api/auth.py
+index 085a5fa1..3c4a383d 100644
+--- a/src/polaris_v6/api/auth.py
++++ b/src/polaris_v6/api/auth.py
+@@ -138,13 +138,24 @@ async def require_auth(
+         return None
+     if _path_is_public(request.url.path):
+         return None
+-    if creds is None or creds.scheme.lower() != "bearer":
++    # Token resolution. Normal routes: Authorization: Bearer header. SSE
++    # (/stream/*): the browser's native EventSource cannot set request
++    # headers, so the JWT is accepted from the access_token query param —
++    # but ONLY for /stream paths, never for state-changing routes.
++    token: str | None = None
++    if creds is not None and creds.scheme.lower() == "bearer":
++        token = creds.credentials
++    elif request.url.path.startswith("/stream/"):
++        # Trailing slash: only the SSE route /stream/{run_id} — never a
++        # lookalike like /streaming/*.
++        token = request.query_params.get("access_token")
++    if not token:
+         raise HTTPException(
+             status_code=401,
+             detail={"error": "missing_bearer_token", "message": "Authorization: Bearer <jwt> required"},
+         )
+     try:
+-        payload = jwt.decode(creds.credentials, _jwt_secret(), algorithms=[JWT_ALGORITHM])
++        payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+     except JWTError as exc:
+         raise HTTPException(
+             status_code=401,
+diff --git a/tests/v6/test_sse_query_auth.py b/tests/v6/test_sse_query_auth.py
+new file mode 100644
+index 00000000..aca00b0b
+--- /dev/null
++++ b/tests/v6/test_sse_query_auth.py
+@@ -0,0 +1,87 @@
++"""I-rdy-004 (#500) — SSE query-param auth.
++
++The browser's native EventSource cannot set request headers, so the SSE
++endpoint accepts the JWT from the ?access_token= query param. This is scoped:
++it works for /stream/* paths ONLY and must never authenticate any other
++route. These tests pin that contract.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++
++@pytest.fixture
++def auth_app(monkeypatch):
++    """A FastAPI app with the real global require_auth dependency and two
++    test routes: a /stream/{id} (SSE-style) and a /runs/{id} (normal)."""
++    pytest.importorskip("fastapi")
++    monkeypatch.setenv("POLARIS_JWT_SECRET", "x" * 40)
++    monkeypatch.delenv("POLARIS_AUTH_DISABLED", raising=False)
++
++    from fastapi import Depends, FastAPI
++    from polaris_v6.api.auth import require_auth
++
++    app = FastAPI(dependencies=[Depends(require_auth)])
++
++    @app.get("/stream/{run_id}")
++    def _stream(run_id: str):  # noqa: ANN202 — test route
++        return {"run_id": run_id}
++
++    @app.get("/runs/{run_id}")
++    def _run(run_id: str):  # noqa: ANN202 — test route
++        return {"run_id": run_id}
++
++    return app
++
++
++def _mint_token() -> str:
++    """A valid 12h JWT (the auth_app fixture has set POLARIS_JWT_SECRET)."""
++    from polaris_v6.api.auth import issue_token
++
++    token, _ = issue_token("reviewer", "reviewer")
++    return token
++
++
++def test_stream_accepts_query_token(auth_app):
++    from fastapi.testclient import TestClient
++
++    token = _mint_token()
++    resp = TestClient(auth_app).get(f"/stream/rid-1?access_token={token}")
++    assert resp.status_code == 200
++    assert resp.json()["run_id"] == "rid-1"
++
++
++def test_stream_missing_token_is_401(auth_app):
++    from fastapi.testclient import TestClient
++
++    resp = TestClient(auth_app).get("/stream/rid-1")
++    assert resp.status_code == 401
++
++
++def test_stream_invalid_query_token_is_401(auth_app):
++    from fastapi.testclient import TestClient
++
++    resp = TestClient(auth_app).get("/stream/rid-1?access_token=not-a-jwt")
++    assert resp.status_code == 401
++
++
++def test_query_token_does_not_authenticate_non_stream_route(auth_app):
++    """The access_token query param must NOT authenticate /runs/* — only
++    /stream/*. A state-changing route still requires the Bearer header."""
++    from fastapi.testclient import TestClient
++
++    token = _mint_token()
++    resp = TestClient(auth_app).get(f"/runs/rid-1?access_token={token}")
++    assert resp.status_code == 401
++
++
++def test_stream_still_accepts_bearer_header(auth_app):
++    """Header-based auth keeps working on /stream/* (e.g. server-side calls)."""
++    from fastapi.testclient import TestClient
++
++    token = _mint_token()
++    resp = TestClient(auth_app).get(
++        "/stream/rid-1", headers={"Authorization": f"Bearer {token}"}
++    )
++    assert resp.status_code == 200
+diff --git a/web/app/sign-in/page.tsx b/web/app/sign-in/page.tsx
+index 22fd8882..9d125091 100644
+--- a/web/app/sign-in/page.tsx
++++ b/web/app/sign-in/page.tsx
+@@ -1,5 +1,10 @@
++"use client";
++
++import { useState } from "react";
++import { useRouter } from "next/navigation";
+ import Link from "next/link";
+ 
++import { login } from "@/lib/auth";
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -12,6 +17,26 @@ import {
+ import { Input } from "@/components/ui/input";
+ 
+ export default function SignInPage() {
++  const router = useRouter();
++  const [username, setUsername] = useState("");
++  const [password, setPassword] = useState("");
++  const [error, setError] = useState<string | null>(null);
++  const [pending, setPending] = useState(false);
++
++  async function handleSubmit(e: React.FormEvent) {
++    e.preventDefault();
++    setError(null);
++    setPending(true);
++    const result = await login(username.trim(), password);
++    setPending(false);
++    if (result.ok) {
++      router.push("/");
++      router.refresh();
++    } else {
++      setError(result.error ?? "Sign-in failed.");
++    }
++  }
++
+   return (
+     <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+       <div className="flex w-full max-w-sm flex-col gap-6">
+@@ -25,62 +50,82 @@ export default function SignInPage() {
+         </div>
+ 
+         <Card>
+-          <CardHeader>
+-            <CardTitle>Sign in</CardTitle>
+-            <CardDescription>
+-              Authentication is a placeholder for Phase 0. Single sign-on wires
+-              up in Phase 2.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent className="flex flex-col gap-4">
+-            <div className="flex flex-col gap-2">
+-              <label
+-                htmlFor="email"
+-                className="text-foreground text-sm font-medium"
++          <form onSubmit={handleSubmit}>
++            <CardHeader>
++              <CardTitle>Sign in</CardTitle>
++              <CardDescription>
++                Enter your POLARIS reviewer credentials.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="flex flex-col gap-4">
++              <div className="flex flex-col gap-2">
++                <label
++                  htmlFor="username"
++                  className="text-foreground text-sm font-medium"
++                >
++                  Username
++                </label>
++                <Input
++                  id="username"
++                  name="username"
++                  type="text"
++                  placeholder="reviewer"
++                  autoComplete="username"
++                  value={username}
++                  onChange={(e) => setUsername(e.target.value)}
++                  required
++                />
++              </div>
++              <div className="flex flex-col gap-2">
++                <label
++                  htmlFor="password"
++                  className="text-foreground text-sm font-medium"
++                >
++                  Password
++                </label>
++                <Input
++                  id="password"
++                  name="password"
++                  type="password"
++                  placeholder="••••••••"
++                  autoComplete="current-password"
++                  value={password}
++                  onChange={(e) => setPassword(e.target.value)}
++                  required
++                />
++              </div>
++              {error ? (
++                <p
++                  role="alert"
++                  className="text-destructive text-sm font-medium"
++                >
++                  {error}
++                </p>
++              ) : null}
++            </CardContent>
++            <CardFooter className="flex flex-col gap-3">
++              <Button
++                type="submit"
++                className="w-full"
++                disabled={pending || !username || !password}
+               >
+-                Email
+-              </label>
+-              <Input
+-                id="email"
+-                type="email"
+-                placeholder="name@canada.ca"
+-                autoComplete="email"
+-                disabled
+-              />
+-            </div>
+-            <div className="flex flex-col gap-2">
+-              <label
+-                htmlFor="password"
+-                className="text-foreground text-sm font-medium"
++                {pending ? "Signing in…" : "Continue"}
++              </Button>
++              <Button
++                type="button"
++                variant="ghost"
++                className="w-full"
++                nativeButton={false}
++                render={<Link href="/" />}
+               >
+-                Password
+-              </label>
+-              <Input
+-                id="password"
+-                type="password"
+-                placeholder="••••••••"
+-                autoComplete="current-password"
+-                disabled
+-              />
+-            </div>
+-          </CardContent>
+-          <CardFooter className="flex flex-col gap-3">
+-            <Button className="w-full" disabled>
+-              Continue
+-            </Button>
+-            <Button
+-              variant="ghost"
+-              className="w-full"
+-              nativeButton={false}
+-              render={<Link href="/" />}
+-            >
+-              Back to dashboard
+-            </Button>
+-          </CardFooter>
++                Back to dashboard
++              </Button>
++            </CardFooter>
++          </form>
+         </Card>
+ 
+         <p className="text-muted-foreground text-center text-xs">
+-          POLARIS v6.2 — Phase 0 scaffold
++          POLARIS v6.2 — sovereign Canadian deep research
+         </p>
+       </div>
+     </div>
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 6f9d9049..9afd7b3d 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -16,8 +16,43 @@
+  * make production browsers attempt direct Docker-network reach and fail.
+  */
+ 
++import { authHeader, redirectToSignIn } from "@/lib/auth";
++
+ const BACKEND_URL = "/api/v6";
+ 
++/**
++ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
++ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
++ * headers, and does NOT force a content-type (so `FormData` uploads keep
++ * their auto-generated multipart boundary). On a 401 it clears the token
++ * and routes to /sign-in.
++ */
++async function authFetch(
++  url: string,
++  init: RequestInit = {},
++): Promise<Response> {
++  const headers = new Headers(init.headers ?? {});
++  for (const [key, value] of Object.entries(authHeader())) {
++    headers.set(key, value);
++  }
++  const response = await globalThis.fetch(url, { ...init, headers });
++  if (response.status === 401) {
++    redirectToSignIn();
++  }
++  return response;
++}
++
++/**
++ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
++ * set request headers, so the JWT rides as the `access_token` query param;
++ * the backend `require_auth` accepts it for `/stream/*` paths only.
++ */
++export function streamUrl(runId: string): string {
++  const token = authHeader().Authorization?.replace(/^Bearer /, "");
++  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
++  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
++}
++
+ export type TemplateId =
+   | "clinical"
+   | "trade"
+@@ -76,7 +111,7 @@ async function asJsonOrThrow<T>(response: Response): Promise<T> {
+ export async function createRun(
+   payload: RunRequest,
+ ): Promise<RunStatusResponse> {
+-  const response = await fetch(`${BACKEND_URL}/runs`, {
++  const response = await authFetch(`${BACKEND_URL}/runs`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify(payload),
+@@ -85,7 +120,7 @@ export async function createRun(
+ }
+ 
+ export async function getRun(runId: string): Promise<RunStatusResponse> {
+-  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
++  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+   return asJsonOrThrow<RunStatusResponse>(response);
+ }
+ 
+@@ -109,7 +144,7 @@ export interface UploadResponse {
+ }
+ 
+ export async function getUpload(document_id: string): Promise<UploadResponse> {
+-  const response = await fetch(
++  const response = await authFetch(
+     `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+   );
+   return asJsonOrThrow<UploadResponse>(response);
+@@ -122,7 +157,7 @@ export async function uploadDocument(
+   const form = new FormData();
+   form.append("file", file);
+   form.append("classification", classification);
+-  const response = await fetch(`${BACKEND_URL}/upload`, {
++  const response = await authFetch(`${BACKEND_URL}/upload`, {
+     method: "POST",
+     body: form,
+   });
+@@ -167,7 +202,7 @@ export async function checkAmbiguity(
+   question: string,
+   candidates: AmbiguityCandidate[],
+ ): Promise<AmbiguityResult> {
+-  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
++  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({
+@@ -184,7 +219,7 @@ export async function checkScope(
+   template: TemplateId,
+   question: string,
+ ): Promise<ScopeDecision> {
+-  const response = await fetch(`${BACKEND_URL}/scope/check`, {
++  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ template, question }),
+@@ -206,7 +241,7 @@ export interface TemplateContent {
+ }
+ 
+ export async function listTemplates(): Promise<TemplateContent[]> {
+-  const response = await fetch(`${BACKEND_URL}/templates`);
++  const response = await authFetch(`${BACKEND_URL}/templates`);
+   return asJsonOrThrow<TemplateContent[]>(response);
+ }
+ 
+@@ -260,7 +295,7 @@ export interface EvidenceContract {
+ }
+ 
+ export async function getBundle(runId: string): Promise<EvidenceContract> {
+-  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
++  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+   return asJsonOrThrow<EvidenceContract>(response);
+ }
+ 
+@@ -285,7 +320,7 @@ export async function getChart(
+   runId: string,
+   chartType: ChartType,
+ ): Promise<VegaLiteSpec> {
+-  const response = await fetch(
++  const response = await authFetch(
+     `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+   );
+   return asJsonOrThrow<VegaLiteSpec>(response);
+@@ -319,7 +354,7 @@ export function subscribeToRun(
+   onEvent: (event: StreamEvent) => void,
+   onError?: (error: Event) => void,
+ ): EventSource {
+-  const source = new EventSource(`${BACKEND_URL}/stream/${runId}`);
++  const source = new EventSource(streamUrl(runId));
+ 
+   const handler = (event: MessageEvent<string>) => {
+     try {
+@@ -401,7 +436,7 @@ export interface DisambiguationResponse {
+ export async function runDisambiguation(
+   candidates: { text: string; embedding: number[] }[],
+ ): Promise<DisambiguationResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
++  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ candidates }),
+@@ -436,7 +471,7 @@ export class IntakeBadRequestError extends Error {
+ export async function runIntake(
+   question: string,
+ ): Promise<IntakeSuccessResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/intake`, {
++  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ question }),
+@@ -460,7 +495,7 @@ export interface IntakeHealthResponse {
+ }
+ 
+ export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
++  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+   return asJsonOrThrow<IntakeHealthResponse>(response);
+ }
+ 
+@@ -534,7 +569,7 @@ export class RetrievalBadRequestError extends Error {
+ export async function runRetrieval(
+   decision: IntakeScopeDecision,
+ ): Promise<RetrievalSuccessResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
++  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ decision }),
+@@ -559,7 +594,7 @@ export interface RetrievalHealthResponse {
+ }
+ 
+ export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
++  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+   return asJsonOrThrow<RetrievalHealthResponse>(response);
+ }
+ 
+@@ -762,7 +797,7 @@ export async function runGeneration(
+   pool: EvidencePool,
+   scope_class?: string | null,
+ ): Promise<GenerationSuccessResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/generation`, {
++  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+@@ -787,7 +822,7 @@ export interface GenerationHealthResponse {
+ }
+ 
+ export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
++  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+   return asJsonOrThrow<GenerationHealthResponse>(response);
+ }
+ 
+@@ -845,7 +880,7 @@ export async function downloadAuditBundle(
+   pool: EvidencePool,
+   report: VerifiedReport,
+ ): Promise<Blob> {
+-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
++  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ decision, pool, report }),
+@@ -880,7 +915,7 @@ export async function previewAuditBundle(
+   pool: EvidencePool,
+   report: VerifiedReport,
+ ): Promise<BundlePreviewResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
++  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({ decision, pool, report }),
+@@ -904,7 +939,7 @@ export interface AuditBundleHealthResponse {
+ }
+ 
+ export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
++  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+   return asJsonOrThrow<AuditBundleHealthResponse>(response);
+ }
+ 
+@@ -983,14 +1018,14 @@ export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+ ];
+ 
+ export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+-  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
++  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+   return asJsonOrThrow<BenchmarkHealthResponse>(response);
+ }
+ 
+ export async function getBenchmarkScoreboard(
+   benchmark_id: string,
+ ): Promise<BenchmarkScoreboard> {
+-  const response = await fetch(
++  const response = await authFetch(
+     `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+   );
+   return asJsonOrThrow<BenchmarkScoreboard>(response);
+@@ -999,7 +1034,7 @@ export async function getBenchmarkScoreboard(
+ export async function getBenchmarkSummary(
+   benchmark_id: string,
+ ): Promise<string> {
+-  const response = await fetch(
++  const response = await authFetch(
+     `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+   );
+   if (!response.ok) {
+@@ -1031,7 +1066,7 @@ const _ws = (ws: string) =>
+   `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+ 
+ export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+-  return asJsonOrThrow<MemoryEntry[]>(await fetch(_ws(ws)));
++  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+ }
+ 
+ export async function rememberMemory(
+@@ -1043,7 +1078,7 @@ export async function rememberMemory(
+   },
+ ): Promise<MemoryEntry> {
+   return asJsonOrThrow<MemoryEntry>(
+-    await fetch(_ws(ws), {
++    await authFetch(_ws(ws), {
+       method: "POST",
+       headers: { "content-type": "application/json" },
+       body: JSON.stringify(payload),
+@@ -1055,7 +1090,7 @@ export async function forgetMemory(
+   ws: string,
+   entry_id: string,
+ ): Promise<void> {
+-  const r = await fetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
++  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+     method: "DELETE",
+   });
+   if (!r.ok && r.status !== 404)
+@@ -1121,7 +1156,7 @@ export interface GraphPayload {
+ }
+ 
+ export async function getRunGraph(runId: string): Promise<GraphPayload> {
+-  const res = await fetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
++  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+   if (!res.ok) {
+     const body = await res.text();
+     const err = new Error(
+diff --git a/web/lib/auth.ts b/web/lib/auth.ts
+new file mode 100644
+index 00000000..8be2cb8c
+--- /dev/null
++++ b/web/lib/auth.ts
+@@ -0,0 +1,108 @@
++/**
++ * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
++ *
++ * Carney demo scope. The JWT is held in sessionStorage: survives a page
++ * refresh, cleared when the tab closes, not shared with a fresh tab —
++ * the safer browser-storage choice per the Codex I-rdy-004 brief review.
++ * 12h JWT expiry (matches the backend); cleared on any 401.
++ */
++
++const TOKEN_KEY = "polaris_jwt";
++const EXPIRY_KEY = "polaris_jwt_expiry_ms";
++const DEFAULT_EXPIRY_SECONDS = 12 * 60 * 60;
++
++export interface LoginResult {
++  ok: boolean;
++  status: number;
++  error?: string;
++}
++
++function store(): Storage | null {
++  if (typeof window === "undefined") return null;
++  return window.sessionStorage;
++}
++
++/** Current JWT, or null if absent or past its 12h expiry. */
++export function getToken(): string | null {
++  const s = store();
++  if (!s) return null;
++  const token = s.getItem(TOKEN_KEY);
++  const expiry = s.getItem(EXPIRY_KEY);
++  if (!token || !expiry) return null;
++  if (Date.now() >= Number(expiry)) {
++    clearToken();
++    return null;
++  }
++  return token;
++}
++
++export function setToken(token: string, expiresInSeconds: number): void {
++  const s = store();
++  if (!s) return;
++  const ttl = expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_EXPIRY_SECONDS;
++  s.setItem(TOKEN_KEY, token);
++  s.setItem(EXPIRY_KEY, String(Date.now() + ttl * 1000));
++}
++
++export function clearToken(): void {
++  const s = store();
++  if (!s) return;
++  s.removeItem(TOKEN_KEY);
++  s.removeItem(EXPIRY_KEY);
++}
++
++export function isAuthenticated(): boolean {
++  return getToken() !== null;
++}
++
++/**
++ * POST credentials to the backend. On 200, store the JWT and report ok.
++ * A 401 here is invalid-credentials feedback for the sign-in form — it is
++ * NOT routed through the generic 401-redirect (that would loop the page).
++ */
++export async function login(
++  username: string,
++  password: string,
++): Promise<LoginResult> {
++  let response: Response;
++  try {
++    response = await fetch("/api/v6/auth/login", {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ username, password }),
++    });
++  } catch {
++    return { ok: false, status: 0, error: "Could not reach POLARIS. Check the connection." };
++  }
++  if (response.status === 200) {
++    const body = (await response.json()) as {
++      access_token: string;
++      expires_in?: number;
++    };
++    setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
++    return { ok: true, status: 200 };
++  }
++  if (response.status === 401) {
++    return { ok: false, status: 401, error: "Invalid username or password." };
++  }
++  return {
++    ok: false,
++    status: response.status,
++    error: `Sign-in failed (HTTP ${response.status}).`,
++  };
++}
++
++/** Authorization header for the current token, or {} if unauthenticated. */
++export function authHeader(): Record<string, string> {
++  const token = getToken();
++  return token ? { Authorization: `Bearer ${token}` } : {};
++}
++
++/** Clear the token and route to /sign-in. Called on a generic 401. */
++export function redirectToSignIn(): void {
++  if (typeof window === "undefined") return;
++  clearToken();
++  if (window.location.pathname !== "/sign-in") {
++    window.location.href = "/sign-in";
++  }
++}
+
+# canonical-diff-sha256: d6b6033cd004759b547f96a671def7c792a3a8ca79f3c2dddb332da5c5482a3e
