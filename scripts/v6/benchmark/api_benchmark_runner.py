@@ -560,8 +560,8 @@ MATCH_OR_BEAT_DIMENSIONS = {
 
 
 CARNEY_TEMPLATES = frozenset({
-    "clinical", "trade", "housing", "defense",
-    "climate", "ai_sovereignty", "canada_us", "workforce",
+    "clinical", "policy", "tech", "due_diligence",
+    "ai_sovereignty", "canada_us", "workforce", "custom",
 })
 
 
