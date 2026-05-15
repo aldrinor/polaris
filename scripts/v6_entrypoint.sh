@@ -46,7 +46,12 @@ case "${1:-api}" in
     api)
         wait_for_redis
         echo "[entrypoint] starting uvicorn polaris_v6.api.app:app on 0.0.0.0:8000"
-        exec python -m uvicorn polaris_v6.api.app:app --host 0.0.0.0 --port 8000 --workers 1
+        # --no-access-log: SSE auth (I-rdy-004) carries the JWT as the
+        # ?access_token= query param on /stream/* (native EventSource cannot
+        # set headers). uvicorn's access log would write that full URL —
+        # including a live 12h token — to container stdout. Access logging is
+        # off so tokens never reach logs; the app's structured logging stays.
+        exec python -m uvicorn polaris_v6.api.app:app --host 0.0.0.0 --port 8000 --workers 1 --no-access-log
         ;;
     worker)
         wait_for_redis

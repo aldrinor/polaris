@@ -145,7 +145,9 @@ async def require_auth(
     token: str | None = None
     if creds is not None and creds.scheme.lower() == "bearer":
         token = creds.credentials
-    elif request.url.path.startswith("/stream"):
+    elif request.url.path.startswith("/stream/"):
+        # Trailing slash: only the SSE route /stream/{run_id} — never a
+        # lookalike like /streaming/*.
         token = request.query_params.get("access_token")
     if not token:
         raise HTTPException(
