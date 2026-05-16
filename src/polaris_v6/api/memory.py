@@ -1,7 +1,10 @@
 """F14 workspace memory HTTP endpoints (Phase 2B Task 2B.6).
 
-Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
-the storage backend to Chroma; the HTTP contract here stays stable.
+I-rdy-012 (#508): the storage backend is now the durable SQLite-backed
+`SqliteWorkspaceMemoryStore` — memory survives a process restart, stays
+workspace-scoped, and surfaces `derived_from_run_ids` (cited recall). The
+HTTP contract is unchanged from the in-memory demo store. The semantic
+(Chroma) recall upgrade is tracked separately.
 """
 
 from __future__ import annotations
@@ -15,11 +18,11 @@ from polaris_v6.memory.schema import (
     MemoryQuery,
     MemoryRecallResult,
 )
-from polaris_v6.memory.store import WorkspaceMemoryStore
+from polaris_v6.memory.sqlite_store import SqliteWorkspaceMemoryStore
 
 router = APIRouter(prefix="/workspaces", tags=["memory"])
 
-_store = WorkspaceMemoryStore()
+_store = SqliteWorkspaceMemoryStore()
 
 
 class RememberRequest(BaseModel):

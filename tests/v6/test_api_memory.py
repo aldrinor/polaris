@@ -6,12 +6,23 @@ import pytest
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
     from polaris_v6.api.app import create_app
+    from polaris_v6.api import memory as memory_mod
+    from polaris_v6.memory.sqlite_store import SqliteWorkspaceMemoryStore
 
-    return TestClient(create_app())
+    app = create_app()
+    # I-rdy-012 (#508): isolate each API test on a fresh SQLite DB so the
+    # durable workspace-memory store does not accumulate fixed-workspace
+    # rows across repeated runs (Codex brief-iter-1 P2).
+    monkeypatch.setattr(
+        memory_mod,
+        "_store",
+        SqliteWorkspaceMemoryStore(path=str(tmp_path / "api_memory.sqlite")),
+    )
+    return TestClient(app)
 
 
 def test_remember_then_recall(client):
