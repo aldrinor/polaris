@@ -1,0 +1,853 @@
+diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
+index 2f36bef7..59cd2426 100644
+--- a/web/app/benchmark/page.tsx
++++ b/web/app/benchmark/page.tsx
+@@ -1,7 +1,3 @@
+-import Link from "next/link";
+-
+-import { Button } from "@/components/ui/button";
+-
+ import { BenchmarkBoard } from "./components/benchmark_board";
+ 
+ export const metadata = {
+@@ -13,35 +9,6 @@ export const metadata = {
+ export default function BenchmarkPage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada — Slice 005
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              BEAT-BOTH benchmark
+-            </span>
+-          </div>
+-          <div className="flex gap-2">
+-            <Button
+-              variant="outline"
+-              nativeButton={false}
+-              render={<Link href="/generation" />}
+-            >
+-              Generation
+-            </Button>
+-            <Button
+-              variant="outline"
+-              nativeButton={false}
+-              render={<Link href="/" />}
+-            >
+-              Home
+-            </Button>
+-          </div>
+-        </div>
+-      </header>
+-
+       <main
+         data-testid="benchmark-page"
+         className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10"
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+index 99a08ed6..2ce7c777 100644
+--- a/web/app/components/command_palette.tsx
++++ b/web/app/components/command_palette.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+ import { useRouter } from "next/navigation";
+-import { useEffect, useState, type RefObject } from "react";
++import { useEffect, useState } from "react";
+ 
+ import { cn } from "@/lib/utils";
+ 
+@@ -19,7 +19,6 @@ type CommandPaletteProps = {
+   open: boolean;
+   onOpenChange: (next: boolean) => void;
+   templates: Template[];
+-  signInLinkRef: RefObject<HTMLAnchorElement | null>;
+ };
+ 
+ const SYNONYMS: Record<string, string> = {
+@@ -47,7 +46,6 @@ export function CommandPalette({
+   open,
+   onOpenChange,
+   templates,
+-  signInLinkRef,
+ }: CommandPaletteProps) {
+   const router = useRouter();
+   const [search, set_search] = useState("");
+@@ -87,7 +85,7 @@ export function CommandPalette({
+       event.preventDefault();
+       const tpl = scored[clamped];
+       if (tpl?.active) {
+-        router.push(`/intake?template=${tpl.id}`);
++        router.push(`/dashboard?template=${tpl.id}`);
+         onOpenChange(false);
+       }
+     }
+@@ -98,7 +96,14 @@ export function CommandPalette({
+       open={open}
+       onOpenChange={(next) => {
+         onOpenChange(next);
+-        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
++        // I-rdy-014 (#510): the landing header was folded into GlobalNav;
++        // restore focus to its Sign in link (now in GlobalNav) on close.
++        if (!next)
++          requestAnimationFrame(() => {
++            document
++              .querySelector<HTMLElement>('[data-testid="header-sign-in-link"]')
++              ?.focus();
++          });
+       }}
+     >
+       <DialogPrimitive.Portal>
+diff --git a/web/app/components/global_nav.tsx b/web/app/components/global_nav.tsx
+new file mode 100644
+index 00000000..f0e4bb5a
+--- /dev/null
++++ b/web/app/components/global_nav.tsx
+@@ -0,0 +1,91 @@
++"use client";
++
++import Link from "next/link";
++import { usePathname } from "next/navigation";
++
++/**
++ * I-rdy-014 (#510) — single global navigation header for the POLARIS demo.
++ *
++ * Mounted once in `app/layout.tsx` so every page inherits one coherent
++ * header. Carries only the non-dynamic top-level journey entries; per-run
++ * pages (`/runs/[id]`, `/inspector/[id]`) are reached contextually.
++ *
++ * The 17 test-harness routes are hidden by suppressing the nav on their
++ * URL-path prefixes (route groups are URL-neutral, so this matches the URL,
++ * not the filesystem). The pre-auth `/sign-in` screen is also suppressed.
++ */
++
++const NAV_LINKS: { href: string; label: string }[] = [
++  { href: "/", label: "Home" },
++  { href: "/dashboard", label: "Start a run" },
++  { href: "/memory", label: "Workspace memory" },
++  { href: "/pin_replay", label: "Pin & replay" },
++];
++
++const SUPPRESS_PREFIXES: string[] = [
++  "/sign-in",
++  "/charts_test",
++  "/sentence_hover_test",
++  "/disambiguation_modal_preview",
++];
++
++function isSuppressed(path: string): boolean {
++  return SUPPRESS_PREFIXES.some(
++    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
++  );
++}
++
++function isActive(path: string, href: string): boolean {
++  if (href === "/") return path === "/";
++  return path === href || path.startsWith(`${href}/`);
++}
++
++export function GlobalNav() {
++  const path = usePathname() ?? "/";
++  if (isSuppressed(path)) return null;
++
++  return (
++    <header className="border-border bg-background border-b">
++      <nav
++        aria-label="Primary"
++        className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-6 py-3"
++      >
++        <Link href="/" className="flex flex-col" data-testid="global-nav-brand">
++          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++            POLARIS Canada
++          </span>
++          <span className="text-foreground text-sm font-semibold">
++            Sovereign Deep Research
++          </span>
++        </Link>
++        <div className="flex items-center gap-1">
++          {NAV_LINKS.map((link) => {
++            const active = isActive(path, link.href);
++            return (
++              <Link
++                key={link.href}
++                href={link.href}
++                data-testid={`global-nav-${link.href === "/" ? "home" : link.href.slice(1)}`}
++                aria-current={active ? "page" : undefined}
++                className={
++                  active
++                    ? "text-foreground rounded-md px-3 py-2 text-sm font-semibold"
++                    : "text-muted-foreground hover:text-foreground rounded-md px-3 py-2 text-sm"
++                }
++              >
++                {link.label}
++              </Link>
++            );
++          })}
++          <Link
++            href="/sign-in"
++            data-testid="header-sign-in-link"
++            className="border-border text-foreground ml-2 rounded-md border px-3 py-2 text-sm font-medium"
++          >
++            Sign in
++          </Link>
++        </div>
++      </nav>
++    </header>
++  );
++}
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index 3b473d25..f2c3b368 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -1,9 +1,6 @@
+ "use client";
+ 
+-import Link from "next/link";
+-import { useEffect, useRef, useState, type ReactNode } from "react";
+-
+-import { Button } from "@/components/ui/button";
++import { useEffect, useState, type ReactNode } from "react";
+ 
+ import { CommandPalette } from "./command_palette";
+ 
+@@ -16,11 +13,16 @@ type Template = {
+   active: boolean;
+ };
+ 
+-type Props = { templates: Template[]; signInHref: string; children: ReactNode };
++type Props = { templates: Template[]; children: ReactNode };
+ 
+-export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
++/**
++ * Landing-page keyboard shell — Cmd/Ctrl-K opens the template command
++ * palette. I-rdy-014 (#510): the brand/sign-in header was removed from
++ * here; `GlobalNav` (mounted in app/layout.tsx) is now the single header,
++ * so this shell only provides the keyboard affordance + palette mount.
++ */
++export function HomeKeyboardShell({ templates, children }: Props) {
+   const [palette_open, set_palette_open] = useState(false);
+-  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+ 
+   useEffect(() => {
+     function on_keydown(event: KeyboardEvent) {
+@@ -36,37 +38,11 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+ 
+   return (
+     <>
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </div>
+-          <Button
+-            variant="default"
+-            nativeButton={false}
+-            render={
+-              <Link
+-                ref={sign_in_link_ref}
+-                data-testid="header-sign-in-link"
+-                href={signInHref}
+-              />
+-            }
+-          >
+-            Sign in
+-          </Button>
+-        </div>
+-      </header>
+       {children}
+       <CommandPalette
+         open={palette_open}
+         onOpenChange={set_palette_open}
+         templates={templates}
+-        signInLinkRef={sign_in_link_ref}
+       />
+     </>
+   );
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 565e7018..acc84d0b 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -1,8 +1,8 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import { useRouter } from "next/navigation";
+-import { useEffect, useState } from "react";
++import { useRouter, useSearchParams } from "next/navigation";
++import { Suspense, useEffect, useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+ import {
+@@ -66,9 +66,18 @@ function templatesToCards(
+   }));
+ }
+ 
+-export default function DashboardPage() {
++function DashboardContent() {
+   const router = useRouter();
+-  const [template, setTemplate] = useState<TemplateId>("clinical");
++  const searchParams = useSearchParams();
++  // I-rdy-014 (#510): preselect the template from the ?template= param the
++  // landing page / command palette pass — derived as the initial state, no
++  // effect (avoids a setState-in-effect cascading render).
++  const [template, setTemplate] = useState<TemplateId>(() => {
++    const param = searchParams.get("template");
++    return param && FALLBACK_TEMPLATES.some((t) => t.id === param)
++      ? (param as TemplateId)
++      : "clinical";
++  });
+   const [question, setQuestion] = useState("");
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+@@ -188,19 +197,6 @@ export default function DashboardPage() {
+ 
+   return (
+     <div className="flex min-h-screen flex-col">
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <Link href="/" className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </Link>
+-        </div>
+-      </header>
+-
+       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+         <section className="flex flex-col gap-2">
+           <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+@@ -477,3 +473,13 @@ export default function DashboardPage() {
+     </div>
+   );
+ }
++
++export default function DashboardPage() {
++  // I-rdy-014 (#510): Suspense boundary required around the `useSearchParams`
++  // consumer (Next.js App Router).
++  return (
++    <Suspense fallback={null}>
++      <DashboardContent />
++    </Suspense>
++  );
++}
+diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
+index 3b1befbf..194fd9eb 100644
+--- a/web/app/inspector/[runId]/page.tsx
++++ b/web/app/inspector/[runId]/page.tsx
+@@ -15,6 +15,7 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+ import { VegaChart } from "@/components/ui/vega-chart";
+ import {
+   downloadBundleAsJson,
++  downloadBundleTarball,
+   getBundle,
+   getChart,
+   type ChartType,
+@@ -31,6 +32,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+   const { runId } = use(params);
+   const [bundle, setBundle] = useState<EvidenceContract | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  const [notReady, setNotReady] = useState(false);
+   const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
+     null,
+   );
+@@ -45,8 +47,16 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+         if (!cancelled) setBundle(b);
+       })
+       .catch((err) => {
+-        if (!cancelled)
++        if (cancelled) return;
++        // I-rdy-014 (#510): a freshly-created run has no published bundle
++        // yet (404). That is a pending state, not an error — render an
++        // honest "report not ready" panel, never a crash or a dead end.
++        const status = (err as { status?: number })?.status;
++        if (status === 404) {
++          setNotReady(true);
++        } else {
+           setError(err instanceof Error ? err.message : "Bundle load failed");
++        }
+       });
+     return () => {
+       cancelled = true;
+@@ -95,21 +105,39 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+     <div className="flex min-h-screen flex-col">
+       <header className="border-border bg-background border-b">
+         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+-          <Link href="/" className="flex flex-col">
++          <div className="flex flex-col">
+             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+               POLARIS Inspector
+             </span>
+             <span className="text-foreground text-base font-semibold">
+               Run {runId}
+             </span>
+-          </Link>
++          </div>
+           {bundle && (
+-            <Button
+-              variant="outline"
+-              onClick={() => downloadBundleAsJson(bundle)}
+-            >
+-              Export bundle JSON
+-            </Button>
++            <div className="flex items-center gap-2">
++              <Button
++                variant="outline"
++                onClick={async () => {
++                  try {
++                    await downloadBundleTarball(runId);
++                  } catch (err) {
++                    setError(
++                      err instanceof Error
++                        ? err.message
++                        : "Signed bundle not available yet",
++                    );
++                  }
++                }}
++              >
++                Download signed bundle
++              </Button>
++              <Button
++                variant="outline"
++                onClick={() => downloadBundleAsJson(bundle)}
++              >
++                Export bundle JSON
++              </Button>
++            </div>
+           )}
+         </div>
+       </header>
+@@ -129,6 +157,29 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+           </section>
+         )}
+ 
++        {notReady && (
++          <section role="status" aria-labelledby="inspector-pending-heading">
++            <h1
++              id="inspector-pending-heading"
++              className="text-foreground text-2xl font-semibold tracking-tight"
++            >
++              Report not yet available
++            </h1>
++            <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
++              Run <span className="font-mono">{runId}</span> has no published
++              evidence bundle yet — the verifier pipeline is still running, or
++              this run predates bundle capture. The integrated report and
++              signed bundle appear here once the run completes.
++            </p>
++            <Link
++              href={`/runs/${runId}`}
++              className="text-foreground mt-3 inline-block text-sm font-semibold underline underline-offset-4"
++            >
++              ← Back to the live run
++            </Link>
++          </section>
++        )}
++
+         {bundle && (
+           <>
+             <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index 0c98ca6e..4b883acb 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
+ 
+ import { Toaster } from "@/components/ui/sonner";
+ 
++import { GlobalNav } from "./components/global_nav";
+ import "./globals.css";
+ 
+ const geist_sans = Geist({
+@@ -32,6 +33,7 @@ export default function RootLayout({
+       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+     >
+       <body className="flex min-h-full flex-col">
++        <GlobalNav />
+         {children}
+         <Toaster />
+       </body>
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 329839dc..1ebaeb9e 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -107,7 +107,7 @@ const templates: Template[] = [
+ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+-      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
++      <HomeKeyboardShell templates={templates}>
+         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+           <section className="flex flex-col gap-3">
+             <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+@@ -186,7 +186,7 @@ export default function HomePage() {
+                         render={
+                           <Link
+                             data-testid={`template-card-${tpl.id}-link`}
+-                            href={`/intake?template=${tpl.id}`}
++                            href={`/dashboard?template=${tpl.id}`}
+                           />
+                         }
+                       >
+diff --git a/web/app/runs/[runId]/page.tsx b/web/app/runs/[runId]/page.tsx
+index 320bfd2b..28a490c0 100644
+--- a/web/app/runs/[runId]/page.tsx
++++ b/web/app/runs/[runId]/page.tsx
+@@ -13,6 +13,7 @@ import {
+ } from "@/components/ui/card";
+ import {
+   downloadBundleAsJson,
++  downloadBundleTarball,
+   getBundle,
+   getRun,
+   subscribeToRun,
+@@ -62,16 +63,24 @@ export default function RunDetailPage({ params }: RunPageProps) {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <Link href="/" className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </Link>
++        <div className="mx-auto flex w-full max-w-6xl items-center justify-end px-6 py-4">
+           <div className="flex items-center gap-2">
++            <Button
++              variant="outline"
++              onClick={async () => {
++                try {
++                  await downloadBundleTarball(runId);
++                } catch (err) {
++                  setError(
++                    err instanceof Error
++                      ? err.message
++                      : "Signed bundle not available yet",
++                  );
++                }
++              }}
++            >
++              Download signed bundle
++            </Button>
+             <Button
+               variant="outline"
+               onClick={async () => {
+@@ -87,7 +96,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
+                 }
+               }}
+             >
+-              Export bundle
++              Export bundle (JSON)
+             </Button>
+             <Button
+               variant="default"
+@@ -143,7 +152,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
+               nativeButton={false}
+               render={<Link href={`/inspector/${runId}`} />}
+             >
+-              Open Inspector
++              View report &amp; inspect
+             </Button>
+             <Button
+               type="button"
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index ca1f76fb..ebf7e890 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -326,6 +326,34 @@ export async function getChart(
+   return asJsonOrThrow<VegaLiteSpec>(response);
+ }
+ 
++/**
++ * I-rdy-014 — download the GPG-signed `.tar.gz` audit bundle for a run.
++ * The `/runs/{id}/bundle.tar.gz` endpoint requires `Authorization: Bearer`,
++ * so a plain `<a href>` cannot reach it; fetch the blob through `authFetch`
++ * and trigger a client-side object-URL download. Throws on a non-OK
++ * response (e.g. 404 for a run with no bundle yet) so callers can surface
++ * an honest pending/unavailable state.
++ */
++export async function downloadBundleTarball(runId: string): Promise<void> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs/${runId}/bundle.tar.gz`,
++  );
++  if (!response.ok) {
++    throw new Error(
++      `Signed bundle not available for run ${runId} (HTTP ${response.status})`,
++    );
++  }
++  const blob = await response.blob();
++  const url = URL.createObjectURL(blob);
++  const link = document.createElement("a");
++  link.href = url;
++  link.download = `polaris_bundle_${runId}.tar.gz`;
++  document.body.appendChild(link);
++  link.click();
++  document.body.removeChild(link);
++  URL.revokeObjectURL(url);
++}
++
+ export function downloadBundleAsJson(bundle: EvidenceContract): void {
+   const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+     type: "application/json",
+diff --git a/web/tests/e2e/command_palette.spec.ts b/web/tests/e2e/command_palette.spec.ts
+index 795f36a5..206d0ea4 100644
+--- a/web/tests/e2e/command_palette.spec.ts
++++ b/web/tests/e2e/command_palette.spec.ts
+@@ -25,7 +25,7 @@ test.describe("Command palette — I-f1-002", () => {
+ 
+     await page.getByTestId("command-palette-input").fill("clinical");
+     await page.keyboard.press("Enter");
+-    await page.waitForURL("**/intake?template=clinical");
++    await page.waitForURL("**/dashboard?template=clinical");
+   });
+ 
+   test("Enter on disabled template is a no-op (URL unchanged)", async ({
+diff --git a/web/tests/e2e/command_palette_suggest.spec.ts b/web/tests/e2e/command_palette_suggest.spec.ts
+index b07bee2e..fa6b2f54 100644
+--- a/web/tests/e2e/command_palette_suggest.spec.ts
++++ b/web/tests/e2e/command_palette_suggest.spec.ts
+@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
+  * Validates the debounced + scored search inside the command palette:
+  *  - "tirzepatide" (synonym) → exactly one visible item: clinical.
+  *  - "BPEI" (no match) → empty list (zero false-positives).
+- *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
++ *  - "tirzepatide" + Enter → /dashboard?template=clinical via scoring path.
+  *
+  * Each test waits for header-sign-in-link visible after networkidle to
+  * prove client shell hydration; then opens palette via Ctrl+K.
+@@ -51,7 +51,7 @@ test.describe("Command palette suggest — I-f1-003", () => {
+     await expect(items).toHaveCount(0);
+   });
+ 
+-  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
++  test("'tirzepatide' + Enter navigates to /dashboard?template=clinical", async ({
+     page,
+   }) => {
+     await page.goto("/", { waitUntil: "networkidle" });
+@@ -65,6 +65,6 @@ test.describe("Command palette suggest — I-f1-003", () => {
+     // Wait for post-debounce post-scoring state (count=1 → only clinical).
+     await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
+     await page.keyboard.press("Enter");
+-    await page.waitForURL("**/intake?template=clinical");
++    await page.waitForURL("**/dashboard?template=clinical");
+   });
+ });
+diff --git a/web/tests/e2e/demo_journey.spec.ts b/web/tests/e2e/demo_journey.spec.ts
+new file mode 100644
+index 00000000..a33ad637
+--- /dev/null
++++ b/web/tests/e2e/demo_journey.spec.ts
+@@ -0,0 +1,97 @@
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-rdy-014 (#510) — coherent demo journey + global navigation.
++ *
++ * Supersedes the slice-era `demo_walkthrough.spec.ts` (home → intake →
++ * retrieval → generation → benchmark). Asserts the navigation skeleton:
++ *  - GlobalNav renders on product pages and is suppressed on harness routes.
++ *  - The land → template → ask entry point lands on /dashboard (not the
++ *    slice-era /intake) from BOTH the card-click and command-palette paths.
++ *  - Every GlobalNav top-level entry is reachable with no dead end.
++ *  - No journey page links to a test-harness or slice-era dev route.
++ *
++ * Navigation-only: no backend run is created. The report / inspect / signed
++ * bundle CONTENT for a freshly-created real run is tracked in I-rdy-014c;
++ * follow-up and run-compare UI in I-rdy-014a / I-rdy-014b.
++ */
++
++const NAV = 'nav[aria-label="Primary"]';
++
++test.describe("I-rdy-014 — demo journey navigation", () => {
++  test("landing renders GlobalNav + template grid", async ({ page }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.locator(NAV)).toBeVisible();
++    await expect(page.getByTestId("template-grid")).toBeVisible();
++  });
++
++  test("land → template → ask lands on /dashboard (card click)", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await page.getByTestId("template-card-clinical-link").click();
++    await page.waitForURL("**/dashboard?template=clinical");
++    await expect(
++      page.getByRole("heading", { name: "Start a research run" }),
++    ).toBeVisible();
++  });
++
++  test("land → template → ask lands on /dashboard (command palette)", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++    await page.getByTestId("command-palette-input").fill("clinical");
++    await page.keyboard.press("Enter");
++    await page.waitForURL("**/dashboard?template=clinical");
++  });
++
++  test("every GlobalNav top-level entry is reachable", async ({ page }) => {
++    const entries = [
++      { testid: "global-nav-dashboard", path: "/dashboard" },
++      { testid: "global-nav-memory", path: "/memory" },
++      { testid: "global-nav-pin_replay", path: "/pin_replay" },
++      { testid: "global-nav-home", path: "/" },
++    ];
++    for (const entry of entries) {
++      await page.goto("/", { waitUntil: "networkidle" });
++      await page.getByTestId(entry.testid).click();
++      await page.waitForURL(`**${entry.path}`);
++      // The destination loaded with the layout intact — not a dead end.
++      await expect(page.locator(NAV)).toBeVisible();
++    }
++  });
++
++  test("GlobalNav is suppressed on test-harness routes", async ({ page }) => {
++    for (const harness of ["/sentence_hover_test", "/charts_test"]) {
++      await page.goto(harness, { waitUntil: "networkidle" });
++      await expect(page.locator(NAV)).toHaveCount(0);
++    }
++  });
++
++  test("no journey page links to a harness or slice-era dev route", async ({
++    page,
++  }) => {
++    const forbidden = [
++      "/charts_test",
++      "/sentence_hover_test",
++      "/disambiguation_modal_preview",
++      "/intake",
++      "/retrieval",
++      "/generation",
++      "/sse",
++      "/audit_live",
++    ];
++    for (const journeyPath of ["/", "/dashboard", "/memory", "/benchmark"]) {
++      await page.goto(journeyPath, { waitUntil: "networkidle" });
++      for (const bad of forbidden) {
++        await expect(
++          page.locator(`a[href^="${bad}"]`),
++          `${journeyPath} must not link to ${bad}`,
++        ).toHaveCount(0);
++      }
++    }
++  });
++});
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+deleted file mode 100644
+index e1d91409..00000000
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ /dev/null
+@@ -1,69 +0,0 @@
+-import { expect, test } from "@playwright/test";
+-
+-/**
+- * Slice 005 — full demo walkthrough (updated for I-f1-001 template grid).
+- *
+- * Drives the four-step flow in the same order a non-developer follows
+- * during the Sep 6 tracer demo:
+- *   home (clinical template card) → intake → retrieval → generation → benchmark
+- *
+- * I-f1-001 replaced the demo-slice cards on `/` with the F1 template grid
+- * (3 active + 5 to-build). The home entry-point now clicks the clinical
+- * template card → /intake?template=clinical, instead of the legacy
+- * demo-slice-intake card.
+- *
+- * This is a STRUCTURAL test — it asserts that each page loads and exposes
+- * its core testid hooks. It does NOT validate content (which would require
+- * real OPENROUTER_API_KEY / SERPER_API_KEY at runtime). For content
+- * verification, use the runbook in docs/demo_runbook.md.
+- */
+-
+-test.describe("Slice 005 — full demo walkthrough", () => {
+-  test("home → intake → retrieval → generation → benchmark", async ({
+-    page,
+-  }) => {
+-    // Step 0 — home (template grid)
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("template-grid")).toBeVisible();
+-
+-    // Step 1 — intake (click the clinical template card)
+-    await page.getByTestId("template-card-clinical-link").click();
+-    await page.waitForURL("**/intake?template=clinical");
+-    await expect(page.getByTestId("intake-page")).toBeVisible();
+-    await expect(page.getByTestId("intake-question-input")).toBeVisible();
+-
+-    // Step 2 — retrieval (navigate directly; no nav bar mid-flow yet)
+-    await page.goto("/retrieval", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("retrieval-page")).toBeVisible();
+-
+-    // Step 3 — generation
+-    await page.goto("/generation", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("generation-page")).toBeVisible();
+-
+-    // Step 4 — benchmark
+-    await page.goto("/benchmark", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("benchmark-page")).toBeVisible();
+-  });
+-
+-  test("home template grid surfaces 1 active + 7 to-build cards", async ({
+-    page,
+-  }) => {
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    const active = ["clinical"];
+-    const to_build = [
+-      "policy",
+-      "tech",
+-      "due_diligence",
+-      "ai_sovereignty",
+-      "canada_us",
+-      "workforce",
+-      "custom",
+-    ];
+-    for (const id of active) {
+-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+-    }
+-    for (const id of to_build) {
+-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+-    }
+-  });
+-});
+diff --git a/web/tests/e2e/landing_template_grid.spec.ts b/web/tests/e2e/landing_template_grid.spec.ts
+index 932102c1..b98d60ca 100644
+--- a/web/tests/e2e/landing_template_grid.spec.ts
++++ b/web/tests/e2e/landing_template_grid.spec.ts
+@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
+  *
+  * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
+  *  - 8 cards render at 4 viewports (1920/1024/768/375)
+- *  - Active cards link to /intake?template=<id>
++ *  - Active cards link to /dashboard?template=<id>
+  *  - To-build cards are aria-disabled, no href, keyboard-skipped
+  *  - axe-core WCAG-AA clean at 1024px
+  */
+@@ -57,11 +57,11 @@ test.describe("Landing template grid — I-f1-001", () => {
+     });
+   }
+ 
+-  test("active cards link to /intake?template=<id>", async ({ page }) => {
++  test("active cards link to /dashboard?template=<id>", async ({ page }) => {
+     await page.goto("/", { waitUntil: "networkidle" });
+     for (const id of ACTIVE_IDS) {
+       const link = page.getByTestId(`template-card-${id}-link`);
+-      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
++      await expect(link).toHaveAttribute("href", `/dashboard?template=${id}`);
+     }
+   });
+ 
+
+# canonical-diff-sha256: f6b59b4d0c631bb30e6f4f37cb31860dd30e48b1c4f4b0ce389145577f2b1873
