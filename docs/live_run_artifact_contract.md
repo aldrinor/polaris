@@ -39,9 +39,9 @@ run_store.get_run(run_id)            src/polaris_v6/queue/run_store.py
   ▼
 RunStatusResponse.artifact_dir       absolute path to the pipeline-A artifact dir
   │
-  ▼
-load_audit_ir(artifact_dir)          src/polaris_graph/audit_ir/loader.py
-  │   → AuditIR  (canonical IR)
+  ├─▶ load_audit_ir(artifact_dir)    src/polaris_graph/audit_ir/loader.py  → AuditIR
+  └─▶ evidence_pool.json             read directly by the adapter (see §3b)
+  │
   ▼
 adapter: artifact_dir → EvidenceContract     ← NEW component, built by I-rdy-008
 ```
@@ -53,8 +53,8 @@ or `None`. The fields that matter to this contract:
 | Field | Role in the contract |
 |---|---|
 | `run_id` | the v6 API-facing run identifier (the path parameter) |
-| `lifecycle_status` | `queued` \| `in_progress` \| `completed` \| `failed` — gates resolution |
-| `pipeline_status` | `success` \| `abort_*` \| `error_*` — pipeline-A verdict (CLAUDE.md §9.3) |
+| `lifecycle_status` | `queued` \| `in_progress` \| `completed` \| `failed` \| `cancelled` — gates resolution; only `completed` is serviceable |
+| `pipeline_status` | the pipeline-A verdict (CLAUDE.md §9.3): `success` \| `partial_*` \| `abort_*` \| `error_*`. The `partial_*` and `abort_*` families are open-ended sets — match by prefix, never by an enumerated list |
 | `artifact_dir` | absolute path to the canonical artifact directory; nullable |
 | `manifest_run_id` | pipeline-A's internal run id (distinct from the API `run_id`) |
 | `cost_usd`, `queued_at`, `finished_at`, `template`, `question`, `decision_id` | passthrough metadata |
@@ -72,32 +72,41 @@ new, built by I-rdy-008).
 
 ## 3. Canonical `artifact_dir` file set
 
-`load_audit_ir()` (`src/polaris_graph/audit_ir/loader.py`) reads:
+### 3a. Files `load_audit_ir()` reads
 
-| File | Required | Feeds |
+`load_audit_ir()` (`src/polaris_graph/audit_ir/loader.py`) reads exactly these:
+
+| File | Required by `load_audit_ir` | Feeds |
 |---|---|---|
-| `manifest.json` | yes | run metadata, `evaluator_gate`, `release_allowed`, `corpus`, `frame_coverage_report`, `retrieval` |
+| `manifest.json` | yes | run metadata, `evaluator_gate`, `release_allowed`, `corpus`, `frame_coverage_report`, `retrieval`, optional `models` block |
 | `report.md` | yes | rendered markdown report (`AuditIR.report_md`) |
 | `bibliography.json` | yes | `[N] → evidence_id → {tier, url, statement}` mapping |
 | `contradictions.json` | yes | tier-labeled disagreement clusters |
 | `verification_details.json` | yes | per-section kept/dropped sentences + `[#ev:…]` span tokens |
-| `evidence_pool.json` | **yes for this contract** | source bodies — **required** to extract `SourceSpan.span_text` (see §4). `build_slice_chain` treats it as optional for tarball assembly, but the `EvidenceContract` adapter cannot populate verbatim span text without it. |
-| `evaluator_rule_checks.json` | optional | `generator_model`, `evaluator_model`, rule-check trail |
-| `qwen_judge_output.json` | optional | judge model + token counts |
+| `evaluator_rule_checks.json` | optional | `generator_model`, `evaluator_model`, rule-check trail (`AuditIR.model_provenance`) |
+| `qwen_judge_output.json` | optional | judge model + token counts (`AuditIR.model_provenance`) |
 | `protocol.json` | optional | research-question protocol, expected tier bands |
 | `corpus_approval.json` | optional | corpus approval gate decision |
 
 `load_audit_ir()` fails loud (`FileNotFoundError` / `AuditIRSchemaError`) on a
 missing or malformed *required* file. `evaluator_rule_checks.json` +
-`qwen_judge_output.json` must be present together or both absent.
+`qwen_judge_output.json` must be present together or both absent (`load_audit_ir`
+raises if exactly one is present).
+
+### 3b. File the adapter reads directly (NOT via `load_audit_ir`)
+
+| File | Required by the adapter | Feeds |
+|---|---|---|
+| `evidence_pool.json` | yes — for this contract | source bodies — the adapter needs them to populate `SourceSpan.span_text` (§4). **`load_audit_ir()` does not read this file**; `build_slice_chain` reads it as *optional* (`_read_optional_json`) for tarball assembly. The `artifact_dir → EvidenceContract` adapter cannot populate verbatim span text without it, so for *this contract* it is required: a completed run whose `artifact_dir` lacks `evidence_pool.json` is not contract-conformant (§6 — 404 `artifact_dir incomplete`). |
 
 ---
 
 ## 4. The adapter — `artifact_dir → EvidenceContract`
 
 I-rdy-008 builds a function (proposed `live_run_to_evidence_contract(run_id) ->
-EvidenceContract`, or `artifact_dir`-keyed) reusing `load_audit_ir()` and the
-bibliography/token shaping `build_slice_chain()` already demonstrates.
+EvidenceContract`, or `artifact_dir`-keyed) reusing `load_audit_ir()` + a direct
+`evidence_pool.json` read, and the bibliography/token shaping `build_slice_chain()`
+already demonstrates.
 
 Target type: `EvidenceContract` v1.0 (`src/polaris_v6/schemas/evidence_contract.py`).
 Field-by-field source map:
@@ -112,33 +121,85 @@ Field-by-field source map:
 | `finished_at` | `RunStatusResponse.finished_at` |
 | `pipeline_status` | `RunStatusResponse.pipeline_status` |
 | `cost_usd` | `RunStatusResponse.cost_usd` ?? `AuditIR.manifest.cost_usd` |
-| `generator_model` | `AuditIR.model_provenance.generator_model` |
-| `verifier_model` | `AuditIR.model_provenance.evaluator_model` |
-| `family_segregation_passed` | derived: `model_provenance.generator_family != model_provenance.evaluator_family` |
+| `generator_model` | model-identity chain — see **decision 1** below |
+| `verifier_model` | model-identity chain — see **decision 1** below |
+| `family_segregation_passed` | model-identity chain — see **decision 1** below |
 | `verified_sentences[]` | `AuditIR.verified_report.sections[].sentences[]` (one `VerifiedSentence` each) |
 | → `section_id` | `_slugify(ReportSentence.section)` |
 | → `sentence_text` | `ReportSentence.text` |
 | → `provenance_tokens` | `[f"[#ev:{t.evidence_id}:{t.start}-{t.end}]" for t in ReportSentence.tokens]` |
-| → `verifier_local_pass`, `verifier_global_pass` | **adapter decision (see below)** — `AuditIR.ReportSentence` exposes a single `is_verified`; `EvidenceContract.VerifiedSentence` splits local/global |
+| → `verifier_local_pass`, `verifier_global_pass` | **decision 2** below |
 | → `drop_reason` | `ReportSentence.failure_reasons[0]` normalized; `None` when `is_verified` |
-| `evidence_pool[]` (`SourceSpan`) | one per distinct cited `EvidenceSpanToken` across all sentences |
-| → `evidence_id`, `span_start`, `span_end` | the `EvidenceSpanToken` |
-| → `source_url`, `source_tier` | `AuditIR.get_bibliography_by_evidence_id(evidence_id)` → `.url`, `.tier` |
-| → `span_text` | the source body in `evidence_pool.json` for `evidence_id`, sliced `[span_start:span_end]` |
-| `frame_coverage[]` (`FrameCoverage`) | **adapter decision** — `AuditIR.frame_coverage.entries` are per-*entity* (`FrameCoverageEntry`); `EvidenceContract.FrameCoverage` is per-*frame*. The adapter aggregates entries by frame/section into `{frame_id, frame_name, sources_assigned, coverage_percent}` |
-| `contradictions[]` (`ContradictionRecord`) | `AuditIR.contradictions` clusters → `{contradiction_id, section_id, claim_a, claim_b, evidence_a, evidence_b, resolution}` |
+| `evidence_pool[]` (`SourceSpan`) | **one `SourceSpan` per distinct `evidence_id`** — see cardinality rule below |
+| → `evidence_id` | the distinct cited `evidence_id` |
+| → `span_start`, `span_end` | `min(start)` / `max(end)` over **all** `EvidenceSpanToken`s citing that `evidence_id` across all sentences |
+| → `source_url`, `source_tier` | `AuditIR.get_bibliography_by_evidence_id(evidence_id)` → `.url`, `.tier` (tier normalized — see below) |
+| → `span_text` | the source body for `evidence_id` in `evidence_pool.json`, sliced `[span_start:span_end]` |
+| `frame_coverage[]` (`FrameCoverage`) | **decision 3** below |
+| `contradictions[]` (`ContradictionRecord`) | **decision 4** below |
 
-**Two adapter decisions I-rdy-008 must resolve and test (flagged here, not pre-decided):**
+### `evidence_pool[]` cardinality — pinned (not an open decision)
 
-1. **local/global verifier split.** `AuditIR` has one `is_verified` bool;
-   `EvidenceContract.VerifiedSentence` wants `verifier_local_pass` +
-   `verifier_global_pass`. Either set both to `is_verified`, or read
-   `verification_details.json` raw for the finer Local/Global split if the
-   pipeline-A artifact records it. I-rdy-008 picks one and documents it.
-2. **frame-coverage aggregation.** `FrameCoverageEntry` (per entity, with `status`)
-   must roll up to `FrameCoverage` (per frame, with `coverage_percent`). I-rdy-008
-   defines the rollup (group by `section`/`slot_id`; `coverage_percent` from the
-   pass/partial/gap counts).
+`EvidenceContract.SourceSpan` is shaped like a single span, but a real run cites the
+same `evidence_id` from many `EvidenceSpanToken`s, and the live consumers key the
+pool **by `evidence_id`** (`web/app/inspector/[runId]/page.tsx`,
+`src/polaris_v6/followup/agent.py`). Emitting one `SourceSpan` per token would
+produce duplicate `evidence_id` entries and make the inspector/follow-up show the
+wrong span. The contract therefore **pins**: `evidence_pool[]` contains **exactly
+one `SourceSpan` per distinct `evidence_id`**; its `span_start`/`span_end` is the
+*envelope* span (`min` start, `max` end) over every token citing that source, and
+`span_text` is the source body sliced to that envelope. Fine-grained per-sentence
+spans are NOT carried in the pool — they live in each sentence's
+`provenance_tokens` (`[#ev:id:start-end]`), which the inspector uses for
+sentence-level highlighting.
+
+### Adapter decisions I-rdy-008 must resolve, document, and test
+
+These are genuine choices the *spec* cannot pre-decide; each affects live consumer
+behavior, so the contract names them explicitly so I-rdy-008 does not guess.
+
+1. **model identity.** `EvidenceContract` requires non-optional `generator_model`,
+   `verifier_model`, `family_segregation_passed`, but `AuditIR.model_provenance` is
+   `None` for legacy runs (the two provenance files are optional to `load_audit_ir`).
+   Resolution chain the adapter must implement: (a) `AuditIR.model_provenance`
+   (`.generator_model`, `.evaluator_model`, families); else (b) the `manifest.json`
+   `models` block (`build_slice_chain` reads `manifest_raw.get("models")` →
+   `generator` / `evaluator`); else (c) **fail loud** — a completed run that records
+   no model identity is not contract-conformant (§6 — 422). `family_segregation_passed`
+   is `generator_family != evaluator_family` when families are known, else derived
+   from the two model strings' org prefixes; never silently `True`.
+2. **local/global verifier split.** `AuditIR.ReportSentence` exposes a single
+   `is_verified` bool; `EvidenceContract.VerifiedSentence` wants `verifier_local_pass`
+   + `verifier_global_pass`. Either set both to `is_verified`, or read
+   `verification_details.json` raw for the finer Local/Global split if the pipeline-A
+   artifact records it. I-rdy-008 picks one and documents it.
+3. **frame-coverage aggregation.** `AuditIR.frame_coverage.entries` are per-*entity*
+   (`FrameCoverageEntry`, with `status` ∈ pass/partial/gap); `EvidenceContract.FrameCoverage`
+   is per-*frame* (`{frame_id, frame_name, sources_assigned, coverage_percent}`).
+   I-rdy-008 defines the rollup — group entries by `section` / `slot_id`;
+   `frame_name` ← `subsection_title`; `sources_assigned` ← entry count;
+   `coverage_percent` ← `pass_count / total * 100` within the group.
+4. **contradiction projection.** `EvidenceContract.ContradictionRecord` requires
+   `{contradiction_id, section_id, claim_a, claim_b, evidence_a: list[str],
+   evidence_b: list[str], resolution}` where `resolution` is the Literal
+   `unresolved | claim_a_preferred | claim_b_preferred | noted_both`. The source,
+   `AuditIR.ContradictionCluster`, exposes `{cluster_id, subject, predicate,
+   severity, absolute_difference, relative_difference, recommended_action, claims:
+   tuple[ContradictionClaim]}` — it has **no `section_id` and no `resolution`
+   literal**. The adapter must:
+   - `contradiction_id` ← `f"contradiction_{cluster_id}"`.
+   - `claim_a` / `claim_b` ← rendered text of `claims[0]` / `claims[1]` — use
+     `ContradictionClaim.context_snippet` if non-empty, else compose
+     `f"{subject} {predicate} {arm} {dose}: {value} {unit}"`.
+   - `evidence_a` / `evidence_b` ← `[claims[0].evidence_id]` / `[claims[1].evidence_id]`.
+   - `section_id` ← **derive**: locate the first `verified_report` section whose
+     sentences cite `claims[0].evidence_id`; fall back to `"unsectioned"` if none.
+   - `resolution` ← **map** from `recommended_action` + `severity`; default
+     `"unresolved"`. I-rdy-008 defines and tests the mapping.
+   - **>2 claims per cluster**: a `ContradictionCluster` may hold more than two
+     claims. I-rdy-008 decides: emit one `ContradictionRecord` per pairwise
+     `(claims[0], claims[i])`, or one record with `claims[2:]` folded into
+     `evidence_b`. The choice is documented and tested.
 
 `tier` normalization: pipeline-A tiers above T3 / `UNKNOWN` collapse to `T3`
 (consistent with `artifact_to_slice_chain._normalize_tier`); `SourceSpan.source_tier`
@@ -196,29 +257,32 @@ to every Pattern-A surface. The contract fixes these as the canonical responses:
 | Condition | Status | Body |
 |---|---|---|
 | `run_store.get_run()` → `None` | **404** | `run not found` |
-| `lifecycle_status != "completed"` | **404** | `run not completed: lifecycle_status=<…>` |
+| `lifecycle_status != "completed"` (incl. `queued`, `in_progress`, `failed`, `cancelled`) | **404** | `run not completed: lifecycle_status=<…>` |
 | `pipeline_status` starts with `abort_` | **422** | `run aborted: pipeline_status=<…>`, `bundleable: false` |
 | `manifest.release_allowed` is `false` | **422** | `run release-blocked`, `release_allowed: false` |
 | sovereignty cascade empties the report (`SovereigntyFilterEmptiedReportError`) | **422** | the exception message |
 | `artifact_dir` null, or not a directory on disk | **404** | `run has no artifact_dir recorded` / `artifact_dir does not exist` |
-| `artifact_dir` missing a required canonical file | **404** | `artifact_dir incomplete: <file>` |
+| `artifact_dir` missing a required canonical file (incl. `evidence_pool.json`, §3) | **404** | `artifact_dir incomplete: <file>` |
+| run records no model identity (§4 decision 1, chain exhausted) | **422** | `run not contract-conformant: no model identity` |
 | GPG signer unset (`bundle.tar.gz` only) | **503** | `signer not configured` |
 
 A surface that does not itself need the bundle (charts/follow-up/compare/inspector)
-still applies rows 1-7; only `bundle.tar.gz` has the 503 signer row.
+still applies the non-503 rows; only `bundle.tar.gz` has the 503 signer row.
 
 ### `abort_*` / `partial_*` / release-blocked
 
-- **`abort_*`** (`abort_scope_rejected`, `abort_corpus_inadequate`,
-  `abort_corpus_approval_denied`, `abort_no_verified_sections`): the run completed
-  operationally but a pipeline-A gate halted it. No shippable `EvidenceContract` —
-  **422** with the typed `pipeline_status`.
-- **`partial_*`** (e.g. `partial_qwen_advisory`): the pipeline produced kept content
-  but a degradation is recorded. `build_slice_chain` collapses `partial_*` to verdict
-  `success`; the gate that actually blocks shipping is **`manifest.release_allowed`**.
-  A `partial_*` run with `release_allowed: true` is serviceable (the
-  `EvidenceContract.pipeline_status` carries the `partial_*` string so the UI can
-  badge it); a `partial_*` run with `release_allowed: false` is **422**.
+- **`abort_*`** (e.g. `abort_scope_rejected`, `abort_corpus_inadequate`,
+  `abort_corpus_approval_denied`, `abort_no_verified_sections` — match by `abort_`
+  prefix, the family is open-ended): the run completed operationally but a
+  pipeline-A gate halted it. No shippable `EvidenceContract` — **422** with the
+  typed `pipeline_status`.
+- **`partial_*`** (e.g. `partial_qwen_advisory` — match by `partial_` prefix): the
+  pipeline produced kept content but a degradation is recorded. `build_slice_chain`
+  collapses `partial_*` to verdict `success`; the gate that actually blocks shipping
+  is **`manifest.release_allowed`**. A `partial_*` run with `release_allowed: true`
+  is serviceable (the `EvidenceContract.pipeline_status` carries the `partial_*`
+  string so the UI can badge it); a `partial_*` run with `release_allowed: false`
+  is **422**.
 - **`error_*`**: operational failure — **404**/**422** as the matrix dictates; never
   a synthetic empty `EvidenceContract`.
 
@@ -235,7 +299,8 @@ schemas — no new schema file is introduced (Codex brief review ruled
 
 - `RunStatusResponse` — `src/polaris_v6/schemas/run_status.py`
 - `AuditIR` (+ `BibliographyEntry`, `ReportSentence`, `EvidenceSpanToken`,
-  `ContradictionCluster`, `FrameCoverageReport`, `RunManifest`, `ModelProvenance`) —
+  `ContradictionCluster`, `ContradictionClaim`, `FrameCoverageReport`,
+  `FrameCoverageEntry`, `RunManifest`, `ModelProvenance`) —
   `src/polaris_graph/audit_ir/loader.py`
 - `EvidenceContract` (+ `SourceSpan`, `VerifiedSentence`, `FrameCoverage`,
   `ContradictionRecord`) — `src/polaris_v6/schemas/evidence_contract.py`
@@ -253,6 +318,10 @@ When I-rdy-008 implements this contract:
 1. `GET /runs/{id}/bundle`, `/charts/{type}`, `/followup`, `/compare/{r}` all accept
    a real completed `run_id` and return data derived from its `artifact_dir`.
 2. The error-state matrix (§6) holds on every surface.
-3. The golden fixtures remain valid test inputs (the contract does not delete them).
-4. `bundle.tar.gz` (Pattern B) and memory (Pattern C) behavior is unchanged.
-5. The two §4 adapter decisions are made, documented, and tested against a real run.
+3. `evidence_pool[]` is one `SourceSpan` per distinct `evidence_id` (envelope span);
+   no duplicate `evidence_id` entries.
+4. The four §4 adapter decisions (model identity, local/global split, frame-coverage
+   aggregation, contradiction projection) are made, documented, and tested against a
+   real run.
+5. The golden fixtures remain valid test inputs (the contract does not delete them).
+6. `bundle.tar.gz` (Pattern B) and memory (Pattern C) behavior is unchanged.
