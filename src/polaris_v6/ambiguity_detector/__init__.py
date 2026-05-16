@@ -6,6 +6,10 @@ Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
 with min_cluster_size sources, the question is ambiguous and the UI
 shows a disambiguation modal.
 
+``candidate_fetcher`` (I-rdy-009 / #505) supplies the candidate snippets
+for a question-only query via one cheap web search — the "Phase 1"
+retrieval the detector docstring anticipated.
+
 Historical: this module was originally named ``bpei/`` after the
 2026-04-30 'phantom completion' incident where a user typed the literal
 string "BPEI" as an adversarial probe and the system fabricated an
@@ -20,10 +24,13 @@ from .ambiguity_detector import (
     CandidateSnippet,
     detect_ambiguity,
 )
+from .candidate_fetcher import CandidateFetchError, fetch_candidate_snippets
 
 __all__ = [
     "AmbiguityCluster",
     "AmbiguityResult",
     "CandidateSnippet",
+    "CandidateFetchError",
     "detect_ambiguity",
+    "fetch_candidate_snippets",
 ]

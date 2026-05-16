@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +19,7 @@ import {
   checkScope,
   createRun,
   listTemplates,
+  scanAmbiguity,
   uploadDocument,
   type AmbiguityResult,
   type ScopeDecision,
@@ -66,6 +68,13 @@ function templatesToCards(
   }));
 }
 
+// I-rdy-009 (#505): tri-state hard gate for the clinical question-only
+// ambiguity scan. "Start run" is blocked for a clinical question-only run
+// unless a candidate-fetch + detect_ambiguity scan has *successfully*
+// completed — a failed or never-run scan must never fail open into
+// createRun.
+type ScanGate = "not_run" | "ok" | "failed";
+
 export default function DashboardPage() {
   const router = useRouter();
   const [template, setTemplate] = useState<TemplateId>("clinical");
@@ -81,6 +90,8 @@ export default function DashboardPage() {
   const [dragOver, setDragOver] = useState(false);
   const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
   const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
+  const [clinicalScanGate, setClinicalScanGate] = useState<ScanGate>("not_run");
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
 
   useEffect(() => {
@@ -99,6 +110,18 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // I-rdy-009 (#505): any change to the question, template, or upload set
+  // invalidates a prior ambiguity scan. A stale "ok" gate must not let an
+  // edited question reach createRun without its own detect_ambiguity scan.
+  // Called from the question / template / upload event handlers (not an
+  // effect — per the react-hooks/set-state-in-effect rule).
+  const invalidateAmbiguityScan = () => {
+    setClinicalScanGate("not_run");
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    setDisambigModalOpen(false);
+  };
+
   const handleFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
@@ -111,6 +134,7 @@ export default function DashboardPage() {
         results.push(result);
       }
       setUploads((prev) => [...prev, ...results]);
+      invalidateAmbiguityScan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -132,10 +156,15 @@ export default function DashboardPage() {
     setError(null);
     setAmbiguity(null);
     setAcknowledgedAmbiguity(false);
+    setDisambigModalOpen(false);
+    setClinicalScanGate("not_run");
+    // Captured here so the async branches below use a stable value.
+    const clinicalQuestionOnly = template === "clinical" && uploads.length === 0;
     try {
       const decision = await checkScope(template, question.trim());
       setScopeDecision(decision);
       if (decision.verdict === "accepted" && uploads.length > 0) {
+        // Upload-backed ambiguity: candidates come from document chunks.
         const candidates = uploads.flatMap((u, ui) =>
           u.chunk_preview.map((text, ci) => ({
             source_id: `${u.document_id}:${ui}-${ci}`,
@@ -145,9 +174,19 @@ export default function DashboardPage() {
         if (candidates.length > 0) {
           const result = await checkAmbiguity(question.trim(), candidates);
           setAmbiguity(result);
+          if (result.is_ambiguous) setDisambigModalOpen(true);
         }
+      } else if (decision.verdict !== "rejected" && clinicalQuestionOnly) {
+        // Question-only clinical run: the backend fetches candidates and
+        // runs detect_ambiguity. A successful scan is mandatory before a
+        // run may start (see the onSubmit gate below).
+        const result = await scanAmbiguity(question.trim());
+        setAmbiguity(result);
+        setClinicalScanGate("ok");
+        if (result.is_ambiguous) setDisambigModalOpen(true);
       }
     } catch (err) {
+      if (clinicalQuestionOnly) setClinicalScanGate("failed");
       setError(err instanceof Error ? err.message : "Scope check failed");
     } finally {
       setScopeChecking(false);
@@ -164,9 +203,24 @@ export default function DashboardPage() {
       setError("Scope gate rejected this question. Reframe before submitting.");
       return;
     }
+    // I-rdy-009 (#505): a clinical question-only run must not start unless
+    // the ambiguity scan succeeded. A 503, a never-run scan, or a post-scan
+    // edit (which invalidates the gate) all leave the gate != "ok".
+    if (
+      template === "clinical" &&
+      uploads.length === 0 &&
+      clinicalScanGate !== "ok"
+    ) {
+      setError(
+        clinicalScanGate === "failed"
+          ? "Ambiguity check is unavailable — retry Check scope before starting a run."
+          : "Run Check scope first — the ambiguity guard must complete for clinical questions.",
+      );
+      return;
+    }
     if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
       setError(
-        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+        "Ambiguity detected. Resolve it in the disambiguation modal before starting a run.",
       );
       return;
     }
@@ -235,7 +289,10 @@ export default function DashboardPage() {
                     type="button"
                     role="radio"
                     aria-checked={selected}
-                    onClick={() => setTemplate(t.id)}
+                    onClick={() => {
+                      setTemplate(t.id);
+                      invalidateAmbiguityScan();
+                    }}
                     className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
                       selected
                         ? "border-foreground"
@@ -266,7 +323,10 @@ export default function DashboardPage() {
               type="text"
               placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e) => {
+                setQuestion(e.target.value);
+                invalidateAmbiguityScan();
+              }}
               minLength={4}
               maxLength={2000}
               required
@@ -331,11 +391,12 @@ export default function DashboardPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setUploads((prev) =>
                           prev.filter((p) => p.document_id !== u.document_id),
-                        )
-                      }
+                        );
+                        invalidateAmbiguityScan();
+                      }}
                       className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
                     >
                       remove
@@ -383,55 +444,45 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {ambiguity?.is_ambiguous && (
-            <Card
+          {/* I-rdy-009 (#505): inline notice — surfaces an unresolved
+              ambiguity and re-opens the disambiguation modal. The modal
+              itself (below) is the primary surface; this keeps the user
+              able to act after dismissing it, and explains why "Start run"
+              is blocked. */}
+          {ambiguity?.is_ambiguous && !acknowledgedAmbiguity && (
+            <div
               role="status"
               aria-live="polite"
-              className="border-yellow-500/50 bg-yellow-50/40"
+              data-testid="dashboard-ambiguity-notice"
+              className="border-yellow-500/50 bg-yellow-50/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
             >
-              <CardHeader>
-                <CardDescription className="text-xs tracking-widest uppercase">
-                  Disambiguation needed (ambiguity guard)
-                </CardDescription>
-                <CardTitle className="text-base">
-                  {ambiguity.clusters.length} possible meanings detected
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm">
-                  Your question or uploads suggest more than one topic. Pick one
-                  to refine the question, or acknowledge to proceed with all of
-                  them in scope.
-                </p>
-                <ul className="mt-3 flex flex-col gap-2 text-sm">
-                  {ambiguity.clusters.map((c) => (
-                    <li
-                      key={c.cluster_id}
-                      className="border-border bg-background rounded-md border p-2"
-                    >
-                      <span className="text-foreground font-medium">
-                        Cluster {c.cluster_id + 1}:
-                      </span>{" "}
-                      <span className="text-muted-foreground">
-                        {c.representative_text}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    type="button"
-                    variant={acknowledgedAmbiguity ? "default" : "outline"}
-                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
-                  >
-                    {acknowledgedAmbiguity
-                      ? "Acknowledged — will run on all clusters"
-                      : "Acknowledge ambiguity"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+              <span className="text-foreground">
+                Disambiguation needed — {ambiguity.clusters.length} possible
+                meanings detected. Resolve before starting a run.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDisambigModalOpen(true)}
+              >
+                Review meanings
+              </Button>
+            </div>
           )}
+
+          <DisambiguationModal
+            open={disambigModalOpen}
+            clusters={(ambiguity?.clusters ?? []).map((c) => ({
+              cluster_id: c.cluster_id,
+              label: c.representative_text.slice(0, 80),
+              sample_snippets: [c.representative_text],
+            }))}
+            onSelectCluster={() => {
+              setAcknowledgedAmbiguity(true);
+              setDisambigModalOpen(false);
+            }}
+            onCancel={() => setDisambigModalOpen(false)}
+          />
 
           {error && (
             <p

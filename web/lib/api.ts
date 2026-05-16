@@ -215,6 +215,23 @@ export async function checkAmbiguity(
   return asJsonOrThrow<AmbiguityResult>(response);
 }
 
+// I-rdy-009 (#505): question-only ambiguity scan for the create-run flow.
+// The backend fetches candidate snippets itself (one cheap web search),
+// so an ambiguous bare question triggers the disambiguation modal without
+// the caller having to supply candidates. A non-OK response (e.g. 503
+// candidate_fetch_unavailable) throws via asJsonOrThrow — the caller must
+// treat that as a hard failure, never a silent "not ambiguous".
+export async function scanAmbiguity(
+  question: string,
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity/scan`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
 export async function checkScope(
   template: TemplateId,
   question: string,
