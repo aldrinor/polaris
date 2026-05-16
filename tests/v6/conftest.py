@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 # Force StubBroker BEFORE any other test module imports `dramatiq` —
 # otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
 os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
@@ -40,3 +42,16 @@ try:
 except ImportError:
     # dramatiq isn't installed — let individual tests use pytest.importorskip
     _SHARED_TEST_BROKER = None
+
+
+@pytest.fixture(autouse=True)
+def _isolated_run_db(tmp_path, monkeypatch):
+    """Isolate the v6 run DB per test (I-rdy-013).
+
+    `run_store` reads `POLARIS_V6_RUN_DB` on every connection, so pointing it
+    at a fresh temp file per test prevents cross-test state from leaking. The
+    1-concurrent-session gate makes this mandatory: a `queued` run left behind
+    by an earlier test would otherwise make a later test's `POST /runs` return
+    409. `monkeypatch` auto-restores the env var after each test.
+    """
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "v6_runs.sqlite"))

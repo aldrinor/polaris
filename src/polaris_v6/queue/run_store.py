@@ -7,6 +7,12 @@ I-arch-001a (2026-05-12):
 - New helpers: mark_failed, mark_aborted, set_pipeline_meta
 - get_run returns the full RunStatusResponse with new optional fields
 
+I-rdy-013 (2026-05-16): 1-concurrent-session enforcement.
+- get_active_run: read-side helper — the run currently holding the session.
+- insert_run_if_idle: atomic check-and-insert (BEGIN IMMEDIATE) used by
+  POST /runs so a 2nd concurrent request cannot start a parallel session.
+- init_db serialized by `_INIT_LOCK`; `_connect` sets `busy_timeout`.
+
 Default DB path: state/v6_runs.sqlite (gitignored). Override via env
 `POLARIS_V6_RUN_DB`. WAL mode enabled.
 """
@@ -16,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,6 +30,24 @@ from polaris_v6.schemas.run_status import RunStatusResponse
 
 DEFAULT_DB_PATH = "state/v6_runs.sqlite"
 ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+
+# I-rdy-013: lifecycle states that count as an active research session. A run
+# in one of these blocks a new POST /runs (1-concurrent-session constraint).
+# `completed`, `cancelled`, `failed` are terminal and free the session slot.
+_ACTIVE_STATUSES = ("queued", "in_progress")
+
+# I-rdy-013: serializes init_db across in-process threads so two concurrent
+# first requests cannot collide inside `PRAGMA journal_mode=WAL` or the schema
+# migration and raise sqlite3.OperationalError before the atomic gate runs.
+_INIT_LOCK = threading.Lock()
+
+# Shared 15-column projection — used identically by get_run, get_active_run
+# and insert_run_if_idle so `_row_to_response` can build the model from any.
+_RUN_COLUMNS = (
+    "run_id, template, question, lifecycle_status, pipeline_status, "
+    "queued_at, started_at, finished_at, result_json, error_json, "
+    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id"
+)
 
 
 def _resolve_path(path: str | None) -> str:
@@ -42,7 +67,35 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
         os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(resolved)
     conn.row_factory = sqlite3.Row
+    # I-rdy-013: a concurrent writer waits up to 5s for the write lock
+    # instead of raising SQLITE_BUSY immediately (the issue's "no crash").
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+    """Build a RunStatusResponse from a runs-table row.
+
+    Shared by get_run, get_active_run and insert_run_if_idle, all of which
+    SELECT the same `_RUN_COLUMNS` projection.
+    """
+    return RunStatusResponse(
+        run_id=row["run_id"],
+        template=row["template"],
+        question=row["question"],
+        lifecycle_status=row["lifecycle_status"],
+        pipeline_status=row["pipeline_status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        result_json=row["result_json"],
+        error_json=row["error_json"],
+        query_slug=row["query_slug"],
+        manifest_run_id=row["manifest_run_id"],
+        artifact_dir=row["artifact_dir"],
+        cost_usd=row["cost_usd"],
+        decision_id=row["decision_id"],
+    )
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
@@ -90,18 +143,30 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 
 
 def init_db(path: str | None = None) -> None:
-    """Create the runs table if absent, run migrations. Idempotent."""
-    conn = _connect(path)
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        _migrate_schema(conn)
-        conn.commit()
-    finally:
-        conn.close()
+    """Create the runs table if absent, run migrations. Idempotent.
+
+    I-rdy-013: serialized by `_INIT_LOCK` so two concurrent first requests
+    (FastAPI worker threads, one process) cannot collide inside
+    `PRAGMA journal_mode=WAL` or the schema migration and raise
+    sqlite3.OperationalError before the atomic gate is reached.
+    """
+    with _INIT_LOCK:
+        conn = _connect(path)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            _migrate_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
-    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate."""
+    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate.
+
+    Unconditional primitive — does NOT enforce the 1-concurrent-session
+    constraint. POST /runs uses `insert_run_if_idle`; this remains for test
+    fixtures and any caller that deliberately wants an unconditional insert.
+    """
     init_db(path)
     conn = _connect(path)
     try:
@@ -111,6 +176,46 @@ def insert_run(run_id: str, template: str, question: str, *, path: str | None = 
             (run_id, template, question, _now_iso()),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_run_if_idle(
+    run_id: str, template: str, question: str, *, path: str | None = None
+) -> RunStatusResponse | None:
+    """Atomically insert a new queued run IFF no run is currently active.
+
+    I-rdy-013 (1-concurrent-session enforcement): the check-for-active and
+    the INSERT run inside one `BEGIN IMMEDIATE` transaction, so two
+    concurrent POST /runs cannot both pass the check. `BEGIN IMMEDIATE`
+    takes the write lock up-front; the 2nd writer blocks on it (up to the
+    `busy_timeout`) until the 1st commits, then sees the inserted row.
+
+    Returns None when the run was inserted; returns the blocking active
+    RunStatusResponse when rejected (caller raises HTTP 409).
+    """
+    init_db(path)
+    placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
+    conn = _connect(path)
+    conn.isolation_level = None  # manual transaction control
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            f"SELECT {_RUN_COLUMNS} FROM runs "
+            f"WHERE lifecycle_status IN ({placeholders}) "
+            "ORDER BY queued_at LIMIT 1",
+            _ACTIVE_STATUSES,
+        ).fetchone()
+        if row is not None:
+            conn.execute("ROLLBACK")
+            return _row_to_response(row)
+        conn.execute(
+            "INSERT INTO runs (run_id, template, question, lifecycle_status, queued_at) "
+            "VALUES (?, ?, ?, 'queued', ?)",
+            (run_id, template, question, _now_iso()),
+        )
+        conn.execute("COMMIT")
+        return None
     finally:
         conn.close()
 
@@ -244,10 +349,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
     try:
         try:
             row = conn.execute(
-                "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
-                "queued_at, started_at, finished_at, result_json, error_json, "
-                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
-                "FROM runs WHERE run_id=?",
+                f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
                 (run_id,),
             ).fetchone()
         except sqlite3.OperationalError as exc:
@@ -264,10 +366,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
                 init_db(path)
                 conn = _connect(path)
                 row = conn.execute(
-                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
-                    "queued_at, started_at, finished_at, result_json, error_json, "
-                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
-                    "FROM runs WHERE run_id=?",
+                    f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
                     (run_id,),
                 ).fetchone()
             else:
@@ -276,20 +375,40 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
         conn.close()
     if row is None:
         return None
-    return RunStatusResponse(
-        run_id=row["run_id"],
-        template=row["template"],
-        question=row["question"],
-        lifecycle_status=row["lifecycle_status"],
-        pipeline_status=row["pipeline_status"],
-        queued_at=row["queued_at"],
-        started_at=row["started_at"],
-        finished_at=row["finished_at"],
-        result_json=row["result_json"],
-        error_json=row["error_json"],
-        query_slug=row["query_slug"],
-        manifest_run_id=row["manifest_run_id"],
-        artifact_dir=row["artifact_dir"],
-        cost_usd=row["cost_usd"],
-        decision_id=row["decision_id"],
+    return _row_to_response(row)
+
+
+def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+    """Return the oldest run still queued or in_progress, else None.
+
+    I-rdy-013: read-side helper for the 1-concurrent-session constraint —
+    the run currently holding the session slot. At most one run is active
+    once `insert_run_if_idle` gates all inserts; the `ORDER BY queued_at`
+    is defensive (oldest first) for any pre-gate legacy rows.
+
+    Defensive against a missing/legacy table, mirroring `get_run`.
+    """
+    placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        f"WHERE lifecycle_status IN ({placeholders}) "
+        "ORDER BY queued_at LIMIT 1"
     )
+    conn = _connect(path)
+    try:
+        try:
+            row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return None
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+            else:
+                raise
+    finally:
+        conn.close()
+    return None if row is None else _row_to_response(row)

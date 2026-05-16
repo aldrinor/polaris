@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import {
   checkAmbiguity,
   checkScope,
+  ConcurrentRunError,
   createRun,
   listTemplates,
   uploadDocument,
@@ -72,6 +73,11 @@ export default function DashboardPage() {
   const [question, setQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [concurrentRun, setConcurrentRun] = useState<{
+    runId: string;
+    status: string;
+    message: string;
+  } | null>(null);
   const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
     null,
   );
@@ -172,6 +178,7 @@ export default function DashboardPage() {
     }
     setSubmitting(true);
     setError(null);
+    setConcurrentRun(null);
     try {
       const run = await createRun({
         template,
@@ -180,6 +187,17 @@ export default function DashboardPage() {
       });
       router.push(`/runs/${run.run_id}`);
     } catch (err) {
+      if (err instanceof ConcurrentRunError) {
+        // I-rdy-013: 1-concurrent-session reject — show a dedicated callout
+        // with a link to the run that currently holds the session.
+        setConcurrentRun({
+          runId: err.activeRunId,
+          status: err.activeStatus,
+          message: err.message,
+        });
+        setSubmitting(false);
+        return;
+      }
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
       setSubmitting(false);
@@ -440,6 +458,25 @@ export default function DashboardPage() {
             >
               {error}
             </p>
+          )}
+
+          {concurrentRun && (
+            <div
+              role="alert"
+              className="border-destructive/60 flex flex-col gap-2 rounded-md border p-3 text-sm"
+            >
+              <p className="text-foreground font-medium">
+                {concurrentRun.message}
+              </p>
+              {concurrentRun.runId && (
+                <Link
+                  href={`/runs/${concurrentRun.runId}`}
+                  className="text-foreground font-semibold underline underline-offset-4"
+                >
+                  Open the active run →
+                </Link>
+              )}
+            </div>
           )}
 
           <div className="flex items-center justify-end gap-3">
