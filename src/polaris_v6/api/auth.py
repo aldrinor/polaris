@@ -138,13 +138,24 @@ async def require_auth(
         return None
     if _path_is_public(request.url.path):
         return None
-    if creds is None or creds.scheme.lower() != "bearer":
+    # Token resolution. Normal routes: Authorization: Bearer header. SSE
+    # (/stream/*): the browser's native EventSource cannot set request
+    # headers, so the JWT is accepted from the access_token query param —
+    # but ONLY for /stream paths, never for state-changing routes.
+    token: str | None = None
+    if creds is not None and creds.scheme.lower() == "bearer":
+        token = creds.credentials
+    elif request.url.path.startswith("/stream/"):
+        # Trailing slash: only the SSE route /stream/{run_id} — never a
+        # lookalike like /streaming/*.
+        token = request.query_params.get("access_token")
+    if not token:
         raise HTTPException(
             status_code=401,
             detail={"error": "missing_bearer_token", "message": "Authorization: Bearer <jwt> required"},
         )
     try:
-        payload = jwt.decode(creds.credentials, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
     except JWTError as exc:
         raise HTTPException(
             status_code=401,
