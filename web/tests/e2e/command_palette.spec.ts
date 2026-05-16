@@ -25,7 +25,7 @@ test.describe("Command palette — I-f1-002", () => {
 
     await page.getByTestId("command-palette-input").fill("clinical");
     await page.keyboard.press("Enter");
-    await page.waitForURL("**/intake?template=clinical");
+    await page.waitForURL("**/dashboard?template=clinical");
   });
 
   test("Enter on disabled template is a no-op (URL unchanged)", async ({

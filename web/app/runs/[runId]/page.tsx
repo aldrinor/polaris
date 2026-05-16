@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import {
   downloadBundleAsJson,
+  downloadBundleTarball,
   getBundle,
   getRun,
   subscribeToRun,
@@ -62,16 +63,24 @@ export default function RunDetailPage({ params }: RunPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-border bg-background border-b">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS Canada
-            </span>
-            <span className="text-foreground text-base font-semibold">
-              Sovereign Deep Research
-            </span>
-          </Link>
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-end px-6 py-4">
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await downloadBundleTarball(runId);
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "Signed bundle not available yet",
+                  );
+                }
+              }}
+            >
+              Download signed bundle
+            </Button>
             <Button
               variant="outline"
               onClick={async () => {
@@ -87,7 +96,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
                 }
               }}
             >
-              Export bundle
+              Export bundle (JSON)
             </Button>
             <Button
               variant="default"
@@ -143,7 +152,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
               nativeButton={false}
               render={<Link href={`/inspector/${runId}`} />}
             >
-              Open Inspector
+              View report &amp; inspect
             </Button>
             <Button
               type="button"

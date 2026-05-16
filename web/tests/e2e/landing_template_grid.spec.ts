@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
  *
  * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
  *  - 8 cards render at 4 viewports (1920/1024/768/375)
- *  - Active cards link to /intake?template=<id>
+ *  - Active cards link to /dashboard?template=<id>
  *  - To-build cards are aria-disabled, no href, keyboard-skipped
  *  - axe-core WCAG-AA clean at 1024px
  */
@@ -57,11 +57,11 @@ test.describe("Landing template grid — I-f1-001", () => {
     });
   }
 
-  test("active cards link to /intake?template=<id>", async ({ page }) => {
+  test("active cards link to /dashboard?template=<id>", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
     for (const id of ACTIVE_IDS) {
       const link = page.getByTestId(`template-card-${id}-link`);
-      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
+      await expect(link).toHaveAttribute("href", `/dashboard?template=${id}`);
     }
   });
 

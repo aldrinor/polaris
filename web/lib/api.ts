@@ -326,6 +326,34 @@ export async function getChart(
   return asJsonOrThrow<VegaLiteSpec>(response);
 }
 
+/**
+ * I-rdy-014 — download the GPG-signed `.tar.gz` audit bundle for a run.
+ * The `/runs/{id}/bundle.tar.gz` endpoint requires `Authorization: Bearer`,
+ * so a plain `<a href>` cannot reach it; fetch the blob through `authFetch`
+ * and trigger a client-side object-URL download. Throws on a non-OK
+ * response (e.g. 404 for a run with no bundle yet) so callers can surface
+ * an honest pending/unavailable state.
+ */
+export async function downloadBundleTarball(runId: string): Promise<void> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${runId}/bundle.tar.gz`,
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Signed bundle not available for run ${runId} (HTTP ${response.status})`,
+    );
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${runId}.tar.gz`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function downloadBundleAsJson(bundle: EvidenceContract): void {
   const blob = new Blob([JSON.stringify(bundle, null, 2)], {
     type: "application/json",

@@ -2,7 +2,7 @@
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -19,7 +19,6 @@ type CommandPaletteProps = {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   templates: Template[];
-  signInLinkRef: RefObject<HTMLAnchorElement | null>;
 };
 
 const SYNONYMS: Record<string, string> = {
@@ -47,7 +46,6 @@ export function CommandPalette({
   open,
   onOpenChange,
   templates,
-  signInLinkRef,
 }: CommandPaletteProps) {
   const router = useRouter();
   const [search, set_search] = useState("");
@@ -87,7 +85,7 @@ export function CommandPalette({
       event.preventDefault();
       const tpl = scored[clamped];
       if (tpl?.active) {
-        router.push(`/intake?template=${tpl.id}`);
+        router.push(`/dashboard?template=${tpl.id}`);
         onOpenChange(false);
       }
     }
@@ -98,7 +96,14 @@ export function CommandPalette({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
-        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
+        // I-rdy-014 (#510): the landing header was folded into GlobalNav;
+        // restore focus to its Sign in link (now in GlobalNav) on close.
+        if (!next)
+          requestAnimationFrame(() => {
+            document
+              .querySelector<HTMLElement>('[data-testid="header-sign-in-link"]')
+              ?.focus();
+          });
       }}
     >
       <DialogPrimitive.Portal>

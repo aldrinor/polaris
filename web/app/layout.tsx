@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { Toaster } from "@/components/ui/sonner";
 
+import { GlobalNav } from "./components/global_nav";
 import "./globals.css";
 
 const geist_sans = Geist({
@@ -32,6 +33,7 @@ export default function RootLayout({
       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        <GlobalNav />
         {children}
         <Toaster />
       </body>

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -66,9 +66,18 @@ function templatesToCards(
   }));
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
-  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const searchParams = useSearchParams();
+  // I-rdy-014 (#510): preselect the template from the ?template= param the
+  // landing page / command palette pass — derived as the initial state, no
+  // effect (avoids a setState-in-effect cascading render).
+  const [template, setTemplate] = useState<TemplateId>(() => {
+    const param = searchParams.get("template");
+    return param && FALLBACK_TEMPLATES.some((t) => t.id === param)
+      ? (param as TemplateId)
+      : "clinical";
+  });
   const [question, setQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,19 +197,6 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-border bg-background border-b">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS Canada
-            </span>
-            <span className="text-foreground text-base font-semibold">
-              Sovereign Deep Research
-            </span>
-          </Link>
-        </div>
-      </header>
-
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
         <section className="flex flex-col gap-2">
           <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -475,5 +471,15 @@ export default function DashboardPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  // I-rdy-014 (#510): Suspense boundary required around the `useSearchParams`
+  // consumer (Next.js App Router).
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
   );
 }

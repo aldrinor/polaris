@@ -107,7 +107,7 @@ const templates: Template[] = [
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
-      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+      <HomeKeyboardShell templates={templates}>
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
           <section className="flex flex-col gap-3">
             <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -186,7 +186,7 @@ export default function HomePage() {
                         render={
                           <Link
                             data-testid={`template-card-${tpl.id}-link`}
-                            href={`/intake?template=${tpl.id}`}
+                            href={`/dashboard?template=${tpl.id}`}
                           />
                         }
                       >

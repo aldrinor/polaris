@@ -15,6 +15,7 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
 import { VegaChart } from "@/components/ui/vega-chart";
 import {
   downloadBundleAsJson,
+  downloadBundleTarball,
   getBundle,
   getChart,
   type ChartType,
@@ -31,6 +32,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
   const { runId } = use(params);
   const [bundle, setBundle] = useState<EvidenceContract | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notReady, setNotReady] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
     null,
   );
@@ -45,8 +47,16 @@ export default function InspectorPage({ params }: InspectorPageProps) {
         if (!cancelled) setBundle(b);
       })
       .catch((err) => {
-        if (!cancelled)
+        if (cancelled) return;
+        // I-rdy-014 (#510): a freshly-created run has no published bundle
+        // yet (404). That is a pending state, not an error — render an
+        // honest "report not ready" panel, never a crash or a dead end.
+        const status = (err as { status?: number })?.status;
+        if (status === 404) {
+          setNotReady(true);
+        } else {
           setError(err instanceof Error ? err.message : "Bundle load failed");
+        }
       });
     return () => {
       cancelled = true;
@@ -95,21 +105,39 @@ export default function InspectorPage({ params }: InspectorPageProps) {
     <div className="flex min-h-screen flex-col">
       <header className="border-border bg-background border-b">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex flex-col">
+          <div className="flex flex-col">
             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
               POLARIS Inspector
             </span>
             <span className="text-foreground text-base font-semibold">
               Run {runId}
             </span>
-          </Link>
+          </div>
           {bundle && (
-            <Button
-              variant="outline"
-              onClick={() => downloadBundleAsJson(bundle)}
-            >
-              Export bundle JSON
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await downloadBundleTarball(runId);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Signed bundle not available yet",
+                    );
+                  }
+                }}
+              >
+                Download signed bundle
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => downloadBundleAsJson(bundle)}
+              >
+                Export bundle JSON
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -126,6 +154,29 @@ export default function InspectorPage({ params }: InspectorPageProps) {
             <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
               {error}
             </p>
+          </section>
+        )}
+
+        {notReady && (
+          <section role="status" aria-labelledby="inspector-pending-heading">
+            <h1
+              id="inspector-pending-heading"
+              className="text-foreground text-2xl font-semibold tracking-tight"
+            >
+              Report not yet available
+            </h1>
+            <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
+              Run <span className="font-mono">{runId}</span> has no published
+              evidence bundle yet — the verifier pipeline is still running, or
+              this run predates bundle capture. The integrated report and
+              signed bundle appear here once the run completes.
+            </p>
+            <Link
+              href={`/runs/${runId}`}
+              className="text-foreground mt-3 inline-block text-sm font-semibold underline underline-offset-4"
+            >
+              ← Back to the live run
+            </Link>
           </section>
         )}
 

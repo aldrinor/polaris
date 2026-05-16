@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
  * Validates the debounced + scored search inside the command palette:
  *  - "tirzepatide" (synonym) → exactly one visible item: clinical.
  *  - "BPEI" (no match) → empty list (zero false-positives).
- *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
+ *  - "tirzepatide" + Enter → /dashboard?template=clinical via scoring path.
  *
  * Each test waits for header-sign-in-link visible after networkidle to
  * prove client shell hydration; then opens palette via Ctrl+K.
@@ -51,7 +51,7 @@ test.describe("Command palette suggest — I-f1-003", () => {
     await expect(items).toHaveCount(0);
   });
 
-  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
+  test("'tirzepatide' + Enter navigates to /dashboard?template=clinical", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
@@ -65,6 +65,6 @@ test.describe("Command palette suggest — I-f1-003", () => {
     // Wait for post-debounce post-scoring state (count=1 → only clinical).
     await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
     await page.keyboard.press("Enter");
-    await page.waitForURL("**/intake?template=clinical");
+    await page.waitForURL("**/dashboard?template=clinical");
   });
 });

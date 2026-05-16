@@ -1,7 +1,3 @@
-import Link from "next/link";
-
-import { Button } from "@/components/ui/button";
-
 import { BenchmarkBoard } from "./components/benchmark_board";
 
 export const metadata = {
@@ -13,35 +9,6 @@ export const metadata = {
 export default function BenchmarkPage() {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-border bg-background border-b">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS Canada — Slice 005
-            </span>
-            <span className="text-foreground text-base font-semibold">
-              BEAT-BOTH benchmark
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/generation" />}
-            >
-              Generation
-            </Button>
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/" />}
-            >
-              Home
-            </Button>
-          </div>
-        </div>
-      </header>
-
       <main
         data-testid="benchmark-page"
         className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10"
