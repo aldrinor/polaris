@@ -1,0 +1,109 @@
+{
+  "due_diligence_fixture": {
+    "schema_version": "v30.1",
+    "required_entities": [
+      {
+        "id": "financials_entity",
+        "type": "policy",
+        "required_fields": [
+          "entity_id",
+          "jurisdiction",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "financials_slot",
+        "url_pattern": "https://www.sec.gov/edgar",
+        "anchor": "due_diligence:financials:due_diligence_fixture:e4a6cbdb"
+      },
+      {
+        "id": "market_position_entity",
+        "type": "policy",
+        "required_fields": [
+          "entity_id",
+          "jurisdiction",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "market_position_slot",
+        "url_pattern": "https://www.uspto.gov",
+        "anchor": "due_diligence:market_position:due_diligence_fixture:ba94b78c"
+      },
+      {
+        "id": "ip_portfolio_entity",
+        "type": "policy",
+        "required_fields": [
+          "entity_id",
+          "jurisdiction",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "ip_portfolio_slot",
+        "url_pattern": "https://patents.google.com",
+        "anchor": "due_diligence:ip_portfolio:due_diligence_fixture:9bc42018"
+      },
+      {
+        "id": "regulatory_legal_entity",
+        "type": "policy",
+        "required_fields": [
+          "entity_id",
+          "jurisdiction",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "regulatory_legal_slot",
+        "url_pattern": "https://www.ftc.gov",
+        "anchor": "due_diligence:regulatory_legal:due_diligence_fixture:dbc67a77"
+      },
+      {
+        "id": "risk_factors_entity",
+        "type": "policy",
+        "required_fields": [
+          "entity_id",
+          "jurisdiction",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "risk_factors_slot",
+        "url_pattern": "https://www.justice.gov/atr",
+        "anchor": "due_diligence:risk_factors:due_diligence_fixture:585bfc39"
+      }
+    ],
+    "rendering_slots": {
+      "financials_slot": {
+        "section": "Background",
+        "subsection_title": "Financial position + filings",
+        "ordering": 1,
+        "required": true
+      },
+      "market_position_slot": {
+        "section": "Background",
+        "subsection_title": "Market position + competitive landscape",
+        "ordering": 2,
+        "required": true
+      },
+      "ip_portfolio_slot": {
+        "section": "Findings",
+        "subsection_title": "IP / patent portfolio",
+        "ordering": 3,
+        "required": true
+      },
+      "regulatory_legal_slot": {
+        "section": "Findings",
+        "subsection_title": "Regulatory + legal exposure",
+        "ordering": 4,
+        "required": true
+      },
+      "risk_factors_slot": {
+        "section": "Implications",
+        "subsection_title": "Risk factors + red flags",
+        "ordering": 5,
+        "required": true
+      }
+    },
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

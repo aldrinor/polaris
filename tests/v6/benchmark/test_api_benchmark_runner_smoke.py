@@ -97,7 +97,7 @@ def test_factual_accuracy_error_returns_zero(runner):
 # ---- D2 citation_health ----------------------------------------------------
 
 def test_citation_health_at_threshold(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="trade",
+    q = runner.BenchmarkQuestion(question_id="t", template="policy",
         text="?", difficulty="routine")
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="ok", citation_count=5, timestamp="t", cost_usd=0.0)
@@ -106,7 +106,7 @@ def test_citation_health_at_threshold(runner):
 
 
 def test_citation_health_below_threshold(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
+    q = runner.BenchmarkQuestion(question_id="t", template="tech",
         text="?", difficulty="adversarial")
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="ok", citation_count=9, timestamp="t", cost_usd=0.0)
@@ -130,7 +130,7 @@ def test_frame_coverage_underscore_normalized(runner):
 # ---- D4 contradiction_handling --------------------------------------------
 
 def test_contradiction_handling_correct_surface(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
+    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
         text="?", difficulty="novel_synthesis", has_known_contradictions=True)
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="Sources disagree on this point.",
@@ -140,7 +140,7 @@ def test_contradiction_handling_correct_surface(runner):
 
 
 def test_contradiction_handling_silent_suppression(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
+    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
         text="?", difficulty="novel_synthesis", has_known_contradictions=True)
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="The clear answer is X.",
@@ -152,7 +152,7 @@ def test_contradiction_handling_silent_suppression(runner):
 # ---- D5 refusal_calibration ------------------------------------------------
 
 def test_refusal_calibration_correct_refusal(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
+    q = runner.BenchmarkQuestion(question_id="t", template="tech",
         text="?", difficulty="adversarial",
         expected_refusal_patterns=["cannot provide", "out of scope"])
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
@@ -163,7 +163,7 @@ def test_refusal_calibration_correct_refusal(runner):
 
 
 def test_refusal_calibration_under_refusal(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
+    q = runner.BenchmarkQuestion(question_id="t", template="tech",
         text="?", difficulty="adversarial",
         expected_refusal_patterns=["cannot provide"])
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
@@ -221,7 +221,7 @@ def test_two_family_polaris_surfaces_signal_when_expected(runner):
 # ---- D8 sycophancy_resistance ----------------------------------------------
 
 def test_sycophancy_resistance_resists_leading(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
+    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
         text="?", difficulty="adversarial", paired_prompt_id="t-paired")
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="The evidence is mixed and I disagree with the framing.",
@@ -231,7 +231,7 @@ def test_sycophancy_resistance_resists_leading(runner):
 
 
 def test_sycophancy_resistance_caves_to_leading(runner):
-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
+    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
         text="?", difficulty="adversarial", paired_prompt_id="t-paired")
     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
         response_text="You're absolutely right that X is true.",
@@ -373,7 +373,7 @@ def test_match_or_beat_dry_run_blocks_approve(runner):
                                "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
+    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
     out = runner.compute_match_or_beat(per_template)
     # All 8 Carney templates, POLARIS wins big, but LIVE_MODE=False default
     assert out["verdict"] == "DRY_RUN_NO_VERDICT", f"got {out['verdict']}"
@@ -406,7 +406,7 @@ def test_match_or_beat_approve_with_full_carney_set_and_live(runner, monkeypatch
                                "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
+    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
     out = runner.compute_match_or_beat(per_template)
     assert out["verdict"] == "APPROVE", f"got {out['verdict']}: {out}"
     assert out["win_count"] == 8
@@ -423,7 +423,7 @@ def test_match_or_beat_competitor_must_have_all_dims(runner, monkeypatch):
                                "refusal_calibration": 0.95},
         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
+    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
     out = runner.compute_match_or_beat(per_template)
     # ChatGPT excluded; Gemini is the only competitor with full dims
     for tmpl_data in out["per_template"].values():
@@ -552,7 +552,7 @@ def test_runner_dry_run_end_to_end(runner, tmp_path):
         {"question_id": "clinical-001", "template": "clinical",
          "text": "What is X?", "difficulty": "routine",
          "expected_anchors": ["x"], "has_known_contradictions": False},
-        {"question_id": "trade-001", "template": "trade",
+        {"question_id": "policy-001", "template": "policy",
          "text": "What is Y?", "difficulty": "novel_synthesis",
          "expected_anchors": ["y"], "expected_frames": ["mechanism"]},
     ]))
@@ -575,13 +575,13 @@ def test_runner_dry_run_end_to_end(runner, tmp_path):
     assert output["question_count"] == 2
 
     # All 3 systems evaluated per question
-    for qid in ["clinical-001", "trade-001"]:
+    for qid in ["clinical-001", "policy-001"]:
         assert qid in output["per_question_results"]
         responses = output["per_question_results"][qid]["responses"]
         assert set(responses.keys()) == {"polaris_v6", "chatgpt_5_5_pro_dr", "gemini_3_1_pro_dr"}
 
     # 8 dimensions per (question, system)
-    for qid in ["clinical-001", "trade-001"]:
+    for qid in ["clinical-001", "policy-001"]:
         scores_by_sys = output["per_question_results"][qid]["scores"]
         for sys_name, scores in scores_by_sys.items():
             dims = {s["dimension"] for s in scores}

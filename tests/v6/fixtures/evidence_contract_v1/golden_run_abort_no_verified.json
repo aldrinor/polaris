@@ -1,7 +1,7 @@
 {
   "contract_version": "1.0",
   "run_id": "golden_abort_003",
-  "template": "trade",
+  "template": "policy",
   "question": "Quantify Canada's NAFTA tariff exposure to widget Z by 2027.",
   "queued_at": "2026-05-01T12:00:00Z",
   "finished_at": "2026-05-01T12:01:30Z",

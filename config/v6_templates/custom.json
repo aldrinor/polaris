@@ -1,0 +1,35 @@
+{
+  "template_id": "custom",
+  "template_name": "Custom research",
+  "summary": "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates — accepts any classified source tier; corpus quality is governed by the operator's substantive approval note rather than a fixed tier mix.",
+  "primary_domains": ["Operator-defined", "Primary-source reporting", "Official documentation"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca",
+      "https://www150.statcan.gc.ca"
+    ],
+    "T2": [
+      "https://www.reuters.com",
+      "https://apnews.com"
+    ],
+    "T3": []
+  },
+  "min_sources_per_tier": { "T1": 0, "T2": 0, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "core_question", "frame_name": "Core question + direct evidence" },
+    { "frame_id": "context", "frame_name": "Context + background" },
+    { "frame_id": "open_questions", "frame_name": "Open questions + evidence gaps" }
+  ],
+  "refusal_patterns": [
+    "instruction_override_attempt",
+    "individual_professional_advice"
+  ],
+  "sample_questions": [
+    "What does the available evidence show on the topic the operator has scoped for this run?",
+    "Summarize the documented positions on this question with provenance for each claim."
+  ],
+  "out_of_scope_examples": [
+    "Anything the operator's scope note explicitly excludes.",
+    "Requests for individualized legal, medical, or financial advice."
+  ]
+}

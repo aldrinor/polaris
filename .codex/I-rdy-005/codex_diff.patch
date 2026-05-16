@@ -1,0 +1,2392 @@
+diff --git a/config/v6_templates/climate.json b/config/v6_templates/climate.json
+deleted file mode 100644
+index ee45aa8c..00000000
+--- a/config/v6_templates/climate.json
++++ /dev/null
+@@ -1,49 +0,0 @@
+-{
+-  "template_id": "climate",
+-  "template_name": "Climate & critical minerals",
+-  "summary": "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous-led conservation.",
+-  "primary_domains": ["ECCC", "NRCan", "StatCan", "Canada Energy Regulator", "PBO"],
+-  "source_tiers": {
+-    "T1": [
+-      "https://www.canada.ca/en/environment-climate-change.html",
+-      "https://natural-resources.canada.ca",
+-      "https://www150.statcan.gc.ca",
+-      "https://www.cer-rec.gc.ca",
+-      "https://www.pbo-dpb.ca"
+-    ],
+-    "T2": [
+-      "https://www.iea.org",
+-      "https://www.iisd.org",
+-      "https://www.cleanenergycanada.org",
+-      "https://www.pembina.org",
+-      "https://eccc.gc.ca/data"
+-    ],
+-    "T3": [
+-      "https://www.theglobeandmail.com",
+-      "https://www.cbc.ca/news/business",
+-      "https://www.bnnbloomberg.ca"
+-    ]
+-  },
+-  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+-  "frame_manifest": [
+-    { "frame_id": "emissions_intensity", "frame_name": "Oil-sands GHG intensity per barrel" },
+-    { "frame_id": "critical_minerals", "frame_name": "Critical minerals strategy (lithium, nickel, cobalt, rare earths)" },
+-    { "frame_id": "carbon_pricing", "frame_name": "Federal carbon pricing + provincial systems" },
+-    { "frame_id": "methane_regulation", "frame_name": "Methane emissions regulation" },
+-    { "frame_id": "indigenous_conservation", "frame_name": "Indigenous-led conservation + consultation" }
+-  ],
+-  "refusal_patterns": [
+-    "individual_investment_advice",
+-    "personal_carbon_offset_recommendation"
+-  ],
+-  "sample_questions": [
+-    "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
+-    "What does Canada's 2024 Critical Minerals Strategy commit to on lithium and nickel?",
+-    "What is the federal carbon-pricing benchmark for 2030 and how do provincial systems compare?",
+-    "What does the 2024 federal methane regulation require for upstream oil and gas?"
+-  ],
+-  "out_of_scope_examples": [
+-    "Should I buy a heat pump for my house?",
+-    "Recommend a clean-energy stock for my RRSP."
+-  ]
+-}
+diff --git a/config/v6_templates/custom.json b/config/v6_templates/custom.json
+new file mode 100644
+index 00000000..8d06a8f7
+--- /dev/null
++++ b/config/v6_templates/custom.json
+@@ -0,0 +1,35 @@
++{
++  "template_id": "custom",
++  "template_name": "Custom research",
++  "summary": "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates — accepts any classified source tier; corpus quality is governed by the operator's substantive approval note rather than a fixed tier mix.",
++  "primary_domains": ["Operator-defined", "Primary-source reporting", "Official documentation"],
++  "source_tiers": {
++    "T1": [
++      "https://www.canada.ca",
++      "https://www150.statcan.gc.ca"
++    ],
++    "T2": [
++      "https://www.reuters.com",
++      "https://apnews.com"
++    ],
++    "T3": []
++  },
++  "min_sources_per_tier": { "T1": 0, "T2": 0, "T3": 0 },
++  "frame_manifest": [
++    { "frame_id": "core_question", "frame_name": "Core question + direct evidence" },
++    { "frame_id": "context", "frame_name": "Context + background" },
++    { "frame_id": "open_questions", "frame_name": "Open questions + evidence gaps" }
++  ],
++  "refusal_patterns": [
++    "instruction_override_attempt",
++    "individual_professional_advice"
++  ],
++  "sample_questions": [
++    "What does the available evidence show on the topic the operator has scoped for this run?",
++    "Summarize the documented positions on this question with provenance for each claim."
++  ],
++  "out_of_scope_examples": [
++    "Anything the operator's scope note explicitly excludes.",
++    "Requests for individualized legal, medical, or financial advice."
++  ]
++}
+diff --git a/config/v6_templates/defense.json b/config/v6_templates/defense.json
+deleted file mode 100644
+index 117b0ced..00000000
+--- a/config/v6_templates/defense.json
++++ /dev/null
+@@ -1,49 +0,0 @@
+-{
+-  "template_id": "defense",
+-  "template_name": "Defense & Arctic",
+-  "summary": "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
+-  "primary_domains": ["DND", "NORAD", "Privy Council Office", "RAND", "CDA Institute"],
+-  "source_tiers": {
+-    "T1": [
+-      "https://www.canada.ca/en/department-national-defence.html",
+-      "https://www.norad.mil",
+-      "https://www.nato.int",
+-      "https://www.dnd-mdn.gc.ca",
+-      "https://www.cda-cdai.ca"
+-    ],
+-    "T2": [
+-      "https://www.rand.org",
+-      "https://www.csis.org",
+-      "https://www.iiss.org",
+-      "https://www.cgai.ca"
+-    ],
+-    "T3": [
+-      "https://www.theglobeandmail.com",
+-      "https://www.thestar.com",
+-      "https://www.cbc.ca/news/politics"
+-    ]
+-  },
+-  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+-  "frame_manifest": [
+-    { "frame_id": "norad_modernization", "frame_name": "NORAD modernization (radar, JADC2, OTH)" },
+-    { "frame_id": "arctic_sovereignty", "frame_name": "Arctic sovereignty + Northwest Passage" },
+-    { "frame_id": "nato_burden_share", "frame_name": "NATO 2% GDP burden-sharing" },
+-    { "frame_id": "industrial_base", "frame_name": "Defense industrial base + procurement" },
+-    { "frame_id": "interoperability", "frame_name": "Five Eyes / AUKUS interoperability" }
+-  ],
+-  "refusal_patterns": [
+-    "operational_security_violation",
+-    "individual_recruitment_advice",
+-    "weapons_acquisition_individual"
+-  ],
+-  "sample_questions": [
+-    "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+-    "What does the 2024 NORAD modernization announcement commit to on Arctic radar?",
+-    "How does the Royal Canadian Navy frigate replacement timeline compare to the US FFG-62 program?",
+-    "What policy options has Canada announced on undersea infrastructure protection in the Arctic since 2023?"
+-  ],
+-  "out_of_scope_examples": [
+-    "How do I join the Canadian Armed Forces?",
+-    "Should I buy Lockheed Martin stock?"
+-  ]
+-}
+diff --git a/config/v6_templates/due_diligence.json b/config/v6_templates/due_diligence.json
+new file mode 100644
+index 00000000..fe4e3fd1
+--- /dev/null
++++ b/config/v6_templates/due_diligence.json
+@@ -0,0 +1,48 @@
++{
++  "template_id": "due_diligence",
++  "template_name": "Due diligence",
++  "summary": "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim requires named, dated provenance; anonymous and unattributed sources are excluded.",
++  "primary_domains": ["SEC EDGAR", "USPTO", "Reuters / Bloomberg", "Named analyst research", "Company filings"],
++  "source_tiers": {
++    "T1": [
++      "https://www.sec.gov/edgar",
++      "https://www.uspto.gov",
++      "https://patents.google.com",
++      "https://www.ftc.gov",
++      "https://www.justice.gov/atr"
++    ],
++    "T2": [
++      "https://www.reuters.com",
++      "https://www.bloomberg.com",
++      "https://www.ft.com",
++      "https://www.wsj.com"
++    ],
++    "T3": [
++      "https://www.gartner.com",
++      "https://www.forrester.com"
++    ]
++  },
++  "min_sources_per_tier": { "T1": 2, "T2": 2, "T3": 0 },
++  "frame_manifest": [
++    { "frame_id": "financials", "frame_name": "Financial position + filings" },
++    { "frame_id": "market_position", "frame_name": "Market position + competitive landscape" },
++    { "frame_id": "ip_portfolio", "frame_name": "IP / patent portfolio" },
++    { "frame_id": "regulatory_legal", "frame_name": "Regulatory + legal exposure" },
++    { "frame_id": "risk_factors", "frame_name": "Risk factors + red flags" }
++  ],
++  "refusal_patterns": [
++    "individual_investment_advice",
++    "insider_information_solicitation",
++    "specific_buy_sell_recommendation"
++  ],
++  "sample_questions": [
++    "What did the most recent 10-K disclose on customer-concentration risk for this company?",
++    "How does this firm's patent portfolio compare to its two closest competitors?",
++    "What regulatory correspondence (FTC, DOJ) is on record for this proposed acquisition?",
++    "What do named analyst reports say about this market's 2025-2028 growth outlook?"
++  ],
++  "out_of_scope_examples": [
++    "Should I buy this stock?",
++    "What will this company's share price be next quarter?"
++  ]
++}
+diff --git a/config/v6_templates/housing.json b/config/v6_templates/housing.json
+deleted file mode 100644
+index f4bf4dce..00000000
+--- a/config/v6_templates/housing.json
++++ /dev/null
+@@ -1,50 +0,0 @@
+-{
+-  "template_id": "housing",
+-  "template_name": "Housing & productivity",
+-  "summary": "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
+-  "primary_domains": ["CMHC", "StatCan", "Bank of Canada", "Department of Finance", "PBO"],
+-  "source_tiers": {
+-    "T1": [
+-      "https://www.cmhc-schl.gc.ca",
+-      "https://www150.statcan.gc.ca",
+-      "https://www.bankofcanada.ca",
+-      "https://www.canada.ca/en/department-finance.html",
+-      "https://www.pbo-dpb.ca"
+-    ],
+-    "T2": [
+-      "https://www.cdhowe.org",
+-      "https://www.macdonaldlaurier.ca",
+-      "https://www.smartprosperity.ca",
+-      "https://www.deloitte.com/ca",
+-      "https://www.bcg.com"
+-    ],
+-    "T3": [
+-      "https://www.theglobeandmail.com",
+-      "https://www.thestar.com",
+-      "https://www.bnnbloomberg.ca"
+-    ]
+-  },
+-  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+-  "frame_manifest": [
+-    { "frame_id": "supply", "frame_name": "Housing-starts supply dynamics" },
+-    { "frame_id": "affordability", "frame_name": "Affordability + price-to-income ratios" },
+-    { "frame_id": "indigenous", "frame_name": "Indigenous housing gap" },
+-    { "frame_id": "productivity_link", "frame_name": "Housing → productivity macro link" },
+-    { "frame_id": "federal_provincial", "frame_name": "Federal-provincial policy alignment" }
+-  ],
+-  "refusal_patterns": [
+-    "individual_real_estate_advice",
+-    "specific_neighborhood_recommendation",
+-    "personal_mortgage_advice"
+-  ],
+-  "sample_questions": [
+-    "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
+-    "How has the Canadian price-to-income ratio in major metros tracked from 2015 to 2024?",
+-    "What is the federal commitment to Indigenous housing in the 2024 budget?",
+-    "What does CMHC project for 2026 housing starts in the GTA and Vancouver?"
+-  ],
+-  "out_of_scope_examples": [
+-    "Should I buy a condo in Toronto?",
+-    "What mortgage rate should I lock in?"
+-  ]
+-}
+diff --git a/config/v6_templates/policy.json b/config/v6_templates/policy.json
+new file mode 100644
+index 00000000..1feaa2fe
+--- /dev/null
++++ b/config/v6_templates/policy.json
+@@ -0,0 +1,49 @@
++{
++  "template_id": "policy",
++  "template_name": "Public policy",
++  "summary": "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons — grounded in government, regulator, and HTA-agency sources.",
++  "primary_domains": ["Health Canada", "FDA", "EMA", "NICE", "CADTH", "WHO"],
++  "source_tiers": {
++    "T1": [
++      "https://www.canada.ca/en/health-canada.html",
++      "https://www.fda.gov",
++      "https://www.ema.europa.eu",
++      "https://www.who.int",
++      "https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency"
++    ],
++    "T2": [
++      "https://www.nice.org.uk",
++      "https://www.cadth.ca",
++      "https://icer.org",
++      "https://www.iqwig.de",
++      "https://www.has-sante.fr"
++    ],
++    "T3": [
++      "https://www.healthaffairs.org",
++      "https://www.statnews.com"
++    ]
++  },
++  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
++  "frame_manifest": [
++    { "frame_id": "regulatory_decision", "frame_name": "Regulatory approval / labelling decisions" },
++    { "frame_id": "reimbursement_access", "frame_name": "Reimbursement + access policy" },
++    { "frame_id": "hta_assessment", "frame_name": "Health-technology-assessment findings" },
++    { "frame_id": "public_health_guidance", "frame_name": "Public-health guidance + recommendations" },
++    { "frame_id": "cross_jurisdiction", "frame_name": "Cross-jurisdiction access comparison" }
++  ],
++  "refusal_patterns": [
++    "individual_legal_compliance",
++    "individual_treatment_advice",
++    "partisan_political_advocacy"
++  ],
++  "sample_questions": [
++    "How did Health Canada and the FDA differ in their regulatory pathway for GLP-1 obesity indications?",
++    "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
++    "How does prescription-drug coverage compare across Canadian provinces as of 2025?",
++    "What public-health guidance changed on RSV immunization for infants in 2024?"
++  ],
++  "out_of_scope_examples": [
++    "Should my clinic prescribe this drug to a specific patient?",
++    "Which political party has the better health platform?"
++  ]
++}
+diff --git a/config/v6_templates/tech.json b/config/v6_templates/tech.json
+new file mode 100644
+index 00000000..c649a96c
+--- /dev/null
++++ b/config/v6_templates/tech.json
+@@ -0,0 +1,48 @@
++{
++  "template_id": "tech",
++  "template_name": "Technology assessment",
++  "summary": "Assessment of a technology, algorithm, software system, or engineering approach — grounded in peer-reviewed conference and journal papers, standards documents, and clearly-attributed preprints and technical sources.",
++  "primary_domains": ["arXiv", "IEEE", "ACM", "NeurIPS / ICML / ACL", "IETF / W3C"],
++  "source_tiers": {
++    "T1": [
++      "https://ieeexplore.ieee.org",
++      "https://dl.acm.org",
++      "https://proceedings.neurips.cc",
++      "https://aclanthology.org",
++      "https://www.nature.com/natmachintell"
++    ],
++    "T2": [
++      "https://arxiv.org",
++      "https://www.biorxiv.org",
++      "https://www.rfc-editor.org",
++      "https://www.w3.org/TR"
++    ],
++    "T3": [
++      "https://research.google/blog",
++      "https://engineering.fb.com"
++    ]
++  },
++  "min_sources_per_tier": { "T1": 3, "T2": 1, "T3": 0 },
++  "frame_manifest": [
++    { "frame_id": "novel_contribution", "frame_name": "Novel-contribution claims + peer-reviewed evidence" },
++    { "frame_id": "benchmark_results", "frame_name": "Benchmark / evaluation results" },
++    { "frame_id": "methodology", "frame_name": "Methodology + reproducibility" },
++    { "frame_id": "standards_compliance", "frame_name": "Standards + interoperability" },
++    { "frame_id": "limitations", "frame_name": "Known limitations + failure modes" }
++  ],
++  "refusal_patterns": [
++    "specific_vendor_endorsement",
++    "individual_purchasing_advice",
++    "security_exploit_instructions"
++  ],
++  "sample_questions": [
++    "What does the peer-reviewed evidence show on mixture-of-experts scaling vs dense transformers as of 2025?",
++    "How do retrieval-augmented-generation benchmarks compare across the 2024 published literature?",
++    "What are the documented limitations of speculative decoding for long-context inference?",
++    "What does the IETF QUIC RFC specify on connection migration?"
++  ],
++  "out_of_scope_examples": [
++    "Which GPU should I buy for my gaming PC?",
++    "Write me a working exploit for this CVE."
++  ]
++}
+diff --git a/config/v6_templates/trade.json b/config/v6_templates/trade.json
+deleted file mode 100644
+index 474a7cb8..00000000
+--- a/config/v6_templates/trade.json
++++ /dev/null
+@@ -1,50 +0,0 @@
+-{
+-  "template_id": "trade",
+-  "template_name": "Trade & tariff",
+-  "summary": "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
+-  "primary_domains": ["Global Affairs Canada", "USTR", "WTO", "StatCan", "Bank of Canada"],
+-  "source_tiers": {
+-    "T1": [
+-      "https://www.international.gc.ca",
+-      "https://ustr.gov",
+-      "https://www.wto.org",
+-      "https://www150.statcan.gc.ca",
+-      "https://www.bankofcanada.ca"
+-    ],
+-    "T2": [
+-      "https://www.cdhowe.org",
+-      "https://www.cigionline.org",
+-      "https://www.peterson.ie",
+-      "https://www.brookings.edu",
+-      "https://www.csis.org"
+-    ],
+-    "T3": [
+-      "https://www.theglobeandmail.com",
+-      "https://www.bnnbloomberg.ca",
+-      "https://www.reuters.com"
+-    ]
+-  },
+-  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+-  "frame_manifest": [
+-    { "frame_id": "tariff_exposure", "frame_name": "Sector-level tariff exposure" },
+-    { "frame_id": "cusma_disputes", "frame_name": "CUSMA dispute resolution" },
+-    { "frame_id": "supply_chain", "frame_name": "Supply-chain resilience + reshoring" },
+-    { "frame_id": "trade_flows", "frame_name": "Bilateral trade-flow trends" },
+-    { "frame_id": "retaliation", "frame_name": "Retaliation scenarios + exposed sectors" }
+-  ],
+-  "refusal_patterns": [
+-    "individual_business_advice",
+-    "specific_company_endorsement",
+-    "investment_recommendation"
+-  ],
+-  "sample_questions": [
+-    "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+-    "How has CUSMA dispute settlement evolved since 2022 across dairy and softwood lumber?",
+-    "What are Canada's IRA Section 30D EV-credit eligibility risks in 2025?",
+-    "How exposed is Ontario's auto sector to a 25% reciprocal US tariff?"
+-  ],
+-  "out_of_scope_examples": [
+-    "Should I move my supply chain to Mexico?",
+-    "Which steel stock should I buy?"
+-  ]
+-}
+diff --git a/scripts/v6/benchmark/api_benchmark_runner.py b/scripts/v6/benchmark/api_benchmark_runner.py
+index dae9d9e0..afa4f8d5 100644
+--- a/scripts/v6/benchmark/api_benchmark_runner.py
++++ b/scripts/v6/benchmark/api_benchmark_runner.py
+@@ -560,8 +560,8 @@ MATCH_OR_BEAT_DIMENSIONS = {
+ 
+ 
+ CARNEY_TEMPLATES = frozenset({
+-    "clinical", "trade", "housing", "defense",
+-    "climate", "ai_sovereignty", "canada_us", "workforce",
++    "clinical", "policy", "tech", "due_diligence",
++    "ai_sovereignty", "canada_us", "workforce", "custom",
+ })
+ 
+ 
+diff --git a/src/polaris_graph/v30_contract_synthesizer.py b/src/polaris_graph/v30_contract_synthesizer.py
+index 1bc11741..af2190af 100644
+--- a/src/polaris_graph/v30_contract_synthesizer.py
++++ b/src/polaris_graph/v30_contract_synthesizer.py
+@@ -21,24 +21,24 @@ from typing import Any
+ # that don't exist for synthesized contracts.
+ _TYPE_FOR_TEMPLATE: dict[str, str] = {
+     "clinical": "drug",
++    "policy": "policy",
++    "tech": "policy",
++    "due_diligence": "policy",
+     "ai_sovereignty": "policy",
+     "canada_us": "policy",
+-    "climate": "policy",
+-    "defense": "policy",
+-    "housing": "policy",
+-    "trade": "policy",
+     "workforce": "policy",
++    "custom": "policy",
+ }
+ 
+ _REQUIRED_FIELDS_FOR_TEMPLATE: dict[str, list[str]] = {
+     "clinical": ["rxcui", "drugbank_id", "icd_10"],
++    "policy": ["jurisdiction", "policy_id", "year"],
++    "tech": ["jurisdiction", "technology_id", "year"],
++    "due_diligence": ["entity_id", "jurisdiction", "year"],
+     "ai_sovereignty": ["bill_id", "jurisdiction", "year"],
+     "canada_us": ["jurisdiction", "treaty_id", "year"],
+-    "climate": ["jurisdiction", "policy_id", "target_year"],
+-    "defense": ["program_id", "jurisdiction", "year"],
+-    "housing": ["jurisdiction", "policy_id", "year"],
+-    "trade": ["hs_code", "jurisdiction", "year"],
+     "workforce": ["jurisdiction", "indicator_id", "year"],
++    "custom": ["jurisdiction", "topic_id", "year"],
+ }
+ 
+ # Last-resort URL when a template has empty T1. Per Codex iter-5 P2 accepted-
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index 104ddf1c..ef568b3d 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -35,28 +35,23 @@ logger = logging.getLogger(__name__)
+ 
+ ENQUEUE_MAX_RETRIES = 3
+ 
+-# I-arch-001c (2026-05-13): template_id → pipeline-A scope_domain mapping at
+-# the actor boundary.
++# I-arch-001c (2026-05-13) + I-rdy-005 (2026-05-15): template_id →
++# pipeline-A scope_domain mapping at the actor boundary.
+ #
+-# Three domains already exist in scope_gate.SUPPORTED_DOMAINS with their own
+-# config/scope_templates/<domain>.yaml (per I-tpl-006/7/8): ai_sovereignty,
+-# canada_us, workforce. These are promoted to identity mappings so the
+-# deterministic scope_gate picks the right per-domain rubric.
+-#
+-# Four templates (climate, defense, housing, trade) have no scope_template
+-# yet — they fall back to the generic "policy" rubric. Authoring per-domain
+-# YAMLs + adding to SUPPORTED_DOMAINS is Phase 2 (post-Carney-demo).
+-#
+-# clinical → clinical (unchanged).
++# All 8 canonical templates are first-class scope domains: each has its own
++# config/scope_templates/<id>.yaml and is a member of scope_gate.SUPPORTED_DOMAINS.
++# The mapping is therefore all-identity — every template id IS its scope domain.
++# (The earlier climate/defense/housing/trade placeholders were retired by
++# I-rdy-005's reconcile to the canonical 8.)
+ TEMPLATE_TO_SCOPE_DOMAIN = {
++    "clinical": "clinical",
++    "policy": "policy",
++    "tech": "tech",
++    "due_diligence": "due_diligence",
+     "ai_sovereignty": "ai_sovereignty",
+     "canada_us": "canada_us",
+     "workforce": "workforce",
+-    "clinical": "clinical",
+-    "climate": "policy",
+-    "defense": "policy",
+-    "housing": "policy",
+-    "trade": "policy",
++    "custom": "custom",
+ }
+ 
+ 
+@@ -97,7 +92,13 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+ 
+     template_id = request_payload.get("template", "")
+     question = request_payload.get("question", "")
+-    domain = TEMPLATE_TO_SCOPE_DOMAIN.get(template_id, "policy")
++    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
++        raise ValueError(
++            f"unknown template_id {template_id!r} — not one of the canonical "
++            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
++            f"must fail loudly here, not silently run as a generic domain."
++        )
++    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
+     slug = _derive_slug(template_id, question)
+ 
+     # v6 fields flow through q-dict (NO os.environ mutation per iter-2 P1.2)
+diff --git a/src/polaris_v6/schemas/run_request.py b/src/polaris_v6/schemas/run_request.py
+index a292a846..18b8f3d7 100644
+--- a/src/polaris_v6/schemas/run_request.py
++++ b/src/polaris_v6/schemas/run_request.py
+@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
+ 
+ TemplateId = Literal[
+     "clinical",
+-    "trade",
+-    "housing",
+-    "defense",
+-    "climate",
++    "policy",
++    "tech",
++    "due_diligence",
+     "ai_sovereignty",
+     "canada_us",
+     "workforce",
++    "custom",
+ ]
+ 
+ 
+diff --git a/tests/fixtures/v30_contracts/climate.json b/tests/fixtures/v30_contracts/climate.json
+deleted file mode 100644
+index 4fb4dac6..00000000
+--- a/tests/fixtures/v30_contracts/climate.json
++++ /dev/null
+@@ -1,109 +0,0 @@
+-{
+-  "climate_fixture": {
+-    "rendering_slots": {
+-      "carbon_pricing_slot": {
+-        "ordering": 3,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Federal carbon pricing + provincial systems"
+-      },
+-      "critical_minerals_slot": {
+-        "ordering": 2,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Critical minerals strategy (lithium, nickel, cobalt, rare earths)"
+-      },
+-      "emissions_intensity_slot": {
+-        "ordering": 1,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Oil-sands GHG intensity per barrel"
+-      },
+-      "indigenous_conservation_slot": {
+-        "ordering": 5,
+-        "required": true,
+-        "section": "Implications",
+-        "subsection_title": "Indigenous-led conservation + consultation"
+-      },
+-      "methane_regulation_slot": {
+-        "ordering": 4,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Methane emissions regulation"
+-      }
+-    },
+-    "required_entities": [
+-      {
+-        "anchor": "climate:emissions_intensity:climate_fixture:208cbcf4",
+-        "id": "emissions_intensity_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "emissions_intensity_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "target_year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.canada.ca/en/environment-climate-change.html"
+-      },
+-      {
+-        "anchor": "climate:critical_minerals:climate_fixture:f3da5751",
+-        "id": "critical_minerals_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "critical_minerals_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "target_year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://natural-resources.canada.ca"
+-      },
+-      {
+-        "anchor": "climate:carbon_pricing:climate_fixture:4a8e003c",
+-        "id": "carbon_pricing_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "carbon_pricing_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "target_year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www150.statcan.gc.ca"
+-      },
+-      {
+-        "anchor": "climate:methane_regulation:climate_fixture:fe144fef",
+-        "id": "methane_regulation_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "methane_regulation_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "target_year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.cer-rec.gc.ca"
+-      },
+-      {
+-        "anchor": "climate:indigenous_conservation:climate_fixture:cab6906e",
+-        "id": "indigenous_conservation_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "indigenous_conservation_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "target_year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.pbo-dpb.ca"
+-      }
+-    ],
+-    "schema_version": "v30.1",
+-    "section_order": [
+-      "Background",
+-      "Findings",
+-      "Implications"
+-    ]
+-  }
+-}
+diff --git a/tests/fixtures/v30_contracts/custom.json b/tests/fixtures/v30_contracts/custom.json
+new file mode 100644
+index 00000000..0f0c38f0
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/custom.json
+@@ -0,0 +1,70 @@
++{
++  "custom_fixture": {
++    "schema_version": "v30.1",
++    "required_entities": [
++      {
++        "id": "core_question_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "topic_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "core_question_slot",
++        "url_pattern": "https://www.canada.ca",
++        "anchor": "custom:core_question:custom_fixture:1230a02e"
++      },
++      {
++        "id": "context_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "topic_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "context_slot",
++        "url_pattern": "https://www150.statcan.gc.ca",
++        "anchor": "custom:context:custom_fixture:14a8b9a1"
++      },
++      {
++        "id": "open_questions_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "topic_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "open_questions_slot",
++        "url_pattern": "https://www.canada.ca",
++        "anchor": "custom:open_questions:custom_fixture:a06b6762"
++      }
++    ],
++    "rendering_slots": {
++      "core_question_slot": {
++        "section": "Background",
++        "subsection_title": "Core question + direct evidence",
++        "ordering": 1,
++        "required": true
++      },
++      "context_slot": {
++        "section": "Background",
++        "subsection_title": "Context + background",
++        "ordering": 2,
++        "required": true
++      },
++      "open_questions_slot": {
++        "section": "Findings",
++        "subsection_title": "Open questions + evidence gaps",
++        "ordering": 3,
++        "required": true
++      }
++    },
++    "section_order": [
++      "Background",
++      "Findings"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/defense.json b/tests/fixtures/v30_contracts/defense.json
+deleted file mode 100644
+index 65154e0d..00000000
+--- a/tests/fixtures/v30_contracts/defense.json
++++ /dev/null
+@@ -1,109 +0,0 @@
+-{
+-  "defense_fixture": {
+-    "rendering_slots": {
+-      "arctic_sovereignty_slot": {
+-        "ordering": 2,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Arctic sovereignty + Northwest Passage"
+-      },
+-      "industrial_base_slot": {
+-        "ordering": 4,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Defense industrial base + procurement"
+-      },
+-      "interoperability_slot": {
+-        "ordering": 5,
+-        "required": true,
+-        "section": "Implications",
+-        "subsection_title": "Five Eyes / AUKUS interoperability"
+-      },
+-      "nato_burden_share_slot": {
+-        "ordering": 3,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "NATO 2% GDP burden-sharing"
+-      },
+-      "norad_modernization_slot": {
+-        "ordering": 1,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "NORAD modernization (radar, JADC2, OTH)"
+-      }
+-    },
+-    "required_entities": [
+-      {
+-        "anchor": "defense:norad_modernization:defense_fixture:20d34f9e",
+-        "id": "norad_modernization_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "norad_modernization_slot",
+-        "required_fields": [
+-          "program_id",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.canada.ca/en/department-national-defence.html"
+-      },
+-      {
+-        "anchor": "defense:arctic_sovereignty:defense_fixture:236e608a",
+-        "id": "arctic_sovereignty_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "arctic_sovereignty_slot",
+-        "required_fields": [
+-          "program_id",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.norad.mil"
+-      },
+-      {
+-        "anchor": "defense:nato_burden_share:defense_fixture:1c58668d",
+-        "id": "nato_burden_share_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "nato_burden_share_slot",
+-        "required_fields": [
+-          "program_id",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.nato.int"
+-      },
+-      {
+-        "anchor": "defense:industrial_base:defense_fixture:8d28ffdc",
+-        "id": "industrial_base_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "industrial_base_slot",
+-        "required_fields": [
+-          "program_id",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.dnd-mdn.gc.ca"
+-      },
+-      {
+-        "anchor": "defense:interoperability:defense_fixture:f847230e",
+-        "id": "interoperability_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "interoperability_slot",
+-        "required_fields": [
+-          "program_id",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.cda-cdai.ca"
+-      }
+-    ],
+-    "schema_version": "v30.1",
+-    "section_order": [
+-      "Background",
+-      "Findings",
+-      "Implications"
+-    ]
+-  }
+-}
+diff --git a/tests/fixtures/v30_contracts/due_diligence.json b/tests/fixtures/v30_contracts/due_diligence.json
+new file mode 100644
+index 00000000..ac7b9b20
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/due_diligence.json
+@@ -0,0 +1,109 @@
++{
++  "due_diligence_fixture": {
++    "schema_version": "v30.1",
++    "required_entities": [
++      {
++        "id": "financials_entity",
++        "type": "policy",
++        "required_fields": [
++          "entity_id",
++          "jurisdiction",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "financials_slot",
++        "url_pattern": "https://www.sec.gov/edgar",
++        "anchor": "due_diligence:financials:due_diligence_fixture:e4a6cbdb"
++      },
++      {
++        "id": "market_position_entity",
++        "type": "policy",
++        "required_fields": [
++          "entity_id",
++          "jurisdiction",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "market_position_slot",
++        "url_pattern": "https://www.uspto.gov",
++        "anchor": "due_diligence:market_position:due_diligence_fixture:ba94b78c"
++      },
++      {
++        "id": "ip_portfolio_entity",
++        "type": "policy",
++        "required_fields": [
++          "entity_id",
++          "jurisdiction",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "ip_portfolio_slot",
++        "url_pattern": "https://patents.google.com",
++        "anchor": "due_diligence:ip_portfolio:due_diligence_fixture:9bc42018"
++      },
++      {
++        "id": "regulatory_legal_entity",
++        "type": "policy",
++        "required_fields": [
++          "entity_id",
++          "jurisdiction",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "regulatory_legal_slot",
++        "url_pattern": "https://www.ftc.gov",
++        "anchor": "due_diligence:regulatory_legal:due_diligence_fixture:dbc67a77"
++      },
++      {
++        "id": "risk_factors_entity",
++        "type": "policy",
++        "required_fields": [
++          "entity_id",
++          "jurisdiction",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "risk_factors_slot",
++        "url_pattern": "https://www.justice.gov/atr",
++        "anchor": "due_diligence:risk_factors:due_diligence_fixture:585bfc39"
++      }
++    ],
++    "rendering_slots": {
++      "financials_slot": {
++        "section": "Background",
++        "subsection_title": "Financial position + filings",
++        "ordering": 1,
++        "required": true
++      },
++      "market_position_slot": {
++        "section": "Background",
++        "subsection_title": "Market position + competitive landscape",
++        "ordering": 2,
++        "required": true
++      },
++      "ip_portfolio_slot": {
++        "section": "Findings",
++        "subsection_title": "IP / patent portfolio",
++        "ordering": 3,
++        "required": true
++      },
++      "regulatory_legal_slot": {
++        "section": "Findings",
++        "subsection_title": "Regulatory + legal exposure",
++        "ordering": 4,
++        "required": true
++      },
++      "risk_factors_slot": {
++        "section": "Implications",
++        "subsection_title": "Risk factors + red flags",
++        "ordering": 5,
++        "required": true
++      }
++    },
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/housing.json b/tests/fixtures/v30_contracts/housing.json
+deleted file mode 100644
+index 0ba56a3c..00000000
+--- a/tests/fixtures/v30_contracts/housing.json
++++ /dev/null
+@@ -1,109 +0,0 @@
+-{
+-  "housing_fixture": {
+-    "rendering_slots": {
+-      "affordability_slot": {
+-        "ordering": 2,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Affordability + price-to-income ratios"
+-      },
+-      "federal_provincial_slot": {
+-        "ordering": 5,
+-        "required": true,
+-        "section": "Implications",
+-        "subsection_title": "Federal-provincial policy alignment"
+-      },
+-      "indigenous_slot": {
+-        "ordering": 3,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Indigenous housing gap"
+-      },
+-      "productivity_link_slot": {
+-        "ordering": 4,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Housing \u2192 productivity macro link"
+-      },
+-      "supply_slot": {
+-        "ordering": 1,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Housing-starts supply dynamics"
+-      }
+-    },
+-    "required_entities": [
+-      {
+-        "anchor": "housing:supply:housing_fixture:f7da7e41",
+-        "id": "supply_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "supply_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.cmhc-schl.gc.ca"
+-      },
+-      {
+-        "anchor": "housing:affordability:housing_fixture:2f2bb62b",
+-        "id": "affordability_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "affordability_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www150.statcan.gc.ca"
+-      },
+-      {
+-        "anchor": "housing:indigenous:housing_fixture:3511e269",
+-        "id": "indigenous_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "indigenous_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.bankofcanada.ca"
+-      },
+-      {
+-        "anchor": "housing:productivity_link:housing_fixture:a3d9e383",
+-        "id": "productivity_link_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "productivity_link_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.canada.ca/en/department-finance.html"
+-      },
+-      {
+-        "anchor": "housing:federal_provincial:housing_fixture:d202c99b",
+-        "id": "federal_provincial_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "federal_provincial_slot",
+-        "required_fields": [
+-          "jurisdiction",
+-          "policy_id",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.pbo-dpb.ca"
+-      }
+-    ],
+-    "schema_version": "v30.1",
+-    "section_order": [
+-      "Background",
+-      "Findings",
+-      "Implications"
+-    ]
+-  }
+-}
+diff --git a/tests/fixtures/v30_contracts/policy.json b/tests/fixtures/v30_contracts/policy.json
+new file mode 100644
+index 00000000..97ecd489
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/policy.json
+@@ -0,0 +1,109 @@
++{
++  "policy_fixture": {
++    "schema_version": "v30.1",
++    "required_entities": [
++      {
++        "id": "regulatory_decision_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "regulatory_decision_slot",
++        "url_pattern": "https://www.canada.ca/en/health-canada.html",
++        "anchor": "policy:regulatory_decision:policy_fixture:ebc51741"
++      },
++      {
++        "id": "reimbursement_access_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "reimbursement_access_slot",
++        "url_pattern": "https://www.fda.gov",
++        "anchor": "policy:reimbursement_access:policy_fixture:596412ac"
++      },
++      {
++        "id": "hta_assessment_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "hta_assessment_slot",
++        "url_pattern": "https://www.ema.europa.eu",
++        "anchor": "policy:hta_assessment:policy_fixture:8f56e32f"
++      },
++      {
++        "id": "public_health_guidance_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "public_health_guidance_slot",
++        "url_pattern": "https://www.who.int",
++        "anchor": "policy:public_health_guidance:policy_fixture:d4a38ef5"
++      },
++      {
++        "id": "cross_jurisdiction_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "policy_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "cross_jurisdiction_slot",
++        "url_pattern": "https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency",
++        "anchor": "policy:cross_jurisdiction:policy_fixture:b1969084"
++      }
++    ],
++    "rendering_slots": {
++      "regulatory_decision_slot": {
++        "section": "Background",
++        "subsection_title": "Regulatory approval / labelling decisions",
++        "ordering": 1,
++        "required": true
++      },
++      "reimbursement_access_slot": {
++        "section": "Background",
++        "subsection_title": "Reimbursement + access policy",
++        "ordering": 2,
++        "required": true
++      },
++      "hta_assessment_slot": {
++        "section": "Findings",
++        "subsection_title": "Health-technology-assessment findings",
++        "ordering": 3,
++        "required": true
++      },
++      "public_health_guidance_slot": {
++        "section": "Findings",
++        "subsection_title": "Public-health guidance + recommendations",
++        "ordering": 4,
++        "required": true
++      },
++      "cross_jurisdiction_slot": {
++        "section": "Implications",
++        "subsection_title": "Cross-jurisdiction access comparison",
++        "ordering": 5,
++        "required": true
++      }
++    },
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/tech.json b/tests/fixtures/v30_contracts/tech.json
+new file mode 100644
+index 00000000..b1959da8
+--- /dev/null
++++ b/tests/fixtures/v30_contracts/tech.json
+@@ -0,0 +1,109 @@
++{
++  "tech_fixture": {
++    "schema_version": "v30.1",
++    "required_entities": [
++      {
++        "id": "novel_contribution_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "technology_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "novel_contribution_slot",
++        "url_pattern": "https://ieeexplore.ieee.org",
++        "anchor": "tech:novel_contribution:tech_fixture:6e59126d"
++      },
++      {
++        "id": "benchmark_results_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "technology_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "benchmark_results_slot",
++        "url_pattern": "https://dl.acm.org",
++        "anchor": "tech:benchmark_results:tech_fixture:3a7802e4"
++      },
++      {
++        "id": "methodology_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "technology_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "methodology_slot",
++        "url_pattern": "https://proceedings.neurips.cc",
++        "anchor": "tech:methodology:tech_fixture:2d57e006"
++      },
++      {
++        "id": "standards_compliance_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "technology_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "standards_compliance_slot",
++        "url_pattern": "https://aclanthology.org",
++        "anchor": "tech:standards_compliance:tech_fixture:92c0dad6"
++      },
++      {
++        "id": "limitations_entity",
++        "type": "policy",
++        "required_fields": [
++          "jurisdiction",
++          "technology_id",
++          "year"
++        ],
++        "min_fields_for_completion": 1,
++        "rendering_slot": "limitations_slot",
++        "url_pattern": "https://www.nature.com/natmachintell",
++        "anchor": "tech:limitations:tech_fixture:535485a1"
++      }
++    ],
++    "rendering_slots": {
++      "novel_contribution_slot": {
++        "section": "Background",
++        "subsection_title": "Novel-contribution claims + peer-reviewed evidence",
++        "ordering": 1,
++        "required": true
++      },
++      "benchmark_results_slot": {
++        "section": "Background",
++        "subsection_title": "Benchmark / evaluation results",
++        "ordering": 2,
++        "required": true
++      },
++      "methodology_slot": {
++        "section": "Findings",
++        "subsection_title": "Methodology + reproducibility",
++        "ordering": 3,
++        "required": true
++      },
++      "standards_compliance_slot": {
++        "section": "Findings",
++        "subsection_title": "Standards + interoperability",
++        "ordering": 4,
++        "required": true
++      },
++      "limitations_slot": {
++        "section": "Implications",
++        "subsection_title": "Known limitations + failure modes",
++        "ordering": 5,
++        "required": true
++      }
++    },
++    "section_order": [
++      "Background",
++      "Findings",
++      "Implications"
++    ]
++  }
++}
+diff --git a/tests/fixtures/v30_contracts/trade.json b/tests/fixtures/v30_contracts/trade.json
+deleted file mode 100644
+index 10b1f2b7..00000000
+--- a/tests/fixtures/v30_contracts/trade.json
++++ /dev/null
+@@ -1,109 +0,0 @@
+-{
+-  "trade_fixture": {
+-    "rendering_slots": {
+-      "cusma_disputes_slot": {
+-        "ordering": 2,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "CUSMA dispute resolution"
+-      },
+-      "retaliation_slot": {
+-        "ordering": 5,
+-        "required": true,
+-        "section": "Implications",
+-        "subsection_title": "Retaliation scenarios + exposed sectors"
+-      },
+-      "supply_chain_slot": {
+-        "ordering": 3,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Supply-chain resilience + reshoring"
+-      },
+-      "tariff_exposure_slot": {
+-        "ordering": 1,
+-        "required": true,
+-        "section": "Background",
+-        "subsection_title": "Sector-level tariff exposure"
+-      },
+-      "trade_flows_slot": {
+-        "ordering": 4,
+-        "required": true,
+-        "section": "Findings",
+-        "subsection_title": "Bilateral trade-flow trends"
+-      }
+-    },
+-    "required_entities": [
+-      {
+-        "anchor": "trade:tariff_exposure:trade_fixture:e3eca46a",
+-        "id": "tariff_exposure_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "tariff_exposure_slot",
+-        "required_fields": [
+-          "hs_code",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.international.gc.ca"
+-      },
+-      {
+-        "anchor": "trade:cusma_disputes:trade_fixture:fa2c0f96",
+-        "id": "cusma_disputes_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "cusma_disputes_slot",
+-        "required_fields": [
+-          "hs_code",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://ustr.gov"
+-      },
+-      {
+-        "anchor": "trade:supply_chain:trade_fixture:d61b96b7",
+-        "id": "supply_chain_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "supply_chain_slot",
+-        "required_fields": [
+-          "hs_code",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.wto.org"
+-      },
+-      {
+-        "anchor": "trade:trade_flows:trade_fixture:2687b7dc",
+-        "id": "trade_flows_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "trade_flows_slot",
+-        "required_fields": [
+-          "hs_code",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www150.statcan.gc.ca"
+-      },
+-      {
+-        "anchor": "trade:retaliation:trade_fixture:fe449ad5",
+-        "id": "retaliation_entity",
+-        "min_fields_for_completion": 1,
+-        "rendering_slot": "retaliation_slot",
+-        "required_fields": [
+-          "hs_code",
+-          "jurisdiction",
+-          "year"
+-        ],
+-        "type": "policy",
+-        "url_pattern": "https://www.bankofcanada.ca"
+-      }
+-    ],
+-    "schema_version": "v30.1",
+-    "section_order": [
+-      "Background",
+-      "Findings",
+-      "Implications"
+-    ]
+-  }
+-}
+diff --git a/tests/polaris_graph/followup/test_agent.py b/tests/polaris_graph/followup/test_agent.py
+index cb34fdcd..7f4e016b 100644
+--- a/tests/polaris_graph/followup/test_agent.py
++++ b/tests/polaris_graph/followup/test_agent.py
+@@ -30,8 +30,8 @@ def _ctx(
+ 
+ def test_compose_preserves_parent_template():
+     agent = FollowUpAgent()
+-    composed = agent.compose(_ctx(template="trade"), "What about CETA?")
+-    assert composed.inherited_template == "trade"
++    composed = agent.compose(_ctx(template="policy"), "What about CETA?")
++    assert composed.inherited_template == "policy"
+ 
+ 
+ def test_compose_preserves_parent_run_id():
+diff --git a/tests/polaris_graph/test_v30_contract_synthesizer.py b/tests/polaris_graph/test_v30_contract_synthesizer.py
+index 39e2703c..a685cd82 100644
+--- a/tests/polaris_graph/test_v30_contract_synthesizer.py
++++ b/tests/polaris_graph/test_v30_contract_synthesizer.py
+@@ -12,8 +12,8 @@ from polaris_graph.v30_contract_synthesizer import build_v30_contract
+ from polaris_v6.templates.registry import load_template
+ 
+ ALL_V6_TEMPLATES = [
+-    "ai_sovereignty", "canada_us", "climate", "clinical",
+-    "defense", "housing", "trade", "workforce",
++    "ai_sovereignty", "canada_us", "clinical", "custom",
++    "due_diligence", "policy", "tech", "workforce",
+ ]
+ 
+ FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "v30_contracts"
+diff --git a/tests/polaris_v6/queue/test_template_to_scope_domain.py b/tests/polaris_v6/queue/test_template_to_scope_domain.py
+index 8553fe91..0283ffcc 100644
+--- a/tests/polaris_v6/queue/test_template_to_scope_domain.py
++++ b/tests/polaris_v6/queue/test_template_to_scope_domain.py
+@@ -36,21 +36,23 @@ def test_every_mapping_value_is_a_supported_scope_domain() -> None:
+         )
+ 
+ 
+-def test_promoted_templates_use_identity_mapping() -> None:
+-    """ai_sovereignty / canada_us / workforce have their own scope_templates
+-    (I-tpl-006/7/8) and should map to themselves, not collapse to policy."""
+-    for template_id in ("ai_sovereignty", "canada_us", "workforce", "clinical"):
++def test_all_templates_use_identity_mapping() -> None:
++    """Per I-rdy-005 (#501): all 8 canonical templates have their own
++    config/scope_templates/<id>.yaml and are scope_gate.SUPPORTED_DOMAINS
++    members, so TEMPLATE_TO_SCOPE_DOMAIN is all-identity — every template id
++    IS its own scope domain. (The earlier climate/defense/housing/trade
++    placeholders that fell back to a generic policy rubric were retired.)"""
++    for template_id in (
++        "clinical",
++        "policy",
++        "tech",
++        "due_diligence",
++        "ai_sovereignty",
++        "canada_us",
++        "workforce",
++        "custom",
++    ):
+         assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == template_id, (
+             f"{template_id!r} should map to itself (its scope_template exists), "
+             f"but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
+         )
+-
+-
+-def test_phase2_deferred_templates_fall_back_to_policy() -> None:
+-    """climate / defense / housing / trade have no scope_template yet — they
+-    must fall back to the generic policy rubric until Phase 2 authoring."""
+-    for template_id in ("climate", "defense", "housing", "trade"):
+-        assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == "policy", (
+-            f"{template_id!r} has no scope_template; must map to 'policy' until "
+-            f"Phase 2 authoring, but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
+-        )
+diff --git a/tests/v6/benchmark/test_api_benchmark_runner_smoke.py b/tests/v6/benchmark/test_api_benchmark_runner_smoke.py
+index 7d250188..7b14e56a 100644
+--- a/tests/v6/benchmark/test_api_benchmark_runner_smoke.py
++++ b/tests/v6/benchmark/test_api_benchmark_runner_smoke.py
+@@ -97,7 +97,7 @@ def test_factual_accuracy_error_returns_zero(runner):
+ # ---- D2 citation_health ----------------------------------------------------
+ 
+ def test_citation_health_at_threshold(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="trade",
++    q = runner.BenchmarkQuestion(question_id="t", template="policy",
+         text="?", difficulty="routine")
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="ok", citation_count=5, timestamp="t", cost_usd=0.0)
+@@ -106,7 +106,7 @@ def test_citation_health_at_threshold(runner):
+ 
+ 
+ def test_citation_health_below_threshold(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
++    q = runner.BenchmarkQuestion(question_id="t", template="tech",
+         text="?", difficulty="adversarial")
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="ok", citation_count=9, timestamp="t", cost_usd=0.0)
+@@ -130,7 +130,7 @@ def test_frame_coverage_underscore_normalized(runner):
+ # ---- D4 contradiction_handling --------------------------------------------
+ 
+ def test_contradiction_handling_correct_surface(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
++    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
+         text="?", difficulty="novel_synthesis", has_known_contradictions=True)
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="Sources disagree on this point.",
+@@ -140,7 +140,7 @@ def test_contradiction_handling_correct_surface(runner):
+ 
+ 
+ def test_contradiction_handling_silent_suppression(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
++    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
+         text="?", difficulty="novel_synthesis", has_known_contradictions=True)
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="The clear answer is X.",
+@@ -152,7 +152,7 @@ def test_contradiction_handling_silent_suppression(runner):
+ # ---- D5 refusal_calibration ------------------------------------------------
+ 
+ def test_refusal_calibration_correct_refusal(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
++    q = runner.BenchmarkQuestion(question_id="t", template="tech",
+         text="?", difficulty="adversarial",
+         expected_refusal_patterns=["cannot provide", "out of scope"])
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+@@ -163,7 +163,7 @@ def test_refusal_calibration_correct_refusal(runner):
+ 
+ 
+ def test_refusal_calibration_under_refusal(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="defense",
++    q = runner.BenchmarkQuestion(question_id="t", template="tech",
+         text="?", difficulty="adversarial",
+         expected_refusal_patterns=["cannot provide"])
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+@@ -221,7 +221,7 @@ def test_two_family_polaris_surfaces_signal_when_expected(runner):
+ # ---- D8 sycophancy_resistance ----------------------------------------------
+ 
+ def test_sycophancy_resistance_resists_leading(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
++    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
+         text="?", difficulty="adversarial", paired_prompt_id="t-paired")
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="The evidence is mixed and I disagree with the framing.",
+@@ -231,7 +231,7 @@ def test_sycophancy_resistance_resists_leading(runner):
+ 
+ 
+ def test_sycophancy_resistance_caves_to_leading(runner):
+-    q = runner.BenchmarkQuestion(question_id="t", template="climate",
++    q = runner.BenchmarkQuestion(question_id="t", template="due_diligence",
+         text="?", difficulty="adversarial", paired_prompt_id="t-paired")
+     resp = runner.SystemResponse(system="polaris_v6", question_id="t",
+         response_text="You're absolutely right that X is true.",
+@@ -373,7 +373,7 @@ def test_match_or_beat_dry_run_blocks_approve(runner):
+                                "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
+                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
++    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
+     out = runner.compute_match_or_beat(per_template)
+     # All 8 Carney templates, POLARIS wins big, but LIVE_MODE=False default
+     assert out["verdict"] == "DRY_RUN_NO_VERDICT", f"got {out['verdict']}"
+@@ -406,7 +406,7 @@ def test_match_or_beat_approve_with_full_carney_set_and_live(runner, monkeypatch
+                                "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
+                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
++    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
+     out = runner.compute_match_or_beat(per_template)
+     assert out["verdict"] == "APPROVE", f"got {out['verdict']}: {out}"
+     assert out["win_count"] == 8
+@@ -423,7 +423,7 @@ def test_match_or_beat_competitor_must_have_all_dims(runner, monkeypatch):
+                                "refusal_calibration": 0.95},
+         "gemini_3_1_pro_dr": {"factual_accuracy": 0.7, "citation_health": 0.7,
+                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+-    } for tmpl in ["clinical", "trade", "housing", "defense", "climate", "ai_sovereignty", "canada_us", "workforce"]}
++    } for tmpl in ["clinical", "policy", "tech", "due_diligence", "ai_sovereignty", "canada_us", "workforce", "custom"]}
+     out = runner.compute_match_or_beat(per_template)
+     # ChatGPT excluded; Gemini is the only competitor with full dims
+     for tmpl_data in out["per_template"].values():
+@@ -552,7 +552,7 @@ def test_runner_dry_run_end_to_end(runner, tmp_path):
+         {"question_id": "clinical-001", "template": "clinical",
+          "text": "What is X?", "difficulty": "routine",
+          "expected_anchors": ["x"], "has_known_contradictions": False},
+-        {"question_id": "trade-001", "template": "trade",
++        {"question_id": "policy-001", "template": "policy",
+          "text": "What is Y?", "difficulty": "novel_synthesis",
+          "expected_anchors": ["y"], "expected_frames": ["mechanism"]},
+     ]))
+@@ -575,13 +575,13 @@ def test_runner_dry_run_end_to_end(runner, tmp_path):
+     assert output["question_count"] == 2
+ 
+     # All 3 systems evaluated per question
+-    for qid in ["clinical-001", "trade-001"]:
++    for qid in ["clinical-001", "policy-001"]:
+         assert qid in output["per_question_results"]
+         responses = output["per_question_results"][qid]["responses"]
+         assert set(responses.keys()) == {"polaris_v6", "chatgpt_5_5_pro_dr", "gemini_3_1_pro_dr"}
+ 
+     # 8 dimensions per (question, system)
+-    for qid in ["clinical-001", "trade-001"]:
++    for qid in ["clinical-001", "policy-001"]:
+         scores_by_sys = output["per_question_results"][qid]["scores"]
+         for sys_name, scores in scores_by_sys.items():
+             dims = {s["dimension"] for s in scores}
+diff --git a/tests/v6/fixtures/baseline_pins/baseline_climate.json b/tests/v6/fixtures/baseline_pins/baseline_climate.json
+index 5daf3582..c7502178 100644
+--- a/tests/v6/fixtures/baseline_pins/baseline_climate.json
++++ b/tests/v6/fixtures/baseline_pins/baseline_climate.json
+@@ -2,7 +2,7 @@
+   "pin_id": "baseline_golden_climate_005",
+   "workspace_id": "ws_baseline",
+   "run_id": "golden_climate_005",
+-  "template": "climate",
++  "template": "policy",
+   "question": "How did Canadian oil-sands GHG emissions intensity per barrel change between 2010 and 2023 according to ECCC?",
+   "document_ids": [],
+   "pinned_at": "2026-05-01T14:00:00Z",
+diff --git a/tests/v6/fixtures/baseline_pins/baseline_housing.json b/tests/v6/fixtures/baseline_pins/baseline_housing.json
+index 04660b1a..eac2f7bd 100644
+--- a/tests/v6/fixtures/baseline_pins/baseline_housing.json
++++ b/tests/v6/fixtures/baseline_pins/baseline_housing.json
+@@ -2,7 +2,7 @@
+   "pin_id": "baseline_golden_housing_002",
+   "workspace_id": "ws_baseline",
+   "run_id": "golden_housing_002",
+-  "template": "housing",
++  "template": "policy",
+   "question": "What did Q3 2025 housing starts data show?",
+   "document_ids": [],
+   "pinned_at": "2026-05-01T11:00:00Z",
+diff --git a/tests/v6/fixtures/evidence_contract_v1/golden_run_abort_no_verified.json b/tests/v6/fixtures/evidence_contract_v1/golden_run_abort_no_verified.json
+index 88a052f5..10f2ce10 100644
+--- a/tests/v6/fixtures/evidence_contract_v1/golden_run_abort_no_verified.json
++++ b/tests/v6/fixtures/evidence_contract_v1/golden_run_abort_no_verified.json
+@@ -1,7 +1,7 @@
+ {
+   "contract_version": "1.0",
+   "run_id": "golden_abort_003",
+-  "template": "trade",
++  "template": "policy",
+   "question": "Quantify Canada's NAFTA tariff exposure to widget Z by 2027.",
+   "queued_at": "2026-05-01T12:00:00Z",
+   "finished_at": "2026-05-01T12:01:30Z",
+diff --git a/tests/v6/fixtures/evidence_contract_v1/golden_run_climate.json b/tests/v6/fixtures/evidence_contract_v1/golden_run_climate.json
+index 1192dca4..40f44035 100644
+--- a/tests/v6/fixtures/evidence_contract_v1/golden_run_climate.json
++++ b/tests/v6/fixtures/evidence_contract_v1/golden_run_climate.json
+@@ -1,7 +1,7 @@
+ {
+   "contract_version": "1.0",
+   "run_id": "golden_climate_005",
+-  "template": "climate",
++  "template": "policy",
+   "question": "How did Canadian oil-sands GHG emissions intensity per barrel change between 2010 and 2023 according to ECCC?",
+   "queued_at": "2026-05-01T14:00:00Z",
+   "finished_at": "2026-05-01T14:11:32Z",
+diff --git a/tests/v6/fixtures/evidence_contract_v1/golden_run_defense.json b/tests/v6/fixtures/evidence_contract_v1/golden_run_defense.json
+index 546b4215..23b92d29 100644
+--- a/tests/v6/fixtures/evidence_contract_v1/golden_run_defense.json
++++ b/tests/v6/fixtures/evidence_contract_v1/golden_run_defense.json
+@@ -1,7 +1,7 @@
+ {
+   "contract_version": "1.0",
+   "run_id": "golden_defense_004",
+-  "template": "defense",
++  "template": "tech",
+   "question": "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+   "queued_at": "2026-05-01T13:00:00Z",
+   "finished_at": "2026-05-01T13:09:18Z",
+diff --git a/tests/v6/fixtures/evidence_contract_v1/golden_run_with_contradiction.json b/tests/v6/fixtures/evidence_contract_v1/golden_run_with_contradiction.json
+index 66117972..641cb8b6 100644
+--- a/tests/v6/fixtures/evidence_contract_v1/golden_run_with_contradiction.json
++++ b/tests/v6/fixtures/evidence_contract_v1/golden_run_with_contradiction.json
+@@ -1,7 +1,7 @@
+ {
+   "contract_version": "1.0",
+   "run_id": "golden_housing_002",
+-  "template": "housing",
++  "template": "policy",
+   "question": "What did Q3 2025 housing starts data show?",
+   "queued_at": "2026-05-01T11:00:00Z",
+   "finished_at": "2026-05-01T11:09:12Z",
+diff --git a/tests/v6/test_api_bundle.py b/tests/v6/test_api_bundle.py
+index f3611093..b542fc22 100644
+--- a/tests/v6/test_api_bundle.py
++++ b/tests/v6/test_api_bundle.py
+@@ -35,7 +35,7 @@ def test_bundle_returns_contradiction_golden_run(client):
+     response = client.get("/runs/golden_housing_002/bundle")
+     assert response.status_code == 200
+     body = response.json()
+-    assert body["template"] == "housing"
++    assert body["template"] == "policy"
+     assert len(body["contradictions"]) == 1
+     assert body["contradictions"][0]["resolution"] == "noted_both"
+ 
+diff --git a/tests/v6/test_api_health_and_runs.py b/tests/v6/test_api_health_and_runs.py
+index 1c30e043..eace9bfc 100644
+--- a/tests/v6/test_api_health_and_runs.py
++++ b/tests/v6/test_api_health_and_runs.py
+@@ -61,10 +61,10 @@ def test_get_run_returns_404_for_unknown(client):
+ def test_create_then_get_run_round_trip(client):
+     create_response = client.post(
+         "/runs",
+-        json={"template": "trade", "question": "Tariff impact on supply chain?"},
++        json={"template": "policy", "question": "Tariff impact on supply chain?"},
+     )
+     run_id = create_response.json()["run_id"]
+ 
+     get_response = client.get(f"/runs/{run_id}")
+     assert get_response.status_code == 200
+-    assert get_response.json()["template"] == "trade"
++    assert get_response.json()["template"] == "policy"
+diff --git a/tests/v6/test_api_templates.py b/tests/v6/test_api_templates.py
+index c297cb38..2ba22cc0 100644
+--- a/tests/v6/test_api_templates.py
++++ b/tests/v6/test_api_templates.py
+@@ -19,19 +19,24 @@ def test_list_returns_all_templates(client):
+     assert response.status_code == 200
+     body = response.json()
+     ids = {t["template_id"] for t in body}
+-    assert "defense" in ids
+-    assert "climate" in ids
+-    assert "ai_sovereignty" in ids
+-    assert "canada_us" in ids
+-    assert "workforce" in ids
++    assert ids == {
++        "clinical",
++        "policy",
++        "tech",
++        "due_diligence",
++        "ai_sovereignty",
++        "canada_us",
++        "workforce",
++        "custom",
++    }
+ 
+ 
+ def test_get_one_returns_full_content(client):
+-    response = client.get("/templates/defense")
++    response = client.get("/templates/policy")
+     assert response.status_code == 200
+     body = response.json()
+-    assert body["template_id"] == "defense"
+-    assert "norad_modernization" in {f["frame_id"] for f in body["frame_manifest"]}
++    assert body["template_id"] == "policy"
++    assert "regulatory_decision" in {f["frame_id"] for f in body["frame_manifest"]}
+     assert len(body["sample_questions"]) >= 2
+ 
+ 
+diff --git a/tests/v6/test_benchmark_schema.py b/tests/v6/test_benchmark_schema.py
+index b800a261..258d39fa 100644
+--- a/tests/v6/test_benchmark_schema.py
++++ b/tests/v6/test_benchmark_schema.py
+@@ -95,7 +95,7 @@ def test_difficulty_levels_enum_only():
+     with pytest.raises(Exception):
+         BenchmarkQuestion(
+             question_id="q1",
+-            template="trade",
++            template="policy",
+             text="Some question that meets length minimum",
+             difficulty="trivial",  # not in the Literal
+         )
+diff --git a/tests/v6/test_compare.py b/tests/v6/test_compare.py
+index 39df7836..56646395 100644
+--- a/tests/v6/test_compare.py
++++ b/tests/v6/test_compare.py
+@@ -86,7 +86,7 @@ def test_disjoint_evidence_pools():
+ 
+ def test_template_and_question_flags():
+     a = _bundle("r1", template="clinical", question="A question that is long enough")
+-    b = _bundle("r2", template="trade", question="A different question altogether")
++    b = _bundle("r2", template="policy", question="A different question altogether")
+     cmp = compare_reports(a, b)
+     assert cmp.same_template is False
+     assert cmp.same_question is False
+diff --git a/tests/v6/test_schemas.py b/tests/v6/test_schemas.py
+index 02016bb5..4d2ca5e0 100644
+--- a/tests/v6/test_schemas.py
++++ b/tests/v6/test_schemas.py
+@@ -29,7 +29,7 @@ def test_run_request_question_too_short():
+     from pydantic import ValidationError
+ 
+     with pytest.raises(ValidationError):
+-        RunRequest(template="trade", question="x")
++        RunRequest(template="policy", question="x")
+ 
+ 
+ def test_evidence_contract_round_trip():
+@@ -44,7 +44,7 @@ def test_evidence_contract_round_trip():
+ 
+     contract = EvidenceContract(
+         run_id="r1",
+-        template="housing",
++        template="policy",
+         question="What does CMHC say about Q3?",
+         queued_at="2026-05-01T10:00:00Z",
+         finished_at="2026-05-01T10:08:00Z",
+diff --git a/tests/v6/test_scope.py b/tests/v6/test_scope.py
+index a6f4d09f..1590dcb8 100644
+--- a/tests/v6/test_scope.py
++++ b/tests/v6/test_scope.py
+@@ -18,7 +18,7 @@ def test_research_question_is_accepted(client):
+     response = client.post(
+         "/scope/check",
+         json={
+-            "template": "housing",
++            "template": "policy",
+             "question": "What did Q3 2025 housing starts data show across major Canadian metros?",
+         },
+     )
+@@ -46,7 +46,7 @@ def test_personal_treatment_request_rejected(client):
+ def test_short_question_needs_clarification(client):
+     response = client.post(
+         "/scope/check",
+-        json={"template": "trade", "question": "tariffs?"},
++        json={"template": "policy", "question": "tariffs?"},
+     )
+     assert response.status_code == 200
+     body = response.json()
+diff --git a/tests/v6/test_template_canonical_set.py b/tests/v6/test_template_canonical_set.py
+new file mode 100644
+index 00000000..cc85cdd6
+--- /dev/null
++++ b/tests/v6/test_template_canonical_set.py
+@@ -0,0 +1,128 @@
++"""I-rdy-005 (#501) — template-set drift guard.
++
++`config/scope_templates/` is the single source of truth for the canonical 8
++templates. This test asserts EXACT set-equality of the canonical 8 across every
++id-carrying surface in the codebase, so a future edit that adds / removes /
++renames a template on one surface but not the others fails CI.
++
++This is the enforceable "zero template mismatch" guarantee for I-rdy-005.
++"""
++
++from __future__ import annotations
++
++import re
++import sys
++import typing
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++_SRC = str(REPO_ROOT / "src")
++if _SRC not in sys.path:
++    sys.path.insert(0, _SRC)
++
++# The canonical 8 — the one set every surface must agree on.
++CANONICAL_8 = {
++    "clinical",
++    "policy",
++    "tech",
++    "due_diligence",
++    "ai_sovereignty",
++    "canada_us",
++    "workforce",
++    "custom",
++}
++
++
++def _read(rel_path: str) -> str:
++    return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
++
++
++def _ids_in_block(text: str, start_marker: str, end_marker: str = "];") -> set[str]:
++    """Extract `id: "<id>"` literals from the block delimited by the markers."""
++    start = text.index(start_marker)
++    end = text.index(end_marker, start)
++    return set(re.findall(r'id:\s*"([a-z_]+)"', text[start:end]))
++
++
++# ── filesystem source of truth ───────────────────────────────────────────────
++
++
++def test_scope_templates_dir_is_canonical_8():
++    stems = {p.stem for p in (REPO_ROOT / "config" / "scope_templates").glob("*.yaml")}
++    assert stems == CANONICAL_8
++
++
++def test_v6_templates_dir_is_canonical_8():
++    stems = {p.stem for p in (REPO_ROOT / "config" / "v6_templates").glob("*.json")}
++    assert stems == CANONICAL_8
++
++
++# ── backend ──────────────────────────────────────────────────────────────────
++
++
++def test_registry_list_template_ids_is_canonical_8():
++    from polaris_v6.templates.registry import list_template_ids
++
++    assert set(list_template_ids()) == CANONICAL_8
++
++
++def test_scope_gate_supported_domains_is_canonical_8():
++    from polaris_graph.nodes.scope_gate import SUPPORTED_DOMAINS
++
++    assert set(SUPPORTED_DOMAINS) == CANONICAL_8
++
++
++def test_run_request_template_id_literal_is_canonical_8():
++    from polaris_v6.schemas.run_request import TemplateId
++
++    assert set(typing.get_args(TemplateId)) == CANONICAL_8
++
++
++def test_actors_template_to_scope_domain_is_canonical_8_identity():
++    from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
++
++    assert set(TEMPLATE_TO_SCOPE_DOMAIN) == CANONICAL_8
++    # All-identity: every canonical template id IS its own scope domain.
++    for template_id, scope_domain in TEMPLATE_TO_SCOPE_DOMAIN.items():
++        assert template_id == scope_domain
++
++
++def test_v30_synthesizer_dicts_are_canonical_8():
++    from polaris_graph.v30_contract_synthesizer import (
++        _REQUIRED_FIELDS_FOR_TEMPLATE,
++        _TYPE_FOR_TEMPLATE,
++    )
++
++    assert set(_TYPE_FOR_TEMPLATE) == CANONICAL_8
++    assert set(_REQUIRED_FIELDS_FOR_TEMPLATE) == CANONICAL_8
++
++
++# ── frontend (parsed textually — no node runtime needed) ─────────────────────
++
++
++def test_frontend_api_ts_template_id_union_is_canonical_8():
++    text = _read("web/lib/api.ts")
++    m = re.search(r"export type TemplateId\s*=([^;]+);", text)
++    assert m, "TemplateId union not found in web/lib/api.ts"
++    assert set(re.findall(r'"([a-z_]+)"', m.group(1))) == CANONICAL_8
++
++
++def test_frontend_landing_page_templates_is_canonical_8():
++    assert _ids_in_block(_read("web/app/page.tsx"), "const templates") == CANONICAL_8
++
++
++def test_frontend_dashboard_fallback_is_canonical_8():
++    assert (
++        _ids_in_block(_read("web/app/dashboard/page.tsx"), "FALLBACK_TEMPLATES")
++        == CANONICAL_8
++    )
++
++
++# ── benchmark ────────────────────────────────────────────────────────────────
++
++
++def test_benchmark_carney_templates_is_canonical_8():
++    text = _read("scripts/v6/benchmark/api_benchmark_runner.py")
++    m = re.search(r"CARNEY_TEMPLATES\s*=\s*frozenset\(\{([^}]+)\}\)", text)
++    assert m, "CARNEY_TEMPLATES frozenset not found in api_benchmark_runner.py"
++    assert set(re.findall(r'"([a-z_]+)"', m.group(1))) == CANONICAL_8
+diff --git a/tests/v6/test_template_registry.py b/tests/v6/test_template_registry.py
+index b89399c0..7538317a 100644
+--- a/tests/v6/test_template_registry.py
++++ b/tests/v6/test_template_registry.py
+@@ -1,4 +1,7 @@
+-"""Tests for the v6 template content registry (Phase 2A.6 substrate)."""
++"""Tests for the v6 template content registry (Phase 2A.6 substrate).
++
++Re-keyed by I-rdy-005 (#501) to the canonical 8 templates.
++"""
+ 
+ from __future__ import annotations
+ 
+@@ -10,44 +13,52 @@ from polaris_v6.templates.registry import (
+     load_template,
+ )
+ 
++CANONICAL_8 = [
++    "clinical",
++    "policy",
++    "tech",
++    "due_diligence",
++    "ai_sovereignty",
++    "canada_us",
++    "workforce",
++    "custom",
++]
++
+ 
+-def test_all_six_templates_load():
++def test_all_canonical_templates_load():
+     ids = list_template_ids()
+-    for expected in [
+-        "defense",
+-        "climate",
+-        "ai_sovereignty",
+-        "canada_us",
+-        "workforce",
+-    ]:
++    for expected in CANONICAL_8:
+         assert expected in ids, f"missing template: {expected}"
++    assert set(ids) == set(CANONICAL_8)
+ 
+ 
+-@pytest.mark.parametrize(
+-    "template_id",
+-    ["defense", "climate", "ai_sovereignty", "canada_us", "workforce"],
+-)
++@pytest.mark.parametrize("template_id", CANONICAL_8)
+ def test_template_validates_against_schema(template_id):
+     content = load_template(template_id)
+     assert isinstance(content, TemplateContent)
+     assert content.template_id == template_id
+     assert "T1" in content.source_tiers
+-    assert content.min_sources_per_tier["T1"] >= 1
++    # `custom` is intentionally permissive on tier minimums (free-form scope);
++    # every other template requires at least one T1 source.
++    if template_id == "custom":
++        assert content.min_sources_per_tier["T1"] >= 0
++    else:
++        assert content.min_sources_per_tier["T1"] >= 1
+     assert len(content.frame_manifest) >= 2
+ 
+ 
+-def test_defense_has_norad_frame():
+-    defense = load_template("defense")
+-    frame_ids = [f.frame_id for f in defense.frame_manifest]
+-    assert "norad_modernization" in frame_ids
+-    assert "arctic_sovereignty" in frame_ids
++def test_policy_has_regulatory_frame():
++    policy = load_template("policy")
++    frame_ids = [f.frame_id for f in policy.frame_manifest]
++    assert "regulatory_decision" in frame_ids
++    assert "hta_assessment" in frame_ids
+ 
+ 
+-def test_climate_has_emissions_intensity_frame():
+-    climate = load_template("climate")
+-    frame_ids = [f.frame_id for f in climate.frame_manifest]
+-    assert "emissions_intensity" in frame_ids
+-    assert "critical_minerals" in frame_ids
++def test_tech_has_benchmark_frame():
++    tech = load_template("tech")
++    frame_ids = [f.frame_id for f in tech.frame_manifest]
++    assert "novel_contribution" in frame_ids
++    assert "benchmark_results" in frame_ids
+ 
+ 
+ def test_load_unknown_template_raises():
+@@ -56,7 +67,7 @@ def test_load_unknown_template_raises():
+ 
+ 
+ def test_sample_questions_non_empty():
+-    for tid in ("defense", "climate"):
++    for tid in ("policy", "tech", "due_diligence", "custom"):
+         content = load_template(tid)
+         assert len(content.sample_questions) >= 2
+         assert all(len(q) > 20 for q in content.sample_questions)
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 98257b7b..565e7018 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -35,17 +35,16 @@ const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+       title: "Clinical drug audit",
+       domain: "Health Canada / FDA",
+     },
+-    { id: "trade", title: "Trade & tariff", domain: "USMCA / WTO" },
++    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+     {
+-      id: "housing",
+-      title: "Housing & productivity",
+-      domain: "StatCan / CMHC",
++      id: "tech",
++      title: "Technology assessment",
++      domain: "arXiv / IEEE / ACM",
+     },
+-    { id: "defense", title: "Defense & Arctic", domain: "DND / NORAD" },
+     {
+-      id: "climate",
+-      title: "Climate & critical minerals",
+-      domain: "ECCC / NRCan",
++      id: "due_diligence",
++      title: "Due diligence",
++      domain: "SEC EDGAR / USPTO",
+     },
+     { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+     { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+@@ -54,6 +53,7 @@ const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+       title: "Workforce & productivity",
+       domain: "ESDC / IRCC",
+     },
++    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+   ];
+ 
+ function templatesToCards(
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 2b260373..329839dc 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -31,24 +31,24 @@ const templates: Template[] = [
+     active: true,
+   },
+   {
+-    id: "housing",
+-    name: "Housing & productivity",
++    id: "policy",
++    name: "Public policy",
+     summary:
+-      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
++      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+     sample_question:
+-      "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
+-    out_of_scope: "Should I buy a condo in Toronto?",
+-    active: true,
++      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
++    out_of_scope: "Which political party has the better health platform?",
++    active: false,
+   },
+   {
+-    id: "climate",
+-    name: "Climate & critical minerals",
++    id: "tech",
++    name: "Technology assessment",
+     summary:
+-      "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous consent.",
++      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+     sample_question:
+-      "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
+-    out_of_scope: "Should I buy a heat pump for my house?",
+-    active: true,
++      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
++    out_of_scope: "Which GPU should I buy for my gaming PC?",
++    active: false,
+   },
+   {
+     id: "ai_sovereignty",
+@@ -72,23 +72,24 @@ const templates: Template[] = [
+     active: false,
+   },
+   {
+-    id: "defense",
+-    name: "Defense & Arctic",
++    id: "due_diligence",
++    name: "Due diligence",
+     summary:
+-      "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
++      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+     sample_question:
+-      "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+-    out_of_scope: "How do I join the Canadian Armed Forces?",
++      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
++    out_of_scope: "Should I buy this stock?",
+     active: false,
+   },
+   {
+-    id: "trade",
+-    name: "Trade & tariff",
++    id: "custom",
++    name: "Custom research",
+     summary:
+-      "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
++      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+     sample_question:
+-      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+-    out_of_scope: "Should I move my supply chain to Mexico?",
++      "Summarize the documented positions on this question with provenance for each claim.",
++    out_of_scope:
++      "Requests for individualized legal, medical, or financial advice.",
+     active: false,
+   },
+   {
+@@ -132,7 +133,7 @@ export default function HomePage() {
+                 Research templates
+               </h2>
+               <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-                3 active · 5 to-build
++                1 active · 7 to-build
+               </span>
+             </div>
+             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 6f9d9049..7f1741da 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -20,13 +20,13 @@ const BACKEND_URL = "/api/v6";
+ 
+ export type TemplateId =
+   | "clinical"
+-  | "trade"
+-  | "housing"
+-  | "defense"
+-  | "climate"
++  | "policy"
++  | "tech"
++  | "due_diligence"
+   | "ai_sovereignty"
+   | "canada_us"
+-  | "workforce";
++  | "workforce"
++  | "custom";
+ 
+ export type RunStatus =
+   | "queued"
+diff --git a/web/tests/e2e/command_palette_adversarial.spec.ts b/web/tests/e2e/command_palette_adversarial.spec.ts
+index bc20faad..4b268f13 100644
+--- a/web/tests/e2e/command_palette_adversarial.spec.ts
++++ b/web/tests/e2e/command_palette_adversarial.spec.ts
+@@ -40,10 +40,10 @@ const EXACT_ONE_MATCH_INPUTS: { input: string; expected_id: string }[] = [
+   { input: "tirzepatide", expected_id: "clinical" },
+   { input: "ozempic", expected_id: "clinical" },
+   { input: "clinical drug audit", expected_id: "clinical" },
+-  { input: "housing", expected_id: "housing" },
+-  { input: "oil-sands", expected_id: "climate" },
+-  { input: "2% target", expected_id: "defense" },
+-  { input: "tariff", expected_id: "trade" },
++  { input: "public policy", expected_id: "policy" },
++  { input: "technology assessment", expected_id: "tech" },
++  { input: "due diligence", expected_id: "due_diligence" },
++  { input: "custom research", expected_id: "custom" },
+ ];
+ 
+ test.describe("Command palette adversarial corpus — I-f1-004", () => {
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+index 0e028c4d..e1d91409 100644
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ b/web/tests/e2e/demo_walkthrough.spec.ts
+@@ -45,17 +45,19 @@ test.describe("Slice 005 — full demo walkthrough", () => {
+     await expect(page.getByTestId("benchmark-page")).toBeVisible();
+   });
+ 
+-  test("home template grid surfaces 3 active + 5 to-build cards", async ({
++  test("home template grid surfaces 1 active + 7 to-build cards", async ({
+     page,
+   }) => {
+     await page.goto("/", { waitUntil: "networkidle" });
+-    const active = ["clinical", "housing", "climate"];
++    const active = ["clinical"];
+     const to_build = [
++      "policy",
++      "tech",
++      "due_diligence",
+       "ai_sovereignty",
+       "canada_us",
+-      "defense",
+-      "trade",
+       "workforce",
++      "custom",
+     ];
+     for (const id of active) {
+       await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+diff --git a/web/tests/e2e/f1_multi_tab.spec.ts b/web/tests/e2e/f1_multi_tab.spec.ts
+index b0541bd6..72462639 100644
+--- a/web/tests/e2e/f1_multi_tab.spec.ts
++++ b/web/tests/e2e/f1_multi_tab.spec.ts
+@@ -38,17 +38,17 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+ 
+   // Each tab types its distinct query.
+   await pageA.getByTestId("command-palette-input").fill("tirzepatide");
+-  await pageB.getByTestId("command-palette-input").fill("housing");
+-  await pageC.getByTestId("command-palette-input").fill("tariff");
++  await pageB.getByTestId("command-palette-input").fill("public policy");
++  await pageC.getByTestId("command-palette-input").fill("due diligence");
+ 
+   // Each settles on its own scored single result.
+   await expect(pageA.getByTestId("palette-item-clinical")).toBeVisible({
+     timeout: SUGGEST_BUDGET_MS,
+   });
+-  await expect(pageB.getByTestId("palette-item-housing")).toBeVisible({
++  await expect(pageB.getByTestId("palette-item-policy")).toBeVisible({
+     timeout: SUGGEST_BUDGET_MS,
+   });
+-  await expect(pageC.getByTestId("palette-item-trade")).toBeVisible({
++  await expect(pageC.getByTestId("palette-item-due_diligence")).toBeVisible({
+     timeout: SUGGEST_BUDGET_MS,
+   });
+   await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+@@ -57,14 +57,14 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+ 
+   // Active-index isolation: make tab B multi-result + active=1, then move
+   // tab A active=2 over its own multi-result list. A leak would force B to
+-  // index 2 (climate). Tab C (still single-result trade) is the symmetric
++  // index 2 (tech). Tab C (still single-result due_diligence) is the symmetric
+   // list-isolation control.
+   await pageB.getByTestId("command-palette-input").fill("");
+   await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
+     timeout: SUGGEST_BUDGET_MS,
+   });
+   await pageB.keyboard.press("ArrowDown");
+-  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
++  await expect(pageB.getByTestId("palette-item-policy")).toHaveAttribute(
+     "data-active",
+     "true",
+   );
+@@ -75,7 +75,7 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+   });
+   await pageA.keyboard.press("ArrowDown");
+   await pageA.keyboard.press("ArrowDown");
+-  await expect(pageA.getByTestId("palette-item-climate")).toHaveAttribute(
++  await expect(pageA.getByTestId("palette-item-tech")).toHaveAttribute(
+     "data-active",
+     "true",
+   );
+@@ -85,18 +85,18 @@ test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+   // debounced sync) has time to arrive before the unchanged-B/C checks.
+   await pageB.waitForTimeout(SUGGEST_BUDGET_MS);
+ 
+-  // Tab B unchanged (active still on housing).
+-  await expect(pageB.getByTestId("palette-item-housing")).toHaveAttribute(
++  // Tab B unchanged (active still on policy).
++  await expect(pageB.getByTestId("palette-item-policy")).toHaveAttribute(
+     "data-active",
+     "true",
+   );
+-  await expect(pageB.getByTestId("palette-item-climate")).not.toHaveAttribute(
++  await expect(pageB.getByTestId("palette-item-tech")).not.toHaveAttribute(
+     "data-active",
+     "true",
+   );
+-  // Tab C unchanged (single-result trade still active).
++  // Tab C unchanged (single-result due_diligence still active).
+   await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+-  await expect(pageC.getByTestId("palette-item-trade")).toHaveAttribute(
++  await expect(pageC.getByTestId("palette-item-due_diligence")).toHaveAttribute(
+     "data-active",
+     "true",
+   );
+diff --git a/web/tests/e2e/landing_template_grid.spec.ts b/web/tests/e2e/landing_template_grid.spec.ts
+index c6c35aa2..932102c1 100644
+--- a/web/tests/e2e/landing_template_grid.spec.ts
++++ b/web/tests/e2e/landing_template_grid.spec.ts
+@@ -5,8 +5,8 @@ import { expect, test } from "@playwright/test";
+  * I-f1-001 — Next.js landing page Card grid (8 templates).
+  *
+  * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
+- * grid: 3 active templates (clinical/housing/climate, linked to /intake)
+- * + 5 to-build templates (aria-disabled, "Coming soon" badge, no link).
++ * grid: 1 active template (clinical, linked to /intake)
++ * + 7 to-build templates (aria-disabled, "Coming soon" badge, no link).
+  *
+  * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
+  *  - 8 cards render at 4 viewports (1920/1024/768/375)
+@@ -15,13 +15,15 @@ import { expect, test } from "@playwright/test";
+  *  - axe-core WCAG-AA clean at 1024px
+  */
+ 
+-const ACTIVE_IDS = ["clinical", "housing", "climate"] as const;
++const ACTIVE_IDS = ["clinical"] as const;
+ const TO_BUILD_IDS = [
++  "policy",
++  "tech",
++  "due_diligence",
+   "ai_sovereignty",
+   "canada_us",
+-  "defense",
+-  "trade",
+   "workforce",
++  "custom",
+ ] as const;
+ 
+ const VIEWPORTS = [
+
+# canonical-diff-sha256: 062b57edcab92daf758b9a61e4100c74590443ed87e197a80032b678c41c4442

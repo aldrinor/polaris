@@ -40,10 +40,10 @@ const EXACT_ONE_MATCH_INPUTS: { input: string; expected_id: string }[] = [
   { input: "tirzepatide", expected_id: "clinical" },
   { input: "ozempic", expected_id: "clinical" },
   { input: "clinical drug audit", expected_id: "clinical" },
-  { input: "housing", expected_id: "housing" },
-  { input: "oil-sands", expected_id: "climate" },
-  { input: "2% target", expected_id: "defense" },
-  { input: "tariff", expected_id: "trade" },
+  { input: "public policy", expected_id: "policy" },
+  { input: "technology assessment", expected_id: "tech" },
+  { input: "due diligence", expected_id: "due_diligence" },
+  { input: "custom research", expected_id: "custom" },
 ];
 
 test.describe("Command palette adversarial corpus — I-f1-004", () => {

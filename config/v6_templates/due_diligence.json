@@ -1,0 +1,48 @@
+{
+  "template_id": "due_diligence",
+  "template_name": "Due diligence",
+  "summary": "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim requires named, dated provenance; anonymous and unattributed sources are excluded.",
+  "primary_domains": ["SEC EDGAR", "USPTO", "Reuters / Bloomberg", "Named analyst research", "Company filings"],
+  "source_tiers": {
+    "T1": [
+      "https://www.sec.gov/edgar",
+      "https://www.uspto.gov",
+      "https://patents.google.com",
+      "https://www.ftc.gov",
+      "https://www.justice.gov/atr"
+    ],
+    "T2": [
+      "https://www.reuters.com",
+      "https://www.bloomberg.com",
+      "https://www.ft.com",
+      "https://www.wsj.com"
+    ],
+    "T3": [
+      "https://www.gartner.com",
+      "https://www.forrester.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 2, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "financials", "frame_name": "Financial position + filings" },
+    { "frame_id": "market_position", "frame_name": "Market position + competitive landscape" },
+    { "frame_id": "ip_portfolio", "frame_name": "IP / patent portfolio" },
+    { "frame_id": "regulatory_legal", "frame_name": "Regulatory + legal exposure" },
+    { "frame_id": "risk_factors", "frame_name": "Risk factors + red flags" }
+  ],
+  "refusal_patterns": [
+    "individual_investment_advice",
+    "insider_information_solicitation",
+    "specific_buy_sell_recommendation"
+  ],
+  "sample_questions": [
+    "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    "How does this firm's patent portfolio compare to its two closest competitors?",
+    "What regulatory correspondence (FTC, DOJ) is on record for this proposed acquisition?",
+    "What do named analyst reports say about this market's 2025-2028 growth outlook?"
+  ],
+  "out_of_scope_examples": [
+    "Should I buy this stock?",
+    "What will this company's share price be next quarter?"
+  ]
+}

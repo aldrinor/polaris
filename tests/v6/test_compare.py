@@ -86,7 +86,7 @@ def test_disjoint_evidence_pools():
 
 def test_template_and_question_flags():
     a = _bundle("r1", template="clinical", question="A question that is long enough")
-    b = _bundle("r2", template="trade", question="A different question altogether")
+    b = _bundle("r2", template="policy", question="A different question altogether")
     cmp = compare_reports(a, b)
     assert cmp.same_template is False
     assert cmp.same_question is False

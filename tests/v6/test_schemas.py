@@ -29,7 +29,7 @@ def test_run_request_question_too_short():
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        RunRequest(template="trade", question="x")
+        RunRequest(template="policy", question="x")
 
 
 def test_evidence_contract_round_trip():
@@ -44,7 +44,7 @@ def test_evidence_contract_round_trip():
 
     contract = EvidenceContract(
         run_id="r1",
-        template="housing",
+        template="policy",
         question="What does CMHC say about Q3?",
         queued_at="2026-05-01T10:00:00Z",
         finished_at="2026-05-01T10:08:00Z",

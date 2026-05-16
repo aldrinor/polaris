@@ -2,7 +2,7 @@
   "pin_id": "baseline_golden_housing_002",
   "workspace_id": "ws_baseline",
   "run_id": "golden_housing_002",
-  "template": "housing",
+  "template": "policy",
   "question": "What did Q3 2025 housing starts data show?",
   "document_ids": [],
   "pinned_at": "2026-05-01T11:00:00Z",

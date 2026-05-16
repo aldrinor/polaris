@@ -1,0 +1,48 @@
+{
+  "template_id": "tech",
+  "template_name": "Technology assessment",
+  "summary": "Assessment of a technology, algorithm, software system, or engineering approach — grounded in peer-reviewed conference and journal papers, standards documents, and clearly-attributed preprints and technical sources.",
+  "primary_domains": ["arXiv", "IEEE", "ACM", "NeurIPS / ICML / ACL", "IETF / W3C"],
+  "source_tiers": {
+    "T1": [
+      "https://ieeexplore.ieee.org",
+      "https://dl.acm.org",
+      "https://proceedings.neurips.cc",
+      "https://aclanthology.org",
+      "https://www.nature.com/natmachintell"
+    ],
+    "T2": [
+      "https://arxiv.org",
+      "https://www.biorxiv.org",
+      "https://www.rfc-editor.org",
+      "https://www.w3.org/TR"
+    ],
+    "T3": [
+      "https://research.google/blog",
+      "https://engineering.fb.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 1, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "novel_contribution", "frame_name": "Novel-contribution claims + peer-reviewed evidence" },
+    { "frame_id": "benchmark_results", "frame_name": "Benchmark / evaluation results" },
+    { "frame_id": "methodology", "frame_name": "Methodology + reproducibility" },
+    { "frame_id": "standards_compliance", "frame_name": "Standards + interoperability" },
+    { "frame_id": "limitations", "frame_name": "Known limitations + failure modes" }
+  ],
+  "refusal_patterns": [
+    "specific_vendor_endorsement",
+    "individual_purchasing_advice",
+    "security_exploit_instructions"
+  ],
+  "sample_questions": [
+    "What does the peer-reviewed evidence show on mixture-of-experts scaling vs dense transformers as of 2025?",
+    "How do retrieval-augmented-generation benchmarks compare across the 2024 published literature?",
+    "What are the documented limitations of speculative decoding for long-context inference?",
+    "What does the IETF QUIC RFC specify on connection migration?"
+  ],
+  "out_of_scope_examples": [
+    "Which GPU should I buy for my gaming PC?",
+    "Write me a working exploit for this CVE."
+  ]
+}

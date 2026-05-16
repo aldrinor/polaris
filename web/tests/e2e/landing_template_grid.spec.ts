@@ -5,8 +5,8 @@ import { expect, test } from "@playwright/test";
  * I-f1-001 — Next.js landing page Card grid (8 templates).
  *
  * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
- * grid: 3 active templates (clinical/housing/climate, linked to /intake)
- * + 5 to-build templates (aria-disabled, "Coming soon" badge, no link).
+ * grid: 1 active template (clinical, linked to /intake)
+ * + 7 to-build templates (aria-disabled, "Coming soon" badge, no link).
  *
  * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
  *  - 8 cards render at 4 viewports (1920/1024/768/375)
@@ -15,13 +15,15 @@ import { expect, test } from "@playwright/test";
  *  - axe-core WCAG-AA clean at 1024px
  */
 
-const ACTIVE_IDS = ["clinical", "housing", "climate"] as const;
+const ACTIVE_IDS = ["clinical"] as const;
 const TO_BUILD_IDS = [
+  "policy",
+  "tech",
+  "due_diligence",
   "ai_sovereignty",
   "canada_us",
-  "defense",
-  "trade",
   "workforce",
+  "custom",
 ] as const;
 
 const VIEWPORTS = [

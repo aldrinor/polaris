@@ -1,7 +1,7 @@
 {
   "contract_version": "1.0",
   "run_id": "golden_housing_002",
-  "template": "housing",
+  "template": "policy",
   "question": "What did Q3 2025 housing starts data show?",
   "queued_at": "2026-05-01T11:00:00Z",
   "finished_at": "2026-05-01T11:09:12Z",

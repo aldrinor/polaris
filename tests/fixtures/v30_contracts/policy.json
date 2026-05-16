@@ -1,0 +1,109 @@
+{
+  "policy_fixture": {
+    "schema_version": "v30.1",
+    "required_entities": [
+      {
+        "id": "regulatory_decision_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "regulatory_decision_slot",
+        "url_pattern": "https://www.canada.ca/en/health-canada.html",
+        "anchor": "policy:regulatory_decision:policy_fixture:ebc51741"
+      },
+      {
+        "id": "reimbursement_access_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "reimbursement_access_slot",
+        "url_pattern": "https://www.fda.gov",
+        "anchor": "policy:reimbursement_access:policy_fixture:596412ac"
+      },
+      {
+        "id": "hta_assessment_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "hta_assessment_slot",
+        "url_pattern": "https://www.ema.europa.eu",
+        "anchor": "policy:hta_assessment:policy_fixture:8f56e32f"
+      },
+      {
+        "id": "public_health_guidance_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "public_health_guidance_slot",
+        "url_pattern": "https://www.who.int",
+        "anchor": "policy:public_health_guidance:policy_fixture:d4a38ef5"
+      },
+      {
+        "id": "cross_jurisdiction_entity",
+        "type": "policy",
+        "required_fields": [
+          "jurisdiction",
+          "policy_id",
+          "year"
+        ],
+        "min_fields_for_completion": 1,
+        "rendering_slot": "cross_jurisdiction_slot",
+        "url_pattern": "https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency",
+        "anchor": "policy:cross_jurisdiction:policy_fixture:b1969084"
+      }
+    ],
+    "rendering_slots": {
+      "regulatory_decision_slot": {
+        "section": "Background",
+        "subsection_title": "Regulatory approval / labelling decisions",
+        "ordering": 1,
+        "required": true
+      },
+      "reimbursement_access_slot": {
+        "section": "Background",
+        "subsection_title": "Reimbursement + access policy",
+        "ordering": 2,
+        "required": true
+      },
+      "hta_assessment_slot": {
+        "section": "Findings",
+        "subsection_title": "Health-technology-assessment findings",
+        "ordering": 3,
+        "required": true
+      },
+      "public_health_guidance_slot": {
+        "section": "Findings",
+        "subsection_title": "Public-health guidance + recommendations",
+        "ordering": 4,
+        "required": true
+      },
+      "cross_jurisdiction_slot": {
+        "section": "Implications",
+        "subsection_title": "Cross-jurisdiction access comparison",
+        "ordering": 5,
+        "required": true
+      }
+    },
+    "section_order": [
+      "Background",
+      "Findings",
+      "Implications"
+    ]
+  }
+}

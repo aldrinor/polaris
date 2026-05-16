@@ -61,10 +61,10 @@ def test_get_run_returns_404_for_unknown(client):
 def test_create_then_get_run_round_trip(client):
     create_response = client.post(
         "/runs",
-        json={"template": "trade", "question": "Tariff impact on supply chain?"},
+        json={"template": "policy", "question": "Tariff impact on supply chain?"},
     )
     run_id = create_response.json()["run_id"]
 
     get_response = client.get(f"/runs/{run_id}")
     assert get_response.status_code == 200
-    assert get_response.json()["template"] == "trade"
+    assert get_response.json()["template"] == "policy"

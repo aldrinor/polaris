@@ -31,24 +31,24 @@ const templates: Template[] = [
     active: true,
   },
   {
-    id: "housing",
-    name: "Housing & productivity",
+    id: "policy",
+    name: "Public policy",
     summary:
-      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
     sample_question:
-      "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
-    out_of_scope: "Should I buy a condo in Toronto?",
-    active: true,
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
   },
   {
-    id: "climate",
-    name: "Climate & critical minerals",
+    id: "tech",
+    name: "Technology assessment",
     summary:
-      "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous consent.",
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
     sample_question:
-      "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
-    out_of_scope: "Should I buy a heat pump for my house?",
-    active: true,
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
   },
   {
     id: "ai_sovereignty",
@@ -72,23 +72,24 @@ const templates: Template[] = [
     active: false,
   },
   {
-    id: "defense",
-    name: "Defense & Arctic",
+    id: "due_diligence",
+    name: "Due diligence",
     summary:
-      "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
     sample_question:
-      "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
-    out_of_scope: "How do I join the Canadian Armed Forces?",
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
     active: false,
   },
   {
-    id: "trade",
-    name: "Trade & tariff",
+    id: "custom",
+    name: "Custom research",
     summary:
-      "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
     sample_question:
-      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
-    out_of_scope: "Should I move my supply chain to Mexico?",
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
     active: false,
   },
   {
@@ -132,7 +133,7 @@ export default function HomePage() {
                 Research templates
               </h2>
               <span className="text-muted-foreground text-xs tracking-widest uppercase">
-                3 active · 5 to-build
+                1 active · 7 to-build
               </span>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

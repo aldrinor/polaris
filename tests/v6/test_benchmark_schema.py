@@ -95,7 +95,7 @@ def test_difficulty_levels_enum_only():
     with pytest.raises(Exception):
         BenchmarkQuestion(
             question_id="q1",
-            template="trade",
+            template="policy",
             text="Some question that meets length minimum",
             difficulty="trivial",  # not in the Literal
         )

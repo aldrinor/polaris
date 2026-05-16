@@ -35,7 +35,7 @@ def test_bundle_returns_contradiction_golden_run(client):
     response = client.get("/runs/golden_housing_002/bundle")
     assert response.status_code == 200
     body = response.json()
-    assert body["template"] == "housing"
+    assert body["template"] == "policy"
     assert len(body["contradictions"]) == 1
     assert body["contradictions"][0]["resolution"] == "noted_both"
 

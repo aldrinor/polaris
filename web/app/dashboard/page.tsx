@@ -35,17 +35,16 @@ const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
       title: "Clinical drug audit",
       domain: "Health Canada / FDA",
     },
-    { id: "trade", title: "Trade & tariff", domain: "USMCA / WTO" },
+    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
     {
-      id: "housing",
-      title: "Housing & productivity",
-      domain: "StatCan / CMHC",
+      id: "tech",
+      title: "Technology assessment",
+      domain: "arXiv / IEEE / ACM",
     },
-    { id: "defense", title: "Defense & Arctic", domain: "DND / NORAD" },
     {
-      id: "climate",
-      title: "Climate & critical minerals",
-      domain: "ECCC / NRCan",
+      id: "due_diligence",
+      title: "Due diligence",
+      domain: "SEC EDGAR / USPTO",
     },
     { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
     { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
@@ -54,6 +53,7 @@ const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
       title: "Workforce & productivity",
       domain: "ESDC / IRCC",
     },
+    { id: "custom", title: "Custom research", domain: "Operator-defined" },
   ];
 
 function templatesToCards(
