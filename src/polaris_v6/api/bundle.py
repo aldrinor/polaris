@@ -35,6 +35,7 @@ from polaris_v6.api.artifact_to_slice_chain import (
     SovereigntyFilterEmptiedReportError,
     build_slice_chain,
 )
+from polaris_v6.api.live_run_adapter import live_run_evidence_contract
 from polaris_v6.queue import run_store
 from polaris_v6.schemas.evidence_contract import EvidenceContract
 
@@ -55,6 +56,11 @@ _GOLDEN_RUN_INDEX = {
 
 @router.get("/{run_id}/bundle", response_model=EvidenceContract)
 def get_bundle(run_id: str) -> EvidenceContract:
+    # I-rdy-008: a live completed run resolves through the live_run adapter;
+    # only fall back to the golden fixture index when no run_store row exists.
+    live = live_run_evidence_contract(run_id)
+    if live is not None:
+        return live
     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
     if fixture_name is None:
         raise HTTPException(

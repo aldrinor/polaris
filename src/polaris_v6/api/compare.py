@@ -8,6 +8,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 
 from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
+from polaris_v6.api.live_run_adapter import live_run_evidence_contract
 from polaris_v6.compare.differ import compare_reports
 from polaris_v6.schemas.evidence_contract import EvidenceContract
 
@@ -15,6 +16,10 @@ router = APIRouter(prefix="/runs", tags=["compare"])
 
 
 def _load(run_id: str) -> EvidenceContract:
+    # I-rdy-008: live completed run first; fall back to the golden fixture index.
+    live = live_run_evidence_contract(run_id)
+    if live is not None:
+        return live
     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
     if fixture_name is None:
         raise HTTPException(
