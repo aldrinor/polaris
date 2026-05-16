@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,14 @@ export default function DashboardPage() {
   const [clinicalScanGate, setClinicalScanGate] = useState<ScanGate>("not_run");
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
 
+  // I-rdy-009 (#505): monotonic scan generation. Every scan claims a
+  // generation at start; any input edit (invalidateAmbiguityScan) bumps it.
+  // An in-flight scan whose generation is stale on resolution discards its
+  // result — so a scan started for question A can never set the gate "ok"
+  // for an edited-to question B (a ref, so the bump is synchronous and the
+  // discard is order-independent of the resolving promise).
+  const scanGenerationRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     listTemplates()
@@ -113,9 +121,11 @@ export default function DashboardPage() {
   // I-rdy-009 (#505): any change to the question, template, or upload set
   // invalidates a prior ambiguity scan. A stale "ok" gate must not let an
   // edited question reach createRun without its own detect_ambiguity scan.
-  // Called from the question / template / upload event handlers (not an
-  // effect — per the react-hooks/set-state-in-effect rule).
+  // Bumping the generation also cancels any in-flight scan. Called from the
+  // question / template / upload event handlers (not an effect — per the
+  // react-hooks/set-state-in-effect rule).
   const invalidateAmbiguityScan = () => {
+    scanGenerationRef.current += 1;
     setClinicalScanGate("not_run");
     setAmbiguity(null);
     setAcknowledgedAmbiguity(false);
@@ -152,6 +162,9 @@ export default function DashboardPage() {
 
   const runScopeCheck = async () => {
     if (question.trim().length < 1) return;
+    // Claim a fresh generation; an edit mid-scan bumps past it and the
+    // result-application guards below will discard this scan's output.
+    const myGeneration = (scanGenerationRef.current += 1);
     setScopeChecking(true);
     setError(null);
     setAmbiguity(null);
@@ -162,6 +175,7 @@ export default function DashboardPage() {
     const clinicalQuestionOnly = template === "clinical" && uploads.length === 0;
     try {
       const decision = await checkScope(template, question.trim());
+      if (scanGenerationRef.current !== myGeneration) return; // stale — discard
       setScopeDecision(decision);
       if (decision.verdict === "accepted" && uploads.length > 0) {
         // Upload-backed ambiguity: candidates come from document chunks.
@@ -173,6 +187,7 @@ export default function DashboardPage() {
         );
         if (candidates.length > 0) {
           const result = await checkAmbiguity(question.trim(), candidates);
+          if (scanGenerationRef.current !== myGeneration) return; // stale
           setAmbiguity(result);
           if (result.is_ambiguous) setDisambigModalOpen(true);
         }
@@ -181,14 +196,18 @@ export default function DashboardPage() {
         // runs detect_ambiguity. A successful scan is mandatory before a
         // run may start (see the onSubmit gate below).
         const result = await scanAmbiguity(question.trim());
+        if (scanGenerationRef.current !== myGeneration) return; // stale
         setAmbiguity(result);
         setClinicalScanGate("ok");
         if (result.is_ambiguous) setDisambigModalOpen(true);
       }
     } catch (err) {
+      if (scanGenerationRef.current !== myGeneration) return; // stale — discard
       if (clinicalQuestionOnly) setClinicalScanGate("failed");
       setError(err instanceof Error ? err.message : "Scope check failed");
     } finally {
+      // Always clear the in-progress flag — only one runScopeCheck is ever
+      // in flight (the button is disabled while scopeChecking).
       setScopeChecking(false);
     }
   };
@@ -204,8 +223,8 @@ export default function DashboardPage() {
       return;
     }
     // I-rdy-009 (#505): a clinical question-only run must not start unless
-    // the ambiguity scan succeeded. A 503, a never-run scan, or a post-scan
-    // edit (which invalidates the gate) all leave the gate != "ok".
+    // the ambiguity scan succeeded. A 503, a never-run scan, a post-scan
+    // edit, or a discarded stale in-flight scan all leave the gate != "ok".
     if (
       template === "clinical" &&
       uploads.length === 0 &&

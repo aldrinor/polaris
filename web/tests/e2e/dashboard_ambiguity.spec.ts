@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 
 // I-rdy-009 (#505): F2 ambiguity detection in the main create-run flow.
 // An ambiguous clinical question-only query must open the disambiguation
-// modal; a failed or stale ambiguity scan must hard-block "Start run".
+// modal; a failed, stale, or in-flight-superseded ambiguity scan must
+// hard-block "Start run".
 
 const ACCEPTED_SCOPE = {
   verdict: "accepted",
@@ -141,6 +142,50 @@ test("editing the question after a scan re-blocks Start run (stale gate)", async
 
   // Edit the question: this invalidates the prior scan's "ok" gate.
   await page.locator("#question").fill("Does ibuprofen reduce fever in children?");
+  await page.getByRole("button", { name: "Start run" }).click();
+  await expect(page.getByRole("alert")).toContainText("Run Check scope first");
+  expect(runs_called).toBe(false);
+  expect(page.url()).toContain("/dashboard");
+});
+
+test("editing the question during an in-flight scan re-blocks Start run", async ({
+  page,
+}) => {
+  await mockBaseRoutes(page);
+  await page.route("**/ambiguity/scan", async (route) => {
+    // Slow scan — opens a window to edit the question while it is in flight.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: false,
+        clusters: [],
+        fallback_used: true,
+      }),
+    });
+  });
+  let runs_called = false;
+  await page.route("**/runs", async (route) => {
+    runs_called = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ run_id: "must-not-happen" }),
+    });
+  });
+
+  await page.goto("/dashboard");
+  await page.locator("#question").fill("Does aspirin reduce headaches in adults?");
+  // Start the scan, then edit the question while it is still in flight —
+  // the resolving scan must NOT set the gate "ok" for the edited question.
+  await page.getByRole("button", { name: "Check scope" }).click();
+  await page.locator("#question").fill("Does ibuprofen reduce fever in children?");
+  // Wait for the (now stale) scan to resolve — Check scope re-enables.
+  await expect(
+    page.getByRole("button", { name: "Check scope" }),
+  ).toBeEnabled();
+
   await page.getByRole("button", { name: "Start run" }).click();
   await expect(page.getByRole("alert")).toContainText("Run Check scope first");
   expect(runs_called).toBe(false);
