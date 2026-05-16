@@ -207,6 +207,16 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
 
     run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
 
+    # I-rdy-011 (#507) — Codex diff-iter-2 P1: a cancel requested at ANY point
+    # during run_one_query (including the late evaluator/judge stage, past the
+    # last cooperative checkpoint) must win over a success/partial/abort
+    # manifest. This actor-side backstop guarantees the cooperative-cancel
+    # contract regardless of which pipeline stage the cancel landed in.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
+        return summary
+
     if pipeline_status == "success" or pipeline_status.startswith("partial_"):
         run_store.mark_completed(
             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f

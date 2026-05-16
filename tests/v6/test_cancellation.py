@@ -180,6 +180,37 @@ def test_actor_retry_of_failed_run_not_marked_cancelled(db, tmp_path, monkeypatc
     assert rec.lifecycle_status == "completed"
 
 
+def test_actor_late_cancel_overrides_success_manifest(db, tmp_path, monkeypatch):
+    """Codex diff-iter-2 P1: a cancel requested during run_one_query's final
+    stage (past the last cooperative checkpoint) must still win — the actor's
+    post-run backstop marks the run cancelled even though the manifest is a
+    success verdict."""
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    async def _fake_run_one_query(q, out_root):  # noqa: ARG001
+        out_root.mkdir(parents=True, exist_ok=True)
+        (out_root / "manifest.json").write_text(
+            json.dumps({"run_id": "SWEEP_x", "status": "success"}) + "\n"
+        )
+        # A cancel lands during the run's final (post-checkpoint) stage.
+        run_store.request_cancel("r13")
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query", _fake_run_one_query, raising=False
+    )
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    run_store.insert_run("r13", "clinical", "Question?")
+    enqueue_research_run.fn(
+        "r13", {"template": "clinical", "question": "Question?", "document_ids": []}
+    )
+    rec = run_store.get_run("r13")
+    assert rec is not None
+    # The success manifest must NOT win — the user cancelled.
+    assert rec.lifecycle_status == "cancelled"
+
+
 # --------------------------------------------------------------------------
 # run_one_query cooperative checkpoint — _abort_if_cancelled
 # --------------------------------------------------------------------------
