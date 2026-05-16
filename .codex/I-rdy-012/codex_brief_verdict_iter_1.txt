@@ -1,0 +1,1305 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e317f-7992-7c31-9f34-e80487d5fc12
+--------
+user
+# Codex BRIEF review — I-rdy-012 (#508): durable workspace-scoped memory with cited recall
+
+**Type:** BRIEF review (acceptance-criteria + scope correctness). Phase 3.9 of the
+Carney demo execution plan. iter 1 of 5.
+
+## §0. Iteration cap directive (CLAUDE.md §8.3.1, verbatim, binding)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+This brief carries a **scope decision** (§3) — the substrate has two built
+storage backends and the choice between them is a real fork. Please rule
+`backend_ruling`.
+
+## §1. Issue + acceptance
+
+GH #508 (I-rdy-012, Phase 3.9): "F14 real durability + workspace isolation +
+cited recall + migration from the in-memory demo store. **Acceptance: memory
+survives restart, is workspace-scoped, cited recall surfaces which past run
+contributed; Codex APPROVE.**" Depends on I-rdy-007 (done).
+
+## §2. Grounded current state (all files read)
+
+- **`src/polaris_v6/api/memory.py`** — the F14 HTTP endpoints
+  (`POST /workspaces/{id}/memory`, `/memory/recall`, `DELETE
+  /memory/{entry_id}`, `GET /memory`). Module-level `_store =
+  WorkspaceMemoryStore()` — **the in-memory store**. Mounted at `app.py:102`.
+- **`src/polaris_v6/memory/store.py`** — `WorkspaceMemoryStore`: an in-memory
+  `dict[str, MemoryEntry]`. Recall = token-frequency **keyword cosine**
+  (`_tokens` + `_cosine`). Workspace-scoped (`_normalize_workspace_id` on
+  read+write, filtered in `recall`/`forget`/`list_workspace`). Module
+  docstring: "Phase 2B production swap: replace with Chroma." **NOT durable —
+  the dict is lost on process restart.** This is the "in-memory demo store"
+  #508 names.
+- **`src/polaris_v6/memory/chroma_store.py`** — `ChromaWorkspaceMemoryStore`:
+  **already built + tested** (`test_chroma_workspace_memory.py`). Durable via
+  `chromadb.PersistentClient(path=persist_directory)` (embedded chromadb —
+  `chromadb 1.0.20` is installed; no external service). Same interface as
+  `WorkspaceMemoryStore` (`remember`/`recall`/`forget`/`list_workspace`),
+  workspace-scoped (`where` filters). **BUT** it requires an injected
+  `embed_fn`; its `_default_embed_fn` *raises* `RuntimeError("inject embed_fn
+  (sentence-transformers); deferred to I-f14-001b")`. The real
+  sentence-transformers embedder is an explicitly-deferred separate issue
+  (I-f14-001b); `test_chroma_workspace_memory.py` injects an 8-dim
+  character-hash embedder as a stopgap.
+- **`src/polaris_v6/memory/schema.py`** — `MemoryEntry` carries
+  `derived_from_run_ids: list[str]` and `MemoryKind` includes
+  `prior_run_summary`. `MemoryRecallResult = {entry, score}`. So **the
+  data model for cited recall already exists**: `remember` takes
+  `derived_from_run_ids`, `recall` returns `MemoryRecallResult.entry` which
+  carries them. Cited recall is satisfied once the store round-trips
+  `derived_from_run_ids` durably. (Nothing in the pipeline auto-writes
+  `prior_run_summary` entries today — the caller supplies the run ids via the
+  `remember` endpoint; auto-population is out of #508 scope.)
+- Tests: `test_workspace_memory.py` (in-memory store), `test_api_memory.py`
+  (the HTTP endpoints, in-memory-backed), `test_chroma_workspace_memory.py`
+  (the chroma store + hash embedder), `test_evidence_pool_memory.py`.
+
+**The gap:** the route uses the non-durable in-memory store. The acceptance
+needs a durable, workspace-scoped store whose recall surfaces
+`derived_from_run_ids`.
+
+## §3. The scope decision — Codex please rule `backend_ruling`
+
+Two built backends; choosing the durable store for the route is a fork.
+
+- **Option A — wire the existing `ChromaWorkspaceMemoryStore` into the route.**
+  Reuses built+tested code; durable via embedded chromadb. **But** it needs an
+  `embed_fn`. Sub-fork: (A1) inject the 8-dim **hash embedder** — works
+  offline, no ML, but it is a crude character-frequency fingerprint that
+  recalls *worse* than the current keyword-cosine; (A2) inject the real
+  **sentence-transformers** embedder — heavy ML, a sovereignty model-lineage
+  decision, and explicitly deferred (`_default_embed_fn` → I-f14-001b);
+  loading it in a worker violates CLAUDE.md §8.4 (no heavy ML in autonomous
+  loops). A1 *regresses* recall quality to gain durability; A2 is not
+  available.
+- **Option B (recommended) — make the store durable as SQLite-backed,
+  keeping the keyword-cosine recall.** A new `SqliteWorkspaceMemoryStore`
+  (mirroring `queue/run_store.py`: a `memory_entries` table, additive schema,
+  WAL) with the **identical `remember`/`recall`/`forget`/`list_workspace`
+  interface**. `recall` keeps the exact keyword-cosine scoring (fetch the
+  workspace's rows, score in Python, top-k). `derived_from_run_ids` is a JSON
+  column → round-trips for cited recall. The route swaps `_store` to it. This
+  meets all three acceptance criteria — durable (SQLite survives restart),
+  workspace-scoped (SQL `WHERE workspace_id=?`), cited recall (`MemoryEntry.
+  derived_from_run_ids`) — **without degrading recall quality and with no
+  embedder / chromadb / heavy-ML dependency** (sovereign + §8.4-clean).
+  `ChromaWorkspaceMemoryStore` is preserved untouched as the future
+  *semantic*-recall upgrade, which lands when the real embedder (I-f14-001b)
+  is decided.
+- **Option C** — Codex's call.
+
+**Recommendation: B.** #508's acceptance is *durability + workspace isolation
++ cited recall* — it does NOT require semantic recall. Option B delivers all
+three, preserves the current recall quality, and avoids both the recall
+*regression* of A1 and the deferred/heavy-ML dependency of A2. The semantic
+upgrade (chroma + real embedder) remains a clean, separately-tracked future
+issue. (If Codex prefers A, A1+hash is the only offline-viable variant and
+the brief's §4 plan changes to "wire chroma_store + a documented hash
+embed_fn".)
+
+## §4. Implementation plan — Option B (if Codex rules B)
+
+1. **`src/polaris_v6/memory/sqlite_store.py`** (new) —
+   `SqliteWorkspaceMemoryStore`. SQLite table `memory_entries(entry_id PK,
+   workspace_id, kind, content, created_at, last_used_at, use_count,
+   derived_from_run_ids TEXT JSON, embedding_vector TEXT JSON NULL)`; WAL;
+   `_migrate_schema` additive (mirrors `run_store.py`). Methods identical to
+   `WorkspaceMemoryStore`: `remember` (INSERT), `recall` (SELECT workspace
+   rows → keyword-cosine score in Python → top-k → UPDATE use_count/
+   last_used_at), `forget` (DELETE workspace-scoped), `list_workspace`
+   (SELECT). `workspace_id` normalized identically on write+read (the P0
+   governance invariant from `store.py`). DB path env
+   `POLARIS_V6_MEMORY_DB`, default `state/v6_workspace_memory.sqlite`
+   (gitignored). The keyword-cosine helpers (`_tokens`, `_cosine`) move to a
+   shared spot or are duplicated minimally.
+2. **`src/polaris_v6/api/memory.py`** — swap `_store = WorkspaceMemoryStore()`
+   → `SqliteWorkspaceMemoryStore()`. The HTTP contract is unchanged (same
+   schema in/out). This is "migration from the in-memory demo store."
+3. **Tests** `tests/v6/test_sqlite_workspace_memory.py` — durability
+   (remember → new store instance on the same DB path → recall returns it);
+   workspace isolation (ws A entry invisible to ws B recall/list/forget);
+   cited recall (`derived_from_run_ids` round-trips remember→recall);
+   keyword-cosine ranking; `forget` 404-on-wrong-workspace. The route is
+   exercised by importing the `memory.py` route functions directly (the
+   `create_app()` TestClient errors on gpg on this host — pre-existing).
+
+LOC estimate: ~160-200 (the SQLite store ~130, route swap ~3, tests ~100).
+Within / near the 200-LOC cap — flagged for Codex if it lands over.
+
+## §5. Adjacent-file scan — files I have ALSO checked and they're clean
+
+`src/polaris_v6/memory/store.py` (the in-memory store — kept as-is for its
+existing tests; the route stops using it), `src/polaris_v6/memory/__init__.py`,
+`src/polaris_v6/api/app.py:102` (memory router mounted), `src/polaris_v6/
+queue/run_store.py` (the SQLite-store pattern to mirror — additive
+`_migrate_schema`, WAL, `_connect`), `tests/v6/test_api_memory.py` +
+`test_workspace_memory.py` (existing memory tests — the HTTP contract is
+unchanged so `test_api_memory.py` semantics hold against the SQLite backend),
+`src/polaris_v6/adapters/evidence_pool_merger.py` (`MemoryDerivedSummary` —
+the separate evidence-pool surfacing path, unchanged by #508).
+
+## §6. Questions for Codex
+
+1. **`backend_ruling`** — Option A (wire `ChromaWorkspaceMemoryStore`; A1 hash
+   embedder / A2 deferred real embedder) or B (SQLite + keyword-cosine)?
+   (Recommendation: B.)
+2. If B: should the new SQLite store *replace* `store.py`'s
+   `WorkspaceMemoryStore` (delete the in-memory one + migrate its tests) or
+   sit alongside it (in-memory store kept for unit-test speed)? (Recommendation:
+   alongside — the in-memory store is a fine fast test double; only the route
+   migrates.)
+3. Is "cited recall surfaces which past run contributed" fully satisfied by
+   `MemoryRecallResult.entry.derived_from_run_ids` round-tripping durably, or
+   does Codex read it as also requiring auto-population of `prior_run_summary`
+   entries by the pipeline (a larger, separate scope)?
+4. Any P0/P1 execution risk.
+
+## §7. Output schema (CLAUDE.md §8.3.9 — bind to this)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+backend_ruling: <option-A-hash | option-A-real | option-B-sqlite | option-C + reasoning>
+store_disposition_ruling: <alongside | replace>
+cited_recall_ruling: <derived-run-ids-roundtrip-ok | requires-auto-population>
+convergence_call: continue | accept_remaining
+verdict_reasoning: <text>
+```
+Loose prose without the schema → resubmit.
+
+codex
+I’ll verify the brief against the repo before ruling, focusing on the route binding, the existing store contracts, and whether any acceptance detail is broader than the proposed SQLite swap.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "WorkspaceMemoryStore|ChromaWorkspaceMemoryStore|memory_entries|derived_from_run_ids|PersistentClient|POLARIS_V6_MEMORY_DB|memory router|include_router|/memory" src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/api/memory.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/memory/chroma_store.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/memory/store.py' in C:\POLARIS
+ succeeded in 805ms:
+"""F14 workspace memory HTTP endpoints (Phase 2B Task 2B.6).
+
+Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
+the storage backend to Chroma; the HTTP contract here stays stable.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from polaris_v6.memory.schema import (
+    MemoryEntry,
+    MemoryKind,
+    MemoryQuery,
+    MemoryRecallResult,
+)
+from polaris_v6.memory.store import WorkspaceMemoryStore
+
+router = APIRouter(prefix="/workspaces", tags=["memory"])
+
+_store = WorkspaceMemoryStore()
+
+
+class RememberRequest(BaseModel):
+    kind: MemoryKind
+    content: str = Field(..., min_length=4, max_length=4000)
+    derived_from_run_ids: list[str] = Field(default_factory=list)
+
+
+@router.post(
+    "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+)
+def remember(workspace_id: str, payload: RememberRequest) -> MemoryEntry:
+    return _store.remember(
+        workspace_id=workspace_id,
+        kind=payload.kind,
+        content=payload.content,
+        derived_from_run_ids=payload.derived_from_run_ids,
+    )
+
+
+class RecallRequest(BaseModel):
+    query_text: str = Field(..., min_length=1, max_length=2000)
+    kinds: list[MemoryKind] | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+@router.post(
+    "/{workspace_id}/memory/recall",
+    response_model=list[MemoryRecallResult],
+)
+def recall(workspace_id: str, payload: RecallRequest) -> list[MemoryRecallResult]:
+    return _store.recall(
+        MemoryQuery(
+            workspace_id=workspace_id,
+            query_text=payload.query_text,
+            kinds=payload.kinds,
+            top_k=payload.top_k,
+        )
+    )
+
+
+@router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+def forget(workspace_id: str, entry_id: str) -> None:
+    if not _store.forget(workspace_id=workspace_id, entry_id=entry_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"entry {entry_id!r} not found in workspace {workspace_id!r}",
+        )
+    return None
+
+
+@router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+def list_workspace(workspace_id: str) -> list[MemoryEntry]:
+    return _store.list_workspace(workspace_id)
+
+
+ succeeded in 864ms:
+"""In-memory workspace memory store (Phase 2B substrate).
+
+Phase 2B production swap: replace `_recall_by_keyword` with Chroma
+semantic recall once the v6 cluster is live. The interface stays
+stable so callers don't change.
+
+Per CLAUDE.md security posture: workspace_id MUST be normalized
+identically on write and read; mismatch is a P0 governance issue
+(per `.codex/REVIEW_BRIEF_FORMAT.md` example).
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
+
+from polaris_v6.memory.schema import (
+    MemoryEntry,
+    MemoryKind,
+    MemoryQuery,
+    MemoryRecallResult,
+)
+
+
+def _normalize_workspace_id(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokens(text: str) -> Counter[str]:
+    return Counter(_TOKEN_RE.findall(text.lower()))
+
+
+def _cosine(a: Counter[str], b: Counter[str]) -> float:
+    if not a or not b:
+        return 0.0
+    dot = sum(a[k] * b[k] for k in a.keys() & b.keys())
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+class WorkspaceMemoryStore:
+    """In-memory implementation. Production swaps for Chroma in Phase 2B."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, MemoryEntry] = {}
+
+    def remember(
+        self,
+        *,
+        workspace_id: str,
+        kind: MemoryKind,
+        content: str,
+        derived_from_run_ids: list[str] | None = None,
+    ) -> MemoryEntry:
+        entry = MemoryEntry(
+            entry_id=uuid.uuid4().hex,
+            workspace_id=_normalize_workspace_id(workspace_id),
+            kind=kind,
+            content=content,
+            created_at=_now_iso(),
+            derived_from_run_ids=derived_from_run_ids or [],
+        )
+        self._entries[entry.entry_id] = entry
+        return entry
+
+    def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
+        ws_norm = _normalize_workspace_id(query.workspace_id)
+        candidates = [
+            e
+            for e in self._entries.values()
+            if e.workspace_id == ws_norm
+            and (query.kinds is None or e.kind in query.kinds)
+        ]
+        if not candidates:
+            return []
+        q_tokens = _tokens(query.query_text)
+        scored = [
+            MemoryRecallResult(entry=e, score=_cosine(q_tokens, _tokens(e.content)))
+            for e in candidates
+        ]
+        scored.sort(key=lambda r: r.score, reverse=True)
+        for r in scored[: query.top_k]:
+            r.entry.use_count += 1
+            r.entry.last_used_at = _now_iso()
+        return scored[: query.top_k]
+
+    def forget(self, *, workspace_id: str, entry_id: str) -> bool:
+        entry = self._entries.get(entry_id)
+        if entry is None:
+            return False
+        if entry.workspace_id != _normalize_workspace_id(workspace_id):
+            return False
+        del self._entries[entry_id]
+        return True
+
+    def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
+        ws_norm = _normalize_workspace_id(workspace_id)
+        return [e for e in self._entries.values() if e.workspace_id == ws_norm]
+
+
+ succeeded in 993ms:
+tests\v6\acceptance\test_runs_db_integration.py:133:    app.include_router(router)
+tests\v6\acceptance\test_runs_db_integration.py:177:    app.include_router(router)
+tests\polaris_v6\api\test_transparency.py:22:    app.include_router(transparency_module.router)
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:35:    app.include_router(bundle_api.router)
+tests\polaris_v6\api\test_auth.py:48:    app.include_router(auth_module.router)
+tests\integration\test_performance_sla.py:41:    The first call to /api/memory/stats triggers embedding model loading
+tests\integration\test_performance_sla.py:52:        await c.get("/api/memory/stats")
+tests\integration\test_performance_sla.py:113:        """GET /api/memory/stats < 500ms (after warm-up)."""
+tests\integration\test_performance_sla.py:115:        resp = await warmed_client.get("/api/memory/stats")
+tests\integration\test_performance_sla.py:119:            f"/api/memory/stats took {elapsed:.0f}ms (SLA: {API_SLA_MS}ms)"
+tests\integration\test_performance_sla.py:285:            "/api/memory/stats",
+tests\integration\test_memory_search_integration.py:374:# Tests: disk persistence with PersistentClient (real production path)
+tests\integration\test_memory_search_integration.py:379:    """Verify that ChromaDB PersistentClient survives close+reopen cycles.
+tests\integration\test_memory_search_integration.py:381:    This exercises the REAL production path (cross_vector.py uses PersistentClient).
+tests\integration\test_memory_search_integration.py:387:        """Create a fresh PersistentClient at the given directory."""
+tests\integration\test_memory_search_integration.py:389:        return chromadb.PersistentClient(
+tests\integration\test_memory_search_integration.py:395:        """Items stored via PersistentClient survive close+reopen."""
+tests\integration\test_memory_search_integration.py:416:        # Close: delete client reference (ChromaDB PersistentClient flushes on GC)
+tests\integration\test_ltm_priors_injection.py:10:    src/polaris_graph/memory/cross_vector.py
+tests\integration\test_campaign_persistence.py:5:src/polaris_graph/memory/campaign_store.py using isolated temp-directory
+tests\polaris_graph\test_authz_endpoints.py:101:    app.include_router(router)
+tests\polaris_graph\test_corpus_brief_api.py:41:    app.include_router(router)
+tests\v6\test_workspace_memory.py:8:from polaris_v6.memory.store import WorkspaceMemoryStore
+tests\v6\test_workspace_memory.py:12:def store() -> WorkspaceMemoryStore:
+tests\v6\test_workspace_memory.py:13:    return WorkspaceMemoryStore()
+tests\v6\test_workspace_memory.py:52:    store = WorkspaceMemoryStore()
+tests\polaris_graph\test_citation_health.py:554:    app.include_router(router)
+tests\polaris_graph\test_citation_health.py:583:    app.include_router(router)
+tests\e2e\visual_audit.py:197:    page.route("**/api/memory/stats", lambda route: route.fulfill(
+tests\e2e\visual_audit.py:233:    page.route("**/api/memory/items*", lambda route: route.fulfill(
+tests\e2e\visual_audit.py:239:    page.route("**/api/memory/search*", lambda route: route.fulfill(
+tests\e2e\visual_audit.py:818:        "memory_entries": 24,
+tests\polaris_graph\test_inspector_router.py:18:    app.include_router(router)
+tests\polaris_graph\test_job_router.py:34:    app.include_router(router)
+tests\polaris_graph\test_job_router.py:100:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:157:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:188:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:222:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:247:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:283:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:336:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:371:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:419:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:463:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:507:        app.include_router(router)
+tests\v6\test_end_to_end_arch_001f.py:99:    app.include_router(runs_module.router)
+tests\v6\test_end_to_end_arch_001f.py:100:    app.include_router(stream_module.router)
+tests\v6\test_end_to_end_arch_001f.py:101:    app.include_router(bundle_module.router)
+tests\v6\test_api_stream.py:27:    app.include_router(stream_module.router)
+tests\v6\test_api_memory.py:19:        "/workspaces/ws_test/memory",
+tests\v6\test_api_memory.py:28:        "/workspaces/ws_test/memory/recall",
+tests\v6\test_api_memory.py:39:        "/workspaces/ws_alpha/memory",
+tests\v6\test_api_memory.py:46:        "/workspaces/ws_beta/memory/recall",
+tests\v6\test_api_memory.py:55:        "/workspaces/ws_forget/memory",
+tests\v6\test_api_memory.py:62:    delete = client.delete(f"/workspaces/ws_forget/memory/{entry_id}")
+tests\v6\test_api_memory.py:64:    delete_again = client.delete(f"/workspaces/ws_forget/memory/{entry_id}")
+tests\v6\test_api_memory.py:71:            "/workspaces/ws_listing/memory",
+tests\v6\test_api_memory.py:77:    listing = client.get("/workspaces/ws_listing/memory")
+tests\v6\test_api_memory.py:84:        "/workspaces/ws_x/memory",
+tests\v6\test_api_memory.py:92:        "/workspaces/ws_x/memory",
+tests\v6\test_chroma_workspace_memory.py:1:"""Tests for ChromaWorkspaceMemoryStore (I-f14-001). §8.4 hash embedder."""
+tests\v6\test_chroma_workspace_memory.py:10:from polaris_v6.memory.chroma_store import ChromaWorkspaceMemoryStore
+tests\v6\test_chroma_workspace_memory.py:26:    return ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=embed,
+tests\v6\test_chroma_workspace_memory.py:77:    a = ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+tests\v6\test_chroma_workspace_memory.py:79:    b = ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+tests\v6\test_chroma_workspace_memory.py:90:    client = chromadb.PersistentClient(path=persist, settings=Settings(anonymized_telemetry=False))
+tests\v6\test_chroma_workspace_memory.py:93:        ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+src\polaris_v6\memory\store.py:54:class WorkspaceMemoryStore:
+src\polaris_v6\memory\store.py:66:        derived_from_run_ids: list[str] | None = None,
+src\polaris_v6\memory\store.py:74:            derived_from_run_ids=derived_from_run_ids or [],
+src\polaris_v6\memory\schema.py:32:    derived_from_run_ids: list[str] = Field(default_factory=list)
+src\polaris_v6\memory\chroma_store.py:40:class ChromaWorkspaceMemoryStore:
+src\polaris_v6\memory\chroma_store.py:48:            client = chromadb.PersistentClient(path=persist_directory, settings=s)
+src\polaris_v6\memory\chroma_store.py:60:                 derived_from_run_ids: list[str] | None = None) -> MemoryEntry:
+src\polaris_v6\memory\chroma_store.py:65:            derived_from_run_ids=derived_from_run_ids or [])
+src\polaris_v6\ambiguity_detector\__init__.py:15:``~/.claude/projects/C--POLARIS/memory/``) for the incident write-up.
+src\memory\chroma_client.py:8:operations. NO MOCKS - uses real chromadb.PersistentClient.
+src\memory\chroma_client.py:73:    Uses PersistentClient for disk-based storage.
+src\memory\chroma_client.py:106:        Creates PersistentClient pointing to CHROMA_PERSIST_DIR.
+src\memory\chroma_client.py:118:        self._client = chromadb.PersistentClient(
+src\config\core.py:285:    chroma_persist_dir: str = Field(default="./memory/chroma_db", alias="CHROMA_PERSIST_DIR")
+src\polaris_v6\api\memory.py:3:Wraps the in-memory `WorkspaceMemoryStore` substrate. Phase 2B swaps
+src\polaris_v6\api\memory.py:18:from polaris_v6.memory.store import WorkspaceMemoryStore
+src\polaris_v6\api\memory.py:22:_store = WorkspaceMemoryStore()
+src\polaris_v6\api\memory.py:28:    derived_from_run_ids: list[str] = Field(default_factory=list)
+src\polaris_v6\api\memory.py:32:    "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+src\polaris_v6\api\memory.py:39:        derived_from_run_ids=payload.derived_from_run_ids,
+src\polaris_v6\api\memory.py:50:    "/{workspace_id}/memory/recall",
+src\polaris_v6\api\memory.py:64:@router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+src\polaris_v6\api\memory.py:74:@router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+src\polaris_v6\api\app.py:91:    app.include_router(health_router)
+src\polaris_v6\api\app.py:92:    app.include_router(auth_router)
+src\polaris_v6\api\app.py:93:    app.include_router(runs_router)
+src\polaris_v6\api\app.py:94:    app.include_router(stream_router)
+src\polaris_v6\api\app.py:95:    app.include_router(ambiguity_router)
+src\polaris_v6\api\app.py:96:    app.include_router(bundle_router)
+src\polaris_v6\api\app.py:97:    app.include_router(scope_router)
+src\polaris_v6\api\app.py:98:    app.include_router(upload_router)
+src\polaris_v6\api\app.py:99:    app.include_router(charts_router)
+src\polaris_v6\api\app.py:100:    app.include_router(followup_router)
+src\polaris_v6\api\app.py:101:    app.include_router(compare_router)
+src\polaris_v6\api\app.py:102:    app.include_router(memory_router)
+src\polaris_v6\api\app.py:103:    app.include_router(templates_router)
+src\polaris_v6\api\app.py:104:    app.include_router(transparency_router)
+src\polaris_v6\api\app.py:107:    app.include_router(slice001_intake_router, prefix="/api")
+src\polaris_v6\api\app.py:123:    app.include_router(slice002_retrieval_router, prefix="/api")
+src\polaris_v6\api\app.py:138:    app.include_router(slice003_generation_router, prefix="/api")
+src\polaris_v6\api\app.py:153:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src\polaris_v6\api\app.py:172:    app.include_router(slice005_benchmark_router, prefix="/api")
+src\polaris_v6\api\app.py:174:    app.include_router(disambiguation_router, prefix="/api")
+src\polaris_v6\api\app.py:177:    app.include_router(graph_router, prefix="/api")
+tests\polaris_graph\test_md10_freshness_monitor.py:755:        WorkspaceMemoryStore,
+tests\polaris_graph\test_md10_freshness_monitor.py:759:    mem = WorkspaceMemoryStore(db)
+src\orchestration\FROZEN_SINCE_2026-03-16.md:76:  `src/memory/` (the non-polaris_graph one), `src/quality/`,
+tests\polaris_graph\test_md3_decision_telemetry.py:652:        WorkspaceMemoryStore,
+tests\polaris_graph\test_md3_decision_telemetry.py:655:    mem = WorkspaceMemoryStore(db)
+tests\polaris_graph\test_md7_retrieval_cache.py:624:        WorkspaceMemoryStore,
+tests\polaris_graph\test_md7_retrieval_cache.py:628:    mem = WorkspaceMemoryStore(db)
+tests\polaris_graph\api\test_benchmark_route.py:18:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_audit_bundle_route.py:22:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_graph_route.py:18:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_generation_route.py:17:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_retrieval_route.py:24:    a.include_router(router, prefix="/api")
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:40:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:179:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:214:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:226:    app.include_router(router)
+tests\polaris_graph\api\test_disambiguation_route.py:25:    app.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_disambiguation_route.py:74:    app.include_router(router, prefix="/api")
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:39:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:282:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:323:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:335:    app.include_router(router)
+tests\polaris_graph\api\test_intake_route.py:17:    app.include_router(router, prefix="/api")
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:57:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:68:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:250:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:34:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:173:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:221:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:298:    app.include_router(router)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:32:    app.include_router(router)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:135:    app.include_router(router)
+tests\polaris_graph\test_progress_surfaces_api.py:40:    app.include_router(router)
+tests\polaris_graph\test_run_diff.py:576:    app.include_router(router)
+src\polaris_graph\api\retrieval_route.py:20:    app.include_router(retrieval_router, prefix="/api")
+tests\polaris_graph\test_review_store.py:321:    app.include_router(inspector_router.router)
+src\polaris_graph\api\intake_route.py:13:    app.include_router(intake_router, prefix="/api")
+tests\polaris_graph\test_regression_alerts.py:482:    app.include_router(router)
+tests\polaris_graph\test_regression_alerts.py:645:    app.include_router(router)
+src\polaris_graph\audit_ir\billing_quota_store.py:223:    Per-call connections (matches the workspace/job/review/memory
+src\polaris_graph\api\generation_route.py:11:    app.include_router(generation_router, prefix="/api")
+tests\polaris_graph\test_template_router_api.py:22:    app.include_router(router)
+tests\polaris_graph\test_workspace_memory.py:13:    WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:19:def store(tmp_path: Path) -> WorkspaceMemoryStore:
+tests\polaris_graph\test_workspace_memory.py:20:    return WorkspaceMemoryStore(tmp_path / "memory.sqlite")
+tests\polaris_graph\test_workspace_memory.py:28:def test_append_creates_entry(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:41:def test_append_rejects_empty_claim(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:49:def test_append_rejects_empty_url(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:57:def test_append_rejects_empty_tier(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:65:def test_append_rejects_empty_workspace_id(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:73:def test_get_entry_round_trips(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:90:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:102:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:125:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:146:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:163:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:177:def test_delete_all_for_workspace(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:200:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:227:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:240:def test_retrieve_top_k_caps_results(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:256:    store: WorkspaceMemoryStore, monkeypatch,
+tests\polaris_graph\test_workspace_memory.py:287:def test_retrieve_bumps_last_used_at(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:301:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:312:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:319:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:330:def test_retrieve_ignores_stopwords(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:374:        WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:379:    mem_store = WorkspaceMemoryStore(tmp_path / "mem.sqlite")
+tests\polaris_graph\test_workspace_memory.py:390:    app.include_router(inspector_router.router)
+tests\polaris_graph\test_workspace_memory.py:402:        f"/api/inspector/workspaces/{ws_id}/memory",
+tests\polaris_graph\test_workspace_memory.py:423:        f"/api/inspector/workspaces/{ws_id}/memory",
+tests\polaris_graph\test_workspace_memory.py:440:        f"/api/inspector/workspaces/{ws_id}/memory",
+tests\polaris_graph\test_workspace_memory.py:463:    res = client.get(f"/api/inspector/workspaces/{ws_id}/memory")
+tests\polaris_graph\test_workspace_memory.py:468:        f"/api/inspector/workspaces/{ws_id}/memory/retrieve",
+tests\polaris_graph\test_workspace_memory.py:485:        f"/api/inspector/workspaces/{ws_id}/memory/mem_phantom"
+tests\polaris_graph\test_workspace_memory.py:496:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:510:def test_phase_3_matches_phase_iii(store: WorkspaceMemoryStore) -> None:
+tests\polaris_graph\test_workspace_memory.py:525:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:544:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:576:    store: WorkspaceMemoryStore,
+tests\polaris_graph\test_workspace_memory.py:610:        f"/api/inspector/workspaces/{ws_id}/memory/{e.entry_id}"
+src\polaris_graph\audit_ir\inspector_router.py:1806:    """Lazy-init the WorkspaceMemoryStore. Tests patch via tmp_path."""
+src\polaris_graph\audit_ir\inspector_router.py:1808:        WorkspaceMemoryStore,
+src\polaris_graph\audit_ir\inspector_router.py:1812:        _workspace_memory_store = WorkspaceMemoryStore(
+src\polaris_graph\audit_ir\inspector_router.py:2217:@router.post("/api/inspector/workspaces/{workspace_id}/memory")
+src\polaris_graph\audit_ir\inspector_router.py:2248:@router.get("/api/inspector/workspaces/{workspace_id}/memory")
+src\polaris_graph\audit_ir\inspector_router.py:2276:@router.post("/api/inspector/workspaces/{workspace_id}/memory/retrieve")
+src\polaris_graph\audit_ir\inspector_router.py:2312:    "/api/inspector/workspaces/{workspace_id}/memory/{entry_id}"
+tests\polaris_graph\test_workspace_api.py:26:    app.include_router(router)
+src\polaris_graph\memory\cross_vector.py:5:long-term memory (src/memory/chroma_client.py).  High-quality evidence
+src\polaris_graph\memory\cross_vector.py:50:    # Fallback: create a local PersistentClient
+src\polaris_graph\memory\cross_vector.py:57:        client = chromadb.PersistentClient(
+src\polaris_graph\memory\local_document_rag.py:79:        """Create the PersistentClient and collection on first access."""
+src\polaris_graph\memory\local_document_rag.py:95:        self._client = chromadb.PersistentClient(
+src\polaris_graph\audit_ir\retrieval_cache.py:293:    Pattern matches M-21 `WorkspaceMemoryStore`: per-call
+src\polaris_graph\audit_ir\security_audit_log.py:226:    ReviewStore + WorkspaceMemoryStore pattern). WAL mode for
+src\polaris_graph\audit_ir\workspace_memory.py:171:class WorkspaceMemoryStore:
+
+ succeeded in 1012ms:
+"""ChromaDB-backed semantic workspace memory store (I-f14-001).
+
+Cosine vector recall. Production sentence-transformers + router swap
+deferred to I-f14-001b. Per CLAUDE.md §8.4 tests inject embed_fn.
+"""
+
+from __future__ import annotations
+
+import os
+import uuid
+from collections.abc import Callable
+from datetime import datetime, timezone
+
+from polaris_v6.memory.schema import (
+    MemoryEntry,
+    MemoryKind,
+    MemoryQuery,
+    MemoryRecallResult,
+)
+
+EmbedFn = Callable[[list[str]], list[list[float]]]
+
+
+def _default_embed_fn(_t: list[str]) -> list[list[float]]:
+    raise RuntimeError("inject embed_fn (sentence-transformers); deferred to I-f14-001b")
+
+
+def _norm(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _meta(e: MemoryEntry) -> dict:
+    return {"workspace_id": e.workspace_id, "kind": e.kind, "entry_json": e.model_dump_json()}
+
+
+class ChromaWorkspaceMemoryStore:
+    def __init__(self, *, persist_directory: str | None, embed_fn: EmbedFn | None = None,
+                 collection_name: str = "v6_workspace_memory") -> None:
+        import chromadb
+        from chromadb.config import Settings
+        s = Settings(anonymized_telemetry=False)
+        if persist_directory is not None:
+            os.makedirs(persist_directory, exist_ok=True)
+            client = chromadb.PersistentClient(path=persist_directory, settings=s)
+        else:
+            client = chromadb.EphemeralClient(settings=s)
+        self._collection = client.get_or_create_collection(
+            name=collection_name, metadata={"hnsw:space": "cosine"})
+        space = (self._collection.metadata or {}).get("hnsw:space")
+        if space != "cosine":
+            raise RuntimeError(
+                f"collection {collection_name} pre-existing with hnsw:space={space!r}; expected cosine")
+        self._embed_fn: EmbedFn = embed_fn or _default_embed_fn
+
+    def remember(self, *, workspace_id: str, kind: MemoryKind, content: str,
+                 derived_from_run_ids: list[str] | None = None) -> MemoryEntry:
+        emb = self._embed_fn([content])[0]
+        entry = MemoryEntry(
+            entry_id=uuid.uuid4().hex, workspace_id=_norm(workspace_id), kind=kind,
+            content=content, embedding_vector=emb, created_at=_now(),
+            derived_from_run_ids=derived_from_run_ids or [])
+        self._collection.add(
+            ids=[entry.entry_id], documents=[content], embeddings=[emb], metadatas=[_meta(entry)])
+        return entry
+
+    def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
+        if query.kinds is not None and len(query.kinds) == 0:
+            return []
+        ws = _norm(query.workspace_id)
+        where: dict = {"workspace_id": ws} if query.kinds is None else {
+            "$and": [{"workspace_id": ws}, {"kind": {"$in": list(query.kinds)}}]}
+        emb = self._embed_fn([query.query_text])[0]
+        result = self._collection.query(query_embeddings=[emb], n_results=query.top_k, where=where)
+        ids = (result.get("ids") or [[]])[0]
+        distances = (result.get("distances") or [[]])[0]
+        metas = (result.get("metadatas") or [[]])[0]
+        out: list[MemoryRecallResult] = []
+        now = _now()
+        for entry_id, distance, meta in zip(ids, distances, metas):
+            entry = MemoryEntry.model_validate_json(meta["entry_json"])
+            entry.use_count += 1
+            entry.last_used_at = now
+            self._collection.update(ids=[entry_id], metadatas=[_meta(entry)])
+            out.append(MemoryRecallResult(entry=entry, score=max(0.0, min(1.0, 1.0 - float(distance)))))
+        return out
+
+    def forget(self, *, workspace_id: str, entry_id: str) -> bool:
+        existing = self._collection.get(ids=[entry_id], include=["metadatas"])
+        metas = existing.get("metadatas") or []
+        if not metas or metas[0].get("workspace_id") != _norm(workspace_id):
+            return False
+        self._collection.delete(ids=[entry_id])
+        return True
+
+    def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
+        result = self._collection.get(where={"workspace_id": _norm(workspace_id)}, include=["metadatas"])
+        return [MemoryEntry.model_validate_json(m["entry_json"]) for m in (result.get("metadatas") or [])]
+
+
+codex
+The repo matches the core gap: the HTTP router still owns a module-global in-memory store, while the Chroma store is durable only when supplied an embedding function. I’m checking the schema and existing SQLite patterns now for any hidden blockers in the proposed Option B.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/memory/__init__.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/memory/schema.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw tests/v6/test_api_memory.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw tests/v6/test_chroma_workspace_memory.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_v6/queue/run_store.py' in C:\POLARIS
+ succeeded in 880ms:
+"""Workspace memory substrate (Phase 2B Task 2B.6).
+
+Per memory bpei_phantom_completion_lessons.md and v6 plan errata,
+existing `workspace_memory.py` is keyword/Jaccard v1, NOT semantic.
+Phase 2B migrates to a Chroma-backed semantic store. This module
+holds the v6 schema + an in-memory implementation that can be
+swapped for Chroma when the cluster is live.
+"""
+
+
+ succeeded in 902ms:
+"""Workspace memory schema — what gets persisted across runs in a workspace."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+MemoryKind = Literal[
+    "user_preference",
+    "domain_assumption",
+    "prior_run_summary",
+    "rejected_source",
+    "preferred_source",
+]
+
+
+class MemoryEntry(BaseModel):
+    """A single workspace-scoped memory entry."""
+
+    entry_id: str
+    workspace_id: str
+    kind: MemoryKind
+    content: str = Field(..., min_length=4, max_length=4000)
+    embedding_vector: list[float] | None = Field(
+        default=None,
+        description="Optional vector for semantic recall. Phase 2B fills via Chroma.",
+    )
+    created_at: str
+    last_used_at: str | None = None
+    use_count: int = Field(default=0, ge=0)
+    derived_from_run_ids: list[str] = Field(default_factory=list)
+
+
+class MemoryQuery(BaseModel):
+    """A semantic-recall query."""
+
+    workspace_id: str
+    query_text: str = Field(..., min_length=1, max_length=2000)
+    kinds: list[MemoryKind] | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+class MemoryRecallResult(BaseModel):
+    """Result of a recall query."""
+
+    entry: MemoryEntry
+    score: float = Field(..., ge=0.0, le=1.0)
+
+
+ succeeded in 936ms:
+"""SQLite-backed run-status store for POLARIS v6 Dramatiq queue.
+
+I-arch-001a (2026-05-12):
+- Migration: RENAME COLUMN status → lifecycle_status (SQLite 3.25+)
+- New columns: query_slug, manifest_run_id, artifact_dir, pipeline_status,
+  cost_usd, decision_id (all nullable; backward-compatible)
+- New helpers: mark_failed, mark_aborted, set_pipeline_meta
+- get_run returns the full RunStatusResponse with new optional fields
+
+Default DB path: state/v6_runs.sqlite (gitignored). Override via env
+`POLARIS_V6_RUN_DB`. WAL mode enabled.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from datetime import datetime, timezone
+from typing import Any
+
+from polaris_v6.schemas.run_status import RunStatusResponse
+
+DEFAULT_DB_PATH = "state/v6_runs.sqlite"
+ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+
+
+def _resolve_path(path: str | None) -> str:
+    if path is not None:
+        return path
+    return os.environ.get(ENV_DB_PATH, DEFAULT_DB_PATH)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _connect(path: str | None = None) -> sqlite3.Connection:
+    resolved = _resolve_path(path)
+    parent = os.path.dirname(resolved)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = sqlite3.connect(resolved)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Idempotent additive migration. Safe to call on every init_db.
+
+    1. Create base table if absent.
+    2. If legacy `status` column exists and `lifecycle_status` doesn't,
+       RENAME COLUMN to preserve values (SQLite 3.25+, Python 3.11 ships
+       SQLite 3.34+).
+    3. ADD COLUMN for each I-arch-001a field if missing.
+    4. CREATE INDEX IF NOT EXISTS for query lookups.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+            run_id TEXT PRIMARY KEY,
+            template TEXT NOT NULL,
+            question TEXT NOT NULL,
+            lifecycle_status TEXT NOT NULL,
+            queued_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_json TEXT,
+            error_json TEXT
+        )
+        """
+    )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    if "status" in cols and "lifecycle_status" not in cols:
+        conn.execute("ALTER TABLE runs RENAME COLUMN status TO lifecycle_status")
+        cols.discard("status")
+        cols.add("lifecycle_status")
+    for col_name, col_type in {
+        "query_slug": "TEXT",
+        "manifest_run_id": "TEXT",
+        "artifact_dir": "TEXT",
+        "pipeline_status": "TEXT",
+        "cost_usd": "REAL",
+        "decision_id": "TEXT",
+    }.items():
+        if col_name not in cols:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col_name} {col_type}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_query_slug ON runs(query_slug)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_manifest_run_id ON runs(manifest_run_id)")
+
+
+def init_db(path: str | None = None) -> None:
+    """Create the runs table if absent, run migrations. Idempotent."""
+    conn = _connect(path)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        _migrate_schema(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
+    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate."""
+    init_db(path)
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO runs (run_id, template, question, lifecycle_status, queued_at) "
+            "VALUES (?, ?, ?, 'queued', ?)",
+            (run_id, template, question, _now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
+    """Transition queued → in_progress, set started_at."""
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='in_progress', started_at=? WHERE run_id=?",
+            (_now_iso(), run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_pipeline_meta(
+    run_id: str,
+    *,
+    query_slug: str | None = None,
+    manifest_run_id: str | None = None,
+    artifact_dir: str | None = None,
+    decision_id: str | None = None,
+    path: str | None = None,
+) -> None:
+    """Set pipeline-A metadata after the actor learns the slug/dir.
+
+    Independent of lifecycle transition so the actor can record meta as
+    soon as pipeline-A starts, before the run completes.
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET query_slug=COALESCE(?, query_slug), "
+            "manifest_run_id=COALESCE(?, manifest_run_id), "
+            "artifact_dir=COALESCE(?, artifact_dir), "
+            "decision_id=COALESCE(?, decision_id) WHERE run_id=?",
+            (query_slug, manifest_run_id, artifact_dir, decision_id, run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_completed(
+    run_id: str,
+    result: dict[str, Any],
+    *,
+    pipeline_status: str = "success",
+    cost_usd: float | None = None,
+    path: str | None = None,
+) -> None:
+    """Transition in_progress → completed; set finished_at + result_json + pipeline_status + cost_usd."""
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='completed', finished_at=?, result_json=?, "
+            "pipeline_status=?, cost_usd=? WHERE run_id=?",
+            (_now_iso(), json.dumps(result, sort_keys=True), pipeline_status, cost_usd, run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_aborted(
+    run_id: str,
+    *,
+    pipeline_status: str,
+    abort_reason: str,
+    cost_usd: float | None = None,
+    path: str | None = None,
+) -> None:
+    """Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+
+    Per CLAUDE.md §9.3, abort_* are pipeline verdicts (not errors). The run
+    completed operationally; the pipeline-A logic chose to halt at a gate.
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='completed', finished_at=?, "
+            "pipeline_status=?, error_json=?, cost_usd=? WHERE run_id=?",
+            (
+                _now_iso(),
+                pipeline_status,
+                json.dumps({"abort_reason": abort_reason}, sort_keys=True),
+                cost_usd,
+                run_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
+    """Operational failure (exception, missing manifest, unknown status, etc).
+
+    Distinct from mark_aborted: failures are unplanned (exception or invariant
+    violation); aborts are planned (pipeline_status='abort_*' written by
+    pipeline-A at a gate).
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='failed', finished_at=?, "
+            "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
+            (_now_iso(), json.dumps({"error": error}, sort_keys=True), run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+    """Return the run record or None if missing.
+
+    Defensive against `OperationalError: no such table` so callers in stub
+    mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
+    init_db) get None back, matching the actor's row-missing-stub-noop
+    contract.
+
+    I-arch-001a Codex iter-2 P2-002: if a known DB exists with the legacy
+    schema, the first read-only `get_run` call would 500 on column-missing.
+    The defensive catch below detects "no such column" and triggers a
+    one-time migration via init_db before retrying.
+    """
+    conn = _connect(path)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+                "queued_at, started_at, finished_at, result_json, error_json, "
+                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+                "FROM runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            # Narrow per Codex iter-1 P2-001: only the missing-table stub
+            # path returns None; surface other operational errors (schema
+            # corruption, migration faults) so they aren't masked as
+            # missing-row.
+            if "no such table" in msg:
+                return None
+            # Codex iter-2 P2-002: legacy schema → migrate then retry once.
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(
+                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+                    "queued_at, started_at, finished_at, result_json, error_json, "
+                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+                    "FROM runs WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                raise
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return RunStatusResponse(
+        run_id=row["run_id"],
+        template=row["template"],
+        question=row["question"],
+        lifecycle_status=row["lifecycle_status"],
+        pipeline_status=row["pipeline_status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        result_json=row["result_json"],
+        error_json=row["error_json"],
+        query_slug=row["query_slug"],
+        manifest_run_id=row["manifest_run_id"],
+        artifact_dir=row["artifact_dir"],
+        cost_usd=row["cost_usd"],
+        decision_id=row["decision_id"],
+    )
+
+
+ succeeded in 999ms:
+"""Tests for F14 workspace memory HTTP endpoints."""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture
+def client():
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_remember_then_recall(client):
+    create = client.post(
+        "/workspaces/ws_test/memory",
+        json={
+            "kind": "domain_assumption",
+            "content": "User prefers CMHC for Canadian housing data analysis.",
+        },
+    )
+    assert create.status_code == 201
+
+    recall = client.post(
+        "/workspaces/ws_test/memory/recall",
+        json={"query_text": "CMHC housing"},
+    )
+    assert recall.status_code == 200
+    results = recall.json()
+    assert len(results) >= 1
+    assert "score" in results[0]
+
+
+def test_workspace_isolation_via_http(client):
+    client.post(
+        "/workspaces/ws_alpha/memory",
+        json={
+            "kind": "user_preference",
+            "content": "Alpha workspace prefers detailed citations.",
+        },
+    )
+    recall = client.post(
+        "/workspaces/ws_beta/memory/recall",
+        json={"query_text": "alpha prefers"},
+    )
+    assert recall.status_code == 200
+    assert recall.json() == []
+
+
+def test_forget(client):
+    create = client.post(
+        "/workspaces/ws_forget/memory",
+        json={
+            "kind": "user_preference",
+            "content": "Forget this entry after the test runs.",
+        },
+    )
+    entry_id = create.json()["entry_id"]
+    delete = client.delete(f"/workspaces/ws_forget/memory/{entry_id}")
+    assert delete.status_code == 204
+    delete_again = client.delete(f"/workspaces/ws_forget/memory/{entry_id}")
+    assert delete_again.status_code == 404
+
+
+def test_list_workspace(client):
+    for i in range(3):
+        client.post(
+            "/workspaces/ws_listing/memory",
+            json={
+                "kind": "prior_run_summary",
+                "content": f"Run {i} summary about housing supply analysis.",
+            },
+        )
+    listing = client.get("/workspaces/ws_listing/memory")
+    assert listing.status_code == 200
+    assert len(listing.json()) == 3
+
+
+def test_invalid_kind_rejected(client):
+    response = client.post(
+        "/workspaces/ws_x/memory",
+        json={"kind": "not_a_real_kind", "content": "test content here"},
+    )
+    assert response.status_code == 422
+
+
+def test_short_content_rejected(client):
+    response = client.post(
+        "/workspaces/ws_x/memory",
+        json={"kind": "user_preference", "content": "x"},
+    )
+    assert response.status_code == 422
+
+
+ succeeded in 1068ms:
+"""Tests for ChromaWorkspaceMemoryStore (I-f14-001). §8.4 hash embedder."""
+
+from __future__ import annotations
+
+import os
+import uuid
+
+import pytest
+
+from polaris_v6.memory.chroma_store import ChromaWorkspaceMemoryStore
+from polaris_v6.memory.schema import MemoryQuery
+
+
+def _hash_embed_fn(texts: list[str]) -> list[list[float]]:
+    out: list[list[float]] = []
+    for text in texts:
+        vec = [0.0] * 8
+        for i, ch in enumerate(text.lower()):
+            vec[i % 8] += (ord(ch) % 31) / 31.0
+        norm = sum(v * v for v in vec) ** 0.5 or 1.0
+        out.append([v / norm for v in vec])
+    return out
+
+
+def _make(name: str, persist: str | None = None, embed=_hash_embed_fn):
+    return ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=embed,
+                                      collection_name=f"t_{name}_{uuid.uuid4().hex[:8]}")
+
+
+@pytest.fixture
+def store(request):
+    return _make(request.node.name)
+
+
+def test_remember_and_recall_basic(store):
+    store.remember(workspace_id="ws_carney", kind="domain_assumption", content="CMHC housing source.")
+    r = store.recall(MemoryQuery(workspace_id="ws_carney", query_text="CMHC housing"))
+    assert len(r) == 1 and r[0].score > 0
+
+
+def test_workspace_isolation(store):
+    store.remember(workspace_id="ws_alpha", kind="user_preference", content="Alpha prefers detailed.")
+    store.remember(workspace_id="ws_beta", kind="user_preference", content="Beta prefers terse.")
+    r = store.recall(MemoryQuery(workspace_id="ws_alpha", query_text="prefers"))
+    assert len(r) == 1 and "Alpha" in r[0].entry.content
+
+
+def test_kind_filter(store):
+    store.remember(workspace_id="ws_x", kind="user_preference", content="prefers Vancouver")
+    store.remember(workspace_id="ws_x", kind="rejected_source", content="reject blogspot prefers")
+    r = store.recall(MemoryQuery(workspace_id="ws_x", query_text="prefers", kinds=["user_preference"]))
+    assert all(x.entry.kind == "user_preference" for x in r)
+
+
+def test_top_k_caps_results(store):
+    for i in range(10):
+        store.remember(workspace_id="ws_x", kind="prior_run_summary", content=f"Run {i}: housing data.")
+    r = store.recall(MemoryQuery(workspace_id="ws_x", query_text="housing", top_k=3))
+    assert len(r) == 3
+
+
+def test_forget_respects_workspace(store):
+    e = store.remember(workspace_id="ws_x", kind="user_preference", content="Forgettable.")
+    assert not store.forget(workspace_id="ws_y", entry_id=e.entry_id)
+    assert store.forget(workspace_id="ws_x", entry_id=e.entry_id)
+
+
+def test_default_embed_fn_fails_loudly(request):
+    s = _make(request.node.name, embed=None)
+    with pytest.raises(RuntimeError, match="inject embed_fn"):
+        s.remember(workspace_id="ws_x", kind="user_preference", content="should fail")
+
+
+def test_persistent_client_round_trip(tmp_path):
+    persist = str(tmp_path / "chroma")
+    name = f"rt_{uuid.uuid4().hex[:8]}"
+    a = ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+    e = a.remember(workspace_id="ws_p", kind="user_preference", content="Persistent CMHC.")
+    b = ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+    assert any(x.entry_id == e.entry_id for x in b.list_workspace("ws_p"))
+    assert b.recall(MemoryQuery(workspace_id="ws_p", query_text="CMHC"))[0].score > 0
+
+
+def test_pre_existing_collection_with_wrong_metric_raises(tmp_path):
+    import chromadb
+    from chromadb.config import Settings
+    persist = str(tmp_path / "chroma")
+    os.makedirs(persist, exist_ok=True)
+    name = f"wm_{uuid.uuid4().hex[:8]}"
+    client = chromadb.PersistentClient(path=persist, settings=Settings(anonymized_telemetry=False))
+    client.get_or_create_collection(name=name, metadata={"hnsw:space": "l2"})
+    with pytest.raises(RuntimeError, match="hnsw:space"):
+        ChromaWorkspaceMemoryStore(persist_directory=persist, embed_fn=_hash_embed_fn, collection_name=name)
+
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "If the API tests continue using the module-global route store with default `state/v6_workspace_memory.sqlite`, fixed workspace IDs can accumulate rows across repeated local test runs. Implementation should isolate API tests with a temp DB or injected `_store` before importing the router."
+backend_ruling: "option-B-sqlite"
+store_disposition_ruling: "alongside"
+cited_recall_ruling: "derived-run-ids-roundtrip-ok"
+convergence_call: "continue"
+verdict_reasoning: "Option B is the correct scope for #508. The acceptance requires durability, workspace isolation, and cited recall; it does not require semantic recall. SQLite preserves the current keyword-cosine behavior, avoids the hash-embedder recall regression, avoids the deferred/heavy sentence-transformers path, and keeps Chroma available for the later semantic-recall issue. Keeping the in-memory store alongside the SQLite store is appropriate as a fast test double. Cited recall is satisfied by durable round-trip of `MemoryRecallResult.entry.derived_from_run_ids`; automatic creation of `prior_run_summary` entries would be a separate pipeline feature, not a blocker for this substrate migration."
+```
+tokens used
+20,067
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "If the API tests continue using the module-global route store with default `state/v6_workspace_memory.sqlite`, fixed workspace IDs can accumulate rows across repeated local test runs. Implementation should isolate API tests with a temp DB or injected `_store` before importing the router."
+backend_ruling: "option-B-sqlite"
+store_disposition_ruling: "alongside"
+cited_recall_ruling: "derived-run-ids-roundtrip-ok"
+convergence_call: "continue"
+verdict_reasoning: "Option B is the correct scope for #508. The acceptance requires durability, workspace isolation, and cited recall; it does not require semantic recall. SQLite preserves the current keyword-cosine behavior, avoids the hash-embedder recall regression, avoids the deferred/heavy sentence-transformers path, and keeps Chroma available for the later semantic-recall issue. Keeping the in-memory store alongside the SQLite store is appropriate as a fast test double. Cited recall is satisfied by durable round-trip of `MemoryRecallResult.entry.derived_from_run_ids`; automatic creation of `prior_run_summary` entries would be a separate pipeline feature, not a blocker for this substrate migration."
+```
