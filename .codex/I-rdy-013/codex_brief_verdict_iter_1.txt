@@ -1,0 +1,3403 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e3195-a5bf-70d2-9d2c-8811c23fa459
+--------
+user
+# Codex brief — I-rdy-013 (#509): 1-concurrent-session enforcement + queue/rejection UX
+
+## §0. HARD ITERATION CAP (verbatim, CLAUDE.md §8.3.1)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**This is iter 1 of 5.** This is a BRIEF review (acceptance-criteria correctness), not a diff review.
+
+## §1. Issue
+
+**GH #509 — I-rdy-013, Phase 3.10.** Body verbatim:
+> Phase 3. Enforce the locked 1-concurrent-session constraint; a second concurrent request is queued or cleanly rejected with UX.
+> Acceptance: a second concurrent request is handled gracefully (no crash, clear UX); Codex APPROVE.
+> Depends on: I-rdy-003.
+
+## §2. Grounded current state (verified by Read this fire)
+
+- **No concurrency limit exists anywhere.** `grep -rn` for `concurrent|in_progress|active_run|session` across `src/polaris_v6/` returns only `queue/actors.py`, `queue/run_events.py`, `queue/run_store.py`, `schemas/run_status.py` — none enforces a session cap.
+- `POST /runs` → `src/polaris_v6/api/runs.py:23 create_run`: `uuid4().hex` → `run_store.insert_run(...)` → `enqueue_research_run.send(...)` → `get_run` → return `202`. **Unconditional** — fires every time.
+- `run_store.py`: `insert_run` (line 103) inserts `lifecycle_status='queued'`. `mark_in_progress` → `'in_progress'`. `mark_completed`/`mark_aborted` → `'completed'`. `mark_failed` → `'failed'`. `get_run` (line 230) reads one row defensively (catches `no such table` → None; `no such column` → migrate+retry). `LifecycleStatus` literal (`schemas/run_status.py:14`) = `queued | in_progress | completed | cancelled | failed`. **Terminal = `completed`/`cancelled`/`failed`; active = `queued`/`in_progress`.** (polaris has no `mark_cancelled` writer — `cancelled` enum value is reserved; that is fine, it is still terminal for our purposes.)
+- `_connect` (line 38) sets `row_factory` only — no `busy_timeout`. WAL is set by `init_db`.
+- Frontend `web/lib/api.ts`: `createRun` (line 111) POSTs and pipes through `asJsonOrThrow` (line 98), which on `!ok` throws a generic `ApiError` (`status`, `body`) with message `"POLARIS backend returned <code>"`. Dashboard `onSubmit` catch (`web/app/dashboard/page.tsx:182`) does `setError(err.message)` → renders the raw string in the `role="alert"` block at line 436. There IS a typed-error precedent in api.ts: `IntakeBadRequestError`, `RetrievalBadRequestError`, `GenerationBadRequestError`, `AuditBundleError` (`extends Error`).
+- **Test-isolation gap (verified):** `tests/v6/test_api_health_and_runs.py` `client` fixture = `TestClient(create_app())` with **no `POLARIS_V6_RUN_DB` override** → every test in that module shares the default `state/v6_runs.sqlite`. Today this is harmless (no gate). With a 1-concurrent gate, a `queued` run left by an earlier test (StubBroker `.send()` enqueues but does not auto-run the actor) would make a later test's `POST /runs` return `409`. `tests/v6/conftest.py` force-installs one shared `StubBroker` at import time; it does NOT isolate the run DB.
+
+## §3. Proposed approach — DESIGN FORK FOR CODEX TO RULE
+
+The issue offers two acceptable behaviors: **queue** the 2nd request, or **cleanly reject** it. I recommend **reject (HTTP 409)**; rationale + the rejected alternative below — **please rule.**
+
+### 3.1 RECOMMENDED: reject the 2nd concurrent `POST /runs` with HTTP 409 + clear UX
+
+**Why reject over queue:**
+- True "queue with position UX" requires a queue-position model, per-position display, and reconciling with Dramatiq's own broker queue — materially more code/UX for no demo benefit.
+- The demo is single-operator, one session. A second run silently queueing with no feedback IS the UX bug the issue names ("queued or cleanly rejected **with UX**").
+- Each run bills a V4 Pro generation; blocking an accidental double-submit prevents double-spend.
+- Reject fully satisfies acceptance: "handled gracefully (no crash, clear UX)."
+
+**Rejected alternative — queue:** accept the 2nd run as `queued` and show queue position. More code, more UX surface, and Dramatiq already FIFO-serializes `.send()`'d jobs at the broker — so "queue" mostly duplicates broker behavior while still needing the same UX work. Not worth it for a single-operator demo. *(Codex: if you disagree and want queue, say so and I will re-brief.)*
+
+### 3.2 Backend — atomic check-and-insert (race-free)
+
+A naive "`get_active_run()` then `insert_run`" has a TOCTOU race: two simultaneous POSTs both see no active run and both insert. Fix with a **single `BEGIN IMMEDIATE` transaction** in run_store:
+
+- **`run_store._connect`**: add `conn.execute("PRAGMA busy_timeout=5000")` so a concurrent writer waits for the lock instead of erroring `SQLITE_BUSY` (directly serves the issue's "no crash"). 1 line, benefits all callers.
+- **`run_store._row_to_response(row)`** (new private helper): build a `RunStatusResponse` from a `sqlite3.Row`. Refactor `get_run` to use it (removes ~16 dup lines); `get_active_run` + `insert_run_if_idle` reuse it.
+- **`run_store.get_active_run(*, path=None) -> RunStatusResponse | None`** (new): `SELECT ... WHERE lifecycle_status IN ('queued','in_progress') ORDER BY queued_at LIMIT 1`. Same defensive `no such table`→None / `no such column`→migrate+retry guard as `get_run`. Read-side counterpart used by tests (and available to future status UI).
+- **`run_store.insert_run_if_idle(run_id, template, question, *, path=None) -> RunStatusResponse | None`** (new): set `conn.isolation_level = None` (manual txn control), `BEGIN IMMEDIATE`, `SELECT` for an active run; if found → `ROLLBACK`, return that run; else `INSERT ... 'queued'`, `COMMIT`, return `None`. `BEGIN IMMEDIATE` grabs the write lock up-front so the 2nd concurrent POST blocks until the 1st commits, then sees the row → race-free.
+- `insert_run` stays unchanged (unconditional primitive, still used by test fixtures); `insert_run_if_idle` is the concurrency-gated variant.
+
+`_ACTIVE_STATUSES = ("queued", "in_progress")` module constant (LAW VI — no magic literals).
+
+### 3.3 Backend — `api/runs.py:create_run`
+
+Swap `insert_run` → `insert_run_if_idle`. If it returns a non-None active run, raise **`HTTPException(409, detail={...})`** with a structured dict detail (FastAPI serializes any JSON-able detail):
+```
+{"code": "concurrent_run_active",
+ "active_run_id": <id>, "active_status": <queued|in_progress>,
+ "message": "POLARIS runs one research session at a time. Run <id8> is currently <status>. Wait for it to finish or cancel it, then start a new run."}
+```
+`enqueue_research_run.send(...)` moves to **after** the reject check — a rejected run is never enqueued. The pre-existing uuid-collision `409` keeps its plain-string detail (distinguishable: dict-detail w/ `code` vs string-detail).
+
+### 3.4 Frontend
+
+- `web/lib/api.ts`: new `export class ConcurrentRunError extends Error` (`activeRunId`, `activeStatus` fields) mirroring `IntakeBadRequestError`. `createRun` intercepts `response.status === 409`: read body **once**, if `detail.code === "concurrent_run_active"` throw `ConcurrentRunError`, else rebuild the generic `ApiError` (non-concurrent 409); non-409 flows through `asJsonOrThrow` untouched (body not pre-consumed).
+- `web/app/dashboard/page.tsx`: new `concurrentRun` state `{runId, status} | null`; cleared at `onSubmit` start. `onSubmit` catch: `if (err instanceof ConcurrentRunError)` → set `concurrentRun` + `setError(err.message)` + `setSubmitting(false)`. Render a callout next to the existing `role="alert"` block containing the message and a `<Link href={`/runs/${runId}`}>` "Open the active run →" — that link IS the "clear UX" (operator can jump straight to the run that is blocking).
+
+### 3.5 Tests
+
+- **`tests/v6/conftest.py`** — add an `autouse` fixture that `monkeypatch`-sets `POLARIS_V6_RUN_DB` to a unique temp path per test. Fixes the §2 isolation gap **universally** (run_store reads the env on every `_connect`, so this is sufficient). This is required collateral, not scope creep: without it the gate makes existing `test_api_health_and_runs.py` tests fail on stale `queued` rows. *(Codex: conftest-wide autouse vs patching each `client` fixture individually — I chose conftest-wide as the more robust single fix; rule if you prefer per-fixture.)*
+- **`tests/v6/test_concurrency.py`** (new) — `insert_run_if_idle` inserts when idle (→None); rejects when a `queued` run exists; rejects when an `in_progress` run exists; allows a new run after the prior is `completed`/`failed`/`aborted`; `get_active_run` returns the active run / None. API-level (mirror `test_api_health_and_runs.py` `client` fixture exactly): 2nd `POST /runs` → `409` with `detail.code == "concurrent_run_active"` and `active_run_id` present; after marking run 1 `completed`, a fresh `POST /runs` → `202`.
+
+## §4. Deliverables + LOC
+
+| File | Change | ~LOC |
+|---|---|---|
+| `src/polaris_v6/queue/run_store.py` | `_row_to_response`, `get_active_run`, `insert_run_if_idle`, `busy_timeout`, `_ACTIVE_STATUSES` | +75 (`get_run` shrinks ~16 via helper) |
+| `src/polaris_v6/api/runs.py` | `insert_run_if_idle` + 409 reject | +14 |
+| `web/lib/api.ts` | `ConcurrentRunError` + `createRun` 409 handling | +32 |
+| `web/app/dashboard/page.tsx` | `concurrentRun` state + callout + catch | +20 |
+| `tests/v6/conftest.py` | autouse run-DB isolation fixture | +9 |
+| `tests/v6/test_concurrency.py` | NEW | +110 |
+
+**Total ≈ 260 LOC; non-test ≈ 150, test ≈ 110.** This exceeds the 200-LOC PR cap, but ~110 lines are an isolated new test file. **Codex: please rule — accept as-is (test-dominated, non-test diff ≈150), or direct a trim.** I do not see a meaningful trim that keeps the race-free guarantee and the required test isolation.
+
+## §5. Files I have ALSO checked and they are clean
+
+- `src/polaris_v6/queue/actors.py` — `enqueue_research_run` actor; no concurrency cap; unaffected (a rejected run is never `.send()`'d).
+- `src/polaris_v6/queue/run_events.py` — SSE lifecycle; reads run status, does not create runs.
+- `src/polaris_v6/schemas/run_status.py` / `run_request.py` — `LifecycleStatus` literal already has all states; no schema change needed.
+- `tests/v6/test_actors.py` — calls actor `.fn()` directly; benefits from (not broken by) the conftest DB-isolation fixture.
+- `tests/v6/test_run_benchmark_script.py` — benchmark script test; does not POST `/runs`.
+- `web/app/runs/[runId]/page.tsx` — run detail page; the callout's `<Link>` targets it; no change required.
+- No other `src/` caller of `insert_run` exists (only `create_run`); `insert_run` is preserved for test fixtures.
+
+## §6. Output schema (CLAUDE.md §8.3.9)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Decisions requested: (1) reject vs queue (§3.1); (2) LOC-cap ruling (§4); (3) conftest-wide vs per-fixture DB isolation (§3.5).
+
+codex
+I’ll verify the touched surfaces against the brief, then rule on the three design forks and return the requested YAML.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force; if (Test-Path CLAUDE.md) { Get-Content CLAUDE.md -TotalCount 220 }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def create_run|insert_run|mark_in_progress|mark_completed|mark_aborted|mark_failed|get_run|LifecycleStatus|class .*BadRequest|asJsonOrThrow|function createRun|const onSubmit|role=\\\"alert\\\"|StubBroker|POLARIS_V6_RUN_DB\" src web tests -S" in C:\POLARIS
+2026-05-16T16:19:23.282765Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.7 seconds
+Output:
+rg: regex parse error:
+    (?:def create_run|insert_run|mark_in_progress|mark_completed|mark_aborted|mark_failed|get_run|LifecycleStatus|class .*BadRequest|asJsonOrThrow|function createRun|const onSubmit|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 729ms:
+rg: regex parse error:
+    (?:def create_run|insert_run|mark_in_progress|mark_completed|mark_aborted|mark_failed|get_run|LifecycleStatus|class .*BadRequest|asJsonOrThrow|function createRun|const onSubmit|role=\)
+    ^
+error: unclosed group
+
+ succeeded in 848ms:
+
+    Directory: C:\POLARIS
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-07 10:31 PM                [44;1m.claude[0m
+d----          2026-05-16  9:12 AM                [44;1m.codex[0m
+d----          2026-04-29  2:47 PM                [44;1m.codex_tmp_m_int_6_v1_review_fresh[0m
+d--h-          2026-05-16  9:12 AM                [44;1m.git[0m
+d----          2026-05-07 10:31 PM                [44;1m.github[0m
+d----          2026-05-07 10:31 PM                [44;1m.legacy[0m
+d----          2026-05-02  9:10 AM                [44;1m.private[0m
+d----          2026-05-12 10:56 AM                [44;1m.pytest_cache[0m
+d----          2026-05-10  3:48 AM                [44;1m.pytest_scope_gate_tmp2[0m
+d----          2026-04-28  9:37 PM                [44;1m.pytest_tmp[0m
+d----          2026-04-28 12:23 PM                [44;1m.tmp_pytest_base[0m
+d----          2026-04-29 12:54 PM                [44;1m.tmp_pytest_m_int_3[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review2[0m
+d----          2026-04-28 11:50 PM                [44;1m.tmp-pytest[0m
+d----          2026-05-11  8:23 PM                [44;1marchive[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_billing_quota_store_review_alt[0m
+d----          2026-05-12  5:57 PM                [44;1mcodex_tmp_i_arch_001a_review[0m
+d----          2026-05-12 11:53 PM                [44;1mcodex_tmp_i_arch_001f_iter2_manual[0m
+d----          2026-05-12 11:51 PM                [44;1mcodex_tmp_i_arch_001f_iter2_pytest_run[0m
+d----          2026-05-12 11:46 PM                [44;1mcodex_tmp_i_arch_001f_manual_probe[0m
+d----          2026-05-12 11:45 PM                [44;1mcodex_tmp_i_arch_001f_review_basetemp[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_actor_0d00737908a74619aadb0f3ca326ba8c[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_manual_8df334a540ae4cebb698e2441b372d59[0m
+d----          2026-05-12  6:12 PM                [44;1mcodex_tmp_i_arch001a_pytest_probe[0m
+d----          2026-05-12 10:20 PM                [44;1mcodex_tmp_i_arch001d_bundle_probe[0m
+d----          2026-05-10  2:04 AM                [44;1mcodex_tmp_i_bug_107_iter3_verify_run[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base2[0m
+d----          2026-05-13  1:44 AM                [44;1mcodex_tmp_i_carney_003_pytest_review[0m
+d----          2026-05-13  2:08 AM                [44;1mcodex_tmp_i_carney003_iter3_pytest_rerun[0m
+d----          2026-05-13  1:58 AM                [44;1mcodex_tmp_i_carney003_py_probe_d2d3c3131b064e448ff4c208d1178fca[0m
+d----          2026-05-13  1:57 AM                [44;1mcodex_tmp_i_carney003_review_0ec83421ebe74ec3bd6426a6399b7034[0m
+d----          2026-05-13  1:57 AM                [44;1mcodex_tmp_i_carney003_review_run_aa01ca940c594ed6a694df0286818e01[0m
+d----          2026-05-13  2:35 AM                [44;1mcodex_tmp_i_carney004_iter2_review[0m
+d----          2026-05-13 11:54 AM                [44;1mcodex_tmp_i_carney008_iter3_pytest_81719627da7d499e82529658336f7da7[0m
+d----          2026-05-13 11:54 AM                [44;1mcodex_tmp_i_carney008_iter3_verify_90c2720a78df4fa1ae82b8fe33fb9c49[0m
+d----          2026-05-13 11:31 AM                [44;1mcodex_tmp_i_carney008_pytest[0m
+d----          2026-05-13 11:42 AM                [44;1mcodex_tmp_i_carney008_pytest_new[0m
+d----          2026-05-13 11:43 AM                [44;1mcodex_tmp_i_carney008_pytest_run_fresh[0m
+d----          2026-05-15  3:55 AM                [44;1mcodex_tmp_i_rdy_004_iter2_auth_run[0m
+d----          2026-05-15  3:55 AM                [44;1mcodex_tmp_i_rdy_004_iter2_combined_run[0m
+d----          2026-05-15  3:45 AM                [44;1mcodex_tmp_i_rdy_004_pytest[0m
+d----          2026-05-15 12:32 PM                [44;1mcodex_tmp_i_rdy005_bench_65660dd3314c44f0b6606faf09d3477f[0m
+d----          2026-05-15 12:19 PM                [44;1mcodex_tmp_i_rdy005_review_040abd52[0m
+d----          2026-05-15 12:14 PM                [44;1mcodex_tmp_i_rdy005_review_77866715[0m
+d----          2026-05-16  8:43 AM                [44;1mcodex_tmp_i_rdy011_iter3_review_bfe2d7846471471f9a38dee0a65e4a1a[0m
+d----          2026-05-16  9:06 AM                [44;1mcodex_tmp_i_rdy012_pytest_cache[0m
+d----          2026-05-16  9:06 AM                [44;1mcodex_tmp_i_rdy012_pytest_tmp[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review_rerun[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single2[0m
+d----          2026-04-29  4:11 PM                [44;1mcodex_tmp_m_int_10_v2_review[0m
+d----          2026-04-29  4:12 PM                [44;1mcodex_tmp_m_int_10_v2_review_fresh[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review_probe[0m
+d----          2026-04-29  9:34 PM                [44;1mcodex_tmp_m_int_11_v1_review[0m
+d----          2026-04-29  9:35 PM                [44;1mcodex_tmp_m_int_11_v1_review_fresh_20260429[0m
+d----          2026-04-29  9:41 PM                [44;1mcodex_tmp_m_int_11_v2_review[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh_subset[0m
+d----          2026-04-29  2:15 PM                [44;1mcodex_tmp_m_int_5_v2_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review_probe[0m
+d----          2026-04-29  2:33 PM                [44;1mcodex_tmp_m_int_5_v4_review[0m
+d----          2026-04-29  2:34 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh[0m
+d----          2026-04-29  2:35 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh2[0m
+d----          2026-04-29  2:47 PM                [44;1mcodex_tmp_m_int_6_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review_fresh[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review_alt[0m
+d----          2026-04-29  3:09 PM                [44;1mcodex_tmp_m_int_7_v2_single[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review_fresh[0m
+d----          2026-04-29  3:42 PM                [44;1mcodex_tmp_m_int_9_v1_review[0m
+d----          2026-04-29  3:43 PM                [44;1mcodex_tmp_m_int_9_v1_review_single[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review_fresh[0m
+d----          2026-05-12 10:32 PM                [44;1mcodex_tmp_manual_1dd40099bce94e8a97eddfb27f94a9ad[0m
+d----          2026-05-12 10:33 PM                [44;1mcodex_tmp_manual_i_arch001d_e181e4ae3b4b4ed1bdc15e03e159a57b[0m
+d----          2026-05-12 10:25 PM                [44;1mcodex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2[0m
+d----          2026-05-12 10:31 PM                [44;1mcodex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e[0m
+d----          2026-05-15 10:54 AM                [44;1mconfig[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_f2ltuo3t[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_hhthuj3n[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_xdvktanm[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_znaia9ry[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_zw62d2fs[0m
+d----          2026-03-24  2:56 PM                [44;1mdata[0m
+d----          2026-05-16  5:04 AM                [44;1mdocs[0m
+d----          2026-05-07 10:31 PM                [44;1mhelm[0m
+d----          2026-05-15 10:54 AM                [44;1minfra[0m
+d----          2026-05-15 10:54 AM                [44;1mlogs[0m
+d----          2026-04-29  4:05 PM                [44;1mm_int_10_manual_57asn199[0m
+d----          2026-04-29  3:10 PM                [44;1mm_int_7_v2_manual_5fgxbzoc[0m
+d----          2026-04-29  3:19 PM                [44;1mm_int_7_v3_manual_dhypw5bz[0m
+d----          2026-04-30 12:48 AM                [44;1mm_live_4_r2_3qyr9r66[0m
+d----          2026-04-29  4:13 PM                [44;1mm10v2_manual_yz_33hqh[0m
+d----          2026-04-29  9:28 PM                [44;1mm10v3_one_wlcrnh2f[0m
+d----          2026-04-29  3:00 PM                [44;1mmanual_pytest_base_m_int_7[0m
+d----          2026-04-29  3:01 PM                [44;1mmanual_pytest_base_m_int_7_ok[0m
+d----          2026-04-29  1:21 PM                [44;1mmanual_tmp_m_int_3_v3[0m
+d----          2026-04-28  9:30 PM                [44;1mmd3_pytest_run2[0m
+d----          2026-02-24  1:09 AM                [44;1mmemory[0m
+d----          2026-02-11  2:02 AM                [44;1mmodels[0m
+d----          2026-05-16  8:44 AM                [44;1moutputs[0m
+d----          2026-05-04 12:26 AM                [44;1mpolaris-controls[0m
+d----          2026-04-28  9:52 PM                [44;1mPOLARIS.tmppytest[0m
+d----          2026-04-29  1:19 PM                [44;1mPOLARIStmp_pytest_m_int_3_reviewbasetemp[0m
+d----          2026-04-29 11:57 AM                [44;1mpy_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9[0m
+d----          2026-05-08  9:37 PM                [44;1mpytest_basetemp_i_bug_085_r2[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_3842f3b95af34ad8b6f93080344d5110[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_554e954860ba4943a4f9f6097fe8541f[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-3f9s08mh[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-dysodq4d[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-jdgz67tr[0m
+d----          2026-05-13 11:43 AM                [44;1mpytest-cache-files-jv1aafma[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-kds8u4s5[0m
+d----          2026-05-11 11:09 PM                [44;1mpytest-cache-files-lgffjwll[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-o969a6s7[0m
+d----          2026-05-13 11:43 AM                [44;1mpytest-cache-files-sqqm9r8j[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-szrlm1db[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-tw8jzxb3[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-z1miwcyi[0m
+d----          2026-05-08  9:38 PM                [44;1mpython_mode_700_probe[0m
+d----          2026-05-16  8:53 AM                [44;1mscripts[0m
+d----          2026-05-11  7:44 PM                [44;1msrc[0m
+d----          2026-05-16  9:07 AM                [44;1mstate[0m
+d----          2026-05-10  1:46 AM                [44;1mtests[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp_ae3ucgg[0m
+d----          2026-05-12  6:05 PM                [44;1mtmp_pytest_i_arch_001a[0m
+d----          2026-04-29 12:54 PM                [44;1mtmp_pytest_m_int_3[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp2ef0ie4p[0m
+d----          2026-04-29 12:46 PM                [44;1mtmp2hhmpr2y[0m
+d----          2026-05-10  3:37 AM                [44;1mtmp3jencwbw[0m
+d----          2026-04-18  8:37 PM                [44;1mtmp48c8ko2m[0m
+d----          2026-04-28  2:01 PM                [44;1mtmp63988s99[0m
+d----          2026-05-12  8:36 PM                [44;1mtmp6xbnvzw9[0m
+d----          2026-04-29  2:07 PM                [44;1mtmp8u9ua575[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp9h7v7fon[0m
+d----          2026-05-10  3:16 AM                [44;1mtmpa3ivn9br[0m
+d----          2026-04-29  2:26 PM                [44;1mtmpaufjwjy5[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpgb143kt_[0m
+d----          2026-04-29 11:58 AM                [44;1mtmppvxh8fwq[0m
+d----          2026-04-28  2:01 PM                [44;1mtmpq5bdi1rl[0m
+d----          2026-04-29  2:36 PM                [44;1mtmptgnkdlz5[0m
+d----          2026-04-29  2:36 PM                [44;1mtmpu2b082f6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpuyki_w88[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpv1dnokk6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpw2ru3yoj[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpxnalraft[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpyl5f0goo[0m
+d----          2026-05-15 10:54 AM                [44;1mweb[0m
+-a---          2026-05-07 10:31 PM            599 .dockerignore
+-a---          2026-05-14 11:57 PM          89859 .env
+-a---          2026-05-16  4:09 AM           7886 .env.example
+-a---          2026-05-15 10:54 AM           6299 .gitignore
+-a---          2026-05-16  4:09 AM          15485 architecture.md
+-a---          2026-05-16  2:27 AM          51892 CLAUDE.md
+-a---          2026-05-13  1:49 AM             80 codex_tmp_i_carney_003_pubkey.asc
+-a---          2026-05-15 10:54 AM           3441 docker-compose.v6.yml
+-a---          2026-05-07 10:31 PM           1774 docker-compose.yml
+-a---          2026-05-07 10:31 PM           1197 Dockerfile
+-a---          2026-05-15 10:54 AM           3378 Dockerfile.v6
+-a---          2026-05-16  4:09 AM          11875 ground_rules.md
+-a---          2026-05-09 11:22 AM            774 pytest.ini
+-a---          2026-05-16  4:09 AM          11317 README.md
+-a---          2026-05-07 10:31 PM            673 requirements-orchestrator.txt
+-a---          2026-05-15 10:54 AM           1800 requirements-v6.txt
+-a---          2026-05-07 10:31 PM           6532 requirements.txt
+# POLARIS PROJECT - Operational Directives
+
+CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+
+Document Class: Operational, Binding, Project-Specific
+Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+
+---
+
+## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+
+**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+
+### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+
+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+4. **Apply industrial benchmarks** appropriate to the domain:
+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+   - Methodology: appropriate risk-of-bias tool for the study type.
+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+
+**STRICTLY BANNED:**
+- Word counts / citation counts / unique-source counts as quality signals
+- Pattern presence ("does the report mention 'tirzepatide'?")
+- Sample-based audits ("we audited 5 of 50 claims")
+- String-presence PASS/FAIL checks (e.g., gate tables)
+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+
+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+
+### §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this exact sequence — no shortcuts:
+
+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+
+**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+
+---
+
+## §0. Core Identity and Operational Mode
+
+**0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+
+**0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+- **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+
+**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+6. **Record:** Update all mandatory documentation and state files (§2).
+
+The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+
+---
+
+## §1. The LAWS (Non-Negotiable Directives)
+
+These LAWS supersede all other instructions.
+
+### LAW I — Active Definition and Synchronization
+You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+
+**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+6. Recent `logs/session_log.md` (The History).
+7. `architecture.md` (The Baseline).
+8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+
+**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
+
+**1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or omitted without following the protocols in §6.
+
+### LAW II — No Fake Working (Evidence Required)
+- **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" hacks.
+- **Evidence:** Claims of completion require verifiable proof logged in the session log: created files, sizes/counts, checksums, and successful test outputs or key findings.
+- **Data & Execution Integrity:**
+  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+  - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+  - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+  - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
+
+### LAW III — Proactive Information Seeking
+Do not rely on stale internalized knowledge. You must proactively search the internet for the latest official documentation, best practices, and solutions for every library, API, and function used.
+Log all consulted resources in `logs/session_log.md`.
+
+### LAW IV — Persistence of State (Never Forget)
+The session must be resumable without loss of context.
+Every significant action, decision, or finding must update the durable state files (§2).
+
+### LAW V — Absolute Code and File Hygiene
+Adhere strictly to the standards defined in §4 (Naming Conventions, Modularity, and Structure). The repository must remain clean and tidy at all times.
+
+### LAW VI — Zero Hard-Coding
+All parameters (endpoints, credentials, thresholds, file paths, batch sizes) must come from configuration files, CLI arguments, or environment variables.
+Fixed values for testing must reside exclusively in `tests/fixtures/`.
+
+### LAW VII — CLI Isolation (POLARIS-Specific)
+Phases are standalone CLI scripts. They communicate ONLY through JSON files.
+- Phase N reads ONLY from `outputs/P{N-1}/{vector_id}.json`
+- Phase N writes ONLY to `outputs/P{N}/{vector_id}.json`
+- Phase N NEVER imports code from other phases
+- Shared utilities go in `src/utils/` or `src/schemas/`
+
+---
+
+## §2. Persisted State and Mandatory Documentation
+
+The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
+
+### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+- `logs/session_log.md`: A chronological, append-only audit trail.
+- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
+- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+- `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+- `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
+- `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+- `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+- `state/last_pointer.json`: Resume point after crash/restart.
+- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+
+### 2.2 Session Log Format (MANDATORY)
+Every action must be appended to `logs/session_log.md` using this structure:
+
+```
+[YYYY-MM-DD HH:MM:SS]
+- ACTION: <Brief description of the action taken>
+- RATIONALE: <Summary of the extended thinking process (§0.3)>
+- DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+- SYNC: <Description of documentation synchronized due to APD changes (LAW I, §1.2). "N/A" otherwise.>
+- AFFECTED_FILES: <List of files read/written/modified>
+- EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+- STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+- NEXT_STEP: <The single, clear next action to be taken>
+```
+
+---
+
+## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+
+**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+
+**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+
+**Forbidden patterns:**
+- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+- PR opened without all 5 artifacts above
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- "While we're at it" polish in same PR
+- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+
+**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
+
+**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+- **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+- **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
+- Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
+
+---
+
+## §3. Mandatory Session Protocol (Startup/Restart)
+
+This protocol MUST be executed automatically at the start of every session and after any restart or crash.
+
+### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+
+**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+
+0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+
+1. **Read CLAUDE.md:** This file completely.
+2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+   - `docs/carney_delivery_plan_v6_2.md` (mission)
+
+
+codex
+The first scan tripped on PowerShell quoting, so I’m rerunning it with safer patterns and reading the concrete files that define the request path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'create_run|insert_run|mark_in_progress|mark_completed|mark_aborted|mark_failed|get_run|LifecycleStatus|BadRequest|asJsonOrThrow|createRun|onSubmit|StubBroker|POLARIS_V6_RUN_DB' src web tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\queue\\run_store.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content tests\\v6\\conftest.py; Get-Content tests\\v6\\test_api_health_and_runs.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\api\\runs.py" in C:\POLARIS
+ succeeded in 824ms:
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:54:    row = run_store.get_run("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:67:    """insert → mark_in_progress → set_pipeline_meta → mark_completed end-to-end."""
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:69:    run_store.insert_run("r1", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:70:    run_store.mark_in_progress("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:79:    run_store.mark_completed("r1", {"k": "v"}, pipeline_status="success", cost_usd=0.42, path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:80:    row = run_store.get_run("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:92:def test_mark_aborted_persists_cost_and_reason(db_path: str) -> None:
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:95:    run_store.insert_run("r2", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:96:    run_store.mark_in_progress("r2", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:97:    run_store.mark_aborted(
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:104:    row = run_store.get_run("r2", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:113:def test_mark_failed_sets_failed_status_and_error(db_path: str) -> None:
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:116:    run_store.insert_run("r3", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:117:    run_store.mark_in_progress("r3", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:118:    run_store.mark_failed("r3", "pipeline_exception: RuntimeError: boom", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:119:    row = run_store.get_run("r3", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:127:def test_get_run_returns_none_when_table_missing(tmp_path: Path) -> None:
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:131:    assert run_store.get_run("anything", path=db_path) is None
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:27:    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:47:    run_store.insert_run("run_queued", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:56:    run_store.insert_run("run_aborted", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:57:    run_store.mark_in_progress("run_aborted", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:58:    run_store.mark_aborted(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:83:    run_store.insert_run("run_completed", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:84:    run_store.mark_in_progress("run_completed", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:91:    run_store.mark_completed(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:125:    run_store.insert_run("run_release_blocked", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:126:    run_store.mark_in_progress("run_release_blocked", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:133:    run_store.mark_completed(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:158:    run_store.insert_run("run_signed", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:159:    run_store.mark_in_progress("run_signed", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:166:    run_store.mark_completed(
+tests\v6\test_actors.py:21:# Session-shared StubBroker is installed by tests/v6/conftest.py so the
+tests\v6\acceptance\test_runs_db_integration.py:13:- mark_failed + error_json + failure-path test
+tests\v6\acceptance\test_runs_db_integration.py:31:    """Per-test SQLite DB + StubBroker flush before/after.
+tests\v6\acceptance\test_runs_db_integration.py:37:    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+tests\v6\acceptance\test_runs_db_integration.py:102:    run_store.insert_run("run_002", "clinical", "noop?")
+tests\v6\acceptance\test_runs_db_integration.py:115:    record = run_store.get_run("run_002")
+tests\v6\acceptance\test_runs_db_integration.py:142:    record = run_store.get_run(run_id)
+tests\v6\acceptance\test_runs_db_integration.py:147:def test_get_run_after_drain_returns_completed(isolated_db, monkeypatch, tmp_path):
+tests\v6\acceptance\test_dramatiq_acceptance.py:5:form that runs against StubBroker (in-process; no real Redis cluster
+tests\v6\acceptance\test_dramatiq_acceptance.py:21:    """Reuse the session-shared StubBroker installed by tests/v6/conftest.py.
+tests\v6\acceptance\test_dramatiq_acceptance.py:24:    StubBroker per test, but the dramatiq actor decorators in
+tests\v6\acceptance\test_dramatiq_acceptance.py:55:    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
+tests\v6\acceptance\test_dramatiq_acceptance.py:77:    run_store.insert_run("run_001", "clinical", "noop?")
+tests\v6\acceptance\test_dramatiq_acceptance.py:82:    record = run_store.get_run("run_001")
+tests\v6\conftest.py:5:time, which decorated the dramatiq actors against THAT StubBroker. The
+tests\v6\conftest.py:6:acceptance suite then created a DIFFERENT StubBroker in its fixture,
+tests\v6\conftest.py:9:Fix: install ONE shared StubBroker at conftest IMPORT time (not via a
+tests\v6\conftest.py:13:this StubBroker. Both test_actors.py and the acceptance suite reuse the
+tests\v6\conftest.py:24:# Force StubBroker BEFORE any other test module imports `dramatiq` —
+tests\v6\conftest.py:37:    # Eagerly install the StubBroker. Subsequent `import dramatiq` calls
+tests\v6\test_end_to_end_arch_001f.py:23:# Force StubBroker BEFORE importing actors / runs (tests/v6/conftest.py
+tests\v6\test_end_to_end_arch_001f.py:47:    """Per Codex iter-2 P1-002: isolate POLARIS_V6_RUN_DB so the test does NOT
+tests\v6\test_end_to_end_arch_001f.py:50:    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+tests\v6\test_end_to_end_arch_001f.py:57:    """Per Codex iter-3 P1-005: StubBroker uses flush_all(), not flush_queue().
+tests\v6\test_end_to_end_arch_001f.py:202:    run_store.mark_in_progress(posted_run_id, path=str(isolated_runs_db))
+tests\v6\test_end_to_end_arch_001f.py:222:    run_store.mark_completed(
+tests\v6\test_end_to_end_arch_001f.py:315:    record = run_store.get_run(posted_run_id, path=str(isolated_runs_db))
+tests\v6\test_api_health_and_runs.py:28:def test_create_run_returns_202_and_queued(client):
+tests\v6\test_api_health_and_runs.py:40:def test_create_run_rejects_invalid_template(client):
+tests\v6\test_api_health_and_runs.py:48:def test_create_run_rejects_short_question(client):
+tests\v6\test_api_health_and_runs.py:56:def test_get_run_returns_404_for_unknown(client):
+tests\v6\test_api_health_and_runs.py:61:def test_create_then_get_run_round_trip(client):
+tests\v6\test_broker_init_order.py:16:from dramatiq.brokers.stub import StubBroker
+tests\v6\test_broker_init_order.py:19:class _SentinelBroker(StubBroker):
+tests\v6\test_broker_init_order.py:59:    # Different instances (rebuilt), but both StubBrokers.
+tests\v6\test_broker_init_order.py:61:    assert isinstance(b1, StubBroker)
+tests\v6\test_broker_init_order.py:62:    assert isinstance(b2, StubBroker)
+tests\v6\test_broker_init_order.py:70:    StubBroker (because POLARIS_V6_QUEUE_USE_STUB=1). If actors.py forgot to
+tests\v6\test_broker_init_order.py:92:    assert isinstance(current, StubBroker), (
+tests\v6\test_broker_init_order.py:93:        f"expected StubBroker after reload, got {type(current).__name__}"
+tests\v6\test_broker.py:4:  - StubBroker path (default for tests / CI without Redis)
+tests\v6\test_broker.py:22:from dramatiq.brokers.stub import StubBroker  # noqa: E402
+tests\v6\test_broker.py:36:    so calling it in a test would replace the session-shared StubBroker
+tests\v6\test_broker.py:56:    assert isinstance(broker, StubBroker)
+tests\v6\test_broker.py:64:    assert isinstance(broker, StubBroker)
+src\auth\session_manager.py:95:    def get_running_count(self) -> int:
+src\auth\session_manager.py:101:        return self.get_running_count() < MAX_CONCURRENT_RESEARCH
+src\auth\session_manager.py:113:    def mark_completed(self, session_id: str, result_path: str):
+src\auth\session_manager.py:122:    def mark_failed(self, session_id: str, error: str):
+web\lib\api.ts:98:async function asJsonOrThrow<T>(response: Response): Promise<T> {
+web\lib\api.ts:111:export async function createRun(
+web\lib\api.ts:119:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:124:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:150:  return asJsonOrThrow<UploadResponse>(response);
+web\lib\api.ts:164:  return asJsonOrThrow<UploadResponse>(response);
+web\lib\api.ts:215:  return asJsonOrThrow<AmbiguityResult>(response);
+web\lib\api.ts:227:  return asJsonOrThrow<ScopeDecision>(response);
+web\lib\api.ts:245:  return asJsonOrThrow<TemplateContent[]>(response);
+web\lib\api.ts:299:  return asJsonOrThrow<EvidenceContract>(response);
+web\lib\api.ts:326:  return asJsonOrThrow<VegaLiteSpec>(response);
+web\lib\api.ts:444:  return asJsonOrThrow<DisambiguationResponse>(response);
+web\lib\api.ts:460:export class IntakeBadRequestError extends Error {
+web\lib\api.ts:465:    this.name = "IntakeBadRequestError";
+web\lib\api.ts:484:      throw new IntakeBadRequestError(body);
+web\lib\api.ts:488:  return asJsonOrThrow<IntakeSuccessResponse>(response);
+web\lib\api.ts:499:  return asJsonOrThrow<IntakeHealthResponse>(response);
+web\lib\api.ts:558:export class RetrievalBadRequestError extends Error {
+web\lib\api.ts:563:    this.name = "RetrievalBadRequestError";
+web\lib\api.ts:582:      throw new RetrievalBadRequestError(body);
+web\lib\api.ts:586:  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+web\lib\api.ts:598:  return asJsonOrThrow<RetrievalHealthResponse>(response);
+web\lib\api.ts:783:export class GenerationBadRequestError extends Error {
+web\lib\api.ts:789:    this.name = "GenerationBadRequestError";
+web\lib\api.ts:810:      throw new GenerationBadRequestError(body);
+web\lib\api.ts:814:  return asJsonOrThrow<GenerationSuccessResponse>(response);
+web\lib\api.ts:826:  return asJsonOrThrow<GenerationHealthResponse>(response);
+web\lib\api.ts:943:  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+web\lib\api.ts:1022:  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+web\lib\api.ts:1031:  return asJsonOrThrow<BenchmarkScoreboard>(response);
+web\lib\api.ts:1069:  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+web\lib\api.ts:1080:  return asJsonOrThrow<MemoryEntry>(
+src\polaris_v6\schemas\run_status.py:14:LifecycleStatus = Literal[
+src\polaris_v6\schemas\run_status.py:40:RunStatus = LifecycleStatus
+src\polaris_v6\schemas\run_status.py:45:    lifecycle_status: LifecycleStatus = Field(
+src\polaris_v6\schemas\run_status.py:69:    def status(self) -> LifecycleStatus:
+src\polaris_v6\queue\run_store.py:7:- New helpers: mark_failed, mark_aborted, set_pipeline_meta
+src\polaris_v6\queue\run_store.py:8:- get_run returns the full RunStatusResponse with new optional fields
+src\polaris_v6\queue\run_store.py:11:`POLARIS_V6_RUN_DB`. WAL mode enabled.
+src\polaris_v6\queue\run_store.py:25:ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+src\polaris_v6\queue\run_store.py:103:def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
+src\polaris_v6\queue\run_store.py:118:def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
+src\polaris_v6\queue\run_store.py:159:def mark_completed(
+src\polaris_v6\queue\run_store.py:180:def mark_aborted(
+src\polaris_v6\queue\run_store.py:211:def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
+src\polaris_v6\queue\run_store.py:214:    Distinct from mark_aborted: failures are unplanned (exception or invariant
+src\polaris_v6\queue\run_store.py:230:def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:239:    schema, the first read-only `get_run` call would 500 on column-missing.
+src\polaris_v6\queue\run_events.py:169:        row = run_store.get_run(external_run_id)
+src\polaris_v6\api\bundle.py:69:def get_run_bundle_targz(
+src\polaris_v6\api\bundle.py:89:    info = run_store.get_run(run_id)
+src\polaris_v6\queue\middleware\connection.py:7:This is a no-op for StubBroker; useful only against RedisBroker.
+src\polaris_v6\api\runs.py:24:def create_run(payload: RunRequest) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:27:        run_store.insert_run(run_id, payload.template, payload.question)
+src\polaris_v6\api\runs.py:37:    record = run_store.get_run(run_id)
+src\polaris_v6\api\runs.py:44:def get_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:45:    record = run_store.get_run(run_id)
+src\polaris_v6\queue\broker.py:19:from dramatiq.brokers.stub import StubBroker
+src\polaris_v6\queue\broker.py:58:        use_stub: if True, use StubBroker (in-process, for tests). If None,
+src\polaris_v6\queue\broker.py:73:        broker = StubBroker()
+src\polaris_v6\queue\actors.py:17:# environments where conftest already installed a StubBroker pay no cost.
+src\polaris_v6\queue\actors.py:75:    .fn() directly without insert_run), returns deterministic noop
+src\polaris_v6\queue\actors.py:81:    mark_completed / mark_aborted / mark_failed per pipeline_status.
+src\polaris_v6\queue\actors.py:84:    if run_store.get_run(run_id) is None:
+src\polaris_v6\queue\actors.py:87:    run_store.mark_in_progress(run_id)
+src\polaris_v6\queue\actors.py:166:        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
+src\polaris_v6\queue\actors.py:172:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:179:        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
+src\polaris_v6\queue\actors.py:195:        run_store.mark_completed(
+src\polaris_v6\queue\actors.py:199:        run_store.mark_aborted(
+src\polaris_v6\queue\actors.py:206:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:210:        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+tests\polaris_graph\test_job_queue.py:250:    queue.mark_completed(job.job_id)
+tests\polaris_graph\test_job_queue.py:260:def test_mark_completed_only_from_running(queue: JobQueue) -> None:
+tests\polaris_graph\test_job_queue.py:263:        queue.mark_completed(job.job_id)
+tests\polaris_graph\test_job_queue.py:265:    completed = queue.mark_completed(job.job_id, artifact_dir="/tmp/x")
+tests\polaris_graph\test_job_queue.py:272:def test_mark_failed_records_error(queue: JobQueue) -> None:
+tests\polaris_graph\test_job_queue.py:275:    failed = queue.mark_failed(job.job_id, error="boom")
+tests\polaris_graph\test_inspector_router.py:33:def test_get_run_returns_full_ir() -> None:
+tests\polaris_graph\test_inspector_router.py:45:def test_get_run_unknown_slug_returns_404() -> None:
+web\app\sign-in\page.tsx:53:          <form onSubmit={handleSubmit}>
+web\app\dashboard\page.tsx:19:  createRun,
+web\app\dashboard\page.tsx:157:  const onSubmit = async (event: React.FormEvent) => {
+web\app\dashboard\page.tsx:176:      const run = await createRun({
+web\app\dashboard\page.tsx:215:        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+web\app\contracts\_editor.tsx:79:      onSubmit={(e) => {
+web\app\intake\components\intake_form.tsx:9:  IntakeBadRequestError,
+web\app\intake\components\intake_form.tsx:91:      if (err instanceof IntakeBadRequestError) {
+web\app\intake\components\intake_form.tsx:110:            onSubmit={submit}
+web\app\generation\components\generation_runner.tsx:10:  GenerationBadRequestError,
+web\app\generation\components\generation_runner.tsx:11:  IntakeBadRequestError,
+web\app\generation\components\generation_runner.tsx:12:  RetrievalBadRequestError,
+web\app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:89:        err instanceof RetrievalBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:112:        err instanceof GenerationBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:126:            onSubmit={submit}
+web\app\retrieval\components\retrieval_runner.tsx:8:  IntakeBadRequestError,
+web\app\retrieval\components\retrieval_runner.tsx:9:  RetrievalBadRequestError,
+web\app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+web\app\retrieval\components\retrieval_runner.tsx:85:      if (err instanceof RetrievalBadRequestError) {
+web\app\retrieval\components\retrieval_runner.tsx:112:            onSubmit={submit}
+src\polaris_graph\agents\analyzer.py:434:        loop = asyncio.get_running_loop()
+src\polaris_graph\agents\analyzer.py:2993:        loop = asyncio.get_running_loop()
+src\polaris_graph\api\graph_route.py:28:# Lazy imports for audit_ir.{registry,loader} live inside `get_run_graph`
+src\polaris_graph\api\graph_route.py:235:def get_run_graph(run_id: str) -> GraphPayload:
+src\polaris_graph\scope\clinical_classifier.py:229:        asyncio.get_running_loop()
+src\polaris_graph\audit_ir\inspector_router.py:505:async def get_run_diff(a_slug: str, b_slug: str) -> dict:
+src\polaris_graph\audit_ir\inspector_router.py:552:async def get_run_regression(slug: str, baseline_slug: str) -> dict:
+src\polaris_graph\audit_ir\inspector_router.py:595:async def get_run(slug: str) -> dict:
+src\polaris_graph\audit_ir\inspector_router.py:824:async def get_run_citation_health(slug: str) -> dict:
+src\polaris_graph\audit_ir\inspector_router.py:867:# run-level org authorization — same as get_run, get_audit_bundle,
+src\polaris_graph\audit_ir\inspector_router.py:868:# get_report_markdown, get_run_citation_health (which don't even
+src\polaris_graph\audit_ir\job_queue.py:416:    def mark_completed(self, job_id: str, artifact_dir: str | None = None) -> Job:
+src\polaris_graph\audit_ir\job_queue.py:428:                    raise JobQueueError(f"mark_completed: unknown job {job_id}")
+src\polaris_graph\audit_ir\job_queue.py:430:                    f"mark_completed: job {job_id} status={job.status} not running"
+src\polaris_graph\audit_ir\job_queue.py:457:    def mark_failed(self, job_id: str, error: str) -> Job:
+src\polaris_graph\audit_ir\job_queue.py:468:                    raise JobQueueError(f"mark_failed: unknown job {job_id}")
+src\polaris_graph\audit_ir\job_queue.py:470:                    f"mark_failed: job {job_id} status={job.status} not running"
+src\polaris_graph\audit_ir\job_runner.py:120:def get_runner(template_id: str) -> JobRunner | None:
+src\polaris_graph\audit_ir\job_worker.py:20:from src.polaris_graph.audit_ir.job_runner import JobControl, get_runner
+src\polaris_graph\audit_ir\job_worker.py:91:        runner = get_runner(job.template_id)
+src\polaris_graph\audit_ir\job_worker.py:93:            return self._queue.mark_failed(
+src\polaris_graph\audit_ir\job_worker.py:112:            result = self._queue.mark_failed(
+src\polaris_graph\audit_ir\job_worker.py:120:        result = self._queue.mark_completed(job.job_id, artifact_dir=artifact_dir)
+src\polaris_graph\audit_ir\progress_surfaces.py:250:        loop = asyncio.get_running_loop()
+src\polaris_graph\audit_ir\progress_surfaces.py:274:        loop = asyncio.get_running_loop()
+src\polaris_graph\retrieval\frame_fetcher.py:704:            # Probe for a running loop. asyncio.get_running_loop
+src\polaris_graph\retrieval\frame_fetcher.py:707:            _asyncio.get_running_loop()
+src\polaris_graph\audit_ir\__init__.py:24:    get_runner,
+src\polaris_graph\audit_ir\__init__.py:150:    "get_runner",
+
+ succeeded in 797ms:
+"""SQLite-backed run-status store for POLARIS v6 Dramatiq queue.
+
+I-arch-001a (2026-05-12):
+- Migration: RENAME COLUMN status → lifecycle_status (SQLite 3.25+)
+- New columns: query_slug, manifest_run_id, artifact_dir, pipeline_status,
+  cost_usd, decision_id (all nullable; backward-compatible)
+- New helpers: mark_failed, mark_aborted, set_pipeline_meta
+- get_run returns the full RunStatusResponse with new optional fields
+
+Default DB path: state/v6_runs.sqlite (gitignored). Override via env
+`POLARIS_V6_RUN_DB`. WAL mode enabled.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from datetime import datetime, timezone
+from typing import Any
+
+from polaris_v6.schemas.run_status import RunStatusResponse
+
+DEFAULT_DB_PATH = "state/v6_runs.sqlite"
+ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+
+
+def _resolve_path(path: str | None) -> str:
+    if path is not None:
+        return path
+    return os.environ.get(ENV_DB_PATH, DEFAULT_DB_PATH)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _connect(path: str | None = None) -> sqlite3.Connection:
+    resolved = _resolve_path(path)
+    parent = os.path.dirname(resolved)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = sqlite3.connect(resolved)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Idempotent additive migration. Safe to call on every init_db.
+
+    1. Create base table if absent.
+    2. If legacy `status` column exists and `lifecycle_status` doesn't,
+       RENAME COLUMN to preserve values (SQLite 3.25+, Python 3.11 ships
+       SQLite 3.34+).
+    3. ADD COLUMN for each I-arch-001a field if missing.
+    4. CREATE INDEX IF NOT EXISTS for query lookups.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+            run_id TEXT PRIMARY KEY,
+            template TEXT NOT NULL,
+            question TEXT NOT NULL,
+            lifecycle_status TEXT NOT NULL,
+            queued_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_json TEXT,
+            error_json TEXT
+        )
+        """
+    )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    if "status" in cols and "lifecycle_status" not in cols:
+        conn.execute("ALTER TABLE runs RENAME COLUMN status TO lifecycle_status")
+        cols.discard("status")
+        cols.add("lifecycle_status")
+    for col_name, col_type in {
+        "query_slug": "TEXT",
+        "manifest_run_id": "TEXT",
+        "artifact_dir": "TEXT",
+        "pipeline_status": "TEXT",
+        "cost_usd": "REAL",
+        "decision_id": "TEXT",
+    }.items():
+        if col_name not in cols:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col_name} {col_type}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_query_slug ON runs(query_slug)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_manifest_run_id ON runs(manifest_run_id)")
+
+
+def init_db(path: str | None = None) -> None:
+    """Create the runs table if absent, run migrations. Idempotent."""
+    conn = _connect(path)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        _migrate_schema(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
+    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate."""
+    init_db(path)
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO runs (run_id, template, question, lifecycle_status, queued_at) "
+            "VALUES (?, ?, ?, 'queued', ?)",
+            (run_id, template, question, _now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
+    """Transition queued → in_progress, set started_at."""
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='in_progress', started_at=? WHERE run_id=?",
+            (_now_iso(), run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_pipeline_meta(
+    run_id: str,
+    *,
+    query_slug: str | None = None,
+    manifest_run_id: str | None = None,
+    artifact_dir: str | None = None,
+    decision_id: str | None = None,
+    path: str | None = None,
+) -> None:
+    """Set pipeline-A metadata after the actor learns the slug/dir.
+
+    Independent of lifecycle transition so the actor can record meta as
+    soon as pipeline-A starts, before the run completes.
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET query_slug=COALESCE(?, query_slug), "
+            "manifest_run_id=COALESCE(?, manifest_run_id), "
+            "artifact_dir=COALESCE(?, artifact_dir), "
+            "decision_id=COALESCE(?, decision_id) WHERE run_id=?",
+            (query_slug, manifest_run_id, artifact_dir, decision_id, run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_completed(
+    run_id: str,
+    result: dict[str, Any],
+    *,
+    pipeline_status: str = "success",
+    cost_usd: float | None = None,
+    path: str | None = None,
+) -> None:
+    """Transition in_progress → completed; set finished_at + result_json + pipeline_status + cost_usd."""
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='completed', finished_at=?, result_json=?, "
+            "pipeline_status=?, cost_usd=? WHERE run_id=?",
+            (_now_iso(), json.dumps(result, sort_keys=True), pipeline_status, cost_usd, run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_aborted(
+    run_id: str,
+    *,
+    pipeline_status: str,
+    abort_reason: str,
+    cost_usd: float | None = None,
+    path: str | None = None,
+) -> None:
+    """Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+
+    Per CLAUDE.md §9.3, abort_* are pipeline verdicts (not errors). The run
+    completed operationally; the pipeline-A logic chose to halt at a gate.
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='completed', finished_at=?, "
+            "pipeline_status=?, error_json=?, cost_usd=? WHERE run_id=?",
+            (
+                _now_iso(),
+                pipeline_status,
+                json.dumps({"abort_reason": abort_reason}, sort_keys=True),
+                cost_usd,
+                run_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
+    """Operational failure (exception, missing manifest, unknown status, etc).
+
+    Distinct from mark_aborted: failures are unplanned (exception or invariant
+    violation); aborts are planned (pipeline_status='abort_*' written by
+    pipeline-A at a gate).
+    """
+    conn = _connect(path)
+    try:
+        conn.execute(
+            "UPDATE runs SET lifecycle_status='failed', finished_at=?, "
+            "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
+            (_now_iso(), json.dumps({"error": error}, sort_keys=True), run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+    """Return the run record or None if missing.
+
+    Defensive against `OperationalError: no such table` so callers in stub
+    mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
+    init_db) get None back, matching the actor's row-missing-stub-noop
+    contract.
+
+    I-arch-001a Codex iter-2 P2-002: if a known DB exists with the legacy
+    schema, the first read-only `get_run` call would 500 on column-missing.
+    The defensive catch below detects "no such column" and triggers a
+    one-time migration via init_db before retrying.
+    """
+    conn = _connect(path)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+                "queued_at, started_at, finished_at, result_json, error_json, "
+                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+                "FROM runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            # Narrow per Codex iter-1 P2-001: only the missing-table stub
+            # path returns None; surface other operational errors (schema
+            # corruption, migration faults) so they aren't masked as
+            # missing-row.
+            if "no such table" in msg:
+                return None
+            # Codex iter-2 P2-002: legacy schema → migrate then retry once.
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(
+                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+                    "queued_at, started_at, finished_at, result_json, error_json, "
+                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+                    "FROM runs WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                raise
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return RunStatusResponse(
+        run_id=row["run_id"],
+        template=row["template"],
+        question=row["question"],
+        lifecycle_status=row["lifecycle_status"],
+        pipeline_status=row["pipeline_status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        result_json=row["result_json"],
+        error_json=row["error_json"],
+        query_slug=row["query_slug"],
+        manifest_run_id=row["manifest_run_id"],
+        artifact_dir=row["artifact_dir"],
+        cost_usd=row["cost_usd"],
+        decision_id=row["decision_id"],
+    )
+
+ succeeded in 818ms:
+"""Test-level setup for tests/v6/.
+
+Closes cycle-4 audit P1.1 (outputs/audits/continuous/97b9c1f_audit.md):
+test_actors.py used to call `get_broker(use_stub=True)` at module import
+time, which decorated the dramatiq actors against THAT StubBroker. The
+acceptance suite then created a DIFFERENT StubBroker in its fixture,
+producing `QueueNotFound: default` when calling `broker.join(...)`.
+
+Fix: install ONE shared StubBroker at conftest IMPORT time (not via a
+fixture). Module-level execution here runs BEFORE any test module is
+imported by pytest collection — so when test_actors.py later imports
+`polaris_v6.queue.actors`, the @dramatiq.actor decorator binds against
+this StubBroker. Both test_actors.py and the acceptance suite reuse the
+same broker via `dramatiq.get_broker()`.
+
+Tested: `pytest tests/v6/` runs with deterministic broker state — no
+QueueNotFound, no accidental Redis connection attempts.
+"""
+
+from __future__ import annotations
+
+import os
+
+# Force StubBroker BEFORE any other test module imports `dramatiq` —
+# otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
+os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
+
+# I-carney-004 P1: every create_app() call now invokes verify_app_startup()
+# which raises RuntimeError on missing POLARIS_JWT_SECRET / static_accounts.
+# Tests that mount the full app must bypass the auth substrate; individual
+# auth tests opt back in by `monkeypatch.delenv("POLARIS_AUTH_DISABLED")`.
+os.environ.setdefault("POLARIS_AUTH_DISABLED", "1")
+
+try:
+    from polaris_v6.queue.broker import get_broker as _get_broker
+
+    # Eagerly install the StubBroker. Subsequent `import dramatiq` calls
+    # see this broker; subsequent `@dramatiq.actor` decorations bind to it.
+    _SHARED_TEST_BROKER = _get_broker(use_stub=True)
+except ImportError:
+    # dramatiq isn't installed — let individual tests use pytest.importorskip
+    _SHARED_TEST_BROKER = None
+"""Tests for /health and /runs router contracts.
+
+These run with TestClient (no real HTTP server / no Dramatiq dispatch).
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture
+def client():
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_health_returns_ok(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["version"].startswith("6.")
+
+
+def test_create_run_returns_202_and_queued(client):
+    response = client.post(
+        "/runs",
+        json={"template": "clinical", "question": "What does the latest evidence show?"},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["template"] == "clinical"
+    assert body["run_id"]
+
+
+def test_create_run_rejects_invalid_template(client):
+    response = client.post(
+        "/runs",
+        json={"template": "not_a_template", "question": "test question"},
+    )
+    assert response.status_code == 422
+
+
+def test_create_run_rejects_short_question(client):
+    response = client.post(
+        "/runs",
+        json={"template": "clinical", "question": "x"},
+    )
+    assert response.status_code == 422
+
+
+def test_get_run_returns_404_for_unknown(client):
+    response = client.get("/runs/does_not_exist")
+    assert response.status_code == 404
+
+
+def test_create_then_get_run_round_trip(client):
+    create_response = client.post(
+        "/runs",
+        json={"template": "policy", "question": "Tariff impact on supply chain?"},
+    )
+    run_id = create_response.json()["run_id"]
+
+    get_response = client.get(f"/runs/{run_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["template"] == "policy"
+
+ succeeded in 890ms:
+"""Runs router — POST /runs, GET /runs/{id}.
+
+I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+Replaces the previous in-memory `_run_table` dict.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import uuid
+
+from fastapi import APIRouter, HTTPException
+
+from polaris_v6.queue import run_store
+from polaris_v6.queue.actors import enqueue_research_run
+from polaris_v6.schemas.run_request import RunRequest
+from polaris_v6.schemas.run_status import RunStatusResponse
+
+router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+@router.post("", response_model=RunStatusResponse, status_code=202)
+def create_run(payload: RunRequest) -> RunStatusResponse:
+    run_id = uuid.uuid4().hex
+    try:
+        run_store.insert_run(run_id, payload.template, payload.question)
+    except sqlite3.IntegrityError as exc:
+        # uuid4 collision is theoretically impossible but defensive
+        raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
+    except RuntimeError as exc:
+        # init_db permission-denied or similar
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    enqueue_research_run.send(run_id, payload.model_dump())
+
+    record = run_store.get_run(run_id)
+    if record is None:  # pragma: no cover — insert just succeeded
+        raise HTTPException(status_code=500, detail="run row vanished after insert")
+    return record
+
+
+@router.get("/{run_id}", response_model=RunStatusResponse)
+def get_run(run_id: str) -> RunStatusResponse:
+    record = run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    return record
+
+codex
+The backend state matches the brief: `/runs` currently inserts unconditionally, and the shared `tests/v6` DB would become a real source of false 409s once the gate is added. I’m checking the frontend error path next for whether the proposed UX hook is sufficient.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\api.ts -TotalCount 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\dashboard\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\api.ts | Select-Object -Skip 440 -First 160" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\schemas\\run_status.py" in C:\POLARIS
+ succeeded in 731ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+
+ succeeded in 796ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  checkAmbiguity,
+  checkScope,
+  createRun,
+  listTemplates,
+  uploadDocument,
+  type AmbiguityResult,
+  type ScopeDecision,
+  type TemplateContent,
+  type TemplateId,
+  type UploadResponse,
+} from "@/lib/api";
+
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+    {
+      id: "tech",
+      title: "Technology assessment",
+      domain: "arXiv / IEEE / ACM",
+    },
+    {
+      id: "due_diligence",
+      title: "Due diligence",
+      domain: "SEC EDGAR / USPTO",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const [question, setQuestion] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (question.trim().length < 4) {
+      setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Start a research run
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Pick a template and ask a focused question. Every claim returned
+            will carry a provenance token tied to a primary source.
+          </p>
+        </section>
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-foreground text-sm font-semibold">
+              Template
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+                  // <div> — keyboard-only users locked out of non-default
+                  // templates, WCAG 2.1.1 Level A failure).
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTemplate(t.id)}
+                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                      selected
+                        ? "border-foreground"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                  >
+                    <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
+                      {t.domain}
+                    </span>
+                    <span className="text-card-foreground mt-1 block text-base font-semibold">
+                      {t.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="question"
+              className="text-foreground text-sm font-semibold"
+            >
+              Research question
+            </label>
+            <Input
+              id="question"
+              type="text"
+              placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              minLength={4}
+              maxLength={2000}
+              required
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-foreground text-sm font-semibold">
+              Optional: upload supporting documents
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+                dragOver
+                  ? "border-foreground bg-muted/40"
+                  : "border-border bg-muted/10"
+              }`}
+            >
+              <p className="text-muted-foreground">
+                Drag PDFs, .docx, .md, or .txt here, or
+              </p>
+              <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
+                <span>browse files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.md,.txt"
+                  className="hidden"
+                  disabled={uploading || submitting}
+                  onChange={(e) => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {uploading && (
+                <p className="text-muted-foreground text-xs">Uploading…</p>
+              )}
+            </div>
+            {uploads.length > 0 && (
+              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+                {uploads.map((u) => (
+                  <li
+                    key={u.document_id}
+                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {u.filename}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {(u.bytes / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="ml-2 uppercase">{u.classification}</span>
+                      <span className="ml-2">{u.parse_status}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUploads((prev) =>
+                          prev.filter((p) => p.document_id !== u.document_id),
+                        )
+                      }
+                      className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {scopeDecision && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/60"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-foreground mt-2 text-sm font-medium">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-foreground mt-2 text-xs font-medium">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (ambiguity guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/" />}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
+              {submitting ? "Queuing…" : "Start run"}
+            </Button>
+          </div>
+        </form>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ succeeded in 826ms:
+"""Run-status response schema.
+
+I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+(pipeline-A manifest verdict). Old `status` retained as computed alias for
+tests/v6/ backcompat — populated from lifecycle_status.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
+
+LifecycleStatus = Literal[
+    "queued",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "failed",
+]
+
+PipelineStatus = Literal[
+    "success",
+    "partial_outline_fallback",
+    "partial_qwen_advisory",
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "abort_scope_rejected",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_no_sources",
+    "abort_evaluator_critical",
+    "error_unexpected",
+]
+
+# Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+# and record.status). Computed from lifecycle_status by the model.
+RunStatus = LifecycleStatus
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str = Field(..., description="Server-assigned UUID hex.")
+    lifecycle_status: LifecycleStatus = Field(
+        ...,
+        description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+    )
+    pipeline_status: PipelineStatus | None = Field(
+        default=None,
+        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+    )
+    template: str
+    question: str
+    queued_at: str = Field(..., description="ISO8601 UTC.")
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_json: str | None = None
+    error_json: str | None = None
+    # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+    query_slug: str | None = None
+    manifest_run_id: str | None = None
+    artifact_dir: str | None = None
+    cost_usd: float | None = None
+    decision_id: str | None = None
+
+    @computed_field  # serialized in JSON and readable as attr
+    @property
+    def status(self) -> LifecycleStatus:
+        """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+
+        New code should use lifecycle_status. This computed field will be
+        removed once tests/v6/ migrate (post-Carney-demo cleanup).
+        """
+        return self.lifecycle_status
+
+ succeeded in 911ms:
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\api\\app.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\queue\\actors.py -TotalCount 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"init_db\\(|include_router|runs.router|startup\" src\\polaris_v6 tests\\v6 -S" in C:\POLARIS
+ succeeded in 737ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+    app.include_router(transparency_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
+
+    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+    app.include_router(graph_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+ succeeded in 787ms:
+"""Dramatiq actors for POLARIS v6 research-run lifecycle.
+
+I-arch-001a (2026-05-12): wired to pipeline-A run_one_query. Concurrency-safe
+(no os.environ mutation — v6 fields flow through q-dict). UUID-scoped
+artifact_dir prevents same-slug concurrent overwrites. Full failure mapping
+maps pipeline-A manifest verdict to lifecycle_status × pipeline_status.
+
+Stub-mode preserved: when no run_store row exists (existing test_actors.py
+direct .fn() invocation), returns deterministic noop without DB writes.
+"""
+
+from __future__ import annotations
+
+# I-carney-005 P1-001: broker init MUST happen BEFORE any @dramatiq.actor
+# decoration below, in the SAME interpreter that imports this module.
+# get_broker() is idempotent (broker._INITIALIZED sentinel) so test
+# environments where conftest already installed a StubBroker pay no cost.
+from polaris_v6.queue.broker import get_broker as _ensure_broker
+_ensure_broker()
+
+import asyncio  # noqa: E402 — must come after broker init
+import json  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import uuid  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
+
+import dramatiq  # noqa: E402
+
+from polaris_v6.queue import run_store  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+ENQUEUE_MAX_RETRIES = 3
+
+# I-arch-001c (2026-05-13) + I-rdy-005 (2026-05-15): template_id →
+# pipeline-A scope_domain mapping at the actor boundary.
+#
+# All 8 canonical templates are first-class scope domains: each has its own
+# config/scope_templates/<id>.yaml and is a member of scope_gate.SUPPORTED_DOMAINS.
+# The mapping is therefore all-identity — every template id IS its scope domain.
+# (The earlier climate/defense/housing/trade placeholders were retired by
+# I-rdy-005's reconcile to the canonical 8.)
+TEMPLATE_TO_SCOPE_DOMAIN = {
+    "clinical": "clinical",
+    "policy": "policy",
+    "tech": "tech",
+    "due_diligence": "due_diligence",
+    "ai_sovereignty": "ai_sovereignty",
+    "canada_us": "canada_us",
+    "workforce": "workforce",
+    "custom": "custom",
+}
+
+
+def _derive_slug(template_id: str, question: str) -> str:
+    """Deterministic URL-safe slug for pipeline-A run_dir nesting.
+
+    Pipeline-A reads q['slug']; this produces a stable, human-readable
+    identifier per (template, question) pair. UUID provides uniqueness
+    via the artifact_dir parent — slug itself doesn't need to be unique.
+    """
+    base = f"{template_id}_{question[:60]}"
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", base.lower()).strip("_")
+    return cleaned[:120] or "untitled"
+
+
+@dramatiq.actor(max_retries=ENQUEUE_MAX_RETRIES, time_limit=30 * 60 * 1000)
+def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute a research run via pipeline-A. Idempotent on run_id.
+
+    Stub-mode path: when run_store has no row for run_id (tests use
+    .fn() directly without insert_run), returns deterministic noop
+    without DB writes — preserves I-phase0-005 stub-mode semantics.
+
+    Production path: marks in_progress, builds q-dict with v6 fields,
+    invokes scripts.run_honest_sweep_r3.run_one_query, parses the
+    manifest.json pipeline-A writes, and dispatches to
+    mark_completed / mark_aborted / mark_failed per pipeline_status.
+    """
+    # Stub-mode preservation
+    if run_store.get_run(run_id) is None:
+        return {"run_id": run_id, "status": "completed", "echo": request_payload}
+
+    run_store.mark_in_progress(run_id)
+    decision_id = str(uuid.uuid4())
+    output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
+    artifact_dir_root = output_root / run_id
+    artifact_dir_root.mkdir(parents=True, exist_ok=True)
+
+    template_id = request_payload.get("template", "")
+    question = request_payload.get("question", "")
+    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
+        raise ValueError(
+            f"unknown template_id {template_id!r} — not one of the canonical "
+            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
+            f"must fail loudly here, not silently run as a generic domain."
+        )
+    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
+    slug = _derive_slug(template_id, question)
+
+    # v6 fields flow through q-dict (NO os.environ mutation per iter-2 P1.2)
+    q: dict[str, Any] = {
+        "domain": domain,
+        "slug": slug,
+        "question": question,
+        "external_run_id": run_id,
+        "decision_id": decision_id,
+        "v6_mode": True,
+        "out_root_override": str(artifact_dir_root),
+        "template_id": template_id,
+    }
+
+    # I-arch-001b: synthesize v30.1 contract patch from v6 template's
+    # frame_manifest. Pipeline-A merges this into the scope template's
+    # per_query_report_contract before compile_frame / load_report_contract_for_slug.
+    # Failure is graceful (logger.warning) — pipeline-A handles missing
+    # contract via legacy no-contract path.
+    try:
+        from polaris_v6.templates.registry import load_template
+        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+
+        v6_tmpl = load_template(template_id).model_dump()
+        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+        logger.info(
+            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
+            run_id,
+            template_id,
+            slug,
+            len(q["v30_contract_patch"][slug]["required_entities"]),
+        )
+    except FileNotFoundError as exc:
+        logger.warning(
+            "[actor] v6 template not found template_id=%s run_id=%s; "
+            "pipeline-A will run on legacy no-contract path: %s",
+            template_id,
+            run_id,
+            exc,
+        )
+    except Exception as exc:  # noqa: BLE001 — synthesizer failure must not block runtime
+        logger.warning(
+            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
+            "slug=%s: %s; pipeline-A on legacy no-contract path",
+            run_id,
+            template_id,
+            slug,
+            exc,
+            exc_info=True,
+        )
+
+    run_store.set_pipeline_meta(
+        run_id,
+        query_slug=slug,
+        artifact_dir=str(artifact_dir_root),
+        decision_id=decision_id,
+    )
+
+    try:
+        from scripts.run_honest_sweep_r3 import run_one_query
+
+        summary = asyncio.run(run_one_query(q, artifact_dir_root))
+    except Exception as exc:  # noqa: BLE001 — actor must record any pipeline crash
+        logger.exception("[actor] pipeline-A raised for run_id=%s", run_id)
+        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
+        raise
+
+    # Parse pipeline-A's manifest.json — written at every exit path
+    manifest_path = artifact_dir_root / "manifest.json"
+    if not manifest_path.is_file():
+        run_store.mark_failed(
+            run_id, "manifest_missing: pipeline-A returned without writing manifest.json"
+        )
+        return summary
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
+        return summary
+
+    pipeline_status = manifest.get("status") or "error_unexpected"
+    manifest_run_id = manifest.get("run_id")
+    cost_usd = manifest.get("cost_usd")
+    if cost_usd is None:
+        cost_usd = summary.get("cost_usd")
+    try:
+        cost_usd_f = float(cost_usd) if cost_usd is not None else None
+    except (TypeError, ValueError):
+        cost_usd_f = None
+
+    run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
+
+    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+        run_store.mark_completed(
+            run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+        )
+    elif pipeline_status.startswith("abort_"):
+        run_store.mark_aborted(
+            run_id,
+            pipeline_status=pipeline_status,
+            abort_reason=manifest.get("error") or pipeline_status,
+            cost_usd=cost_usd_f,
+        )
+    elif pipeline_status.startswith("error_"):
+        run_store.mark_failed(
+            run_id, f"pipeline_error: {pipeline_status}: {manifest.get('error', '')}"
+        )
+    else:
+        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+    return summary
+
+
+@dramatiq.actor(max_retries=0)
+def cancel_research_run(run_id: str) -> dict[str, Any]:
+    """Cancel an in-flight research run by run_id.
+
+    Implementation note: real cancellation is via Worker.send_signal on the
+    target message_id (see test_dramatiq_acceptance.py scenario 3); this
+    actor exists to provide an audited entrypoint that records the cancel
+    intent in the run-status table before the signal fires.
+    """
+    return {"run_id": run_id, "status": "cancel_requested"}
+
+ succeeded in 780ms:
+tests\v6\test_end_to_end_arch_001f.py:51:    run_store.init_db(str(db_path))
+tests\v6\test_end_to_end_arch_001f.py:99:    app.include_router(runs_module.router)
+tests\v6\test_end_to_end_arch_001f.py:100:    app.include_router(stream_module.router)
+tests\v6\test_end_to_end_arch_001f.py:101:    app.include_router(bundle_module.router)
+tests\v6\test_api_stream.py:27:    app.include_router(stream_module.router)
+tests\v6\test_api_health_and_runs.py:1:"""Tests for /health and /runs router contracts.
+src\polaris_v6\api\app.py:20:    verify_app_startup as _verify_auth_startup,
+src\polaris_v6\api\app.py:28:from polaris_v6.api.runs import router as runs_router
+src\polaris_v6\api\app.py:72:    _verify_auth_startup()
+src\polaris_v6\api\app.py:91:    app.include_router(health_router)
+src\polaris_v6\api\app.py:92:    app.include_router(auth_router)
+src\polaris_v6\api\app.py:93:    app.include_router(runs_router)
+src\polaris_v6\api\app.py:94:    app.include_router(stream_router)
+src\polaris_v6\api\app.py:95:    app.include_router(ambiguity_router)
+src\polaris_v6\api\app.py:96:    app.include_router(bundle_router)
+src\polaris_v6\api\app.py:97:    app.include_router(scope_router)
+src\polaris_v6\api\app.py:98:    app.include_router(upload_router)
+src\polaris_v6\api\app.py:99:    app.include_router(charts_router)
+src\polaris_v6\api\app.py:100:    app.include_router(followup_router)
+src\polaris_v6\api\app.py:101:    app.include_router(compare_router)
+src\polaris_v6\api\app.py:102:    app.include_router(memory_router)
+src\polaris_v6\api\app.py:103:    app.include_router(templates_router)
+src\polaris_v6\api\app.py:104:    app.include_router(transparency_router)
+src\polaris_v6\api\app.py:107:    app.include_router(slice001_intake_router, prefix="/api")
+src\polaris_v6\api\app.py:116:        # Build once at startup; fetcher reuses httpx connections per call.
+src\polaris_v6\api\app.py:123:    app.include_router(slice002_retrieval_router, prefix="/api")
+src\polaris_v6\api\app.py:138:    app.include_router(slice003_generation_router, prefix="/api")
+src\polaris_v6\api\app.py:153:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src\polaris_v6\api\app.py:172:    app.include_router(slice005_benchmark_router, prefix="/api")
+src\polaris_v6\api\app.py:174:    app.include_router(disambiguation_router, prefix="/api")
+src\polaris_v6\api\app.py:177:    app.include_router(graph_router, prefix="/api")
+tests\v6\acceptance\test_runs_db_integration.py:49:    run_store.init_db()
+tests\v6\acceptance\test_runs_db_integration.py:133:    app.include_router(router)
+tests\v6\acceptance\test_runs_db_integration.py:177:    app.include_router(router)
+src\polaris_v6\queue\run_store.py:92:def init_db(path: str | None = None) -> None:
+src\polaris_v6\queue\run_store.py:105:    init_db(path)
+src\polaris_v6\queue\run_store.py:264:                init_db(path)
+src\polaris_v6\api\auth.py:10:LAW II: missing POLARIS_JWT_SECRET at app startup → fail-loud RuntimeError.
+src\polaris_v6\api\auth.py:99:def verify_app_startup() -> None:
+src\polaris_v6\api\runs.py:1:"""Runs router — POST /runs, GET /runs/{id}.
+tests\v6\conftest.py:28:# I-carney-004 P1: every create_app() call now invokes verify_app_startup()
+src\polaris_v6\observability\otel_init.py:4:aborts at startup rather than ship a build with broken telemetry.
+
+2026-05-16T16:23:51.449317Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: 無法識別這台主機。 (os error 11001), url: wss://chatgpt.com/backend-api/codex/responses
+ERROR: Reconnecting... 2/5
+2026-05-16T16:23:51.818139Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: 無法識別這台主機。 (os error 11001), url: wss://chatgpt.com/backend-api/codex/responses
+ERROR: Reconnecting... 3/5
+2026-05-16T16:23:52.644651Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: 無法識別這台主機。 (os error 11001), url: wss://chatgpt.com/backend-api/codex/responses
+ERROR: Reconnecting... 4/5
+ERROR: Reconnecting... 5/5
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"200-LOC|LOC|cap|§8\\.3|8\\.3\\.9|HARD ITERATION CAP|Output schema\" CLAUDE.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content CLAUDE.md | Select-Object -Skip 430 -First 260' in C:\POLARIS
+ succeeded in 1298ms:
+--admin` succeeds, the IMMEDIATE next action MUST be `git checkout -b
+bot/<next-pr-name>`. Not a wrap-up. Not a "next actions" list. Not a
+"continuing" sentence followed by silence.
+
+**Why:** STATUS blocks function as turn-closure signals. Even when followed
+by "Continuing to PR X", the closure has already happened in output, and
+the next iteration does not fire reliably. User has flagged this failure
+3+ times across 2026-05-04 sessions ("you always said you continue, but you
+always stop"). Promising harder doesn't fix it; structural avoidance does.
+
+**Allowed mid-batch transitions:**
+- One brief sentence: "PR 25 merged; opening PR 7 branch."
+- A `git checkout -b ...` command in the same response.
+- Tests + commits + push + merge for the next PR.
+
+**FORBIDDEN mid-batch:**
+- Any STATUS block.
+- Bullet lists titled "next actions:", "remaining:", "shipped this stretch".
+- "Slice progression: N of M PRs shipped" tallies.
+- Per-PR wrap-up summaries.
+
+**STATUS blocks are reserved for:**
+1. The MISSION is fully complete — for POLARIS, that means slice 005
+   (BEAT-BOTH benchmark + demo polish) merged AND the demo run end-to-end
+   produces correct output. Until then, every slice boundary (002→003,
+   003→004, etc.) is an internal transition, NOT an end-of-batch.
+2. A genuine halt condition has fired: asymptoting / scope decision /
+   primary-source conflict / cost concern / fetch-backend keys missing /
+   user-input genuinely required (not invented blocker per
+   `feedback_dont_pause_autoloop` and `feedback_substrate_is_not_product`).
+
+**Slice boundaries are NOT batch boundaries.** When slice N's last PR
+merges, the IMMEDIATE next action is `git checkout -b
+bot/slice-N+1-architecture-proposal` and start drafting. User flagged
+2026-05-04: "Then why you stop here now?" after I declared slice 002
+done. The slice closing is the same kind of internal milestone as a PR
+merge — keep going to slice 003 without asking.
+
+**Self-check:** If you find yourself drafting a STATUS block during a batch
+and the slice isn't done, that's the bug. Delete it; run the next PR's
+branch-creation command instead.
+
+### 8.2 Zero prose between merge and next branch + active_issue.json transition gate (DEPRECATED 2026-05-05 + UPDATED per polaris-restart §9.1)
+
+**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+
+**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+
+---
+
+~~Original 2026-05-04 §8.2:~~
+
+Sec 8.1 was insufficient because it banned STATUS blocks (a surface form)
+without banning the underlying behavior (any backward-looking text
+between `gh pr merge` and `git checkout -b`). The agent kept finding new
+surface forms — paragraphs with PR counts, "still on momentum", "X of N
+PRs done" tallies — that are the same closure behavior dressed differently.
+
+**Strict rule:** Between the tool call that completes `gh pr merge` and
+the tool call that creates the next branch (`git checkout -b
+bot/...next-pr-name`), NO assistant prose is allowed. Not a sentence.
+Not a count. Not a "next up" line. Nothing.
+
+**Why:** Any text in that gap functions as a closure signal regardless
+of whether it has a STATUS header. The empirical pattern across this
+session is: agent emits recap → agent stops. Removing the recap
+removes the stop trigger.
+
+**Allowed:** Empty assistant text followed immediately by the next
+branch's first tool call (Edit/Write/Bash for the next PR's content).
+
+**Forbidden:** Any of these between merge and next branch:
+- "PR N merged" sentences
+- "Slice X: N/M PRs done" tallies
+- "Total tests: N passing" recaps
+- "Continuing with..." / "Moving to..." / "Next is..." framings
+- "Still on momentum" / "Pattern locked in" cheerleading
+- ANY backward-looking summary, however brief
+
+**Test:** If a reader of the conversation transcript can tell that one
+PR just finished and another is starting, the prose was too much.
+PR boundaries should be visible only in tool calls + commit messages,
+never in assistant prose.
+
+User flagged 2026-05-04 v2: "why all of the previous protocol fail
+successfully" — the answer is that sec 8.1 banned the symptom, not the
+behavior. Sec 8.2 bans the behavior.
+
+---
+
+## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+
+When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+
+### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
+
+**Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and matches the cycle-time budget needed to ship Carney by Sep 6.
+
+This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+
+**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+4. Proceed to next step (commit, push, PR, merge).
+
+History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+
+### 8.3.2 Trust Codex's verdicts
+
+Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+
+### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+
+Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+
+`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+
+Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+
+### 8.3.4 No scope-narrowing for false convergence
+
+When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+
+### 8.3.5 Iteration trajectory MUST be logged
+
+Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
+
+### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
+
+Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+
+**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+
+### 8.3.7 Codex auth uses ChatGPT subscription, not API
+
+Always invoke as `env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < brief.md > verdict.txt`. The `-u` flag UNSETS the variable, forcing OAuth fallback to `~/.codex/auth.json`. Confirm via `codex login status` returning "Logged in using ChatGPT." Never run `codex exec` without `env -u OPENAI_API_KEY`.
+
+### 8.3.8 When uncertain about brief structure or Codex-as-reviewer best practice
+
+Before iter N+1, search OpenAI engineering blog + GitHub PR-review automation literature for current best practice. Topics: constraining Codex to verdict-only output (saves tokens vs exec exploration), providing reset-target inventory deterministically, structuring rename-completeness gates, binding Codex output to JSON schema for machine-parseable verdicts.
+
+### 8.3.9 Output schema bound (every brief specifies)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Loose verdict prose is rejected — resubmit asking for the schema.
+
+---
+
+## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+
+User directive 2026-05-07 (reflagged after I-f5-007 merged with closure prose "stopping here for natural cadence"): **"the checkpoint is by codex, not by me, why you still fuck it up."**
+
+**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
+- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+- Codex saying "stop paper, build harness" (§8.3.6).
+- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+- The user explicitly typing a stop instruction in this conversation turn.
+
+**Forbidden self-initiated stops:**
+- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.
+- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
+- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+- "Halfway through the slice; quality-gate stretch warrants a check-in" — NOT a halt condition. Slice/feature boundaries are internal milestones.
+- "Resource state is clean; appropriate stopping point" — NOT a halt condition. Clean resource state is the precondition for continuing, not the trigger for stopping.
+
+**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+
+**Application:** when an Issue merges, the IMMEDIATE next action is `git checkout polaris && git pull && git checkout -b bot/<next-issue>` — no prose between the merge response and the branch creation.
+
+---
+
+## §8.4 Computer-resource discipline (CPU / GPU / RAM management) — added 2026-05-06
+
+User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill them when the task completes.**
+
+**Background-process discipline:**
+
+1. **One Codex `exec` at a time.** NEVER run two `codex exec` invocations in parallel. Each Codex call spawns sub-processes (~3 alive concurrently) that linger after exit; multiple in flight = OS-level resource exhaustion. Run codex in foreground with a 9-min timeout, OR if backgrounded, await completion before queuing the next.
+
+2. **Background tool-call audit before exit.** Before yielding back to the user OR scheduling a wakeup, check `Get-Process -Name codex,python,node` and kill orphaned processes from the just-completed task. Use `Stop-Process -Id <pid>` (or `taskkill /PID <pid> /F` if Stop-Process fails). NEVER leave a hung codex process across a turn boundary unless it is genuinely still doing work.
+
+3. **No parallel pytest / npm / playwright runs.** Single test run at a time per workspace. If a previous run is still active (`Get-Process -Name python,node`), wait for it OR kill it before starting a new one.
+
+4. **Heavy ML / vector / CUDA processes are forbidden in autonomous loops.** sentence-transformers, torch, chromadb, sgLang, vllm — these load models that pin GB-scale RAM. Run only on direct user instruction; release immediately after the task. Use `import gc; gc.collect()` + explicit model handle deletion in Python scripts; kill the Python process if the task is complete.
+
+5. **Long-running watch / dev servers must be tracked.** If you start `npm run dev`, `uvicorn`, `playwright test --watch`, or any persistent server, write the PID to `state/active_processes.json` (one-line append) and kill it before the next Issue starts unless it is genuinely still needed.
+
+6. **Pre-task inventory.** At the start of each new Codex iteration or autonomous loop step, run `Get-Process -Name codex,python,node | Format-Table Id, ProcessName, StartTime, CPU` and confirm no leftover processes from prior steps. If found, kill them.
+
+7. **Notify user on resource concern.** If OS-level resource pressure is detected (Task Manager shows >80% RAM or >90% CPU sustained for >2 minutes during an autonomous loop), pause the loop and report to the user before continuing. Do NOT silently continue while the computer is overloaded.
+
+8. **Codex sub-process lingering is real.** Empirically (2026-05-06 incident): `codex exec` spawns 2-3 child processes that may persist with low-CPU but accumulated RAM after the main process exits. Always check + kill child processes between iters.
+
+**Apply this in every command:**
+- Before running a heavy Bash command: list processes; kill stragglers.
+- After a heavy Bash command: list processes again; kill what shouldn't be alive.
+- When yielding to the user: orphans cleaned.
+- When the user reports a slow computer: stop autonomous work; do a process inventory; clean up; report.
+
+This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
+
+---
+
+## §9. POLARIS-Specific Invariants
+
+**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+C (frozen legacy) are governed separately — see `architecture.md`.**
+
+### 9.1 Core Invariants (Non-Negotiable)
+
+1. **Two-family evaluator**: generator and evaluator MUST be from
+   different training lineages. `openrouter_client.check_family_segregation`
+   raises `RuntimeError` at construction if violated.
+2. **Provenance tokens**: every generated sentence carries
+   `[#ev:<evidence_id>:<start>-<end>]` tokens. Sentences without valid
+   tokens are dropped by `strict_verify`.
+3. **Strict verify**: per-sentence check enforces (a) evidence-id in pool,
+   (b) span bounds valid, (c) every decimal in sentence appears in span,
+   (d) sentence and span share ≥2 content words
+   (`PG_PROVENANCE_MIN_CONTENT_OVERLAP`). Fabricated claims fail at least
+   one of these.
+4. **Zero-verified abort**: if every section fails strict_verify,
+   `report.md` is a pipeline-verdict artifact (not an empty-findings
+   pseudo-report). Status: `abort_no_verified_sections`.
+5. **Corpus approval enforcement**: a corpus with material tier deviation
+   plus a rubber-stamp note aborts before any generator token is billed.
+   Status: `abort_corpus_approval_denied`.
+6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+   backstops token-only responses. Negative tokens clamp to zero.
+7. **Delimiter sanitization** (prompt-injection defense): evidence text
+   containing `<<<evidence:...>>>` or other delimiter literals —
+   including via NFKD/invisible-char/homoglyph evasions — is neutralized
+   before prompt wrapping. Byte-preserves legitimate multilingual content.
+
+### 9.2 Quality Gates (pipeline A)
+
+| Gate | Threshold | Fail Action |
+|---|---|---|
+
+ succeeded in 1311ms:
+46:4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+47:5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+48:6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+65:**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+73:The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+104:  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+176:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+185:- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+194:- 200-LOC PR cap exceeded
+197:**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+420:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+496:session is: agent emits recap → agent stops. Removing the recap
+505:- "Total tests: N passing" recaps
+521:## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+525:### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
+527:**Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and matches the cycle-time budget needed to ship Carney by Sep 6.
+529:This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+531:**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+534:HARD ITERATION CAP: 5 per document. This is iter N of 5.
+539:- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+544:1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+545:2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+546:3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+549:History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+555:### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+557:Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+559:`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+561:Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+565:When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+571:### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
+575:**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+585:### 8.3.9 Output schema bound (every brief specifies)
+601:## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+606:- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+607:- Codex saying "stop paper, build harness" (§8.3.6).
+608:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+613:- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
+614:- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+652:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
+680:6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+741:Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on iterate-vs-restructure" principle remains, bounded at 5 iterations.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"flush_all|join\\(|get_broker\\(|broker\" tests\\v6 -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content tests\\v6\\acceptance\\test_runs_db_integration.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content tests\\v6\\acceptance\\test_dramatiq_acceptance.py" in C:\POLARIS
+ succeeded in 1565ms:
+"""Integration tests for I-phase0-005 — POST /runs -> Dramatiq -> SQLite.
+
+Per Codex APPROVE iter 4 brief, exercises the queue-to-DB loop:
+- Schema applied via init_db.
+- Actor success path persists status + result_json.
+- POST /runs persists row + enqueues actor.
+- GET /runs/{id} reads from store.
+
+Existing scenario 1 (test_dramatiq_acceptance.py) covers the strengthened
+"row reaches completed after broker drain" assertion.
+
+Out of scope this Issue (deferred to follow-up I-phase0-005b):
+- mark_failed + error_json + failure-path test
+- Idempotency-on-completed short-circuit + test
+- Missing-row direct .fn() RuntimeError (inverted by stub-mode contract)
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+
+import pytest
+
+pytest.importorskip("dramatiq")
+pytest.importorskip("fastapi")
+
+
+@pytest.fixture
+def isolated_db(monkeypatch, tmp_path):
+    """Per-test SQLite DB + StubBroker flush before/after.
+
+    Per brief P2-I4-002 closure: imports MUST stay inside test bodies /
+    fixtures so monkeypatch.setenv lands before run_store reads env.
+    """
+    db_path = tmp_path / "runs_integration.sqlite"
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
+    import dramatiq
+    broker = dramatiq.get_broker()
+    broker.flush_all()
+    yield db_path
+    broker.flush_all()
+
+
+def test_init_db_creates_schema(isolated_db):
+    """Acceptance #1: init_db creates the runs table with 9 named columns."""
+    from polaris_v6.queue import run_store
+
+    run_store.init_db()
+
+    conn = sqlite3.connect(str(isolated_db))
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    finally:
+        conn.close()
+    # I-arch-001a (2026-05-12): status -> lifecycle_status + new metadata columns.
+    expected = {
+        "run_id", "template", "question", "lifecycle_status",
+        "queued_at", "started_at", "finished_at",
+        "result_json", "error_json",
+        # New I-arch-001a columns:
+        "query_slug", "manifest_run_id", "artifact_dir",
+        "pipeline_status", "cost_usd", "decision_id",
+    }
+    assert cols == expected
+
+
+def test_actor_marks_completed_after_pre_insert(isolated_db, monkeypatch, tmp_path):
+    """Acceptance #2: pre-inserted row reaches lifecycle_status=completed after broker drain.
+
+    I-arch-001a (2026-05-12): actor now invokes pipeline-A via
+    scripts.run_honest_sweep_r3.run_one_query and reads the manifest it
+    writes. The test mocks the import to return a synthetic summary +
+    write a minimal valid manifest, keeping the acceptance hermetic.
+    """
+    import dramatiq
+    from dramatiq.worker import Worker
+    from polaris_v6.queue import run_store
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    # Mock pipeline-A: write a minimal manifest and return a summary dict.
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.01,
+            "slug": q["slug"],
+            "domain": q["domain"],
+            "question": q["question"],
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.01, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    run_store.insert_run("run_002", "clinical", "noop?")
+    payload = {"template": "clinical", "question": "noop?", "document_ids": []}
+    enqueue_research_run.send("run_002", payload)
+
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    try:
+        broker.join(enqueue_research_run.queue_name, timeout=10000)
+        worker.join()
+    finally:
+        worker.stop()
+
+    record = run_store.get_run("run_002")
+    assert record is not None
+    assert record.lifecycle_status == "completed"
+    assert record.pipeline_status == "success"
+    assert record.status == "completed"  # computed_field backcompat alias
+    assert record.query_slug is not None
+    assert record.artifact_dir is not None
+    assert record.cost_usd == 0.01
+
+
+def test_post_runs_persists_row(isolated_db):
+    """Acceptance #3: POST /runs returns 202 with status='queued' and persists a row."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.runs import router
+    from polaris_v6.queue import run_store
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "queued"
+    run_id = body["run_id"]
+
+    record = run_store.get_run(run_id)
+    assert record is not None
+    assert record.status == "queued"
+
+
+def test_get_run_after_drain_returns_completed(isolated_db, monkeypatch, tmp_path):
+    """Acceptance #4: full POST + drain + GET loop returns lifecycle_status=completed.
+
+    I-arch-001a (2026-05-12): mock pipeline-A as in test #2.
+    """
+    import dramatiq
+    from dramatiq.worker import Worker
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.runs import router
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.02,
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.02, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    post_resp = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+    assert post_resp.status_code == 202
+    run_id = post_resp.json()["run_id"]
+    assert post_resp.json()["status"] == "queued"  # computed_field alias works at API surface
+
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    try:
+        broker.join(enqueue_research_run.queue_name, timeout=10000)
+        worker.join()
+    finally:
+        worker.stop()
+
+    get_resp = client.get(f"/runs/{run_id}")
+    assert get_resp.status_code == 200
+    body = get_resp.json()
+    assert body["status"] == "completed"  # alias
+    assert body["lifecycle_status"] == "completed"
+    assert body["pipeline_status"] == "success"
+    assert body["cost_usd"] == 0.02
+
+ succeeded in 1774ms:
+tests\v6\acceptance\test_dramatiq_acceptance.py:5:form that runs against StubBroker (in-process; no real Redis cluster
+tests\v6\acceptance\test_dramatiq_acceptance.py:9:The point of shipping scenario 1 now is to prove the actor + broker
+tests\v6\acceptance\test_dramatiq_acceptance.py:20:def stub_broker(monkeypatch):
+tests\v6\acceptance\test_dramatiq_acceptance.py:21:    """Reuse the session-shared StubBroker installed by tests/v6/conftest.py.
+tests\v6\acceptance\test_dramatiq_acceptance.py:24:    StubBroker per test, but the dramatiq actor decorators in
+tests\v6\acceptance\test_dramatiq_acceptance.py:25:    polaris_v6.queue.actors are bound to whatever broker exists at
+tests\v6\acceptance\test_dramatiq_acceptance.py:26:    first-import. Creating a fresh broker here breaks that binding and
+tests\v6\acceptance\test_dramatiq_acceptance.py:27:    raises `QueueNotFound: default` on broker.join().
+tests\v6\acceptance\test_dramatiq_acceptance.py:34:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_dramatiq_acceptance.py:35:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_dramatiq_acceptance.py:37:    yield broker, worker
+tests\v6\acceptance\test_dramatiq_acceptance.py:39:    # Don't close the broker — it's session-shared (see conftest.py).
+tests\v6\acceptance\test_dramatiq_acceptance.py:42:def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
+tests\v6\acceptance\test_dramatiq_acceptance.py:46:    in the run_store DB after broker drain.
+tests\v6\acceptance\test_dramatiq_acceptance.py:54:    broker, worker = stub_broker
+tests\v6\acceptance\test_dramatiq_acceptance.py:79:    broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_dramatiq_acceptance.py:80:    worker.join()
+tests\v6\acceptance\test_dramatiq_acceptance.py:89:@pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")
+tests\v6\acceptance\test_dramatiq_acceptance.py:94:@pytest.mark.xfail(reason="Scenario 3 requires Worker.send_signal against real broker (Task 0.3)")
+tests\v6\acceptance\test_dramatiq_acceptance.py:104:@pytest.mark.xfail(reason="Scenario 5 requires ConnectionMiddleware + broker restart fixture (Task 0.3)")
+tests\v6\acceptance\test_dramatiq_acceptance.py:105:def test_scenario_5_resume_after_broker_restart():
+tests\v6\acceptance\test_dramatiq_acceptance.py:119:@pytest.mark.xfail(reason="Scenario 8 requires real broker disconnect simulation (Task 0.3)")
+tests\v6\acceptance\test_dramatiq_acceptance.py:120:def test_scenario_8_broker_heartbeat():
+tests\v6\acceptance\test_runs_db_integration.py:10:"row reaches completed after broker drain" assertion.
+tests\v6\acceptance\test_runs_db_integration.py:31:    """Per-test SQLite DB + StubBroker flush before/after.
+tests\v6\acceptance\test_runs_db_integration.py:39:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:40:    broker.flush_all()
+tests\v6\acceptance\test_runs_db_integration.py:42:    broker.flush_all()
+tests\v6\acceptance\test_runs_db_integration.py:69:    """Acceptance #2: pre-inserted row reaches lifecycle_status=completed after broker drain.
+tests\v6\acceptance\test_runs_db_integration.py:106:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:107:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_runs_db_integration.py:110:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:111:        worker.join()
+tests\v6\acceptance\test_runs_db_integration.py:185:    broker = dramatiq.get_broker()
+tests\v6\acceptance\test_runs_db_integration.py:186:    worker = Worker(broker, worker_timeout=100)
+tests\v6\acceptance\test_runs_db_integration.py:189:        broker.join(enqueue_research_run.queue_name, timeout=10000)
+tests\v6\acceptance\test_runs_db_integration.py:190:        worker.join()
+tests\v6\anti_sycophancy\test_nightly_eval.py:3:Test 5 follows Codex P2 guidance: the project's Dramatiq broker has no
+tests\v6\anti_sycophancy\test_nightly_eval.py:5:exercise actor delivery via `broker.join(actor.queue_name)` and assert
+tests\v6\conftest.py:4:test_actors.py used to call `get_broker(use_stub=True)` at module import
+tests\v6\conftest.py:5:time, which decorated the dramatiq actors against THAT StubBroker. The
+tests\v6\conftest.py:6:acceptance suite then created a DIFFERENT StubBroker in its fixture,
+tests\v6\conftest.py:7:producing `QueueNotFound: default` when calling `broker.join(...)`.
+tests\v6\conftest.py:9:Fix: install ONE shared StubBroker at conftest IMPORT time (not via a
+tests\v6\conftest.py:13:this StubBroker. Both test_actors.py and the acceptance suite reuse the
+tests\v6\conftest.py:14:same broker via `dramatiq.get_broker()`.
+tests\v6\conftest.py:16:Tested: `pytest tests/v6/` runs with deterministic broker state — no
+tests\v6\conftest.py:24:# Force StubBroker BEFORE any other test module imports `dramatiq` —
+tests\v6\conftest.py:25:# otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
+tests\v6\conftest.py:35:    from polaris_v6.queue.broker import get_broker as _get_broker
+tests\v6\conftest.py:37:    # Eagerly install the StubBroker. Subsequent `import dramatiq` calls
+tests\v6\conftest.py:38:    # see this broker; subsequent `@dramatiq.actor` decorations bind to it.
+tests\v6\conftest.py:39:    _SHARED_TEST_BROKER = _get_broker(use_stub=True)
+tests\v6\conftest.py:42:    _SHARED_TEST_BROKER = None
+tests\v6\test_actors.py:21:# Session-shared StubBroker is installed by tests/v6/conftest.py so the
+tests\v6\test_actors.py:23:# SAME broker that the acceptance suite uses. (Cycle-4 audit P1.1 fix.)
+tests\v6\test_broker.py:1:"""Tests for queue.broker.get_broker.
+tests\v6\test_broker.py:4:  - StubBroker path (default for tests / CI without Redis)
+tests\v6\test_broker.py:7:  - heartbeat_seconds * 1000 conversion to ms for RedisBroker
+tests\v6\test_broker.py:8:  - dramatiq global broker is registered after construction
+tests\v6\test_broker.py:21:from dramatiq.brokers.redis import RedisBroker  # noqa: E402
+tests\v6\test_broker.py:22:from dramatiq.brokers.stub import StubBroker  # noqa: E402
+tests\v6\test_broker.py:24:from polaris_v6.queue.broker import (  # noqa: E402
+tests\v6\test_broker.py:27:    get_broker,
+tests\v6\test_broker.py:32:def _restore_session_broker():
+tests\v6\test_broker.py:33:    """Save the session-shared broker before each test and restore after.
+tests\v6\test_broker.py:35:    Cycle-4 audit P3.1 fix: get_broker() side-effects dramatiq.set_broker(),
+tests\v6\test_broker.py:36:    so calling it in a test would replace the session-shared StubBroker
+tests\v6\test_broker.py:38:    acceptance suite that depends on the session broker) would then run
+tests\v6\test_broker.py:39:    against whatever broker the last test left behind.
+tests\v6\test_broker.py:42:    sentinel (introduced for same-process broker init) and reset it
+tests\v6\test_broker.py:43:    before yield so each test gets a fresh construction via get_broker().
+tests\v6\test_broker.py:45:    from polaris_v6.queue import broker as br
+tests\v6\test_broker.py:46:    saved_broker = dramatiq.get_broker()
+tests\v6\test_broker.py:50:    dramatiq.set_broker(saved_broker)
+tests\v6\test_broker.py:54:def test_use_stub_explicit_true_returns_stubbroker():
+tests\v6\test_broker.py:55:    broker = get_broker(use_stub=True)
+tests\v6\test_broker.py:56:    assert isinstance(broker, StubBroker)
+tests\v6\test_broker.py:57:    # Registered globally as the active broker.
+tests\v6\test_broker.py:58:    assert dramatiq.get_broker() is broker
+tests\v6\test_broker.py:63:        broker = get_broker()
+tests\v6\test_broker.py:64:    assert isinstance(broker, StubBroker)
+tests\v6\test_broker.py:68:    """Only `1` enables stub. `0`, `false`, etc. fall through to RedisBroker."""
+tests\v6\test_broker.py:70:        # Construct against a phony URL that the broker doesn't actually
+tests\v6\test_broker.py:72:        broker = get_broker(redis_url="redis://test-host:6379/0")
+tests\v6\test_broker.py:73:    assert isinstance(broker, RedisBroker)
+tests\v6\test_broker.py:81:    broker = get_broker(redis_url="redis://arg-host:6379/0")
+tests\v6\test_broker.py:82:    # RedisBroker stores the parsed URL on its client connection_kwargs.
+tests\v6\test_broker.py:83:    assert "arg-host" in str(broker.client.connection_pool.connection_kwargs)
+tests\v6\test_broker.py:89:    broker = get_broker()
+tests\v6\test_broker.py:90:    assert "env-host" in str(broker.client.connection_pool.connection_kwargs)
+tests\v6\test_broker.py:96:    broker = get_broker()
+tests\v6\test_broker.py:98:    assert "localhost" in str(broker.client.connection_pool.connection_kwargs)
+tests\v6\test_broker.py:109:def test_set_broker_registers_globally():
+tests\v6\test_broker.py:110:    """dramatiq.get_broker() must return the broker get_broker() built."""
+tests\v6\test_broker.py:111:    broker = get_broker(use_stub=True)
+tests\v6\test_broker.py:112:    assert dramatiq.get_broker() is broker
+tests\v6\test_broker_init_order.py:1:"""I-carney-005 P1-001 regression: broker init must happen at module import
+tests\v6\test_broker_init_order.py:5:actors against Dramatiq's default broker (localhost:6379), NOT the
+tests\v6\test_broker_init_order.py:16:from dramatiq.brokers.stub import StubBroker
+tests\v6\test_broker_init_order.py:19:class _SentinelBroker(StubBroker):
+tests\v6\test_broker_init_order.py:20:    """Marker subclass so we can detect whether actors.py rebuilt the broker."""
+tests\v6\test_broker_init_order.py:26:def _restore_broker_state():
+tests\v6\test_broker_init_order.py:27:    """Same save/restore pattern as test_broker.py, scoped to this file."""
+tests\v6\test_broker_init_order.py:28:    from polaris_v6.queue import broker as br
+tests\v6\test_broker_init_order.py:30:    saved_broker = dramatiq.get_broker()
+tests\v6\test_broker_init_order.py:34:    dramatiq.set_broker(saved_broker)
+tests\v6\test_broker_init_order.py:38:def test_get_broker_is_idempotent(monkeypatch):
+tests\v6\test_broker_init_order.py:39:    """Repeated get_broker() calls don't overwrite an already-set broker."""
+tests\v6\test_broker_init_order.py:41:    from polaris_v6.queue import broker as br
+tests\v6\test_broker_init_order.py:43:    b1 = br.get_broker()
+tests\v6\test_broker_init_order.py:44:    b2 = br.get_broker()
+tests\v6\test_broker_init_order.py:46:    assert dramatiq.get_broker() is b1
+tests\v6\test_broker_init_order.py:50:    """`_reset_for_testing()` clears the sentinel so the NEXT get_broker
+tests\v6\test_broker_init_order.py:51:    rebuilds. Required for tests that need a fresh broker per case.
+tests\v6\test_broker_init_order.py:54:    from polaris_v6.queue import broker as br
+tests\v6\test_broker_init_order.py:56:    b1 = br.get_broker()
+tests\v6\test_broker_init_order.py:58:    b2 = br.get_broker()
+tests\v6\test_broker_init_order.py:59:    # Different instances (rebuilt), but both StubBrokers.
+tests\v6\test_broker_init_order.py:61:    assert isinstance(b1, StubBroker)
+tests\v6\test_broker_init_order.py:62:    assert isinstance(b2, StubBroker)
+tests\v6\test_broker_init_order.py:65:def test_actors_module_calls_get_broker_at_import(monkeypatch):
+tests\v6\test_broker_init_order.py:68:    Pre-install a sentinel broker and reset the init flag. Reloading actors
+tests\v6\test_broker_init_order.py:69:    MUST cause _ensure_broker() to fire and replace the sentinel with a real
+tests\v6\test_broker_init_order.py:70:    StubBroker (because POLARIS_V6_QUEUE_USE_STUB=1). If actors.py forgot to
+tests\v6\test_broker_init_order.py:71:    call _ensure_broker(), the sentinel remains current and the assertion
+tests\v6\test_broker_init_order.py:72:    fails. Also verify actor.broker matches the post-reload current broker,
+tests\v6\test_broker_init_order.py:76:    sentinel = _SentinelBroker()
+tests\v6\test_broker_init_order.py:77:    dramatiq.set_broker(sentinel)
+tests\v6\test_broker_init_order.py:78:    from polaris_v6.queue import broker as br
+tests\v6\test_broker_init_order.py:80:    br._INITIALIZED = False  # force the next get_broker() to rebuild
+tests\v6\test_broker_init_order.py:87:    current = dramatiq.get_broker()
+tests\v6\test_broker_init_order.py:89:        "actors.py did not call _ensure_broker() at import — "
+tests\v6\test_broker_init_order.py:90:        "sentinel broker is still the default"
+tests\v6\test_broker_init_order.py:92:    assert isinstance(current, StubBroker), (
+tests\v6\test_broker_init_order.py:93:        f"expected StubBroker after reload, got {type(current).__name__}"
+tests\v6\test_broker_init_order.py:95:    assert actors.enqueue_research_run.broker is current
+tests\v6\test_broker_init_order.py:96:    assert actors.cancel_research_run.broker is current
+tests\v6\test_end_to_end_arch_001f.py:23:# Force StubBroker BEFORE importing actors / runs (tests/v6/conftest.py
+tests\v6\test_end_to_end_arch_001f.py:56:def flush_stub_broker():
+tests\v6\test_end_to_end_arch_001f.py:57:    """Per Codex iter-3 P1-005: StubBroker uses flush_all(), not flush_queue().
+tests\v6\test_end_to_end_arch_001f.py:58:    Guarded by hasattr so a real-Redis broker (no flush_all) is a no-op."""
+tests\v6\test_end_to_end_arch_001f.py:61:    broker = dramatiq.get_broker()
+tests\v6\test_end_to_end_arch_001f.py:62:    if hasattr(broker, "flush_all"):
+tests\v6\test_end_to_end_arch_001f.py:63:        broker.flush_all()
+tests\v6\test_end_to_end_arch_001f.py:65:    if hasattr(broker, "flush_all"):
+tests\v6\test_end_to_end_arch_001f.py:66:        broker.flush_all()
+tests\v6\test_sticky_connection_middleware.py:20:def test_no_op_when_broker_lacks_client_attribute():
+tests\v6\test_sticky_connection_middleware.py:21:    """Stub-style brokers without `.client` should be silently allowed."""
+tests\v6\test_sticky_connection_middleware.py:23:    broker = MagicMock(spec=[])  # no `client` attribute
+tests\v6\test_sticky_connection_middleware.py:25:    mw.before_worker_boot(broker, worker)
+tests\v6\test_sticky_connection_middleware.py:30:def test_pins_client_on_worker_boot_when_broker_has_one():
+tests\v6\test_sticky_connection_middleware.py:33:    broker = MagicMock()
+tests\v6\test_sticky_connection_middleware.py:34:    broker.client = fake_client
+tests\v6\test_sticky_connection_middleware.py:37:    mw.before_worker_boot(broker, worker)
+tests\v6\test_throttle_middleware.py:6:invokes in production — with synthetic Message objects (no real broker).
+
+ succeeded in 1780ms:
+"""Dramatiq queue acceptance test matrix — Phase 0 Task 0.5 GREEN gate.
+
+Per docs/backend_modernization.md §3, eight scenarios must pass before
+Dramatiq is committed as the queue. This module ships scenario 1 in a
+form that runs against StubBroker (in-process; no real Redis cluster
+needed). Scenarios 2-8 are stubs marked xfail until the Vast.ai dev
+cluster (Task 0.3) is live with real Redis + multi-worker Dramatiq.
+
+The point of shipping scenario 1 now is to prove the actor + broker
+contract is wired correctly so that scenarios 2-8 are pure additions
+in Phase 0 / Phase 1 once the cluster is live.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture
+def stub_broker(monkeypatch):
+    """Reuse the session-shared StubBroker installed by tests/v6/conftest.py.
+
+    Cycle-4 audit P1.1 fix: previously this fixture created a NEW
+    StubBroker per test, but the dramatiq actor decorators in
+    polaris_v6.queue.actors are bound to whatever broker exists at
+    first-import. Creating a fresh broker here breaks that binding and
+    raises `QueueNotFound: default` on broker.join().
+    """
+    pytest.importorskip("dramatiq")
+    import dramatiq
+    from dramatiq.worker import Worker
+
+    monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
+    broker = dramatiq.get_broker()
+    worker = Worker(broker, worker_timeout=100)
+    worker.start()
+    yield broker, worker
+    worker.stop()
+    # Don't close the broker — it's session-shared (see conftest.py).
+
+
+def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
+    """Scenario 1: actor returns; lifecycle_status `completed`.
+
+    I-phase0-005: strengthened to assert the run row reaches `completed`
+    in the run_store DB after broker drain.
+
+    I-arch-001a (2026-05-12): mocks pipeline-A (run_one_query) to write
+    a minimal valid manifest. Without the mock the actor would attempt
+    a real pipeline-A invocation and hit retrieval / LLM dependencies.
+    """
+    import json
+
+    broker, worker = stub_broker
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    async def _fake_run_one_query(q, out_root):
+        out_root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_id": f"SWEEP_{q['domain']}_{q['slug']}_fixture",
+            "status": "success",
+            "cost_usd": 0.01,
+        }
+        (out_root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        return {"manifest": manifest, "cost_usd": 0.01, "status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query",
+        _fake_run_one_query,
+        raising=False,
+    )
+
+    from polaris_v6.queue import run_store
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    run_store.insert_run("run_001", "clinical", "noop?")
+    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+    broker.join(enqueue_research_run.queue_name, timeout=10000)
+    worker.join()
+
+    record = run_store.get_run("run_001")
+    assert record is not None
+    assert record.lifecycle_status == "completed"
+    assert record.pipeline_status == "success"
+    assert record.status == "completed"  # computed_field backcompat alias
+
+
+@pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")
+def test_scenario_2_retry_on_transient_failure():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 3 requires Worker.send_signal against real broker (Task 0.3)")
+def test_scenario_3_cancel_mid_execution():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 4 requires SIGKILL fixture + idempotency key store (Task 0.3)")
+def test_scenario_4_worker_kill_resume():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 5 requires ConnectionMiddleware + broker restart fixture (Task 0.3)")
+def test_scenario_5_resume_after_broker_restart():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 6 requires otel_propagate middleware (next file)")
+def test_scenario_6_trace_id_propagation():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 7 requires throttle middleware + 100-message fixture (Task 0.3)")
+def test_scenario_7_high_retry_rate_degradation():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(reason="Scenario 8 requires real broker disconnect simulation (Task 0.3)")
+def test_scenario_8_broker_heartbeat():
+    raise NotImplementedError
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "run_store.insert_run_if_idle must explicitly call init_db(path) before BEGIN IMMEDIATE. create_app does not initialize the runs DB; current POST /runs only works on a clean DB because insert_run calls init_db. As briefed, the first request could fail with 'no such table: runs'."
+p2:
+  - "Ruling: reject with HTTP 409 is the right branch over queueing."
+  - "Ruling: LOC-cap exemption accepted; the overage is test-dominated and the non-test diff is appropriately scoped."
+  - "Ruling: conftest-wide autouse DB isolation is preferred over per-fixture patching."
+  - "Add a true two-thread insert_run_if_idle race test if practical; sequential 409 tests do not prove the BEGIN IMMEDIATE guarantee."
+  - "UX wording should not say 'cancel it' unless this PR also exposes a real cancel path."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Amend the brief so insert_run_if_idle preserves insert_run's DB initialization behavior before the transaction."
+```
+tokens used
+142,841
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "run_store.insert_run_if_idle must explicitly call init_db(path) before BEGIN IMMEDIATE. create_app does not initialize the runs DB; current POST /runs only works on a clean DB because insert_run calls init_db. As briefed, the first request could fail with 'no such table: runs'."
+p2:
+  - "Ruling: reject with HTTP 409 is the right branch over queueing."
+  - "Ruling: LOC-cap exemption accepted; the overage is test-dominated and the non-test diff is appropriately scoped."
+  - "Ruling: conftest-wide autouse DB isolation is preferred over per-fixture patching."
+  - "Add a true two-thread insert_run_if_idle race test if practical; sequential 409 tests do not prove the BEGIN IMMEDIATE guarantee."
+  - "UX wording should not say 'cancel it' unless this PR also exposes a real cancel path."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Amend the brief so insert_run_if_idle preserves insert_run's DB initialization behavior before the transaction."
+```
