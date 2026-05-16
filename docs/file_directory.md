@@ -246,8 +246,10 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
   is broken until these are either restored or removed.
-- "Kimi K2.5 1T" — historical generator. Current generator is
-  DeepSeek V3.2-Exp. Current evaluator is Qwen3-8B.
+- "Kimi K2.5 1T" — historical generator. The locked generator/evaluator
+  for the Carney demo is DeepSeek V4 Pro + Gemma 4 31B (see
+  `docs/polaris_locked_scope.md` §1); earlier pipelines used DeepSeek
+  V3.2-Exp + Qwen3-8B.
 - "175 vectors exactly" — old invariant from P0-P12. Not applicable
   to any currently-active pipeline.
 
@@ -276,3 +278,13 @@ tests/v6/
 `requirements-v6.txt` at repo root: pinned production dependencies for
 v6 (FastAPI 0.136, Pydantic 2.11, Dramatiq 2.1, OTEL 1.30, semconv
 0.51b0, pytest 8.4, ruff 0.7).
+
+## Carney demo readiness docs (added 2026-05-15)
+
+- `docs/polaris_locked_scope.md` — the scope lock (LLM, architecture, 8
+  templates, 15 features); single anti-drift source of truth. Codex-APPROVED
+  (I-rdy-001 / #497).
+
+The Carney-demo execution plan, gap register, GPU-sovereignty research and
+vendor-outreach notes are session-state working docs under `state/`
+(gitignored per §5); they are not part of the tracked file inventory.
