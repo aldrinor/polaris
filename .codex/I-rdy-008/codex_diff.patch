@@ -1,0 +1,814 @@
+diff --git a/src/polaris_v6/api/bundle.py b/src/polaris_v6/api/bundle.py
+index b37916c5..d1355a65 100644
+--- a/src/polaris_v6/api/bundle.py
++++ b/src/polaris_v6/api/bundle.py
+@@ -35,6 +35,7 @@ from polaris_v6.api.artifact_to_slice_chain import (
+     SovereigntyFilterEmptiedReportError,
+     build_slice_chain,
+ )
++from polaris_v6.api.live_run_adapter import live_run_evidence_contract
+ from polaris_v6.queue import run_store
+ from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+@@ -55,6 +56,11 @@ _GOLDEN_RUN_INDEX = {
+ 
+ @router.get("/{run_id}/bundle", response_model=EvidenceContract)
+ def get_bundle(run_id: str) -> EvidenceContract:
++    # I-rdy-008: a live completed run resolves through the live_run adapter;
++    # only fall back to the golden fixture index when no run_store row exists.
++    live = live_run_evidence_contract(run_id)
++    if live is not None:
++        return live
+     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+     if fixture_name is None:
+         raise HTTPException(
+diff --git a/src/polaris_v6/api/charts.py b/src/polaris_v6/api/charts.py
+index a711ed3d..7073e0ed 100644
+--- a/src/polaris_v6/api/charts.py
++++ b/src/polaris_v6/api/charts.py
+@@ -2,14 +2,14 @@
+ 
+ from __future__ import annotations
+ 
++import json
+ from typing import Literal
+ 
+ from fastapi import APIRouter, HTTPException
+ 
+ from polaris_v6.api.bundle import _GOLDEN_RUN_INDEX, _FIXTURE_DIR
++from polaris_v6.api.live_run_adapter import live_run_evidence_contract
+ from polaris_v6.charts.from_bundle import chart_from_bundle
+-import json
+-
+ from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+ router = APIRouter(prefix="/runs", tags=["charts"])
+@@ -19,13 +19,16 @@ ChartType = Literal["forest_plot", "comparison_table", "timeline"]
+ 
+ @router.get("/{run_id}/charts/{chart_type}")
+ def get_chart(run_id: str, chart_type: ChartType) -> dict:
+-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+-    if fixture_name is None:
+-        raise HTTPException(
+-            status_code=404,
+-            detail=f"Bundle for run {run_id!r} not found.",
+-        )
+-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+-    bundle = EvidenceContract.model_validate(raw)
++    # I-rdy-008: live completed run first; fall back to the golden fixture index.
++    bundle = live_run_evidence_contract(run_id)
++    if bundle is None:
++        fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
++        if fixture_name is None:
++            raise HTTPException(
++                status_code=404,
++                detail=f"Bundle for run {run_id!r} not found.",
++            )
++        raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
++        bundle = EvidenceContract.model_validate(raw)
+     spec = chart_from_bundle(bundle=bundle, chart_type=chart_type)
+     return spec
+diff --git a/src/polaris_v6/api/compare.py b/src/polaris_v6/api/compare.py
+index b9d9e82e..ec0f28ec 100644
+--- a/src/polaris_v6/api/compare.py
++++ b/src/polaris_v6/api/compare.py
+@@ -8,6 +8,7 @@ from dataclasses import asdict
+ from fastapi import APIRouter, HTTPException
+ 
+ from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
++from polaris_v6.api.live_run_adapter import live_run_evidence_contract
+ from polaris_v6.compare.differ import compare_reports
+ from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+@@ -15,6 +16,10 @@ router = APIRouter(prefix="/runs", tags=["compare"])
+ 
+ 
+ def _load(run_id: str) -> EvidenceContract:
++    # I-rdy-008: live completed run first; fall back to the golden fixture index.
++    live = live_run_evidence_contract(run_id)
++    if live is not None:
++        return live
+     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+     if fixture_name is None:
+         raise HTTPException(
+diff --git a/src/polaris_v6/api/followup.py b/src/polaris_v6/api/followup.py
+index 822e1007..60e02596 100644
+--- a/src/polaris_v6/api/followup.py
++++ b/src/polaris_v6/api/followup.py
+@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
++from polaris_v6.api.live_run_adapter import live_run_evidence_contract
+ from polaris_v6.followup.agent import answer_followup
+ from polaris_v6.followup.schema import FollowUpAnswer
+ from polaris_v6.schemas.evidence_contract import EvidenceContract
+@@ -21,12 +22,15 @@ class FollowUpHttpRequest(BaseModel):
+ 
+ @router.post("/{run_id}/followup", response_model=FollowUpAnswer)
+ def post_followup(run_id: str, payload: FollowUpHttpRequest) -> FollowUpAnswer:
+-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+-    if fixture_name is None:
+-        raise HTTPException(
+-            status_code=404,
+-            detail=f"Bundle for run {run_id!r} not found.",
+-        )
+-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+-    bundle = EvidenceContract.model_validate(raw)
++    # I-rdy-008: live completed run first; fall back to the golden fixture index.
++    bundle = live_run_evidence_contract(run_id)
++    if bundle is None:
++        fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
++        if fixture_name is None:
++            raise HTTPException(
++                status_code=404,
++                detail=f"Bundle for run {run_id!r} not found.",
++            )
++        raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
++        bundle = EvidenceContract.model_validate(raw)
+     return answer_followup(parent=bundle, question=payload.question)
+diff --git a/src/polaris_v6/api/live_run_adapter.py b/src/polaris_v6/api/live_run_adapter.py
+new file mode 100644
+index 00000000..9c4f1943
+--- /dev/null
++++ b/src/polaris_v6/api/live_run_adapter.py
+@@ -0,0 +1,367 @@
++"""I-rdy-008 — live-run → EvidenceContract adapter.
++
++Implements `docs/live_run_artifact_contract.md` (I-rdy-007): resolves a v6
++`run_id` to its pipeline-A `artifact_dir` and adapts that artifact set into the
++`EvidenceContract` the rich UI endpoints (bundle JSON, charts, follow-up,
++compare) consume — so a real completed run is inspectable, not only the golden
++fixtures.
++
++Public surface:
++  - resolve_run(run_id)                  — run_id -> (RunStatusResponse, artifact_dir)
++  - artifact_dir_to_evidence_contract()  — artifact_dir -> EvidenceContract
++  - live_run_evidence_contract(run_id)   — endpoint entry; None => no run_store row
++                                           (caller falls back to the golden index)
++
++Endpoints call `live_run_evidence_contract`; a return of `None` means no such
++run exists in `run_store` (so a golden fixture id should be tried). A real but
++non-serviceable run raises `HTTPException` per the I-rdy-007 §6 error matrix.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++from pathlib import Path
++
++from fastapi import HTTPException
++
++from polaris_graph.audit_ir.loader import (
++    AuditIR,
++    AuditIRSchemaError,
++    load_audit_ir,
++)
++from polaris_v6.api.artifact_to_slice_chain import (
++    _full_text_for_evidence_id,
++    _normalize_tier,
++    _read_optional_json,
++    _slugify,
++)
++from polaris_v6.queue import run_store
++from polaris_v6.schemas.evidence_contract import (
++    ContradictionRecord,
++    EvidenceContract,
++    FrameCoverage,
++    SourceSpan,
++    VerifiedSentence,
++)
++from polaris_v6.schemas.run_status import RunStatusResponse
++
++logger = logging.getLogger("polaris_v6.api.live_run_adapter")
++
++
++# ---------------------------------------------------------------------------
++# Resolver — run_id -> artifact_dir, applying the I-rdy-007 §6 error matrix
++# ---------------------------------------------------------------------------
++
++
++def resolve_run(run_id: str) -> tuple[RunStatusResponse, Path]:
++    """Resolve `run_id` to `(RunStatusResponse, artifact_dir)`.
++
++    Raises `HTTPException` for any non-serviceable run, per the I-rdy-007
++    error-state matrix:
++      404 — run not found / not completed / artifact_dir missing or absent
++      422 — run aborted (pipeline_status abort_*) / release-blocked
++    """
++    info = run_store.get_run(run_id)
++    if info is None:
++        raise HTTPException(
++            status_code=404, detail={"error": f"run {run_id!r} not found"}
++        )
++    if info.lifecycle_status != "completed":
++        raise HTTPException(
++            status_code=404,
++            detail={
++                "error": f"run not completed: lifecycle_status={info.lifecycle_status}"
++            },
++        )
++    if info.pipeline_status and info.pipeline_status.startswith("abort_"):
++        raise HTTPException(
++            status_code=422,
++            detail={"error": f"run aborted: pipeline_status={info.pipeline_status}"},
++        )
++    if not info.artifact_dir:
++        raise HTTPException(
++            status_code=404, detail={"error": "run has no artifact_dir recorded"}
++        )
++    artifact_dir = Path(info.artifact_dir)
++    if not artifact_dir.is_dir():
++        raise HTTPException(
++            status_code=404,
++            detail={"error": f"artifact_dir does not exist on disk: {artifact_dir}"},
++        )
++    # Release-blocked gate — read manifest.release_allowed (mirrors bundle.tar.gz).
++    try:
++        manifest_raw = json.loads(
++            (artifact_dir / "manifest.json").read_text(encoding="utf-8")
++        )
++    except (OSError, json.JSONDecodeError) as exc:
++        raise HTTPException(
++            status_code=404,
++            detail={"error": f"manifest.json missing or invalid: {exc}"},
++        ) from exc
++    if not manifest_raw.get("release_allowed", False):
++        raise HTTPException(
++            status_code=422,
++            detail={
++                "error": (
++                    f"run release-blocked: pipeline_status={info.pipeline_status!r}, "
++                    f"release_allowed=False"
++                )
++            },
++        )
++    return info, artifact_dir
++
++
++# ---------------------------------------------------------------------------
++# Adapter internals
++# ---------------------------------------------------------------------------
++
++
++def _model_identity(air: AuditIR, manifest_raw: dict) -> tuple[str, str, bool]:
++    """dec-1: model identity. `AuditIR.model_provenance` -> raw `manifest.models`
++    -> fail loud (422). Returns (generator_model, verifier_model, family_passed).
++    """
++    mp = air.model_provenance
++    if mp is not None and mp.generator_model and mp.evaluator_model:
++        gen, ver = mp.generator_model, mp.evaluator_model
++        gen_fam, ver_fam = mp.generator_family, mp.evaluator_family
++        if gen_fam and ver_fam:
++            return gen, ver, gen_fam != ver_fam
++        return gen, ver, gen.split("/")[0] != ver.split("/")[0]
++    models = manifest_raw.get("models") or {}
++    gen = str(models.get("generator") or "").strip()
++    ver = str(models.get("evaluator") or "").strip()
++    if not gen or not ver:
++        raise HTTPException(
++            status_code=422,
++            detail={"error": "run not contract-conformant: no model identity"},
++        )
++    return gen, ver, gen.split("/")[0] != ver.split("/")[0]
++
++
++def _build_evidence_pool(
++    air: AuditIR, evidence_pool_raw: object
++) -> list[SourceSpan]:
++    """dec-5 (tier) + dec-6 (envelope span + clamp). One SourceSpan per distinct
++    cited evidence_id; span is the envelope (min start / max end) over every
++    token citing that id; span_text is the source body clamped to that span.
++    """
++    # Collect envelope spans per evidence_id across every sentence token.
++    envelopes: dict[str, tuple[int, int]] = {}
++    for section in air.verified_report.sections:
++        for sent in section.sentences:
++            for tok in sent.tokens:
++                lo, hi = envelopes.get(tok.evidence_id, (tok.start, tok.end))
++                envelopes[tok.evidence_id] = (
++                    min(lo, tok.start),
++                    max(hi, tok.end),
++                )
++    spans: list[SourceSpan] = []
++    for evidence_id in sorted(envelopes):
++        env_start, env_end = envelopes[evidence_id]
++        bib = air.get_bibliography_by_evidence_id(evidence_id)
++        source_url = bib.url if bib else ""
++        source_tier = _normalize_tier(bib.tier if bib else "UNKNOWN")[0].value
++        body = _full_text_for_evidence_id(evidence_id, evidence_pool_raw)
++        if not body:
++            raise HTTPException(
++                status_code=422,
++                detail={
++                    "error": (
++                        f"run not contract-conformant: no source body for cited "
++                        f"evidence_id {evidence_id!r} in evidence_pool.json"
++                    )
++                },
++            )
++        # dec-6: clamp the span to the available body; 422 if no non-empty overlap.
++        start = max(0, min(env_start, len(body)))
++        end = min(max(env_end, 0), len(body))
++        if end <= start:
++            raise HTTPException(
++                status_code=422,
++                detail={
++                    "error": (
++                        f"run not contract-conformant: cited span [{env_start}:"
++                        f"{env_end}] for {evidence_id!r} has no overlap with the "
++                        f"{len(body)}-char source body"
++                    )
++                },
++            )
++        if (start, end) != (env_start, env_end):
++            logger.info(
++                "[live_run_adapter] clamped span for %s: [%d:%d] -> [%d:%d] "
++                "(body len %d)",
++                evidence_id, env_start, env_end, start, end, len(body),
++            )
++        spans.append(
++            SourceSpan(
++                evidence_id=evidence_id,
++                source_url=source_url or "unknown",
++                source_tier=source_tier,
++                span_start=start,
++                span_end=end,
++                span_text=body[start:end],
++            )
++        )
++    return spans
++
++
++def _build_verified_sentences(air: AuditIR) -> list[VerifiedSentence]:
++    """dec-2: both verifier passes <- ReportSentence.is_verified."""
++    out: list[VerifiedSentence] = []
++    for section in air.verified_report.sections:
++        for sent in section.sentences:
++            drop_reason = None
++            if not sent.is_verified and sent.failure_reasons:
++                drop_reason = sent.failure_reasons[0]
++            out.append(
++                VerifiedSentence(
++                    section_id=_slugify(sent.section) or "section",
++                    sentence_text=sent.text or "n/a",
++                    provenance_tokens=[
++                        f"[#ev:{t.evidence_id}:{t.start}-{t.end}]"
++                        for t in sent.tokens
++                    ],
++                    verifier_local_pass=bool(sent.is_verified),
++                    verifier_global_pass=bool(sent.is_verified),
++                    drop_reason=drop_reason,
++                )
++            )
++    return out
++
++
++def _build_frame_coverage(air: AuditIR) -> list[FrameCoverage]:
++    """dec-3: roll FrameCoverageEntry (per entity) up to FrameCoverage (per
++    frame) — group by (section, slot_id); coverage = exact-"pass" / total.
++    """
++    groups: dict[tuple[str, str], list] = {}
++    for entry in air.frame_coverage.entries:
++        groups.setdefault((entry.section, entry.slot_id), []).append(entry)
++    out: list[FrameCoverage] = []
++    for (section, slot_id), entries in sorted(groups.items()):
++        total = len(entries)
++        passed = sum(1 for e in entries if e.status == "pass")
++        out.append(
++            FrameCoverage(
++                frame_id=f"{section}:{slot_id}" if section else slot_id,
++                frame_name=entries[0].subsection_title or slot_id or section,
++                sources_assigned=total,
++                coverage_percent=(passed / total * 100.0) if total else 0.0,
++            )
++        )
++    return out
++
++
++def _claim_text(claim) -> str:
++    """Render a ContradictionClaim to display text — context_snippet else composed."""
++    if claim.context_snippet:
++        return claim.context_snippet
++    parts = [
++        claim.subject, claim.predicate, claim.arm, claim.dose,
++        f"{claim.value} {claim.unit}".strip(),
++    ]
++    return " ".join(p for p in parts if p).strip() or "n/a"
++
++
++def _build_contradictions(air: AuditIR) -> list[ContradictionRecord]:
++    """dec-4: ContradictionCluster -> ContradictionRecord. >2 claims/cluster ->
++    claims[2:] folded into evidence_b. section_id derived from the first
++    verified_report section citing claims[0].evidence_id.
++    """
++    out: list[ContradictionRecord] = []
++    for cluster in air.contradictions:
++        claims = list(cluster.claims)
++        if len(claims) < 2:
++            continue  # loader guarantees >=2; defensive
++        ev_a = claims[0].evidence_id
++        section_id = "unsectioned"
++        for section in air.verified_report.sections:
++            if any(
++                tok.evidence_id == ev_a
++                for sent in section.sentences
++                for tok in sent.tokens
++            ):
++                section_id = _slugify(section.title) or "unsectioned"
++                break
++        out.append(
++            ContradictionRecord(
++                contradiction_id=f"contradiction_{cluster.cluster_id}",
++                section_id=section_id,
++                claim_a=_claim_text(claims[0]),
++                claim_b=_claim_text(claims[1]),
++                evidence_a=[claims[0].evidence_id],
++                evidence_b=[c.evidence_id for c in claims[1:]],
++                resolution="unresolved",
++            )
++        )
++    return out
++
++
++# ---------------------------------------------------------------------------
++# Adapter — artifact_dir -> EvidenceContract
++# ---------------------------------------------------------------------------
++
++
++def artifact_dir_to_evidence_contract(
++    artifact_dir: Path, run_status: RunStatusResponse
++) -> EvidenceContract:
++    """Adapt a pipeline-A `artifact_dir` into an `EvidenceContract` v1.0.
++
++    Raises `HTTPException` (404 incomplete artifact / 422 non-conformant run)
++    per the I-rdy-007 contract.
++    """
++    try:
++        air = load_audit_ir(artifact_dir)
++    except (FileNotFoundError, AuditIRSchemaError, NotADirectoryError) as exc:
++        raise HTTPException(
++            status_code=404,
++            detail={"error": f"artifact_dir incomplete or malformed: {exc}"},
++        ) from exc
++
++    evidence_pool_raw = _read_optional_json(artifact_dir / "evidence_pool.json")
++    if evidence_pool_raw is None:
++        raise HTTPException(
++            status_code=404,
++            detail={"error": "artifact_dir incomplete: evidence_pool.json missing"},
++        )
++    manifest_raw = json.loads(
++        (artifact_dir / "manifest.json").read_text(encoding="utf-8")
++    )
++
++    generator_model, verifier_model, family_passed = _model_identity(
++        air, manifest_raw
++    )
++
++    return EvidenceContract(
++        contract_version="1.0",
++        run_id=run_status.run_id,
++        template=run_status.template,
++        question=run_status.question or air.manifest.question,
++        queued_at=run_status.queued_at or "",
++        finished_at=run_status.finished_at or "",
++        pipeline_status=run_status.pipeline_status or air.manifest.status or "success",
++        evidence_pool=_build_evidence_pool(air, evidence_pool_raw),
++        verified_sentences=_build_verified_sentences(air),
++        frame_coverage=_build_frame_coverage(air),
++        contradictions=_build_contradictions(air),
++        cost_usd=float(
++            run_status.cost_usd
++            if run_status.cost_usd is not None
++            else (air.manifest.cost_usd or 0.0)
++        ),
++        generator_model=generator_model,
++        verifier_model=verifier_model,
++        family_segregation_passed=family_passed,
++    )
++
++
++def live_run_evidence_contract(run_id: str) -> EvidenceContract | None:
++    """Endpoint entry point. Returns the `EvidenceContract` for a live completed
++    run, or `None` when no `run_store` row exists for `run_id` (the caller then
++    falls back to the golden fixture index). A real but non-serviceable run
++    raises `HTTPException` per the error matrix.
++    """
++    if run_store.get_run(run_id) is None:
++        return None
++    info, artifact_dir = resolve_run(run_id)
++    return artifact_dir_to_evidence_contract(artifact_dir, info)
+diff --git a/tests/v6/test_live_run_adapter.py b/tests/v6/test_live_run_adapter.py
+new file mode 100644
+index 00000000..df4a9364
+--- /dev/null
++++ b/tests/v6/test_live_run_adapter.py
+@@ -0,0 +1,304 @@
++"""I-rdy-008 — tests for live_run_adapter + the rewired rich-UI endpoints.
++
++Covers the resolver error matrix, all 6 adapter decisions, and a live-path
++test per rewired endpoint (bundle / charts / follow-up / compare). The golden
++fixture fallback is also exercised so the pre-existing endpoint tests' contract
++is shown to survive.
++"""
++
++from __future__ import annotations
++
++import json
++import uuid
++from pathlib import Path
++
++import pytest
++
++pytest.importorskip("fastapi")
++pytest.importorskip("pydantic")
++
++
++def _synthetic_artifact(tmp_path: Path, **kwargs) -> Path:
++    """Reuse the I-arch-001d synthetic AuditIR artifact-dir builder."""
++    from tests.polaris_v6.api.test_artifact_to_slice_chain import (
++        _write_synthetic_artifact_dir,
++    )
++
++    return _write_synthetic_artifact_dir(tmp_path, **kwargs)
++
++
++def _artifact_with_pool(tmp_path: Path, *, pool: dict | None = None, **kwargs) -> Path:
++    """Synthetic artifact_dir + an evidence_pool.json (the helper omits it)."""
++    artifact_dir = _synthetic_artifact(tmp_path, **kwargs)
++    pool = pool or {
++        "sources": [
++            {"evidence_id": "ev_001", "full_text": "A" * 150},
++            {"evidence_id": "ev_002", "full_text": "B" * 150},
++        ]
++    }
++    (artifact_dir / "evidence_pool.json").write_text(json.dumps(pool))
++    return artifact_dir
++
++
++def _completed_run(
++    artifact_dir: Path, *, pipeline_status: str = "success", cost_usd: float = 0.42
++) -> str:
++    """Insert a completed run_store row pointing at `artifact_dir`."""
++    from polaris_v6.queue import run_store
++
++    run_id = uuid.uuid4().hex
++    run_store.insert_run(run_id, "clinical", "test question")
++    run_store.mark_in_progress(run_id)
++    run_store.set_pipeline_meta(run_id, artifact_dir=str(artifact_dir))
++    run_store.mark_completed(
++        run_id, {}, pipeline_status=pipeline_status, cost_usd=cost_usd
++    )
++    return run_id
++
++
++@pytest.fixture(autouse=True)
++def _temp_run_db(tmp_path, monkeypatch):
++    """Point run_store at a fresh per-test SQLite db."""
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "runs.sqlite"))
++    yield
++
++
++# ---------------------------------------------------------------------------
++# resolve_run — error-state matrix
++# ---------------------------------------------------------------------------
++
++
++def test_resolve_run_404_not_found():
++    from fastapi import HTTPException
++
++    from polaris_v6.api.live_run_adapter import resolve_run
++
++    with pytest.raises(HTTPException) as exc:
++        resolve_run("no_such_run")
++    assert exc.value.status_code == 404
++
++
++def test_resolve_run_404_not_completed():
++    from fastapi import HTTPException
++
++    from polaris_v6.api.live_run_adapter import resolve_run
++    from polaris_v6.queue import run_store
++
++    run_id = uuid.uuid4().hex
++    run_store.insert_run(run_id, "clinical", "q")  # stays 'queued'
++    with pytest.raises(HTTPException) as exc:
++        resolve_run(run_id)
++    assert exc.value.status_code == 404
++
++
++def test_resolve_run_422_aborted(tmp_path):
++    from fastapi import HTTPException
++
++    from polaris_v6.api.live_run_adapter import resolve_run
++
++    artifact_dir = _artifact_with_pool(tmp_path)
++    run_id = _completed_run(artifact_dir, pipeline_status="abort_no_verified_sections")
++    with pytest.raises(HTTPException) as exc:
++        resolve_run(run_id)
++    assert exc.value.status_code == 422
++
++
++# ---------------------------------------------------------------------------
++# artifact_dir_to_evidence_contract — happy path + the 6 adapter decisions
++# ---------------------------------------------------------------------------
++
++
++def test_adapter_happy_path(tmp_path):
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    artifact_dir = _artifact_with_pool(tmp_path)
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    ec = artifact_dir_to_evidence_contract(resolved, info)
++
++    assert ec.contract_version == "1.0"
++    assert ec.run_id == run_id
++    assert ec.pipeline_status == "success"
++    # evidence_pool: exactly one SourceSpan per distinct cited evidence_id.
++    ids = [s.evidence_id for s in ec.evidence_pool]
++    assert sorted(ids) == ["ev_001", "ev_002"]
++    assert len(ids) == len(set(ids))
++    assert all(s.source_tier in ("T1", "T2", "T3") for s in ec.evidence_pool)
++    assert ec.verified_sentences  # non-empty
++    # dec-1: model identity from manifest.models (no provenance files present).
++    assert ec.generator_model == "gen-synth-v1"
++    assert ec.verifier_model == "strict_verify_v1"
++
++
++def test_adapter_404_missing_evidence_pool(tmp_path):
++    from fastapi import HTTPException
++
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    artifact_dir = _synthetic_artifact(tmp_path)  # NO evidence_pool.json
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    with pytest.raises(HTTPException) as exc:
++        artifact_dir_to_evidence_contract(resolved, info)
++    assert exc.value.status_code == 404
++
++
++def test_adapter_dec5_tier_normalization(tmp_path):
++    """A non-T1/2/3 bibliography tier collapses to T3 — no ValidationError."""
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    bib = [
++        {"num": 1, "evidence_id": "ev_t5", "statement": "s",
++         "tier": "T5", "url": "https://example.org/x"}
++    ]
++    artifact_dir = _artifact_with_pool(
++        tmp_path,
++        bibliography_entries=bib,
++        pool={"sources": [{"evidence_id": "ev_t5", "full_text": "Z" * 150}]},
++    )
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    ec = artifact_dir_to_evidence_contract(resolved, info)
++    assert ec.evidence_pool
++    assert all(s.source_tier == "T3" for s in ec.evidence_pool)
++
++
++def test_adapter_dec6_span_clamp(tmp_path):
++    """Token span [0:100] over a 40-char body clamps to [0:40]."""
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    bib = [
++        {"num": 1, "evidence_id": "ev_001", "statement": "s",
++         "tier": "T1", "url": "https://example.org/x"}
++    ]
++    body = "C" * 40
++    artifact_dir = _artifact_with_pool(
++        tmp_path,
++        bibliography_entries=bib,
++        pool={"sources": [{"evidence_id": "ev_001", "full_text": body}]},
++    )
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    ec = artifact_dir_to_evidence_contract(resolved, info)
++    span = next(s for s in ec.evidence_pool if s.evidence_id == "ev_001")
++    assert span.span_end == 40
++    assert span.span_text == body
++
++
++def test_adapter_dec1_model_identity_422(tmp_path):
++    """No model_provenance files + no manifest.models block → 422."""
++    from fastapi import HTTPException
++
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    artifact_dir = _artifact_with_pool(tmp_path)
++    manifest = json.loads((artifact_dir / "manifest.json").read_text())
++    del manifest["models"]
++    (artifact_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True))
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    with pytest.raises(HTTPException) as exc:
++        artifact_dir_to_evidence_contract(resolved, info)
++    assert exc.value.status_code == 422
++
++
++def test_adapter_dec4_contradiction_projection(tmp_path):
++    """A 2-claim contradiction cluster → one ContradictionRecord."""
++    from polaris_v6.api.live_run_adapter import (
++        artifact_dir_to_evidence_contract,
++        resolve_run,
++    )
++
++    artifact_dir = _artifact_with_pool(tmp_path)
++    contradictions = [
++        {
++            "subject": "tirzepatide",
++            "predicate": "body weight",
++            "claims": [
++                {"evidence_id": "ev_001", "predicate": "body weight",
++                 "value": 5.0, "context_snippet": "5% loss at 10 mg"},
++                {"evidence_id": "ev_002", "predicate": "body weight",
++                 "value": 10.0, "context_snippet": "10% loss at 10 mg"},
++            ],
++        }
++    ]
++    (artifact_dir / "contradictions.json").write_text(json.dumps(contradictions))
++    run_id = _completed_run(artifact_dir)
++    info, resolved = resolve_run(run_id)
++    ec = artifact_dir_to_evidence_contract(resolved, info)
++    assert len(ec.contradictions) == 1
++    rec = ec.contradictions[0]
++    assert rec.evidence_a == ["ev_001"]
++    assert "ev_002" in rec.evidence_b
++    assert rec.resolution == "unresolved"
++
++
++# ---------------------------------------------------------------------------
++# Live-path endpoint tests — a real completed run_id resolves end-to-end
++# ---------------------------------------------------------------------------
++
++
++@pytest.fixture
++def client():
++    from fastapi.testclient import TestClient
++
++    try:
++        # NB: importing polaris_v6.api.app triggers a module-level
++        # `app = create_app()` (app.py), which eagerly builds the GPG signer.
++        # A host without the `gpg` binary cannot construct the app — the whole
++        # v6 endpoint suite is gpg-gated this way (CI provides gpg). Skip
++        # rather than error so a gpg-less dev box gives a clean signal.
++        from polaris_v6.api.app import create_app
++
++        app = create_app()
++    except OSError as exc:
++        pytest.skip(f"create_app() requires the gpg binary, unavailable here: {exc}")
++    return TestClient(app)
++
++
++def test_endpoint_bundle_live_run(client, tmp_path):
++    run_id = _completed_run(_artifact_with_pool(tmp_path))
++    resp = client.get(f"/runs/{run_id}/bundle")
++    assert resp.status_code == 200
++    assert resp.json()["run_id"] == run_id
++
++
++def test_endpoint_charts_live_run(client, tmp_path):
++    run_id = _completed_run(_artifact_with_pool(tmp_path))
++    resp = client.get(f"/runs/{run_id}/charts/forest_plot")
++    assert resp.status_code == 200
++
++
++def test_endpoint_followup_live_run(client, tmp_path):
++    run_id = _completed_run(_artifact_with_pool(tmp_path))
++    resp = client.post(f"/runs/{run_id}/followup", json={"question": "what dose works?"})
++    assert resp.status_code == 200
++
++
++def test_endpoint_compare_live_runs(client, tmp_path):
++    run_a = _completed_run(_artifact_with_pool(tmp_path / "a"))
++    run_b = _completed_run(_artifact_with_pool(tmp_path / "b"))
++    resp = client.get(f"/runs/{run_a}/compare/{run_b}")
++    assert resp.status_code == 200
++
++
++def test_endpoint_bundle_golden_fallback_intact(client):
++    """A golden fixture id (no run_store row) still resolves via the fallback."""
++    resp = client.get("/runs/golden_clinical_001/bundle")
++    assert resp.status_code == 200
++    assert resp.json()["run_id"] == "golden_clinical_001"
+
+# canonical-diff-sha256: 7f3087cfa7177df6c3b99b7ba94b2dd981885a0f7e2e4c05684432c2711ae61f
