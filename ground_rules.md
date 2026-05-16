@@ -170,7 +170,7 @@ research_question
   → corpus_adequacy_gate
   → corpus_approval_gate
   → contradiction_detector + completeness_checker
-  → multi_section_generator (DeepSeek V3.2-Exp)
+  → multi_section_generator (DeepSeek V4 Pro)
   → provenance_generator.strict_verify
   → external_evaluator (rule-based)
   → live_qwen_judge (different family from generator)
@@ -313,7 +313,7 @@ Code patterns that appear in older docs but are deprecated:
   (see CLAUDE.md §9.3).
 - **175 vectors exactly** — old invariant from P0-P12. Not applicable.
 - **Kimi K2.5 / GLM / Qwen 3.5 Plus** — historical generator/evaluator
-  mentions. Current pair: DeepSeek V3.2-Exp + Qwen3-8B.
+  mentions. Current pair: DeepSeek V4 Pro + Gemma 4 31B.
 - **CLI Isolation Protocol** (old Phase 4) — does not apply to
   pipeline A's linear async orchestrator. Still applies conceptually
   to any future binary split.

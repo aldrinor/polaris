@@ -48,7 +48,7 @@ def test_load_config_default_model(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
     cfg = load_config_from_env()
     assert cfg.api_key == "test-key"
-    assert cfg.model == "z-ai/glm-5.1"
+    assert cfg.model == "deepseek/deepseek-v4-pro"
 
 
 def test_load_config_custom_model(monkeypatch: pytest.MonkeyPatch):

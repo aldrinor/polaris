@@ -145,7 +145,7 @@ async def repair_sentence(
     *,
     dropped: SentenceVerification,
     evidence_pool: dict[str, dict[str, Any]],
-    model: str = "deepseek/deepseek-v3.2-exp",
+    model: str = "deepseek/deepseek-v4-pro",
     max_tokens: int = 400,
     temperature: float = 0.2,
 ) -> tuple[str, str | None, int, int]:
@@ -251,7 +251,7 @@ async def repair_dropped_section_sentences(
     kept: list[SentenceVerification],
     dropped: list[SentenceVerification],
     evidence_pool: dict[str, dict[str, Any]],
-    model: str = "deepseek/deepseek-v3.2-exp",
+    model: str = "deepseek/deepseek-v4-pro",
     max_tokens: int = 400,
     temperature: float = 0.2,
 ) -> tuple[list[SentenceVerification], list[SentenceVerification], RepairTelemetry]:

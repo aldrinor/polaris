@@ -1,7 +1,8 @@
 """
 OpenRouter LLM Client for polaris graph.
 
-Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
+Single gateway to OpenRouter. Pipeline-A generator is DeepSeek V4 Pro,
+evaluator is Gemma 4 31B; the model is configurable per call. Two call modes:
 - reason(): reasoning ON, returned separately in reasoning_details
 - generate(): reasoning OFF, clean prose output only
 
@@ -43,7 +44,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv(
     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
 )
-OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
 # R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
@@ -817,7 +818,7 @@ class OpenRouterClient:
     """
     Single LLM gateway for polaris graph.
 
-    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
+    All calls go through OpenRouter (model configurable per call / via OPENROUTER_DEFAULT_MODEL; pipeline-A generator DeepSeek V4 Pro, evaluator Gemma 4 31B).
     Two modes:
     - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
     - generate(): Reasoning OFF. Clean output only. For prose generation.

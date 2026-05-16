@@ -148,16 +148,16 @@ repair / leave decision tree.
 Pipeline A enforces a two-family constraint: generator and evaluator
 must be from different training lineages.
 
-### Default pair (verified 2026-04-17)
+### Default pair (verified 2026-05-16)
 
-- Generator: `deepseek/deepseek-v3.2-exp`
-- Evaluator: `qwen/qwen3-8b`
+- Generator: `deepseek/deepseek-v4-pro`
+- Evaluator: `google/gemma-4-31b-it`
 
 ### Override via environment
 
 ```
-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
-PG_EVALUATOR_MODEL=qwen/qwen3-8b
+PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+PG_EVALUATOR_MODEL=google/gemma-4-31b-it
 ```
 
 ### Invalid pairs raise at construction
@@ -270,8 +270,8 @@ causes:
 - Increase `PG_MAX_COST_PER_RUN` (default 5.00)
 - Reduce `PG_LIVE_MAX_EV_TO_GEN` (default 20, caps evidence count
   passed to generator)
-- Use a cheaper generator: DeepSeek V3.2-Exp is $0.27/$0.38 per M;
-  Qwen3-8B is $0.05/$0.40 per M
+- Use a lower-cost generator or evaluator via `PG_GENERATOR_MODEL` /
+  `PG_EVALUATOR_MODEL`; check OpenRouter for current per-token pricing
 
 ### OpenRouter returns empty `content` for some models
 

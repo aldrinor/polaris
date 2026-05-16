@@ -307,13 +307,13 @@ async def generate_analyst_synthesis(
     bibliography: list[dict[str, Any]],
     evidence_rows: list[dict[str, Any]],
     research_question: str,
-    model: str = "deepseek/deepseek-v3.2-exp",
+    model: str = "deepseek/deepseek-v4-pro",
     max_tokens: int = 4000,
     temperature: float = 0.3,
 ) -> tuple[str, int, int]:
     """Generate the Analyst Synthesis section.
 
-    Per Codex iter-1 brief verdict: DeepSeek V3.2-Exp is the writer
+    The synthesis writer is the locked generator (DeepSeek V4 Pro)
     (consistent with verified prose voice; Gemma stays in the
     judge/evaluator role).
 

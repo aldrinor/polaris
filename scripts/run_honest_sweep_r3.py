@@ -316,7 +316,7 @@ def build_no_verified_sections_abort_body(
     head = (
         f"# Research report: {research_question}\n\n"
         "## Pipeline verdict\n\n"
-        f"DeepSeek V3.2-Exp generated {len(sections)} "
+        f"DeepSeek V4 Pro generated {len(sections)} "
         "section(s), but EVERY section failed Phase-4 strict_verify: "
         "the cited evidence did not support the claims, or the "
         "generator did not emit provenance tokens.\n\n"
@@ -1941,7 +1941,7 @@ async def run_one_query(
              f"dropped={evidence_selection.dropped_count}")
         _log(f"              full_tiers={evidence_selection.full_counts} "
              f"selected_tiers={evidence_selection.selected_counts}")
-        _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
+        _log(f"[generation]  multi-section DeepSeek V4 Pro, "
              f"evidence={len(evidence_for_gen)}...")
         t0 = time.time()
         # R-6 Gap-3: pass uncovered-topic labels so the Limitations

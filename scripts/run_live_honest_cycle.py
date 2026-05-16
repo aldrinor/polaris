@@ -6,8 +6,8 @@ network calls:
   - Serper (web search)
   - Semantic Scholar (academic search)
   - OpenAlex (publication type enrichment)
-  - DeepSeek V3.2-Exp via OpenRouter (generator)
-  - Qwen3-8B via OpenRouter (evaluator judge)
+  - DeepSeek V4 Pro via OpenRouter (generator)
+  - Gemma 4 31B via OpenRouter (evaluator judge)
 
 The canonical query is the same semaglutide 2.4mg / weight loss /
 adults with obesity question that PG_LB_SA_02 ran.
@@ -214,7 +214,7 @@ async def main_async() -> int:
 
     # ── Phase 4: Live DeepSeek generation ────────────────────────────
     _log("")
-    _log("[5/7] DEEPSEEK V3.2-EXP LIVE GENERATION")
+    _log("[5/7] DEEPSEEK V4 PRO LIVE GENERATION")
     # Cap evidence passed to generator (token budget)
     max_ev_to_generator = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
     evidence_for_gen = evidence_rows[:max_ev_to_generator]
@@ -325,7 +325,7 @@ async def main_async() -> int:
 
     # ── Phase 5a: Rule-based evaluator ─────────────────────────────
     _log("")
-    _log("[7/7] EVALUATOR — rule checks + Qwen3-8B judge")
+    _log("[7/7] EVALUATOR — rule checks + Gemma 4 31B judge")
     evaluator_output = run_external_evaluation(
         report_text=final_report,
         protocol=protocol_dict,
@@ -341,9 +341,9 @@ async def main_async() -> int:
         detail = f" — {r.details[:80]}" if not r.passed and r.details else ""
         _log(f"         [{mark}] {r.item_id} {r.name}{detail}")
 
-    # ── Phase 5b: Qwen judge (REAL LLM CALL) ─────────────────────────
+    # ── Phase 5b: live LLM judge (REAL LLM CALL) ─────────────────────
     _log("")
-    _log("       Qwen3-8B live judge call...")
+    _log("       Gemma 4 31B live judge call...")
     t0 = time.time()
     try:
         judge = await judge_report(

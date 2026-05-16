@@ -1,7 +1,7 @@
 """
 polaris graph — clean-room research pipeline.
 
-Uses Qwen 3.5 Plus via OpenRouter for all LLM calls.
+Uses OpenRouter for LLM calls (pipeline-A generator DeepSeek V4 Pro, evaluator Gemma 4 31B).
 Reuses battle-tested search/fetch infrastructure from src/tools/.
 """
 

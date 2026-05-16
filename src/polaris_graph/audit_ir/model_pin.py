@@ -22,8 +22,8 @@ ModelPin captures:
   - run_id: the run this pin was captured from
   - captured_at: unix timestamp
   - pin_schema_version: "v4" (explicit forward-compat marker)
-  - llm_models: {role: model_id} — e.g. {"generator": "z-ai/glm-5.1",
-    "evaluator": "qwen/qwen3.5-plus", "judge": "...", "inductor": "..."}.
+  - llm_models: {role: model_id} — e.g. {"generator": "deepseek/deepseek-v4-pro",
+    "evaluator": "google/gemma-4-31b-it", "judge": "...", "inductor": "..."}.
     The current honest_pipeline + audit_ir loader carry distinct
     generator/evaluator/judge models; phase 2 needs all of them
     to rehydrate.

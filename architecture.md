@@ -46,11 +46,11 @@ src/polaris_graph/
 │   └── fetch_limiter.py             — rate limiter
 ├── generator/
 │   ├── multi_section_generator.py   — outline → parallel sections → assemble
-│   ├── live_deepseek_generator.py   — DeepSeek V3.2-Exp adapter
+│   ├── live_deepseek_generator.py   — DeepSeek V4 Pro adapter
 │   └── provenance_generator.py      — [#ev:id:start-end] + strict_verify
 ├── evaluator/
 │   ├── external_evaluator.py        — rule-based evaluator shell
-│   └── live_qwen_judge.py           — Qwen3-8B evaluator
+│   └── live_qwen_judge.py           — Gemma 4 31B evaluator
 ├── llm/
 │   └── openrouter_client.py         — OpenRouter gateway + family segregation
 ├── agents/
@@ -80,7 +80,7 @@ corpus_approval_gate ──► if rubber-stamp on material deviation → abort_c
 contradiction_detector  ──► contradictions.json
     │
     ▼
-multi_section_generator (DeepSeek V3.2-Exp)
+multi_section_generator (DeepSeek V4 Pro)
     │   — outline → parallel sections → per-sentence provenance tokens
     │
     ▼
@@ -89,7 +89,7 @@ provenance_generator.strict_verify   ──► drop sentences whose span
     │                                    AND ≥2 content-word overlap
     │                                    If zero verified → abort_no_verified_sections
     ▼
-live_qwen_judge (Qwen3-8B, separate family from generator)
+live_qwen_judge (Gemma 4 31B, separate family from generator)
     │
     ▼
 external_evaluator.run_external_evaluation
@@ -170,10 +170,10 @@ generator and evaluator **must** be from different training lineages.
 This prevents the self-bias pathology (Play Favorites arXiv:2508.06709,
 DeepHalluBench arXiv:2601.22984).
 
-Current default pair (as of 2026-04-17):
+Current default pair (as of 2026-05-16):
 
-- **Generator**: `deepseek/deepseek-v3.2-exp` (family: `deepseek`)
-- **Evaluator**: `qwen/qwen3-8b` (family: `qwen`)
+- **Generator**: `deepseek/deepseek-v4-pro` (family: `deepseek`)
+- **Evaluator**: `google/gemma-4-31b-it` (family: `gemma`)
 
 Attempting to set both to the same family raises `RuntimeError` at
 client construction. Hyphenated org prefixes (`deepseek-ai/...`) are
@@ -317,7 +317,7 @@ budget.
 
 ## 7. Evaluator (two-family)
 
-Separate from the in-pipeline `strict_verify`, a Qwen3-8B evaluator
+Separate from the in-pipeline `strict_verify`, a Gemma 4 31B evaluator
 runs after generation:
 
 - `external_evaluator.run_external_evaluation`: rule-table
@@ -334,9 +334,9 @@ Both outputs are written to the manifest.
 | Var | Default | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | (required) | OpenRouter gateway auth |
-| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v3.2-exp` | Generator model |
+| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v4-pro` | Generator model |
 | `PG_GENERATOR_MODEL` | inherits from default | Generator for strict_verify pipeline |
-| `PG_EVALUATOR_MODEL` | `qwen/qwen3-8b` | Evaluator model (must be different family) |
+| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | Evaluator model (must be different family) |
 | `PG_MAX_COST_PER_RUN` | `5.00` | Budget cap per sweep |
 | `PG_PROVENANCE_MIN_CONTENT_OVERLAP` | `2` | B-1 invariant threshold |
 | `PG_LIVE_MAX_EV_TO_GEN` | `20` | Max evidence slices passed to generator |

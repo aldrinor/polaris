@@ -2,7 +2,7 @@
 Evaluator gate — BUG-M-205 fix (deep-dive R5).
 
 Pre-fix, the orchestrator selected `success` / `partial_*` status from
-outline + rule_check_fail_count + adequacy + completeness. The Qwen
+outline + rule_check_fail_count + adequacy + completeness. The LLM
 judge's `needs_revision` verdicts were logged but never blocked a
 release. Some deterministic rule failures (PT08 contradiction
 disclosure, PT11 uncited numeric claims, PT12 invalid citation markers)
@@ -14,11 +14,11 @@ decision with stable reason codes:
   pass                - no blocking issues
   partial             - report ships but release_allowed=False
   abort               - release-blocking integrity failure
-  advisory_unavailable - Qwen parse failed; preserve other status
+  advisory_unavailable - LLM judge parse failed; preserve other status
 
 The orchestrator reads `gate_class` + `reasons` to select manifest
 status. Two new manifest statuses are added to the taxonomy:
-  partial_qwen_advisory    - report ships, Qwen flagged critical axes
+  partial_qwen_advisory    - report ships, LLM judge flagged critical axes
   abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
 """
 from __future__ import annotations

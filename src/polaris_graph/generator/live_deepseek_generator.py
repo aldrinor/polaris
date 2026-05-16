@@ -1,7 +1,7 @@
 """
-Live DeepSeek V3.2 generator — HONEST-REBUILD Phase 4 live wiring.
+Live DeepSeek generator — HONEST-REBUILD Phase 4 live wiring.
 
-Calls the REAL DeepSeek V3.2-Exp model via OpenRouter, has it draft
+Calls the REAL generator model via OpenRouter (DeepSeek V4 Pro, per PG_GENERATOR_MODEL), has it draft
 prose with simple `[ev_XXX]` citation markers (LLM-friendly), then
 post-processes to convert each citation into a Phase-4 provenance
 token `[#ev:ev_XXX:<start>-<end>]` whose span is computed by
@@ -387,7 +387,7 @@ async def generate_live_draft(
     contradictions: list[dict[str, Any]] | None = None,
     date_range: dict[str, Any] | None = None,
 ) -> LiveGenerationResult:
-    """Call DeepSeek V3.2 via OpenRouter and rewrite to Phase-4 tokens."""
+    """Call the generator (DeepSeek V4 Pro) via OpenRouter and rewrite to Phase-4 tokens."""
     from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
         OpenRouterClient,
         PG_GENERATOR_MODEL,

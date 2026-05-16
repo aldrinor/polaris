@@ -65,7 +65,7 @@ def _make_openrouter_label_client() -> ClusterLabelClient | None:
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         return None
-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
+    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
     return _OpenRouterLabelClient(api_key=key, model=model)
 
 

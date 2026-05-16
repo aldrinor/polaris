@@ -113,7 +113,7 @@ corpus_approval_gate ──► if rubber-stamp on material deviation → abort_c
 contradiction_detector  ──► contradictions.json
     │
     ▼
-multi_section_generator (DeepSeek V3.2-Exp)
+multi_section_generator (DeepSeek V4 Pro)
     │   — outline → parallel sections → per-sentence provenance tokens
     │
     ▼
@@ -124,7 +124,7 @@ provenance_generator.strict_verify   ──► drop sentences whose
     │                                    overlap. If zero verified →
     │                                    abort_no_verified_sections.
     ▼
-live_qwen_judge (Qwen3-8B, DIFFERENT FAMILY from generator)
+live_qwen_judge (Gemma 4 31B, DIFFERENT FAMILY from generator)
     │
     ▼
 external_evaluator.run_external_evaluation

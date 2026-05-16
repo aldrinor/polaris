@@ -21,7 +21,7 @@ import time. All calls return empty audit results (no flagging).
 
 Phase 5 of the honest-rebuild plan replaces this with
 src/polaris_graph/evaluator/external_evaluator.py — non-same-family
-LLM (Qwen 3 32B evaluator while generator is DeepSeek V3.2) plus
+LLM (Gemma 4 31B evaluator while generator is DeepSeek V4 Pro) plus
 rule-based PRISMA-trAIce compliance checks. No self-grading, no
 rewrite-to-pass-metric loop. See
 C:/Users/msn/.claude/plans/lovely-finding-firefly.md Phase 5.

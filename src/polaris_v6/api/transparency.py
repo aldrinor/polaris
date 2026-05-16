@@ -215,7 +215,7 @@ def transparency() -> TransparencyResponse:
         sovereignty_filter=_sovereignty_policy(),
         evaluator_models={
             "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
-            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
+            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it"),
         },
         egress_allowlist=_load_egress_allowlist(),
         build_time_hosts_pruned=pruned_flag.exists(),

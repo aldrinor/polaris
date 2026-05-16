@@ -435,7 +435,7 @@ def _build_deterministic_fallback_outline(
     # section; inlining 96 evidence blocks in the section prompt created
     # >100K-token request bodies that OpenRouter rejects as 400 Bad Request
     # (V10 FATAL 2026-04-19). Cap at 30 keeps per-section prompts within
-    # DeepSeek V3.2-Exp's effective request limit while still giving the
+    # the generator's effective request limit while still giving the
     # section writer a rich citation pool.
     _MAX_EV_PER_FALLBACK_SECTION = 30
     plans: list[SectionPlan] = []
@@ -4051,7 +4051,7 @@ async def generate_multi_section_report(
     # the verified prose + bibliography + evidence pool and writes a
     # longer interpretive narrative. CLEARLY labeled in report.md as
     # NOT span-verified. Per Codex strategic-review iter 1 + I-bug-105
-    # brief verdict: DeepSeek V3.2-Exp writer (consistent voice with
+    # brief verdict: DeepSeek V4 Pro writer (consistent voice with
     # verified prose); Gemma stays in evaluator role. Per-call cost
     # capped via max_tokens; empty result -> caller omits the entire
     # section (no empty disclosure block).
