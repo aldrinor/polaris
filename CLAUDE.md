@@ -48,7 +48,7 @@ Every task / bug / issue follows this exact sequence — no shortcuts:
 6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
 7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
 
-**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 control-plane pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
 
 **Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
 
@@ -86,7 +86,7 @@ You must adhere strictly to the Active Project Definition (APD) and ensure its c
 2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
 3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
 4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
-5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan. Re-read at every session-resume.
 6. Recent `logs/session_log.md` (The History).
 7. `architecture.md` (The Baseline).
 8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
@@ -141,7 +141,7 @@ The following files are the authoritative record of the project state. They must
 - `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
 - `logs/session_log.md`: A chronological, append-only audit trail.
 - `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
-- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+- `docs/canonical_pin.txt`: legacy SHA256 manifest of 10 canonical files. The §3.1 step-0 SHA-triple boot enforcement was retired 2026-05-04 (Windows CRLF false-positives); the live control-plane integrity check is `scripts/verify_cage.py` + the CHARTER/PLAN pins. File retained — still hashed by `.github/workflows/codex_verdict_check.yml` and CODEOWNERS-governed.
 - `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
 - `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
 - `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
@@ -185,7 +185,6 @@ Every action must be appended to `logs/session_log.md` using this structure:
 - STATUS block / recap text between PR merge and next branch creation (per §8.2)
 
 **Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
-- canonical pin SHA mismatch
 - CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
 - issue jump attempt
 - PR opened with missing artifact triple
@@ -208,9 +207,9 @@ This protocol MUST be executed automatically at the start of every session and a
 
 ### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
 
-**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+**CRITICAL: Step 0 (control-plane pin verification) is non-negotiable. Mismatch = HARD STOP.**
 
-0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+0. **Verify control-plane pins:** Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` git-blob SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`, do NOT proceed without a user-signed reconciliation commit. Then run `python scripts/verify_cage.py` (33-check cage verification: branch protection, CODEOWNERS, cross-repo session pin); any failure = HARD STOP. **RETIRED:** the former `docs/canonical_pin.txt` 10-file SHA-triple check (pin / working-tree / HEAD) was retired 2026-05-04 — it false-fired on benign Windows CRLF/LF line-ending conversion (`core.autocrlf=true`, no `.gitattributes`); the dead verifier survives only below an unconditional `sys.exit(0)` in `.claude/hooks/stop_hook_v3.py`. `docs/canonical_pin.txt` is retained as a CODEOWNERS-governed legacy manifest (still hashed by `.github/workflows/codex_verdict_check.yml`) but is no longer a boot gate.
 
 1. **Read CLAUDE.md:** This file completely.
 2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
@@ -236,9 +235,9 @@ This protocol MUST be executed automatically at the start of every session and a
 9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
 10. **Execute Recovery:** If restart_instructions has instructions, execute them.
 11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
-12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: the CHARTER/PLAN pin verification result (from step 0), date/time, next action.
 
-**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (CHARTER + PLAN pin re-verify + `scripts/verify_cage.py`) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
 
 ### 3.2 Enforcement
 If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
@@ -605,7 +604,7 @@ User directive 2026-05-07 (reflagged after I-f5-007 merged with closure prose "s
 **Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
 - Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
 - Codex saying "stop paper, build harness" (§8.3.6).
-- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+- A documented halt condition firing (§3.0: CHARTER/PLAN-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
 - The user explicitly typing a stop instruction in this conversation turn.
 
 **Forbidden self-initiated stops:**
