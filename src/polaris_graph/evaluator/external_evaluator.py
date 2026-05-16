@@ -621,9 +621,27 @@ def run_rule_checks(
     # contain protocol numbers (tier bounds like "30-60%", retrieval
     # dates, model names with version numbers) that are specifications,
     # not empirical claims needing citations.
+    # I-gen-003 (2026-05-14): also stop at the "Limitations" block. Like
+    # the Methods specs excluded above, the Limitations section is
+    # POLARIS-generated meta-prose — corpus-skew percentages, the
+    # contradiction-detector's own relative-difference telemetry
+    # (e.g. "relative difference 135.7%"), completeness-gap counts. These
+    # are NOT empirical claims from sources and must not be PT11-scored.
+    # Without this, POLARIS's own telemetry decimals false-fail PT11
+    # (V4 Pro smoke #3: 2 of 3 "uncited" decimals were Limitations
+    # telemetry, tripping the gate to abort_evaluator_critical). Match
+    # the heading at either "## " or "### " level, case-insensitively.
+    _cut_idxs: list[int] = []
     methods_idx = report_text.lower().find("\n## methods")
     if methods_idx > 0:
-        prose_only = report_text[:methods_idx]
+        _cut_idxs.append(methods_idx)
+    _limitations_match = re.search(
+        r"\n#{2,3} +limitations\b", report_text, re.IGNORECASE
+    )
+    if _limitations_match:
+        _cut_idxs.append(_limitations_match.start())
+    if _cut_idxs:
+        prose_only = report_text[:min(_cut_idxs)]
     else:
         prose_only = report_text
     text_stripped = re.sub(r"\[#ev:[^\]]+\]", "", prose_only)

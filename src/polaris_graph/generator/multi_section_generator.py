@@ -798,7 +798,10 @@ async def _call_section(
     per-section cross-trial synthesis suggestions block. The LLM
     integrates 1-2 of these inferences into the body narrative.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        ReasoningFirstTruncationError,
+    )
 
     blocks = []
     for ev in evidence_subset:
@@ -874,6 +877,22 @@ async def _call_section(
             max_tokens=max_tokens,
             temperature=temperature,
         )
+    except ReasoningFirstTruncationError as exc:
+        # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
+        # of token budget mid-planning even at the 20000-token floor.
+        # Do NOT let this crash the whole run — return an empty draft.
+        # An empty section is handled honestly downstream: if every
+        # section ends empty the pipeline reports abort_no_verified_
+        # sections (a real verdict per §9.3), not a hard error_unexpected
+        # crash. Logged loud, not silent — the failure surfaces in the
+        # section telemetry and this WARNING.
+        logger.warning(
+            "[multi_section] %s: reasoning-first truncation on %s "
+            "(max_tokens=%d, tighter_retry=%s) — empty draft returned. "
+            "detail: %s",
+            section.title, model, max_tokens, tighter_retry, exc,
+        )
+        return "", 0, 0
     finally:
         if hasattr(client, "close"):
             try:
@@ -1065,6 +1084,36 @@ def filter_underframed_trial_sentences(
     return kept, dropped
 
 
+# I-gen-003 (2026-05-14): citation/punctuation normalization, applied
+# AFTER provenance resolution. A reasoning-first generator (DeepSeek
+# V4 Pro) sometimes ends a sentence with a citation marker but no
+# terminal period, jamming two sentences together
+# ("...insulin secretion[1] GLP-1 receptor activation enhances...").
+# That hurts readability (Qwen flow axis) and the evaluator's PT11
+# sentence-boundary detection. This pass inserts the missing terminator
+# at genuine sentence boundaries and normalizes marker spacing. It is
+# DELIBERATELY cosmetic: it never adds, removes, or changes a citation
+# marker or an evidence ID — only punctuation/whitespace AROUND already-
+# resolved markers. The provenance invariant (§9.1) is untouched.
+_CITE_MARKER_RE_FRAG = r"(?:\[\d+\]|\[#ev:[^\]]+\])"
+_MISSING_TERMINATOR_RE = re.compile(
+    # <non-terminator char> <optional ws> <one+ citation markers>
+    # <ws> <Capital letter starting the next sentence>
+    rf"(?<=[^.!?:;\s])(\s*)({_CITE_MARKER_RE_FRAG}(?:\s*{_CITE_MARKER_RE_FRAG})*)"
+    rf"(\s+)(?=[A-Z])"
+)
+
+
+def _normalize_citation_punctuation(text: str) -> str:
+    """Insert a missing sentence-terminal period before citation
+    marker(s) at a genuine sentence boundary, and normalize the marker
+    to a single trailing space. Cosmetic only — markers and evidence
+    IDs are byte-preserved. See the module comment above for rationale."""
+    if not text:
+        return text
+    return _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -1251,6 +1300,11 @@ async def _run_section(
     verified_text, biblio_slice = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,
     )
+    # I-gen-003: cosmetic citation/punctuation normalization on the
+    # resolved section text — inserts missing sentence terminators at
+    # genuine boundaries, normalizes marker spacing. Markers + evidence
+    # IDs are byte-preserved (see _normalize_citation_punctuation).
+    verified_text = _normalize_citation_punctuation(verified_text)
 
     dropped_due_to_failure = len(report.kept_sentences) == 0
 

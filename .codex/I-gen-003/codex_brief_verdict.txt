@@ -1,0 +1,24 @@
+# I-gen-003 (#495) — Codex brief verdict
+
+The I-gen-003 brief (`brief.md`) was reviewed by Codex COMBINED with the diff
+(per `codex_diff_brief_iter_1.md` / `codex_diff_brief_iter_2.md` — both state
+"Brief review AND diff review combined"). The combined review ran two iterations:
+
+- iter 1: REQUEST_CHANGES — decision (c): strip the empirically-inert regen
+  loop, add the PT11 Limitations exclusion + cosmetic citation normalization,
+  fix the GLM `_REASONING_FIRST_MODELS` superset bug.
+  (`codex_diff_audit_iter_1.txt`)
+- iter 2: APPROVE — zero NOVEL P0, zero continuing P0, zero P1, zero P2; one
+  P3-cosmetic (stale comments in openrouter_client.py — absorbed into I-rdy-006
+  "purge stale references" scope). `convergence_call: accept_remaining`.
+  (`codex_diff_audit_iter_2.txt` / `codex_diff_audit.txt`)
+
+Smoke #4 (2026-05-15): `status=success`, `gate_class=pass`, `release_allowed=true`
+— the empirical evaluator-gate blocker is cleared. V4 Pro is genuinely the
+working multi_section generator.
+
+The brief is APPROVED as the acceptance frame for this issue (the combined
+iter-2 verdict covers both brief acceptance-criteria correctness and diff
+code-correctness).
+
+verdict: APPROVE

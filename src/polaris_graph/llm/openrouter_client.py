@@ -46,12 +46,22 @@ OPENROUTER_BASE_URL = os.getenv(
 OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
-# R-2 (readiness gate): hard per-run cost cap. A single honest-rebuild
-# run (scope+retrieval+generate+judge) should cost $0.005-$0.01. Cap at
-# $0.10 default so a runaway regen loop or recursive outline can't burn
-# hours of budget before we notice. Measured by cumulative cost across
-# ALL OpenRouterClient instances instantiated within a single run.
-PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
+# R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+# not an economic limit. Measured by cumulative cost across ALL
+# OpenRouterClient instances within a single run.
+#
+# I-gen-003 (2026-05-14): raised the default from $0.10 to $10.00.
+# The $0.10 default was tuned for the V3.2-Exp generator
+# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
+# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
+# observed) and the I-gen-003 CoT-recovery regen loop adds up to 3
+# extra section calls. Under the stale $0.10 cap a normal V4 Pro run
+# trips BudgetExceededError before it can finish — i.e. the guard
+# false-fires on the new generator's NORMAL cost profile. $10.00
+# matches the v30_runner.py default and still catches a genuine
+# infinite loop / recursive-outline runaway. Override per-run via the
+# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
 
 # BUG-B-201 fix (pass 2 remediation): per-task ambient state via
 # contextvars so concurrent async run_one_query() calls don't stomp
@@ -91,6 +101,16 @@ def current_run_id() -> str | None:
 
 class BudgetExceededError(RuntimeError):
     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+
+
+class ReasoningFirstTruncationError(RuntimeError):
+    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
+    Flash) ran out of token budget while still planning — content is
+    empty and reasoning_content has no provenance markers and ends
+    mid-sentence. Typed (not bare RuntimeError) so the multi_section
+    generator's _call_section can catch *only* this case and let the
+    bounded regen loop retry with a larger budget, while every other
+    RuntimeError still propagates as a real fault."""
 
 
 def reset_run_cost() -> None:
@@ -254,20 +274,26 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
 # Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    # I-bug-091 (2026-05-09): reverted from V4 Pro to V3.2-Exp after live
-    # BEAT-BOTH validation showed V4 Pro structurally incompatible with the
-    # multi_section_generator's strict_verify provenance-token requirement.
-    # V4 Pro emits CoT-style planning that often lacks [#ev:] markers and
-    # exhausts max_tokens budget mid-planning, triggering I-bug-089 fail-loud
-    # and aborting the pipeline. V3.2-Exp is the proven 5-BEAT-BOTH baseline
-    # (Vectara HHEM 5.3%) that produces clean grounded prose with provenance
-    # tokens. The architectural infrastructure (I-bug-088 reasoning-first
-    # recovery + I-bug-089 fail-loud + I-bug-090 token floor) is preserved
-    # and continues to protect against any future reasoning-first generator
-    # being swapped in. Switch back to V4 Pro via PG_GENERATOR_MODEL env var
-    # when the multi_section caller adds explicit "include [#ev:...] tokens"
-    # re-prompt + retry handler for V4 Pro's CoT pattern.
-    "deepseek/deepseek-v3.2-exp",
+    # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
+    #
+    # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
+    # because V4 Pro is reasoning-first — it emits CoT-style planning and,
+    # critically, exhausted max_tokens mid-planning, tripping the I-bug-089
+    # SF-15 fail-loud and crashing the pipeline before any section was
+    # written.
+    #
+    # I-gen-003 (2026-05-14) fixes the crash:
+    #   - ReasoningFirstTruncationError (typed) + a 20000-token
+    #     PG_REASONING_FIRST_MIN_MAX_TOKENS floor give V4 Pro room to both
+    #     finish reasoning AND emit the cited paragraph — smoke #3 ran all
+    #     6 sections with zero truncation crash.
+    #   - _call_section catches that exception and returns an empty draft
+    #     so a truncation degrades to an honest abort_no_verified_sections
+    #     rather than a hard error_unexpected.
+    # V4 Pro's report-layer citation tightness vs the evaluator gate is
+    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
+    # is obsolete — NOT a fallback.
+    "deepseek/deepseek-v4-pro",
 )
 PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
 
@@ -1188,14 +1214,19 @@ class OpenRouterClient:
             else:
                 reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
             body["reasoning"] = reasoning_dict
-            # I-bug-090: OpenRouter does NOT enforce reasoning.max_tokens for
-            # V4 Pro on the provider side — the model still emits ~2500
-            # reasoning tokens regardless. Floor max_tokens to a value large
-            # enough that 40/60 split leaves room for both reasoning AND
-            # content. Empirically observed at 2400 max: reasoning eats the
-            # whole budget, content empty, I-bug-089 fail-loud raises.
-            # 6000 floor → ~2500 reasoning + ~3500 content, both fit.
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "6000"))
+            # I-bug-090 / I-gen-003: OpenRouter does NOT enforce
+            # reasoning.max_tokens for V4 Pro on the provider side — the
+            # model reasons until it hits the OVERALL max_tokens ceiling.
+            # The I-bug-090 estimate of "~2500 reasoning tokens" was wrong:
+            # the I-gen-003 V4 Pro smoke (2026-05-14) showed V4 Pro emit
+            # 21284 chars (~5300+ tokens) of reasoning and STILL truncate
+            # mid-sentence at the 6000-token ceiling — it never reached the
+            # content. Floor must give V4 Pro room to FINISH planning AND
+            # write the cited paragraph. 20000 floor → ~5-8k reasoning +
+            # ~12-15k content headroom. Env-tunable. Smoke #3 (2026-05-14)
+            # confirmed: at 20000, V4 Pro completed all 6 sections with
+            # zero ReasoningFirstTruncationError.
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
 
@@ -1991,7 +2022,7 @@ class OpenRouterClient:
                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
                 ):
                     self.usage.total_errors += 1
-                    raise RuntimeError(
+                    raise ReasoningFirstTruncationError(
                         f"I-bug-089: reasoning-first model {self.model} "
                         f"truncated mid-planning. content empty, reasoning "
                         f"has {len(result.reasoning)} chars but no [#ev:] "

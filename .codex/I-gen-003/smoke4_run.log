@@ -1,0 +1,1000 @@
+========================================================================
+R-3 SINGLE-QUERY RUN � slug=clinical_tirzepatide_t2dm
+Output root: C:\POLARIS\outputs\honest_sweep_r3
+========================================================================
+
+
+>>> clinical / clinical_tirzepatide_t2dm
+========================================================================
+SWEEP domain=clinical slug=clinical_tirzepatide_t2dm
+Question: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+Budget cap: $10.0000
+========================================================================
+16:05:57 polaris_graph.scope_gate INFO [scope_gate] protocol written run_id=SWEEP_clinical_clinical_tirzepatide_t2dm_1778886357 domain=clinical path=C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\protocol.json sha256=9c3c771b49235134
+[scope]       sha256=9c3c771b49235134... decision=proceed needs_review=False
+16:05:57 polaris_graph.regulatory_expander INFO [regulatory_expander] emitted 11 anchor queries for base='What is the efficacy and safety of tirzepatide for glycemic '
+[M-28]        regulatory_anchors: +11 queries (domain=clinical)
+16:05:57 polaris_graph.primary_trial_expander INFO [primary_trial_expander] emitted 22 queries (11 anchors + 11 variants) for slug='clinical_tirzepatide_t2dm' base='What is the efficacy and safety of tirzepatide for glycemic '
+[M-35]        primary_trial_anchors: +22 queries (slug=clinical_tirzepatide_t2dm)
+16:05:57 polaris_graph.scope_query_validator INFO [scope_validator] floor=0.15 kept=41 dropped=23 (anchor_tokens=10)
+16:05:57 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:05:59 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:05:59 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide weight loss phase 3 trial'
+16:06:01 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide weight loss phase 3 trial'
+16:06:01 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide body weight percentage reduction'
+16:06:03 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide body weight percentage reduction'
+16:06:03 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide 15 mg efficacy type 2 diabetes'
+16:06:05 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide 15 mg efficacy type 2 diabetes'
+16:06:05 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide hypoglycemia safety profile'
+16:06:07 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide hypoglycemia safety profile'
+16:06:07 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide thyroid C-cell safety signal'
+16:06:08 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide thyroid C-cell safety signal'
+16:06:09 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide cardiovascular safety SURPASS-CVOT'
+16:06:10 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide cardiovascular safety SURPASS-CVOT'
+16:06:11 polaris_graph.live_retriever INFO [live_retriever] SERPER q='tirzepatide older adults elderly type 2 diabetes'
+16:06:12 polaris_graph.live_retriever INFO [live_retriever] S2 q='tirzepatide older adults elderly type 2 diabetes'
+16:06:13 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:14 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:15 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:16 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:17 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:18 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:19 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:20 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:20 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:22 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:22 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:23 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:24 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:25 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:26 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:27 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:28 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:29 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:30 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:31 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:32 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:36 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:06:36 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-1" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:38 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-1" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:38 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-1" Rosenstock Lancet tirzepatide monotherapy What is the efficacy and s'
+16:06:40 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-1" Rosenstock Lancet tirzepatide monotherapy What is the efficacy and s'
+16:06:40 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-2" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:42 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-2" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:43 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-2" Fr�as NEJM tirzepatide semaglutide What is the efficacy and safety o'
+16:06:44 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-2" Fr�as NEJM tirzepatide semaglutide What is the efficacy and safety o'
+16:06:45 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-3" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:46 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-3" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:47 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-3" Ludvik Lancet tirzepatide insulin degludec What is the efficacy and '
+16:06:48 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-3" Ludvik Lancet tirzepatide insulin degludec What is the efficacy and '
+16:06:49 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-4" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:51 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-4" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:51 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-4" Del Prato Lancet tirzepatide glargine cardiovascular What is the eff'
+16:06:53 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-4" Del Prato Lancet tirzepatide glargine cardiovascular What is the eff'
+16:06:53 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-5" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:55 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-5" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:56 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-5" Dahl JAMA tirzepatide glargine add-on What is the efficacy and safet'
+16:06:57 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-5" Dahl JAMA tirzepatide glargine add-on What is the efficacy and safet'
+16:06:58 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-6" What is the efficacy and safety of tirzepatide for glycemic control '
+16:06:59 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-6" What is the efficacy and safety of tirzepatide for glycemic control '
+16:07:00 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-6" Rosenstock JAMA tirzepatide lispro premeal What is the efficacy and '
+16:07:01 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-6" Rosenstock JAMA tirzepatide lispro premeal What is the efficacy and '
+16:07:02 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-CVOT" What is the efficacy and safety of tirzepatide for glycemic contr'
+16:07:03 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-CVOT" What is the efficacy and safety of tirzepatide for glycemic contr'
+16:07:03 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURPASS-CVOT" Nicholls tirzepatide cardiovascular outcomes MACE What is the eff'
+16:07:05 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURPASS-CVOT" Nicholls tirzepatide cardiovascular outcomes MACE What is the eff'
+16:07:05 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-1" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:07 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-1" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:07 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-1" Jastreboff NEJM tirzepatide obesity weight loss What is the efficac'
+16:07:09 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-1" Jastreboff NEJM tirzepatide obesity weight loss What is the efficac'
+16:07:09 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-2" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:10 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-2" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:11 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-2" Garvey Lancet tirzepatide obesity type 2 diabetes What is the effic'
+16:07:12 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-2" Garvey Lancet tirzepatide obesity type 2 diabetes What is the effic'
+16:07:13 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-3" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:14 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-3" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:15 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-3" Wadden Nature Medicine tirzepatide intensive lifestyle What is the '
+16:07:16 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-3" Wadden Nature Medicine tirzepatide intensive lifestyle What is the '
+16:07:17 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-4" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:18 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-4" What is the efficacy and safety of tirzepatide for glycemic control'
+16:07:19 polaris_graph.live_retriever INFO [live_retriever] SERPER q='"SURMOUNT-4" Aronne JAMA tirzepatide weight maintenance What is the efficacy and'
+16:07:20 polaris_graph.live_retriever INFO [live_retriever] S2 q='"SURMOUNT-4" Aronne JAMA tirzepatide weight maintenance What is the efficacy and'
+16:07:20 polaris_graph.live_retriever INFO [live_retriever] 440 unique candidates from search
+16:07:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/40430487/
+16:07:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/
+16:07:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign
+16:07:21 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.frontiersin.org/journals/pharmacology/articles/1
+16:07:21 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (timeout=30s)
+16:07:21 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/40430487/ (timeout=30s)
+16:07:21 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.2minutemedicine.com/once-weekly-tirzepatide-significantly-improves-w (timeout=30s)
+16:07:21 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.10 (timeout=30s)
+16:07:23 urllib3.connectionpool WARNING Retrying (Retry(total=1, connect=0, read=None, redirect=2, status=None)) after connection broken by 'ConnectionResetError(10054, '遠端主機已強制關閉一個現存的連線。', None, 10054, None)': /journals/pharmacology/articles/10.3389/fphar.2022.1016639/full
+16:07:23 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign (3200 chars)
+16:07:23 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (69735 chars)
+[ERROR]... × https://www.frontiersin...fphar.2022.1016639/full  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: net::ERR_CONNECTION_RESET at 
+https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1
+016639/full
+Call log:
+  - navigating to 
+"https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.
+1016639/full", waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+16:07:24 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://www.frontiersin.org/journals/pharmacology/articles/1: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+[[FETCHFETCH]]...... ↓  ↓ 
+https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓                 | ⏱: 
+1.| 01s ✓
+ | ⏱: 0.99s 
+[SCRAPE].. ◆ https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/                
+| ✓ | ⏱: 0.03s 
+[COMPLETE] ● https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/                
+| ✓ | ⏱: 1.04s 
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40430487/                         
+| ✓ | ⏱: 0.99s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40430487/                         
+| ✓ | ⏱: 0.04s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40430487/                         
+| ✓ | ⏱: 1.05s 
+[SCRAPE].. ◆ 
+https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓ | ⏱: 0.32s 
+[COMPLETE] ● 
+https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓ | ⏱: 1.34s 
+16:07:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (113 chars, status 200)
+16:07:24 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (69735 chars, score=0.950, 2 candidates, scores={'trafilatura': 0.95, 'crawl4ai': 0.042})
+16:07:24 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:24 trafilatura.core ERROR empty HTML tree: None
+16:07:24 trafilatura.core WARNING discarding data: None
+16:07:24 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (method=trafilatura chars=25000)
+16:07:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/40430487/ (107 chars, status 200)
+16:07:24 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.frontiersin.org/journals/pharmacology/articles/1 (49653 chars)
+16:07:24 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2939 chars
+16:07:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign (2939 chars, status 200)
+16:07:24 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.26685/urncst.1029: https://urncst.com/index.php/urncst/article/download/1029/581 (publisher)
+16:07:24 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://doi.org/10.26685/urncst.1029 -> OA https://urncst.com/index.php/urncst/article/download/1029/581
+16:07:24 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://urncst.com/index.php/urncst/article/download/1029/58
+16:07:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://urncst.com/index.php/urncst/article/download/1029/581 (timeout=30s)
+16:07:25 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://pubmed.ncbi.nlm.nih.gov/40430487/ (9135 chars)
+16:07:25 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/40430487/ (9134 chars, score=0.602, 2 candidates, scores={'jina_reader': 0.602, 'crawl4ai': 0.042})
+16:07:25 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:25 trafilatura.core ERROR empty HTML tree: None
+16:07:25 trafilatura.core WARNING discarding data: None
+16:07:25 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/40430487/ (method=jina_reader chars=9007)
+16:07:25 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1056/NEJMoa2206038: https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true (publisher)
+16:07:25 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://www.nejm.org/doi/full/10.1056/NEJMoa2206038 -> OA https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true
+16:07:25 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo
+16:07:25 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true (timeout=30s)
+[ERROR]... × https://urncst.com/inde...ticle/download/1029/581  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://urncst.com/index.php/urncst/article/download/1029/581", waiting until 
+"domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+16:07:26 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+16:07:26 trafilatura.core ERROR empty HTML tree: None
+16:07:26 trafilatura.core WARNING discarding data: None
+16:07:26 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true
+16:07:26 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://urncst.com/index.php/urncst/article/download/1029/58: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+16:07:26 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://urncst.com/index.php/urncst/article/download/1029/58
+16:07:26 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://urncst.com/index.php/urncst/article/download/1029/581: 'utf-8' codec can't decode byte 0xb5 in position 11: invalid start byte
+16:07:26 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://urncst.com/index.php/urncst/article/download/1029/581, trying alternatives
+16:07:26 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://urncst.com/index.php/urncst/article/download/1029/58
+[FETCH]... ↓ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true           
+| ✓ | ⏱: 0.65s 
+[SCRAPE].. ◆ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true           
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true           
+| ✓ | ⏱: 0.67s 
+16:07:27 trafilatura.core WARNING discarding data: None
+16:07:27 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo (1 chars)
+16:07:27 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo
+16:07:27 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true, trying alternatives
+16:07:27 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo
+16:07:28 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://urncst.com/index.php/urncst/article/download/1029/581
+16:07:28 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://doi.org/10.26685/urncst.1029 (method=failed reason=no_content)
+16:07:28 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/40365662/
+16:07:28 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/40365662/ (timeout=30s)
+16:07:29 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40365662/                         
+| ✓ | ⏱: 0.74s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40365662/                         
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40365662/                         
+| ✓ | ⏱: 0.76s 
+16:07:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/40365662/ (107 chars, status 200)
+16:07:30 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/40365662/ (106 chars, score=0.042, 1 candidates, scores={'crawl4ai': 0.042})
+16:07:30 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:30 trafilatura.core ERROR empty HTML tree: None
+16:07:30 trafilatura.core WARNING discarding data: None
+16:07:30 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/40365662/ (method=crawl4ai chars=106)
+16:07:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://trials.lilly.com/en-US/trial/265294
+16:07:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://trials.lilly.com/en-US/trial/265294 (timeout=30s)
+16:07:30 trafilatura.core WARNING discarding data: None
+16:07:31 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true
+16:07:31 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://www.nejm.org/doi/full/10.1056/NEJMoa2206038 (method=failed reason=no_content)
+16:07:31 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://clinicaltrials.gov/study/NCT04184622
+16:07:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://clinicaltrials.gov/study/NCT04184622 (timeout=30s)
+16:07:32 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.frontiersin.org/journals/pharmacology/articles/1 (83145 chars)
+16:07:32 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.frontiersin.org/journals/pharmacology/articles/1 (83144 chars, score=1.000, 2 candidates, scores={'jina_reader': 1.0, 'trafilatura': 1.0})
+16:07:32 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:32 trafilatura.core ERROR empty HTML tree: None
+16:07:32 trafilatura.core WARNING discarding data: None
+16:07:32 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.10 (method=jina_reader chars=25000)
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/265294                       
+| ✓ | ⏱: 1.62s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/265294                       
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/265294                       
+| ✓ | ⏱: 1.64s 
+16:07:32 trafilatura.core WARNING discarding data: None
+16:07:32 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/265294 (54 chars)
+16:07:32 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://trials.lilly.com/en-US/trial/265294
+16:07:32 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1038/s41591-023-02597-w: https://www.nature.com/articles/s41591-023-02597-w.pdf (publisher)
+16:07:32 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://www.nature.com/articles/s41591-023-02597-w -> OA https://www.nature.com/articles/s41591-023-02597-w.pdf
+16:07:33 trafilatura.core WARNING discarding data: None
+16:07:33 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://trials.lilly.com/en-US/trial/265294 (method=direct chars=53)
+16:07:33 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.prnewswire.com/news-releases/tirzepatide-signifi
+16:07:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-a (timeout=30s)
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT04184622                      
+| ✓ | ⏱: 1.18s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT04184622                      
+| ✓ | ⏱: 0.16s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT04184622                      
+| ✓ | ⏱: 1.36s 
+16:07:33 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 39002 chars
+16:07:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://clinicaltrials.gov/study/NCT04184622 (39002 chars, status 200)
+16:07:33 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://clinicaltrials.gov/study/NCT04184622 (39002 chars, score=0.722, 1 candidates, scores={'crawl4ai': 0.722})
+16:07:33 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:33 trafilatura.core ERROR empty HTML tree: None
+16:07:33 trafilatura.core WARNING discarding data: None
+16:07:33 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://clinicaltrials.gov/study/NCT04184622 (method=crawl4ai chars=25000)
+16:07:33 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.empr.com/home/news/significant-weight-loss-obser
+16:07:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.empr.com/home/news/significant-weight-loss-observed-with-tirzepatide (timeout=30s)
+16:07:34 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.prnewswire.com/news-releases/tirzepatide-signifi (18036 chars)
+[FETCH]... ↓ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pr
+ogram-301229506.html  | ✓ | ⏱: 0.98s 
+[SCRAPE].. ◆ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pr
+ogram-301229506.html  | ✓ | ⏱: 0.28s 
+[COMPLETE] ● 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pr
+ogram-301229506.html  | ✓ | ⏱: 1.28s 
+16:07:35 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 17103 chars
+16:07:35 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.prnewswire.com/news-releases/tirzepatide-signifi (17103 chars, status 200)
+16:07:35 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.prnewswire.com/news-releases/tirzepatide-signifi (18036 chars, score=0.651, 2 candidates, scores={'trafilatura': 0.651, 'crawl4ai': 0.635})
+16:07:35 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:35 trafilatura.core ERROR empty HTML tree: None
+16:07:35 trafilatura.core WARNING discarding data: None
+16:07:35 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-a (method=trafilatura chars=18036)
+16:07:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.thelancet.com/article/S0140-6736(23)01200-X/full
+16:07:35 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext (timeout=30s)
+16:07:36 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.empr.com/home/news/significant-weight-loss-obser (4993 chars)
+16:07:36 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext
+[FETCH]... ↓ 
+https://www.empr.com/home/news/significant-weigh...bserved-with-tirzepatide-in-
+two-phase-3-studies/  | ✓ | ⏱: 2.95s 
+[SCRAPE].. ◆ 
+https://www.empr.com/home/news/significant-weigh...bserved-with-tirzepatide-in-
+two-phase-3-studies/  | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://www.empr.com/home/news/significant-weigh...bserved-with-tirzepatide-in-
+two-phase-3-studies/  | ✓ | ⏱: 3.14s 
+16:07:38 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 4685 chars
+16:07:38 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.empr.com/home/news/significant-weight-loss-obser (4685 chars, status 200)
+16:07:38 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.empr.com/home/news/significant-weight-loss-obser (4993 chars, score=0.383, 2 candidates, scores={'trafilatura': 0.383, 'crawl4ai': 0.378})
+16:07:38 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:38 trafilatura.core ERROR empty HTML tree: None
+16:07:38 trafilatura.core WARNING discarding data: None
+16:07:38 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.empr.com/home/news/significant-weight-loss-observed-with-tirzepatide (method=trafilatura chars=4993)
+16:07:38 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1080/14656566.2024.2356254: https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf (repository)
+16:07:38 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://doi.org/10.1080/14656566.2024.2356254 -> OA https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf
+[FETCH]... ↓ https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext  
+| ✓ | ⏱: 3.68s 
+[SCRAPE].. ◆ https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext  
+| ✓ | ⏱: 0.70s 
+[COMPLETE] ● https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext  
+| ✓ | ⏱: 4.41s 
+16:07:41 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 8904 chars
+16:07:41 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.thelancet.com/article/S0140-6736(23)01200-X/full (8904 chars, status 302)
+16:07:41 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.thelancet.com/article/S0140-6736(23)01200-X/full (8904 chars, score=0.448, 1 candidates, scores={'crawl4ai': 0.448})
+16:07:42 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:42 trafilatura.core ERROR empty HTML tree: None
+16:07:42 trafilatura.core WARNING discarding data: None
+16:07:42 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.thelancet.com/article/S0140-6736(23)01200-X/fulltext (method=crawl4ai chars=8904)
+16:07:42 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://doi.org/10.1097/CRD.0000000000000515
+16:07:42 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://doi.org/10.1097/CRD.0000000000000515 (timeout=30s)
+16:07:43 urllib3.poolmanager INFO Redirecting https://doi.org/10.1097/CRD.0000000000000515 -> https://journals.lww.com/10.1097/CRD.0000000000000515
+16:07:44 trafilatura.downloads ERROR not a 200 response: 403 for URL https://doi.org/10.1097/CRD.0000000000000515
+[FETCH]... ↓ https://doi.org/10.1097/CRD.0000000000000515                      
+| ✓ | ⏱: 0.67s 
+[SCRAPE].. ◆ https://doi.org/10.1097/CRD.0000000000000515                      
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://doi.org/10.1097/CRD.0000000000000515                      
+| ✓ | ⏱: 0.69s 
+16:07:44 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://doi.org/10.1097/CRD.0000000000000515 (292 chars, status 302)
+16:07:44 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://doi.org/10.1097/CRD.0000000000000515 (291 chars, score=0.005, 1 candidates, scores={'crawl4ai': 0.005})
+16:07:44 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:07:44 trafilatura.core ERROR empty HTML tree: None
+16:07:44 trafilatura.core WARNING discarding data: None
+16:07:44 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.1097/CRD.0000000000000515 (method=crawl4ai chars=291)
+16:07:44 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1186/s40842-025-00245-5: https://clindiabetesendo.biomedcentral.com/counter/pdf/10.1186/s40842-025-00245- (publisher)
+16:07:44 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://doi.org/10.1186/s40842-025-00245-5 -> OA https://clindiabetesendo.biomedcentral.com/counter/pdf/10.1186/s40842-025-00245-
+2026-05-15 16:07:55.985294: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+16:08:11 docling.datamodel.document INFO detected formats: [<InputFormat.PDF: 'pdf'>]
+16:08:11 docling.datamodel.document INFO detected formats: [<InputFormat.PDF: 'pdf'>]
+16:08:11 docling.datamodel.document INFO detected formats: [<InputFormat.PDF: 'pdf'>]
+16:08:11 docling.datamodel.document ERROR An unexpected error occurred while opening the document tmpg23ifqbo.pdf
+Traceback (most recent call last):
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\datamodel\document.py", line 177, in __init__
+    self._init_doc(backend, path_or_stream)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\datamodel\document.py", line 221, in _init_doc
+    self._backend = backend(self, path_or_stream=path_or_stream)
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\backend\docling_parse_backend.py", line 229, in __init__
+    self._pdoc = pdfium.PdfDocument(self.path_or_stream, password=password)
+                 ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pypdfium2\_helpers\document.py", line 75, in __init__
+    self.raw, to_hold, to_close = _open_pdf(self._input, self._password, self._autoclose)
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pypdfium2\_helpers\document.py", line 556, in _open_pdf
+    raise PdfiumError(f"Failed to load document (PDFium: {pdfium_i.ErrorToStr.get(err_code)}).", err_code=err_code)
+pypdfium2._helpers.misc.PdfiumError: Failed to load document (PDFium: Data format error).
+16:08:11 docling.document_converter INFO Going to convert document batch...
+16:08:11 docling.document_converter INFO Going to convert document batch...
+16:08:11 docling.document_converter INFO Going to convert document batch...
+16:08:11 docling.document_converter INFO Initializing pipeline for StandardPdfPipeline with options hash 80a8a1322ca5ef46817c7adbf875fff6
+16:08:11 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_2
+16:08:11 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf (timeout=30s)
+16:08:11 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+16:08:11 docling.models.factories INFO Registered picture descriptions: ['picture_description_vlm_engine', 'vlm', 'api']
+16:08:11 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+16:08:11 docling.models.factories INFO Registered ocr engines: ['auto', 'easyocr', 'kserve_v2_ocr', 'ocrmac', 'rapidocr', 'tesserocr', 'tesseract']
+16:08:16 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+[32m[INFO] 2026-05-15 16:08:16,181 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:16,202 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:16,203 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:16,350 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:16,353 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:16,353 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:16,407 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:16,421 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:16,421 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+16:08:16 docling.models.stages.ocr.auto_ocr_model INFO Auto OCR model selected rapidocr with onnxruntime.
+16:08:16 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+16:08:16 docling.models.factories INFO Registered layout engines: ['layout_object_detection', 'docling_layout_default', 'docling_experimental_table_crops_layout']
+16:08:16 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+[FETCH]... ↓ 
+https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf      
+| ✓ | ⏱: 0.98s 
+[SCRAPE].. ◆ 
+https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf      
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_25_2356254.pdf      
+| ✓ | ⏱: 1.00s 
+16:08:17 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_2 (136 chars, status 200)
+16:08:17 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://pmc.ncbi.nlm.nih.gov/articles/PMC11195668/pdf/IEOP_2 (135 chars, score=0.082, 1 candidates, scores={'crawl4ai': 0.082})
+16:08:17 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:08:17 trafilatura.core ERROR empty HTML tree: None
+16:08:17 trafilatura.core WARNING discarding data: None
+16:08:17 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.1080/14656566.2024.2356254 (method=crawl4ai chars=135)
+16:08:17 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.7570/jomes22067: https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067 (publisher)
+16:08:17 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://www.jomes.org/journal/view.html?doi=10.7570/jomes220 -> OA https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067
+16:08:17 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+16:08:17 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067 (timeout=30s)
+16:08:18 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+16:08:18 docling.models.factories INFO Registered table structure engines: ['docling_tableformer', 'docling_tableformer_v2']
+16:08:18 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+16:08:19 docling.pipeline.base_pipeline INFO Processing document tmp0xwrerm0.pdf
+16:08:19 docling.document_converter INFO Initializing pipeline for StandardPdfPipeline with options hash 80a8a1322ca5ef46817c7adbf875fff6
+16:08:19 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+[32m[INFO] 2026-05-15 16:08:19,136 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:19,144 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:19,144 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:19,254 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:19,257 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:19,257 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:19,315 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-15 16:08:19,333 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-15 16:08:19,334 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+16:08:19 docling.models.stages.ocr.auto_ocr_model INFO Auto OCR model selected rapidocr with onnxruntime.
+16:08:19 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+[ERROR]... × https://www.jomes.org/j...?doi=10.7570/jomes22067  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+16:08:20 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+16:08:26 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+16:08:30 docling.pipeline.base_pipeline INFO Processing document tmpl8woa1so.pdf
+16:08:33 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+16:08:33 trafilatura.core ERROR empty HTML tree: None
+16:08:33 trafilatura.core WARNING discarding data: None
+16:08:33 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+16:08:47 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+16:08:47 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067, trying alternatives
+16:08:47 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+16:08:50 docling.document_converter INFO Finished converting document tmpl8woa1so.pdf in 39.45 sec.
+16:08:50 src.tools.access_bypass INFO [ACCESS] PL: Docling extracted 27509 chars from PDF https://clindiabetesendo.biomedcentral.com/counter
+16:08:50 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://clindiabetesendo.biomedcentral.com/counter/pdf/10.11 (27509 chars)
+16:08:50 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:08:50 trafilatura.core ERROR empty HTML tree: None
+16:08:50 trafilatura.core WARNING discarding data: None
+16:08:50 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.1186/s40842-025-00245-5 (method=pdf_extract chars=21251)
+16:08:50 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/40926359/
+16:08:50 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/40926359/ (timeout=30s)
+16:08:50 polaris_graph.live_retriever WARNING [live_retriever] AccessBypass timed out after 90s for https://www.2minutemedicine.com/once-weekly-tirzepatide-significantly-improves-w — falling back to naive httpx (thread will continue as daemon)
+16:08:52 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall found repo landing without PDF for 10.1056/NEJMoa2107519 — keeping original URL
+16:08:52 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.nejm.org/doi/full/10.1056/NEJMoa2107519
+16:08:52 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.nejm.org/doi/full/10.1056/NEJMoa2107519 (timeout=30s)
+16:08:53 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.nejm.org/doi/full/10.1056/NEJMoa2107519
+16:08:54 src.tools.access_bypass INFO [ACCESS] Sci-Hub succeeded for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j (30000 chars)
+16:08:54 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.jomes.org/journal/view.html?doi=10.7570/jomes22067 (method=scihub_html chars=14260)
+16:08:54 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.youtube.com/watch?v=c9uazgSdDJc
+16:08:54 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.youtube.com/watch?v=c9uazgSdDJc (timeout=30s)
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40926359/                         
+| ✓ | ⏱: 1.92s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40926359/                         
+| ✓ | ⏱: 0.41s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40926359/                         
+| ✓ | ⏱: 2.36s 
+16:08:55 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 4543 chars
+16:08:55 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/40926359/ (4543 chars, status 200)
+16:08:55 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/40926359/ (4543 chars, score=0.576, 1 candidates, scores={'crawl4ai': 0.576})
+16:08:55 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:08:55 trafilatura.core ERROR empty HTML tree: None
+16:08:55 trafilatura.core WARNING discarding data: None
+16:08:55 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/40926359/ (method=crawl4ai chars=4543)
+[FETCH]... ↓ https://www.nejm.org/doi/full/10.1056/NEJMoa2107519               
+| ✓ | ⏱: 3.71s 
+[SCRAPE].. ◆ https://www.nejm.org/doi/full/10.1056/NEJMoa2107519               
+| ✓ | ⏱: 1.20s 
+[COMPLETE] ● https://www.nejm.org/doi/full/10.1056/NEJMoa2107519               
+| ✓ | ⏱: 4.95s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=c9uazgSdDJc                       
+| ✓ | ⏱: 3.35s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=c9uazgSdDJc                       
+| ✓ | ⏱: 0.12s 
+[COMPLETE] ● https://www.youtube.com/watch?v=c9uazgSdDJc                       
+| ✓ | ⏱: 3.51s 
+16:09:00 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 50703 chars
+16:09:00 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.nejm.org/doi/full/10.1056/NEJMoa2107519 (50703 chars, status 200)
+16:09:00 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.nejm.org/doi/full/10.1056/NEJMoa2107519 (50703 chars, score=1.000, 1 candidates, scores={'crawl4ai': 1.0})
+16:09:00 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:09:00 trafilatura.core ERROR empty HTML tree: None
+16:09:00 trafilatura.core WARNING discarding data: None
+16:09:00 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.nejm.org/doi/full/10.1056/NEJMoa2107519 (method=crawl4ai chars=25000)
+16:09:00 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.youtube.com/watch?v=c9uazgSdDJc (1052 chars, status 200)
+16:09:00 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.youtube.com/watch?v=c9uazgSdDJc (1051 chars, score=0.170, 1 candidates, scores={'crawl4ai': 0.17})
+16:09:00 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:09:00 trafilatura.core ERROR empty HTML tree: None
+16:09:00 trafilatura.core WARNING discarding data: None
+16:09:00 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.youtube.com/watch?v=c9uazgSdDJc (method=crawl4ai chars=1051)
+16:09:02 polaris_graph.live_retriever WARNING [live_retriever] AccessBypass timed out after 90s for https://www.nature.com/articles/s41591-023-02597-w — falling back to naive httpx (thread will continue as daemon)
+16:09:05 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 parallel_fetch: 20 success, 0 errored, 0 timeout (max_workers=8, per_task_timeout=120s)
+16:09:18 polaris_graph.live_retriever INFO [live_retriever] skipping content-starved evidence for 'https://pubmed.ncbi.nlm.nih.gov/40365662/' (len=106)
+16:09:19 polaris_graph.live_retriever INFO [live_retriever] skipping content-starved evidence for 'https://trials.lilly.com/en-US/trial/265294' (len=53)
+16:09:26 polaris_graph.live_retriever INFO [live_retriever] skipping content-starved evidence for 'https://doi.org/10.1080/14656566.2024.2356254' (len=135)
+[retrieval]   pre_filter=440, fetched=18, failed=2, elapsed=211.3s  api_calls={'serper': 41, 's2': 41, 'openalex': 18, 'fetch': 20, 'parallel_fetch_success_count': 20, 'parallel_fetch_errored_count': 0, 'parallel_fetch_timeout_count': 0}
+[corpus]      total=20  T1=20%, T2=10%, T3=5%, T4=35%, T6=10%, T7=20%  material_deviation=False
+[adequacy]    decision=proceed  applicable_checks=8  critical=0  warn=0
+[completeness] 6/7 topics covered  uncovered=['contraindications']
+[expansion]   triggering 1 expansion queries
+16:09:28 polaris_graph.scope_query_validator INFO [scope_validator] floor=0.15 kept=1 dropped=1 (anchor_tokens=10)
+16:09:28 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:09:30 polaris_graph.live_retriever INFO [live_retriever] S2 q='What is the efficacy and safety of tirzepatide for glycemic control and weight l'
+16:09:30 polaris_graph.live_retriever INFO [live_retriever] 6 unique candidates from search
+16:09:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/
+16:09:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign
+16:09:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/40430487/
+16:09:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (timeout=30s)
+16:09:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/40430487/ (timeout=30s)
+16:09:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.2minutemedicine.com/once-weekly-tirzepatide-significantly-improves-w (timeout=30s)
+16:09:31 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign (3200 chars)
+16:09:31 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1111/dom.70047: https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047 (publisher)
+16:09:31 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://dom-pubs.onlinelibrary.wiley.com/doi/full/10.1111/do -> OA https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047
+16:09:31 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70
+16:09:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047 (timeout=30s)
+16:09:31 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (69735 chars)
+16:09:32 trafilatura.downloads ERROR not a 200 response: 403 for URL https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047
+[FETCH]... ↓ 
+https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓ | ⏱: 1.01s 
+[FETCH]... ↓ https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/                
+| ✓ | ⏱: 1.00s 
+[SCRAPE].. ◆ https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/                
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/                
+| ✓ | ⏱: 1.03s 
+[SCRAPE].. ◆ 
+https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓ | ⏱: 0.29s 
+[COMPLETE] ● 
+https://www.2minutemedicine.com/once-weekly-tirz...-patients-with-with-obesity-
+and-type-2-diabetes/  | ✓ | ⏱: 1.32s 
+16:09:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (113 chars, status 200)
+16:09:33 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (69735 chars, score=0.950, 2 candidates, scores={'trafilatura': 0.95, 'crawl4ai': 0.042})
+16:09:34 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:09:34 trafilatura.core ERROR empty HTML tree: None
+16:09:34 trafilatura.core WARNING discarding data: None
+16:09:34 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (method=trafilatura chars=25000)
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40430487/                         
+| ✓ | ⏱: 1.60s 
+16:09:34 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2939 chars
+16:09:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign (2939 chars, status 200)
+16:09:34 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.2minutemedicine.com/once-weekly-tirzepatide-sign (3200 chars, score=0.303, 2 candidates, scores={'trafilatura': 0.303, 'crawl4ai': 0.299})
+16:09:34 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:09:34 trafilatura.core ERROR empty HTML tree: None
+16:09:34 trafilatura.core WARNING discarding data: None
+16:09:34 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.2minutemedicine.com/once-weekly-tirzepatide-significantly-improves-w (method=trafilatura chars=3200)
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047   
+| ✓ | ⏱: 1.38s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047   
+| ✓ | ⏱: 0.01s 
+[[COMPLETE16:09:34 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.7570/jomes22067: https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067 (publisher)
+SCRAPE]]16:09:34 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://www.jomes.org/journal/view.html?doi=10.7570/jomes220 -> OA https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067
+ ● .. ◆ 16:09:34 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047https://pubmed.ncbi.nlm.nih.gov/40430487/                            
+
+| | ✓ | ⏱: ✓1. | ⏱: 42s 0.
+26s 
+[16:09:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067 (timeout=30s)
+COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40430487/                         
+| ✓ | ⏱: 1.89s 
+16:09:34 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.26685/urncst.1029: https://urncst.com/index.php/urncst/article/download/1029/581 (publisher)
+16:09:34 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://doi.org/10.26685/urncst.1029 -> OA https://urncst.com/index.php/urncst/article/download/1029/581
+16:09:34 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://urncst.com/index.php/urncst/article/download/1029/58
+16:09:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://urncst.com/index.php/urncst/article/download/1029/581 (timeout=30s)
+16:09:34 trafilatura.core WARNING discarding data: None
+16:09:34 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70 (1 chars)
+16:09:34 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70
+16:09:34 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70047, trying alternatives
+16:09:34 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70
+16:09:34 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 5616 chars
+16:09:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/40430487/ (5616 chars, status 200)
+16:09:34 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/40430487/ (5616 chars, score=0.544, 1 candidates, scores={'crawl4ai': 0.544})
+16:09:34 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+16:09:34 trafilatura.core ERROR empty HTML tree: None
+16:09:34 trafilatura.core WARNING discarding data: None
+16:09:34 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/40430487/ (method=crawl4ai chars=5616)
+16:09:35 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+16:09:35 trafilatura.core ERROR empty HTML tree: None
+16:09:35 trafilatura.core WARNING discarding data: None
+[ERROR]... × https://urncst.com/inde...ticle/download/1029/581  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://urncst.com/index.php/urncst/article/download/1029/581", waiting until 
+"domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+16:09:36 src.tools.access_bypass INFO [ACCESS] Sci-Hub succeeded for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.70 (30000 chars)
+16:09:36 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://dom-pubs.onlinelibrary.wiley.com/doi/full/10.1111/dom.70047 (method=scihub_html chars=13881)
+[ERROR]... × https://www.jomes.org/j...?doi=10.7570/jomes22067  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+16:09:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+16:09:46 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+16:09:46 trafilatura.core ERROR empty HTML tree: None
+16:09:46 trafilatura.core WARNING discarding data: None
+16:09:46 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+16:09:51 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://urncst.com/index.php/urncst/article/download/1029/58: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+16:09:51 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://urncst.com/index.php/urncst/article/download/1029/58
+16:09:52 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://urncst.com/index.php/urncst/article/download/1029/581: 'utf-8' codec can't decode byte 0xb5 in position 11: invalid start byte
+16:09:52 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://urncst.com/index.php/urncst/article/download/1029/581, trying alternatives
+16:09:52 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://urncst.com/index.php/urncst/article/download/1029/58
+16:09:53 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://urncst.com/index.php/urncst/article/download/1029/581
+16:09:53 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://doi.org/10.26685/urncst.1029 (method=failed reason=no_content)
+16:09:59 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+16:09:59 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22067, trying alternatives
+16:09:59 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j
+16:10:00 src.tools.access_bypass INFO [ACCESS] Sci-Hub succeeded for https://www.jomes.org/journal/download_pdf.php?doi=10.7570/j (30000 chars)
+16:10:00 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.jomes.org/journal/view.html?doi=10.7570/jomes22067 (method=scihub_html chars=14260)
+16:10:00 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 parallel_fetch: 6 success, 0 errored, 0 timeout (max_workers=8, per_task_timeout=120s)
+16:10:02 docling.document_converter INFO Finished converting document tmp0xwrerm0.pdf in 111.73 sec.
+16:10:02 src.tools.access_bypass INFO [ACCESS] PL: Docling extracted 139259 chars from PDF https://www.nature.com/articles/s41591-023-02597-w
+16:10:02 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://www.nature.com/articles/s41591-023-02597-w.pdf (139259 chars)
+[expansion]   fetched=5 new evidence rows
+[expansion]   post: total=21 covered=6/7
+16:10:06 polaris_graph.corpus_approval_gate INFO [corpus_approval] decision persisted approved=True path=C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\corpus_approval.json sha=747b1ba41635428c
+[contradict]  numeric_claims=11  contradictions=1
+[select]      strategy=tier_balanced_v1_all_m46_ordered selected=20 of 20 dropped=0
+              full_tiers={'T4': 9, 'T1': 6, 'T2': 1, 'T6': 2, 'T3': 1, 'T7': 1} selected_tiers={'T4': 9, 'T1': 6, 'T2': 1, 'T6': 2, 'T3': 1, 'T7': 1}
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=20...
+16:10:07 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:10:07 polaris.providers.llm INFO [llm_provider] Concurrency semaphore initialized: max=5
+16:11:53 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1278 chunks, content=1805 bytes (1805 chars), reasoning=20515 bytes (20507 chars), done=True, has_usage=True
+16:11:54 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 1683 in/6365 out/5768 reasoning tokens, 106.3s, $0.0249 cumulative
+16:11:54 polaris_graph.multi_section INFO [multi_section] outline: 5 sections: ['Efficacy', 'Safety', 'Comparative', 'Long-term Outcomes', 'Dose Response'] (ok=True fallback=False retry=False)
+16:11:54 polaris_graph.cross_trial_synthesis INFO [m72] only 0 trial frames with extracted fields — skipping cross-trial synthesis
+16:11:54 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:11:55 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:11:55 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:13:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 3508 chunks, content=3410 bytes (3325 chars), reasoning=28538 bytes (28318 chars), done=True, has_usage=True
+16:13:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25121 in/9503 out/7266 reasoning tokens, 106.6s, $0.0946 cumulative
+16:13:53 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:13:53 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1020 chunks, content=2931 bytes (2921 chars), reasoning=16245 bytes (16231 chars), done=True, has_usage=True
+16:13:54 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25033 in/5080 out/4282 reasoning tokens, 118.5s, $0.0490 cumulative
+16:14:09 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:14:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1244 chunks, content=3276 bytes (3190 chars), reasoning=17423 bytes (17269 chars), done=True, has_usage=True
+16:14:10 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25030 in/6194 out/5140 reasoning tokens, 134.0s, $0.0630 cumulative
+16:14:33 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:14:33 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] Connection error, retrying in 2.0s: 
+16:14:33 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] Connection error, retrying in 2.0s: 
+16:14:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 129 chunks, content=252 bytes (252 chars), reasoning=1879 bytes (1879 chars), done=True, has_usage=True
+16:14:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 709 in/621 out/529 reasoning tokens, 39.9s, $0.0033 cumulative
+16:14:54 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:14:54 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 179 chunks, content=308 bytes (308 chars), reasoning=2504 bytes (2502 chars), done=True, has_usage=True
+16:14:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 732 in/878 out/766 reasoning tokens, 20.9s, $0.0042 cumulative
+16:14:57 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:03 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 269 chunks, content=249 bytes (241 chars), reasoning=4719 bytes (4687 chars), done=True, has_usage=True
+16:15:04 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 745 in/1321 out/1244 reasoning tokens, 70.3s, $0.0063 cumulative
+16:15:07 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:07 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 51 chunks, content=196 bytes (196 chars), reasoning=643 bytes (643 chars), done=True, has_usage=True
+16:15:07 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 724 in/236 out/161 reasoning tokens, 12.4s, $0.0018 cumulative
+16:15:11 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:17 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 640 chunks, content=9 bytes (9 chars), reasoning=2719 bytes (2707 chars), done=True, has_usage=True
+16:15:17 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 668 in/639 out/635 reasoning tokens, 19.9s, $0.0029 cumulative
+16:15:18 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 48 chunks, content=9 bytes (9 chars), reasoning=1013 bytes (1013 chars), done=True, has_usage=True
+16:15:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 632 in/221 out/216 reasoning tokens, 4.8s, $0.0018 cumulative
+16:15:23 polaris_graph.multi_section INFO [multi_section] Comparative repair_loop: attempts=3 successes=0 (rate=0.00) null_drops=2 token_set_violations=0 re_verify_fail=1 api_fail=0
+16:15:23 polaris_graph.multi_section INFO [multi_section] Comparative post-M-41c kept_fraction=0.21 below min 0.40 — retrying
+16:15:23 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 934 chunks, content=197 bytes (197 chars), reasoning=3553 bytes (3537 chars), done=True, has_usage=True
+16:15:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 711 in/934 out/897 reasoning tokens, 19.4s, $0.0045 cumulative
+16:15:30 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:15:39 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 84 chunks, content=73 bytes (73 chars), reasoning=1487 bytes (1487 chars), done=True, has_usage=True
+16:15:40 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 760 in/397 out/370 reasoning tokens, 8.6s, $0.0026 cumulative
+16:15:42 polaris_graph.multi_section INFO [multi_section] Efficacy repair_loop: attempts=3 successes=3 (rate=1.00) null_drops=0 token_set_violations=0 re_verify_fail=0 api_fail=0
+16:15:42 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:16:59 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 930 chunks, content=3133 bytes (3041 chars), reasoning=12174 bytes (12150 chars), done=True, has_usage=True
+16:17:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25082 in/4633 out/3651 reasoning tokens, 96.0s, $0.0513 cumulative
+16:17:08 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:17:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 4774 chunks, content=199 bytes (189 chars), reasoning=17117 bytes (16929 chars), done=True, has_usage=True
+16:17:29 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 804 in/4773 out/4700 reasoning tokens, 137.6s, $0.0175 cumulative
+16:17:31 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:18:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 5839 chunks, content=3249 bytes (3193 chars), reasoning=17275 bytes (17129 chars), done=True, has_usage=True
+16:18:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25039 in/5841 out/4412 reasoning tokens, 106.6s, $0.0639 cumulative
+16:19:07 polaris_graph.multi_section INFO [multi_section] Dose Response post-M-41c kept_fraction=0.00 below min 0.40 — retrying
+16:19:08 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:19:10 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 5291 chunks, content=2772 bytes (2678 chars), reasoning=33035 bytes (33007 chars), done=True, has_usage=True
+16:19:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 24139 in/9345 out/8549 reasoning tokens, 208.2s, $0.0490 cumulative
+16:19:22 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:19:46 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 267 chunks, content=284 bytes (284 chars), reasoning=4996 bytes (4980 chars), done=True, has_usage=True
+16:19:46 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 673 in/1310 out/1235 reasoning tokens, 23.5s, $0.0057 cumulative
+16:19:48 polaris_graph.multi_section INFO [multi_section] Long-term Outcomes repair_loop: attempts=1 successes=1 (rate=1.00) null_drops=0 token_set_violations=0 re_verify_fail=0 api_fail=0
+16:19:48 polaris_graph.multi_section INFO [multi_section] Long-term Outcomes post-M-41c kept_fraction=0.27 below min 0.40 — retrying
+16:19:49 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:20:43 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 6754 chunks, content=146 bytes (146 chars), reasoning=23026 bytes (22920 chars), done=True, has_usage=True
+16:20:43 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 867 in/6753 out/6697 reasoning tokens, 192.3s, $0.0200 cumulative
+16:20:46 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:21:02 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 356 chunks, content=9 bytes (9 chars), reasoning=2139 bytes (2093 chars), done=True, has_usage=True
+16:21:03 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 823 in/654 out/649 reasoning tokens, 15.9s, $0.0027 cumulative
+16:21:03 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:22:06 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 6294 chunks, content=3254 bytes (3180 chars), reasoning=19213 bytes (19108 chars), done=True, has_usage=True
+16:22:06 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 25091 in/6294 out/5371 reasoning tokens, 177.9s, $0.0524 cumulative
+16:22:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 2195 chunks, content=169 bytes (169 chars), reasoning=9613 bytes (9611 chars), done=True, has_usage=True
+16:22:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 664 in/2194 out/2152 reasoning tokens, 79.0s, $0.0085 cumulative
+16:22:24 polaris_graph.multi_section INFO [multi_section] Safety repair_loop: attempts=6 successes=4 (rate=0.67) null_drops=1 token_set_violations=0 re_verify_fail=1 api_fail=0
+16:22:24 polaris_graph.multi_section INFO [multi_section] M-41c: dropped 1 under-framed trial-name sentences from section 'Safety' (of 6 strict-verified)
+16:22:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 4577 chunks, content=4276 bytes (4239 chars), reasoning=27304 bytes (27109 chars), done=True, has_usage=True
+16:22:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 24191 in/8485 out/7425 reasoning tokens, 180.2s, $0.0488 cumulative
+16:23:12 polaris_graph.fact_dedup INFO [fact_dedup] 2 duplicate-fact groups detected, 2 redundant sentences to rewrite
+16:23:13 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:23:35 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 501 chunks, content=206 bytes (206 chars), reasoning=2868 bytes (2866 chars), done=True, has_usage=True
+16:23:35 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 619 in/824 out/763 reasoning tokens, 22.1s, $0.0031 cumulative
+16:23:35 polaris_graph.fact_dedup INFO [fact_dedup] applied=2, dropped=0
+16:23:37 polaris_graph.multi_section INFO [multi_section] GH#423 fact_dedup: groups=2 redundants=2 rewrites_proposed=2 rewrites_kept=0 rewrites_dropped_by_strict_verify=2 redundants_dropped_by_llm_fallback=0
+16:23:38 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:24:01 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 488 chunks, content=468 bytes (468 chars), reasoning=4800 bytes (4800 chars), done=True, has_usage=True
+16:24:01 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 495 in/1287 out/1241 reasoning tokens, 23.1s, $0.0067 cumulative
+16:24:02 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+16:28:54 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 10085 chunks, content=13820 bytes (13538 chars), reasoning=31233 bytes (31183 chars), done=True, has_usage=True
+16:28:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 7370 in/10115 out/7233 reasoning tokens, 292.7s, $0.0384 cumulative
+16:28:55 polaris_graph.multi_section INFO [multi_section] M-42b deterministic builder yielded 0 rows (below threshold of 2); LLM fallback will be used
+16:28:55 polaris_graph.multi_section INFO [multi_section] M-42b: no primary-trial direct_quotes available for LLM fallback; table suppressed
+              elapsed=1128.5s outline=5 sections, words=2361, verified=14, dropped=45, limitations_words=69
+[m53]         v29 primary custody: 0/11 anchors cited_in_verified_prose
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 4 unhedged: ["'leading' in: 'Adverse events leading to discontinuation of tirzepatide or semaglutide
+16:29:56 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=google/gemma-4-31b-it, budget=$50.00
+16:29:56 polaris_graph.live_qwen_judge INFO [live_qwen_judge] calling google/gemma-4-31b-it, report_chars=19529
+16:30:07 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 243 chunks, content=1167 bytes (1167 chars), reasoning=0 bytes (0 chars), done=True, has_usage=True
+16:30:07 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 5126 in/242 out/0 reasoning tokens, 10.4s, $0.0008 cumulative
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] hedging_appropriateness: The report appropriately flags the interpretive nature of the synthesis and expl
+              [           GOOD] citation_tightness: Every factual claim in the verified findings and the synthesis sections is accom
+              [           GOOD] flow: The structure follows a logical progression from specific efficacy/safety data t
+              [     ACCEPTABLE] tone_consistency: The synthesis uses some strong adjectives ('exceptional', 'transformative'), but
+              [ NEEDS_REVISION] completeness: The report explicitly identifies a completeness gap regarding 'Contraindications
+[eval_gate]   class=pass release_allowed=True reasons=['advisory_pt13_unhedged_superlatives']
+[V30]         compiled frame: slug='clinical_tirzepatide_t2dm', schema=v30.1, entities=15
+[V30]         fetching 15 entities via M-56
+16:30:09 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://figshare.com/articles/journal_contribution/Tirzepati
+16:30:09 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://figshare.com/articles/journal_contribution/Tirzepatide_versus_Semaglutid (timeout=30s)
+[FETCH]... ↓ 
+https://figshare.com/articles/journal_contributi...Weekly_in_Patients_with_Type
+_2_Diabetes/16972132  | ✓ | ⏱: 1.95s 
+[SCRAPE].. ◆ 
+https://figshare.com/articles/journal_contributi...Weekly_in_Patients_with_Type
+_2_Diabetes/16972132  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://figshare.com/articles/journal_contributi...Weekly_in_Patients_with_Type
+_2_Diabetes/16972132  | ✓ | ⏱: 1.97s 
+16:30:12 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://figshare.com/articles/journal_contribution/Tirzepati (1 chars)
+16:30:12 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://figshare.com/articles/journal_contribution/Tirzepati
+16:30:13 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://figshare.com/articles/journal_contribution/Tirzepatide_versus_Semaglutid, trying alternatives
+16:30:13 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://figshare.com/articles/journal_contribution/Tirzepati
+16:30:18 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://jamanetwork.com/journals/jama/articlepdf/2788781/jam
+16:30:18 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://jamanetwork.com/journals/jama/articlepdf/2788781/jama_dahl_2022_oi_22000 (timeout=30s)
+16:30:19 trafilatura.downloads ERROR not a 200 response: 403 for URL https://jamanetwork.com/journals/jama/articlepdf/2788781/jama_dahl_2022_oi_220003_1644261864.35143.pdf
+[FETCH]... ↓ 
+https://jamanetwork.com/journals/jama/articlepdf...81/jama_dahl_2022_oi_220003_
+1644261864.35143.pdf  | ✓ | ⏱: 0.52s 
+[SCRAPE].. ◆ 
+https://jamanetwork.com/journals/jama/articlepdf...81/jama_dahl_2022_oi_220003_
+1644261864.35143.pdf  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://jamanetwork.com/journals/jama/articlepdf...81/jama_dahl_2022_oi_220003_
+1644261864.35143.pdf  | ✓ | ⏱: 0.54s 
+16:30:19 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://jamanetwork.com/journals/jama/articlepdf/2788781/jam (290 chars, status 307)
+16:30:19 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://jamanetwork.com/journals/jama/articlepdf/2788781/jam (289 chars, score=0.045, 1 candidates, scores={'crawl4ai': 0.045})
+16:30:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.ncbi.nlm.nih.gov/pmc/articles/10548360
+16:30:20 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.ncbi.nlm.nih.gov/pmc/articles/10548360 (timeout=30s)
+16:30:21 urllib3.poolmanager INFO Redirecting https://www.ncbi.nlm.nih.gov/pmc/articles/10548360 -> https://pmc.ncbi.nlm.nih.gov/articles/10548360
+16:30:21 urllib3.poolmanager INFO Redirecting https://pmc.ncbi.nlm.nih.gov/articles/10548360 -> https://pmc.ncbi.nlm.nih.gov/articles/10548360/
+16:30:22 trafilatura.downloads ERROR download error: https://www.ncbi.nlm.nih.gov/pmc/articles/10548360 HTTPSConnectionPool(host='pmc.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: https://pmc.ncbi.nlm.nih.gov/articles/10548360/ (Caused by ResponseError('too many redirects'))
+[FETCH]... ↓ https://www.ncbi.nlm.nih.gov/pmc/articles/10548360                
+| ✓ | ⏱: 0.92s 
+[SCRAPE].. ◆ https://www.ncbi.nlm.nih.gov/pmc/articles/10548360                
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.ncbi.nlm.nih.gov/pmc/articles/10548360                
+| ✓ | ⏱: 0.93s 
+16:30:22 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.ncbi.nlm.nih.gov/pmc/articles/10548360 (109 chars, status 301)
+16:30:22 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.ncbi.nlm.nih.gov/pmc/articles/10548360 (108 chars, score=0.042, 1 candidates, scores={'crawl4ai': 0.042})
+16:30:24 src.tools.access_bypass WARNING [ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=84>40), using PyMuPDF: https://pure.ulster.ac.uk/ws/files/123196826/Tirze
+16:30:24 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://pure.ulster.ac.uk/ws/files/123196826/Tirzepatide_onc (101353 chars)
+16:30:24 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d
+16:30:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955f (timeout=30s)
+16:30:26 trafilatura.xml WARNING missing link attribute: Figure 1: Mean insulin concentration at 0-120 minutes during hyperglycemic clamp at baseline and Week 28 {}'
+16:30:26 trafilatura.xml WARNING missing link attribute: Figure 2: Mean HbA1c (%) Over Time - Baseline to Week 40 {}'
+16:30:26 trafilatura.xml WARNING missing link attribute: What is the most important information I should know about MOUNJARO? {}'
+16:30:26 trafilatura.xml WARNING missing link attribute: What are the possible side effects of MOUNJARO? {}'
+16:30:26 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d (146000 chars)
+[FETCH]... ↓ 
+https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955
+f-cf7e355c8cc0        | ✓ | ⏱: 1.53s 
+[SCRAPE].. ◆ 
+https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955
+f-cf7e355c8cc0        | ✓ | ⏱: 2.29s 
+[COMPLETE] ● 
+https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955
+f-cf7e355c8cc0        | ✓ | ⏱: 3.83s 
+16:30:30 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 170628 chars
+16:30:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d (170628 chars, status 200)
+16:30:30 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d (170628 chars, score=0.900, 2 candidates, scores={'crawl4ai': 0.9, 'trafilatura': 0.9})
+16:30:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/21
+16:30:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf (timeout=30s)
+16:30:31 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+16:30:31 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf    
+| ✓ | ⏱: 0.59s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf    
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf    
+| ✓ | ⏱: 0.60s 
+16:30:32 trafilatura.core WARNING discarding data: None
+16:30:32 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/21 (1 chars)
+16:30:32 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/21
+16:30:33 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+16:30:33 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf, trying alternatives
+16:30:33 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/21
+16:30:35 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+16:30:35 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf
+16:30:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro
+16:30:35 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro (timeout=30s)
+16:30:37 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro (6545 chars)
+[FETCH]... ↓ https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro        
+| ✓ | ⏱: 3.02s 
+[SCRAPE].. ◆ https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro        
+| ✓ | ⏱: 0.75s 
+[COMPLETE] ● https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro        
+| ✓ | ⏱: 3.78s 
+16:30:40 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 7739 chars
+16:30:40 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro (7739 chars, status 200)
+16:30:40 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro (7739 chars, score=0.293, 2 candidates, scores={'crawl4ai': 0.293, 'trafilatura': 0.281})
+16:30:40 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.nice.org.uk/guidance/ta924
+16:30:40 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.nice.org.uk/guidance/ta924 (timeout=30s)
+16:30:42 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.nice.org.uk/guidance/ta924 (3015 chars)
+[FETCH]... ↓ https://www.nice.org.uk/guidance/ta924                            
+| ✓ | ⏱: 1.57s 
+[SCRAPE].. ◆ https://www.nice.org.uk/guidance/ta924                            
+| ✓ | ⏱: 0.03s 
+[COMPLETE] ● https://www.nice.org.uk/guidance/ta924                            
+| ✓ | ⏱: 1.62s 
+16:30:43 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2236 chars
+16:30:43 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.nice.org.uk/guidance/ta924 (2236 chars, status 200)
+16:30:43 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.nice.org.uk/guidance/ta924 (3015 chars, score=0.300, 2 candidates, scores={'trafilatura': 0.3, 'crawl4ai': 0.123})
+16:30:43 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.nice.org.uk/guidance/ta1026
+16:30:43 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.nice.org.uk/guidance/ta1026 (timeout=30s)
+16:30:43 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.nice.org.uk/guidance/ta1026 (3770 chars)
+[FETCH]... ↓ https://www.nice.org.uk/guidance/ta1026                           
+| ✓ | ⏱: 1.69s 
+[SCRAPE].. ◆ https://www.nice.org.uk/guidance/ta1026                           
+| ✓ | ⏱: 0.04s 
+[COMPLETE] ● https://www.nice.org.uk/guidance/ta1026                           
+| ✓ | ⏱: 1.75s 
+16:30:46 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2896 chars
+16:30:46 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.nice.org.uk/guidance/ta1026 (2896 chars, status 200)
+16:30:46 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.nice.org.uk/guidance/ta1026 (3770 chars, score=0.187, 2 candidates, scores={'trafilatura': 0.187, 'crawl4ai': 0.112})
+16:30:46 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://health-products.canada.ca/dpd-bdpp/dispatch-repartit
+16:30:46 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type= (timeout=30s)
+16:30:47 urllib3.poolmanager INFO Redirecting https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type=prod -> https://health-products.canada.ca/dpd-bdpp/search
+16:30:47 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://health-products.canada.ca/dpd-bdpp/dispatch-repartit (958 chars)
+[FETCH]... ↓ 
+https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type
+=prod                 | ✓ | ⏱: 1.27s 
+[SCRAPE].. ◆ 
+https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type
+=prod                 | ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type
+=prod                 | ✓ | ⏱: 1.39s 
+16:30:48 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 880 chars
+16:30:48 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://health-products.canada.ca/dpd-bdpp/dispatch-repartit (880 chars, status 302)
+16:30:48 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://health-products.canada.ca/dpd-bdpp/dispatch-repartit (958 chars, score=0.136, 2 candidates, scores={'trafilatura': 0.136, 'crawl4ai': 0.055})
+[V30]         fetch summary: abstract_only=4, frame_gap_unrecoverable=1, metadata_only=1, open_access=9
+[V30]         outline: 3 sections, 15 slots, gaps=1
+[V30]         coverage: pass=13, partial=1, gap=1, pipeline_fault=0
+[V30]         wrote human_gap_tasks.json: 2 curator-actionable tasks
+[V30]         appended frame-coverage disclosure to report.md
+[cost]        $0.0763 (cap $10.0000)
+[status]      ok (manifest.status=success)
+<<< status=ok cost=$0.0763 wall=1491.9s
+
+========================================================================
+SWEEP COMPLETE. Total cost: $0.0763
+  ok:                  1
+  warn_rule_checks:    0
+  fail_no_sources:     0
+  fail_no_verified:    0
+  error:               0
+Summary: C:\POLARIS\outputs\honest_sweep_r3\sweep_summary.json
+Matrix:  C:\POLARIS\outputs\honest_sweep_r3\sweep_summary.md
