@@ -1,0 +1,633 @@
+diff --git a/.env.example b/.env.example
+index 8219ac26..d4424c8e 100644
+--- a/.env.example
++++ b/.env.example
+@@ -54,20 +54,20 @@ CROSSREF_EMAIL=your.email@example.com
+ # MODEL PAIR (two-family constraint enforced at construction)
+ # ─────────────────────────────────────────────────────────────────
+ 
+-# Current pair (re-pinned 2026-05-09 per I-bug-091; reverted from V4 Pro
+-# generator after live BEAT-BOTH showed CoT-style output incompatible
+-# with strict_verify provenance-token requirement). See openrouter_client.py
+-# for verified HHEM benchmarks, two-family justification, and revert
+-# rationale. Switch back to V4 Pro via PG_GENERATOR_MODEL env var.
+-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
++# Locked pair (per I-gen-003, 2026-05-16): DeepSeek V4 Pro generator +
++# Gemma 4 31B evaluator. Two-family constraint enforced at construction.
++# See openrouter_client.py for verified HHEM benchmarks and the
++# two-family justification.
++# (Model is overridable via PG_GENERATOR_MODEL / PG_EVALUATOR_MODEL.)
++PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+ # classification is wrong
+ # PG_GENERATOR_FAMILY_OVERRIDE=deepseek
+-# PG_EVALUATOR_FAMILY_OVERRIDE=qwen
++# PG_EVALUATOR_FAMILY_OVERRIDE=gemma
+ 
+-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v3.2-exp
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ 
+ # ─────────────────────────────────────────────────────────────────
+diff --git a/README.md b/README.md
+index b68e2df7..4b6aa4d6 100644
+--- a/README.md
++++ b/README.md
+@@ -113,7 +113,7 @@ corpus_approval_gate ──► if rubber-stamp on material deviation → abort_c
+ contradiction_detector  ──► contradictions.json
+     │
+     ▼
+-multi_section_generator (DeepSeek V3.2-Exp)
++multi_section_generator (DeepSeek V4 Pro)
+     │   — outline → parallel sections → per-sentence provenance tokens
+     │
+     ▼
+@@ -124,7 +124,7 @@ provenance_generator.strict_verify   ──► drop sentences whose
+     │                                    overlap. If zero verified →
+     │                                    abort_no_verified_sections.
+     ▼
+-live_qwen_judge (Qwen3-8B, DIFFERENT FAMILY from generator)
++live_qwen_judge (Gemma 4 31B, DIFFERENT FAMILY from generator)
+     │
+     ▼
+ external_evaluator.run_external_evaluation
+diff --git a/architecture.md b/architecture.md
+index 2d2e5763..66cee15f 100644
+--- a/architecture.md
++++ b/architecture.md
+@@ -46,11 +46,11 @@ src/polaris_graph/
+ │   └── fetch_limiter.py             — rate limiter
+ ├── generator/
+ │   ├── multi_section_generator.py   — outline → parallel sections → assemble
+-│   ├── live_deepseek_generator.py   — DeepSeek V3.2-Exp adapter
++│   ├── live_deepseek_generator.py   — DeepSeek V4 Pro adapter
+ │   └── provenance_generator.py      — [#ev:id:start-end] + strict_verify
+ ├── evaluator/
+ │   ├── external_evaluator.py        — rule-based evaluator shell
+-│   └── live_qwen_judge.py           — Qwen3-8B evaluator
++│   └── live_qwen_judge.py           — Gemma 4 31B evaluator
+ ├── llm/
+ │   └── openrouter_client.py         — OpenRouter gateway + family segregation
+ ├── agents/
+@@ -80,7 +80,7 @@ corpus_approval_gate ──► if rubber-stamp on material deviation → abort_c
+ contradiction_detector  ──► contradictions.json
+     │
+     ▼
+-multi_section_generator (DeepSeek V3.2-Exp)
++multi_section_generator (DeepSeek V4 Pro)
+     │   — outline → parallel sections → per-sentence provenance tokens
+     │
+     ▼
+@@ -89,7 +89,7 @@ provenance_generator.strict_verify   ──► drop sentences whose span
+     │                                    AND ≥2 content-word overlap
+     │                                    If zero verified → abort_no_verified_sections
+     ▼
+-live_qwen_judge (Qwen3-8B, separate family from generator)
++live_qwen_judge (Gemma 4 31B, separate family from generator)
+     │
+     ▼
+ external_evaluator.run_external_evaluation
+@@ -170,10 +170,10 @@ generator and evaluator **must** be from different training lineages.
+ This prevents the self-bias pathology (Play Favorites arXiv:2508.06709,
+ DeepHalluBench arXiv:2601.22984).
+ 
+-Current default pair (as of 2026-04-17):
++Current default pair (as of 2026-05-16):
+ 
+-- **Generator**: `deepseek/deepseek-v3.2-exp` (family: `deepseek`)
+-- **Evaluator**: `qwen/qwen3-8b` (family: `qwen`)
++- **Generator**: `deepseek/deepseek-v4-pro` (family: `deepseek`)
++- **Evaluator**: `google/gemma-4-31b-it` (family: `gemma`)
+ 
+ Attempting to set both to the same family raises `RuntimeError` at
+ client construction. Hyphenated org prefixes (`deepseek-ai/...`) are
+@@ -317,7 +317,7 @@ budget.
+ 
+ ## 7. Evaluator (two-family)
+ 
+-Separate from the in-pipeline `strict_verify`, a Qwen3-8B evaluator
++Separate from the in-pipeline `strict_verify`, a Gemma 4 31B evaluator
+ runs after generation:
+ 
+ - `external_evaluator.run_external_evaluation`: rule-table
+@@ -334,9 +334,9 @@ Both outputs are written to the manifest.
+ | Var | Default | Purpose |
+ |---|---|---|
+ | `OPENROUTER_API_KEY` | (required) | OpenRouter gateway auth |
+-| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v3.2-exp` | Generator model |
++| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v4-pro` | Generator model |
+ | `PG_GENERATOR_MODEL` | inherits from default | Generator for strict_verify pipeline |
+-| `PG_EVALUATOR_MODEL` | `qwen/qwen3-8b` | Evaluator model (must be different family) |
++| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | Evaluator model (must be different family) |
+ | `PG_MAX_COST_PER_RUN` | `5.00` | Budget cap per sweep |
+ | `PG_PROVENANCE_MIN_CONTENT_OVERLAP` | `2` | B-1 invariant threshold |
+ | `PG_LIVE_MAX_EV_TO_GEN` | `20` | Max evidence slices passed to generator |
+diff --git a/docs/runbook.md b/docs/runbook.md
+index 6bbc0a82..65c67f6f 100644
+--- a/docs/runbook.md
++++ b/docs/runbook.md
+@@ -148,16 +148,16 @@ repair / leave decision tree.
+ Pipeline A enforces a two-family constraint: generator and evaluator
+ must be from different training lineages.
+ 
+-### Default pair (verified 2026-04-17)
++### Default pair (verified 2026-05-16)
+ 
+-- Generator: `deepseek/deepseek-v3.2-exp`
+-- Evaluator: `qwen/qwen3-8b`
++- Generator: `deepseek/deepseek-v4-pro`
++- Evaluator: `google/gemma-4-31b-it`
+ 
+ ### Override via environment
+ 
+ ```
+-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
+-PG_EVALUATOR_MODEL=qwen/qwen3-8b
++PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
++PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ ```
+ 
+ ### Invalid pairs raise at construction
+@@ -270,8 +270,8 @@ causes:
+ - Increase `PG_MAX_COST_PER_RUN` (default 5.00)
+ - Reduce `PG_LIVE_MAX_EV_TO_GEN` (default 20, caps evidence count
+   passed to generator)
+-- Use a cheaper generator: DeepSeek V3.2-Exp is $0.27/$0.38 per M;
+-  Qwen3-8B is $0.05/$0.40 per M
++- Use a lower-cost generator or evaluator via `PG_GENERATOR_MODEL` /
++  `PG_EVALUATOR_MODEL`; check OpenRouter for current per-token pricing
+ 
+ ### OpenRouter returns empty `content` for some models
+ 
+diff --git a/docs/transparency.md b/docs/transparency.md
+index bb9fb698..05268d67 100644
+--- a/docs/transparency.md
++++ b/docs/transparency.md
+@@ -26,7 +26,7 @@ Pipeline-A uses a **two-family evaluator**: generator and verifier are from diff
+ 
+ Current models in production (from `/transparency`):
+ - **Generator:** `${PG_GENERATOR_MODEL}` (default `deepseek/deepseek-v4-pro`)
+-- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `qwen/qwen-2.5-72b-instruct`)
++- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `google/gemma-4-31b-it`)
+ 
+ `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if the configured models are not from different families.
+ 
+diff --git a/ground_rules.md b/ground_rules.md
+index 980d425d..140ba82b 100644
+--- a/ground_rules.md
++++ b/ground_rules.md
+@@ -170,7 +170,7 @@ research_question
+   → corpus_adequacy_gate
+   → corpus_approval_gate
+   → contradiction_detector + completeness_checker
+-  → multi_section_generator (DeepSeek V3.2-Exp)
++  → multi_section_generator (DeepSeek V4 Pro)
+   → provenance_generator.strict_verify
+   → external_evaluator (rule-based)
+   → live_qwen_judge (different family from generator)
+@@ -313,7 +313,7 @@ Code patterns that appear in older docs but are deprecated:
+   (see CLAUDE.md §9.3).
+ - **175 vectors exactly** — old invariant from P0-P12. Not applicable.
+ - **Kimi K2.5 / GLM / Qwen 3.5 Plus** — historical generator/evaluator
+-  mentions. Current pair: DeepSeek V3.2-Exp + Qwen3-8B.
++  mentions. Current pair: DeepSeek V4 Pro + Gemma 4 31B.
+ - **CLI Isolation Protocol** (old Phase 4) — does not apply to
+   pipeline A's linear async orchestrator. Still applies conceptually
+   to any future binary split.
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index 779c75b1..9a1eda11 100644
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -659,7 +659,7 @@ _generate_env_template() {
+ # --- LLM Gateway (REQUIRED) ---
+ OPENROUTER_API_KEY=your_openrouter_api_key_here
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+-OPENROUTER_DEFAULT_MODEL=moonshotai/kimi-k2.5
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+ OPENROUTER_BUDGET_USD=50.0
+ OPENROUTER_PROVIDER_ORDER=Chutes,DeepInfra,Fireworks
+ OPENROUTER_ALLOW_FALLBACKS=true
+diff --git a/scripts/run_honest_on_prerebuild_corpus.py b/scripts/run_honest_on_prerebuild_corpus.py
+index 416ecba5..34761b66 100644
+--- a/scripts/run_honest_on_prerebuild_corpus.py
++++ b/scripts/run_honest_on_prerebuild_corpus.py
+@@ -15,7 +15,7 @@ Outputs:
+     live_corpus_dump.json
+     corpus_approval.json
+     contradictions.json
+-    report.md                (generated by DeepSeek V3.2-Exp + strict_verify)
++    report.md                (generated by DeepSeek V4 Pro + strict_verify)
+     evaluator_rule_checks.json
+     qwen_judge_output.json
+     manifest.json
+@@ -382,7 +382,7 @@ async def main_async() -> int:
+     _log(f"       final report: {len(final_report)} chars, {len(final_report.split())} words")
+ 
+     # Phase 5 evaluator
+-    _log(f"[6/6] evaluator + Qwen3-8B judge")
++    _log(f"[6/6] evaluator + Gemma 4 31B judge")
+     ev_out = run_external_evaluation(
+         report_text=final_report,
+         protocol=protocol_dict,
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 398f83ed..8b49c677 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -316,7 +316,7 @@ def build_no_verified_sections_abort_body(
+     head = (
+         f"# Research report: {research_question}\n\n"
+         "## Pipeline verdict\n\n"
+-        f"DeepSeek V3.2-Exp generated {len(sections)} "
++        f"DeepSeek V4 Pro generated {len(sections)} "
+         "section(s), but EVERY section failed Phase-4 strict_verify: "
+         "the cited evidence did not support the claims, or the "
+         "generator did not emit provenance tokens.\n\n"
+@@ -1941,7 +1941,7 @@ async def run_one_query(
+              f"dropped={evidence_selection.dropped_count}")
+         _log(f"              full_tiers={evidence_selection.full_counts} "
+              f"selected_tiers={evidence_selection.selected_counts}")
+-        _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
++        _log(f"[generation]  multi-section DeepSeek V4 Pro, "
+              f"evidence={len(evidence_for_gen)}...")
+         t0 = time.time()
+         # R-6 Gap-3: pass uncovered-topic labels so the Limitations
+diff --git a/scripts/run_live_honest_cycle.py b/scripts/run_live_honest_cycle.py
+index 4f7fa4f6..41ae8c1b 100644
+--- a/scripts/run_live_honest_cycle.py
++++ b/scripts/run_live_honest_cycle.py
+@@ -6,8 +6,8 @@ network calls:
+   - Serper (web search)
+   - Semantic Scholar (academic search)
+   - OpenAlex (publication type enrichment)
+-  - DeepSeek V3.2-Exp via OpenRouter (generator)
+-  - Qwen3-8B via OpenRouter (evaluator judge)
++  - DeepSeek V4 Pro via OpenRouter (generator)
++  - Gemma 4 31B via OpenRouter (evaluator judge)
+ 
+ The canonical query is the same semaglutide 2.4mg / weight loss /
+ adults with obesity question that PG_LB_SA_02 ran.
+@@ -214,7 +214,7 @@ async def main_async() -> int:
+ 
+     # ── Phase 4: Live DeepSeek generation ────────────────────────────
+     _log("")
+-    _log("[5/7] DEEPSEEK V3.2-EXP LIVE GENERATION")
++    _log("[5/7] DEEPSEEK V4 PRO LIVE GENERATION")
+     # Cap evidence passed to generator (token budget)
+     max_ev_to_generator = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+     evidence_for_gen = evidence_rows[:max_ev_to_generator]
+@@ -325,7 +325,7 @@ async def main_async() -> int:
+ 
+     # ── Phase 5a: Rule-based evaluator ─────────────────────────────
+     _log("")
+-    _log("[7/7] EVALUATOR — rule checks + Qwen3-8B judge")
++    _log("[7/7] EVALUATOR — rule checks + Gemma 4 31B judge")
+     evaluator_output = run_external_evaluation(
+         report_text=final_report,
+         protocol=protocol_dict,
+@@ -341,9 +341,9 @@ async def main_async() -> int:
+         detail = f" — {r.details[:80]}" if not r.passed and r.details else ""
+         _log(f"         [{mark}] {r.item_id} {r.name}{detail}")
+ 
+-    # ── Phase 5b: Qwen judge (REAL LLM CALL) ─────────────────────────
++    # ── Phase 5b: live LLM judge (REAL LLM CALL) ─────────────────────
+     _log("")
+-    _log("       Qwen3-8B live judge call...")
++    _log("       Gemma 4 31B live judge call...")
+     t0 = time.time()
+     try:
+         judge = await judge_report(
+diff --git a/src/polaris_graph/__init__.py b/src/polaris_graph/__init__.py
+index 3535538e..e2878eb5 100644
+--- a/src/polaris_graph/__init__.py
++++ b/src/polaris_graph/__init__.py
+@@ -1,7 +1,7 @@
+ """
+ polaris graph — clean-room research pipeline.
+ 
+-Uses Qwen 3.5 Plus via OpenRouter for all LLM calls.
++Uses OpenRouter for LLM calls (pipeline-A generator DeepSeek V4 Pro, evaluator Gemma 4 31B).
+ Reuses battle-tested search/fetch infrastructure from src/tools/.
+ """
+ 
+diff --git a/src/polaris_graph/agents/hallucination_detector.py b/src/polaris_graph/agents/hallucination_detector.py
+index af27e5cc..9e3b0380 100644
+--- a/src/polaris_graph/agents/hallucination_detector.py
++++ b/src/polaris_graph/agents/hallucination_detector.py
+@@ -21,7 +21,7 @@ import time. All calls return empty audit results (no flagging).
+ 
+ Phase 5 of the honest-rebuild plan replaces this with
+ src/polaris_graph/evaluator/external_evaluator.py — non-same-family
+-LLM (Qwen 3 32B evaluator while generator is DeepSeek V3.2) plus
++LLM (Gemma 4 31B evaluator while generator is DeepSeek V4 Pro) plus
+ rule-based PRISMA-trAIce compliance checks. No self-grading, no
+ rewrite-to-pass-metric loop. See
+ C:/Users/msn/.claude/plans/lovely-finding-firefly.md Phase 5.
+diff --git a/src/polaris_graph/api/disambiguation_route.py b/src/polaris_graph/api/disambiguation_route.py
+index 4f98417a..2bc9ec7b 100644
+--- a/src/polaris_graph/api/disambiguation_route.py
++++ b/src/polaris_graph/api/disambiguation_route.py
+@@ -65,7 +65,7 @@ def _make_openrouter_label_client() -> ClusterLabelClient | None:
+     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+     if not key:
+         return None
+-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
++    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+     return _OpenRouterLabelClient(api_key=key, model=model)
+ 
+ 
+diff --git a/src/polaris_graph/audit_ir/model_pin.py b/src/polaris_graph/audit_ir/model_pin.py
+index bbff6a2e..d99b57ba 100644
+--- a/src/polaris_graph/audit_ir/model_pin.py
++++ b/src/polaris_graph/audit_ir/model_pin.py
+@@ -22,8 +22,8 @@ ModelPin captures:
+   - run_id: the run this pin was captured from
+   - captured_at: unix timestamp
+   - pin_schema_version: "v4" (explicit forward-compat marker)
+-  - llm_models: {role: model_id} — e.g. {"generator": "z-ai/glm-5.1",
+-    "evaluator": "qwen/qwen3.5-plus", "judge": "...", "inductor": "..."}.
++  - llm_models: {role: model_id} — e.g. {"generator": "deepseek/deepseek-v4-pro",
++    "evaluator": "google/gemma-4-31b-it", "judge": "...", "inductor": "..."}.
+     The current honest_pipeline + audit_ir loader carry distinct
+     generator/evaluator/judge models; phase 2 needs all of them
+     to rehydrate.
+diff --git a/src/polaris_graph/evaluator/evaluator_gate.py b/src/polaris_graph/evaluator/evaluator_gate.py
+index 9a1fe7fa..9c8dc24f 100644
+--- a/src/polaris_graph/evaluator/evaluator_gate.py
++++ b/src/polaris_graph/evaluator/evaluator_gate.py
+@@ -2,7 +2,7 @@
+ Evaluator gate — BUG-M-205 fix (deep-dive R5).
+ 
+ Pre-fix, the orchestrator selected `success` / `partial_*` status from
+-outline + rule_check_fail_count + adequacy + completeness. The Qwen
++outline + rule_check_fail_count + adequacy + completeness. The LLM
+ judge's `needs_revision` verdicts were logged but never blocked a
+ release. Some deterministic rule failures (PT08 contradiction
+ disclosure, PT11 uncited numeric claims, PT12 invalid citation markers)
+@@ -14,11 +14,11 @@ decision with stable reason codes:
+   pass                - no blocking issues
+   partial             - report ships but release_allowed=False
+   abort               - release-blocking integrity failure
+-  advisory_unavailable - Qwen parse failed; preserve other status
++  advisory_unavailable - LLM judge parse failed; preserve other status
+ 
+ The orchestrator reads `gate_class` + `reasons` to select manifest
+ status. Two new manifest statuses are added to the taxonomy:
+-  partial_qwen_advisory    - report ships, Qwen flagged critical axes
++  partial_qwen_advisory    - report ships, LLM judge flagged critical axes
+   abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
+ """
+ from __future__ import annotations
+diff --git a/src/polaris_graph/evaluator/live_qwen_judge.py b/src/polaris_graph/evaluator/live_qwen_judge.py
+index b692106b..80146ed3 100644
+--- a/src/polaris_graph/evaluator/live_qwen_judge.py
++++ b/src/polaris_graph/evaluator/live_qwen_judge.py
+@@ -7,8 +7,8 @@ Phase 1c) to produce per-axis structured verdicts on a completed
+ report. Module name retained for backward compat; the actual model is
+ read from PG_EVALUATOR_MODEL at runtime.
+ 
+-This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
+-judge is Qwen3-8B. `check_family_segregation()` must succeed before
++This is the NON-SAME-FAMILY judge: generator is DeepSeek V4 Pro,
++judge is Gemma 4 31B. `check_family_segregation()` must succeed before
+ this is called.
+ 
+ DESIGN
+@@ -123,7 +123,7 @@ async def judge_report(
+     max_tokens: int = 800,
+     temperature: float = 0.2,
+ ) -> LiveJudgeResult:
+-    """Call Qwen3-8B via OpenRouter for a structured per-axis verdict.
++    """Call the evaluator model via OpenRouter for a structured per-axis verdict.
+ 
+     check_family_segregation() is run BEFORE the call. If the configured
+     generator/evaluator pair is same-family, this raises RuntimeError.
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 3038f555..f0358151 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -307,13 +307,13 @@ async def generate_analyst_synthesis(
+     bibliography: list[dict[str, Any]],
+     evidence_rows: list[dict[str, Any]],
+     research_question: str,
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 4000,
+     temperature: float = 0.3,
+ ) -> tuple[str, int, int]:
+     """Generate the Analyst Synthesis section.
+ 
+-    Per Codex iter-1 brief verdict: DeepSeek V3.2-Exp is the writer
++    The synthesis writer is the locked generator (DeepSeek V4 Pro)
+     (consistent with verified prose voice; Gemma stays in the
+     judge/evaluator role).
+ 
+diff --git a/src/polaris_graph/generator/live_deepseek_generator.py b/src/polaris_graph/generator/live_deepseek_generator.py
+index 231e319c..1aa44f19 100644
+--- a/src/polaris_graph/generator/live_deepseek_generator.py
++++ b/src/polaris_graph/generator/live_deepseek_generator.py
+@@ -1,7 +1,7 @@
+ """
+-Live DeepSeek V3.2 generator — HONEST-REBUILD Phase 4 live wiring.
++Live DeepSeek generator — HONEST-REBUILD Phase 4 live wiring.
+ 
+-Calls the REAL DeepSeek V3.2-Exp model via OpenRouter, has it draft
++Calls the REAL generator model via OpenRouter (DeepSeek V4 Pro, per PG_GENERATOR_MODEL), has it draft
+ prose with simple `[ev_XXX]` citation markers (LLM-friendly), then
+ post-processes to convert each citation into a Phase-4 provenance
+ token `[#ev:ev_XXX:<start>-<end>]` whose span is computed by
+@@ -387,7 +387,7 @@ async def generate_live_draft(
+     contradictions: list[dict[str, Any]] | None = None,
+     date_range: dict[str, Any] | None = None,
+ ) -> LiveGenerationResult:
+-    """Call DeepSeek V3.2 via OpenRouter and rewrite to Phase-4 tokens."""
++    """Call the generator (DeepSeek V4 Pro) via OpenRouter and rewrite to Phase-4 tokens."""
+     from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+         OpenRouterClient,
+         PG_GENERATOR_MODEL,
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 902eed07..309d78bf 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -435,7 +435,7 @@ def _build_deterministic_fallback_outline(
+     # section; inlining 96 evidence blocks in the section prompt created
+     # >100K-token request bodies that OpenRouter rejects as 400 Bad Request
+     # (V10 FATAL 2026-04-19). Cap at 30 keeps per-section prompts within
+-    # DeepSeek V3.2-Exp's effective request limit while still giving the
++    # the generator's effective request limit while still giving the
+     # section writer a rich citation pool.
+     _MAX_EV_PER_FALLBACK_SECTION = 30
+     plans: list[SectionPlan] = []
+@@ -4051,7 +4051,7 @@ async def generate_multi_section_report(
+     # the verified prose + bibliography + evidence pool and writes a
+     # longer interpretive narrative. CLEARLY labeled in report.md as
+     # NOT span-verified. Per Codex strategic-review iter 1 + I-bug-105
+-    # brief verdict: DeepSeek V3.2-Exp writer (consistent voice with
++    # brief verdict: DeepSeek V4 Pro writer (consistent voice with
+     # verified prose); Gemma stays in evaluator role. Per-call cost
+     # capped via max_tokens; empty result -> caller omits the entire
+     # section (no empty disclosure block).
+diff --git a/src/polaris_graph/generator/sentence_repair.py b/src/polaris_graph/generator/sentence_repair.py
+index 5346cb27..fae60d61 100644
+--- a/src/polaris_graph/generator/sentence_repair.py
++++ b/src/polaris_graph/generator/sentence_repair.py
+@@ -145,7 +145,7 @@ async def repair_sentence(
+     *,
+     dropped: SentenceVerification,
+     evidence_pool: dict[str, dict[str, Any]],
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 400,
+     temperature: float = 0.2,
+ ) -> tuple[str, str | None, int, int]:
+@@ -251,7 +251,7 @@ async def repair_dropped_section_sentences(
+     kept: list[SentenceVerification],
+     dropped: list[SentenceVerification],
+     evidence_pool: dict[str, dict[str, Any]],
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 400,
+     temperature: float = 0.2,
+ ) -> tuple[list[SentenceVerification], list[SentenceVerification], RepairTelemetry]:
+diff --git a/src/polaris_graph/generator2/real_completion.py b/src/polaris_graph/generator2/real_completion.py
+index 95f9d9e6..ae98ca81 100644
+--- a/src/polaris_graph/generator2/real_completion.py
++++ b/src/polaris_graph/generator2/real_completion.py
+@@ -4,7 +4,7 @@ Per `.codex/slices/slice_003/architecture_proposal.md` PR 7 row.
+ 
+ Implements GeneratorCompletionFn protocol with an OpenRouter chat-completion
+ backend. Default model from OPENROUTER_DEFAULT_MODEL env var (e.g.
+-'z-ai/glm-5.1'). Prompt template instructs the LLM to:
++'deepseek/deepseek-v4-pro'). Prompt template instructs the LLM to:
+ 
+   - write 4-8 sentences for the requested section
+   - cite EVERY claim with a [#ev:<source_id>:<start>-<end>] token
+@@ -77,7 +77,7 @@ def load_config_from_env() -> RealCompletionConfig:
+             "CLAUDE.md LAW II, this MUST fail loudly rather than silently "
+             "skipping the generator."
+         )
+-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
++    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+     return RealCompletionConfig(api_key=key, model=model)
+ 
+ 
+diff --git a/src/polaris_graph/llm/__init__.py b/src/polaris_graph/llm/__init__.py
+index 6e53a5a0..2ca2b0f9 100644
+--- a/src/polaris_graph/llm/__init__.py
++++ b/src/polaris_graph/llm/__init__.py
+@@ -1,4 +1,4 @@
+-"""LLM client for polaris graph — OpenRouter gateway to Qwen 3.5 Plus."""
++"""LLM client for polaris graph — OpenRouter gateway (pipeline-A generator DeepSeek V4 Pro, evaluator Gemma 4 31B)."""
+ 
+ from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+ 
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 52bf311e..44f08625 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -1,7 +1,8 @@
+ """
+ OpenRouter LLM Client for polaris graph.
+ 
+-Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
++Single gateway to OpenRouter. Pipeline-A generator is DeepSeek V4 Pro,
++evaluator is Gemma 4 31B; the model is configurable per call. Two call modes:
+ - reason(): reasoning ON, returned separately in reasoning_details
+ - generate(): reasoning OFF, clean prose output only
+ 
+@@ -43,7 +44,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+ OPENROUTER_BASE_URL = os.getenv(
+     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+ )
+-OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
++OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+ 
+ # R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+@@ -817,7 +818,7 @@ class OpenRouterClient:
+     """
+     Single LLM gateway for polaris graph.
+ 
+-    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
++    All calls go through OpenRouter (model configurable per call / via OPENROUTER_DEFAULT_MODEL; pipeline-A generator DeepSeek V4 Pro, evaluator Gemma 4 31B).
+     Two modes:
+     - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
+     - generate(): Reasoning OFF. Clean output only. For prose generation.
+diff --git a/src/polaris_v6/api/transparency.py b/src/polaris_v6/api/transparency.py
+index 6203c741..4566d774 100644
+--- a/src/polaris_v6/api/transparency.py
++++ b/src/polaris_v6/api/transparency.py
+@@ -215,7 +215,7 @@ def transparency() -> TransparencyResponse:
+         sovereignty_filter=_sovereignty_policy(),
+         evaluator_models={
+             "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
+-            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
++            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it"),
+         },
+         egress_allowlist=_load_egress_allowlist(),
+         build_time_hosts_pruned=pruned_flag.exists(),
+diff --git a/tests/polaris_graph/generator2/test_real_completion.py b/tests/polaris_graph/generator2/test_real_completion.py
+index db32b9f1..9a1f9e1e 100644
+--- a/tests/polaris_graph/generator2/test_real_completion.py
++++ b/tests/polaris_graph/generator2/test_real_completion.py
+@@ -48,7 +48,7 @@ def test_load_config_default_model(monkeypatch: pytest.MonkeyPatch):
+     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
+     cfg = load_config_from_env()
+     assert cfg.api_key == "test-key"
+-    assert cfg.model == "z-ai/glm-5.1"
++    assert cfg.model == "deepseek/deepseek-v4-pro"
+ 
+ 
+ def test_load_config_custom_model(monkeypatch: pytest.MonkeyPatch):
+diff --git a/tests/v6/test_transparency_model_fallback.py b/tests/v6/test_transparency_model_fallback.py
+new file mode 100644
+index 00000000..477510ef
+--- /dev/null
++++ b/tests/v6/test_transparency_model_fallback.py
+@@ -0,0 +1,43 @@
++"""I-rdy-006 — /transparency model-fallback regression test.
++
++Pins the documented default generator/evaluator pair so a future stale
++edit to src/polaris_v6/api/transparency.py is caught by CI. The defaults
++are the operator-locked pair: DeepSeek V4 Pro generator + Gemma 4 31B
++evaluator (two-family segregation per CLAUDE.md §9.1).
++"""
++
++from __future__ import annotations
++
++import pytest
++
++
++def _transparency():
++    pytest.importorskip("fastapi")
++    pytest.importorskip("pydantic")
++    from polaris_v6.api.transparency import transparency
++
++    return transparency()
++
++
++def test_transparency_default_models_when_env_unset(monkeypatch):
++    """With PG_GENERATOR_MODEL / PG_EVALUATOR_MODEL unset, /transparency
++    must report the operator-locked default pair."""
++    monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
++    monkeypatch.delenv("PG_EVALUATOR_MODEL", raising=False)
++
++    response = _transparency()
++
++    assert response.evaluator_models["generator"] == "deepseek/deepseek-v4-pro"
++    assert response.evaluator_models["evaluator"] == "google/gemma-4-31b-it"
++
++
++def test_transparency_honors_env_override(monkeypatch):
++    """An explicit PG_GENERATOR_MODEL / PG_EVALUATOR_MODEL override is
++    surfaced verbatim — the default is a fallback, not a hard-code."""
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro-test")
++    monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it-test")
++
++    response = _transparency()
++
++    assert response.evaluator_models["generator"] == "deepseek/deepseek-v4-pro-test"
++    assert response.evaluator_models["evaluator"] == "google/gemma-4-31b-it-test"
+
+# canonical-diff-sha256: 78c3597d9bff712cd8a26c334b4387e18cc31dbdd6c68472dea1d3a07e000053
