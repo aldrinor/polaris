@@ -1,0 +1,2497 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e3106-d128-7c31-9350-33df94edf483
+--------
+user
+# Codex BRIEF review — I-rdy-009 (#505): wire ambiguity_detector into the ask/create-run flow
+
+**Type:** BRIEF review (acceptance-criteria + scope correctness). Phase 3.6 of the
+Carney demo execution plan. **iter 4 of 5.**
+
+## §0. Iteration cap directive (CLAUDE.md §8.3.1, verbatim, binding)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §0.5 Changes since prior iters
+
+- **iter 1 → 2:** dropped the false `/api/intake` `candidate_snippets` contract;
+  adopted Codex option (a) — build a real candidate-snippet source.
+- **iter 2 → 3:** fixed P1 (explicit Serper fail-loud guard) + P2 (distinct
+  modal-open state). Codex iter-3 confirmed both resolved.
+- **iter 3 → 4 (REQUEST_CHANGES P1-001, accepted, fixed below):** "/ambiguity/scan
+  failures still fail open into createRun." Codex was right: §3.1 made the backend
+  return `503`, but §3.3 only "surfaced it as an error." Because `runScopeCheck`
+  sets the accepted `scopeDecision` *before* the scan, a thrown `scanAmbiguity`
+  leaves `ambiguity` null; the createRun gate (`page.tsx:167`) only blocks on
+  `ambiguity?.is_ambiguous`, so the user could still click "Start run" and POST
+  `/runs` with no successful ambiguity scan — fail-open for the exact
+  SERPER-unset / 503 / zero-snippet case being fixed. **§3.3 now adds a hard
+  scan-gate** (`clinicalScanGate` tri-state): a clinical question-only run is
+  blocked at "Start run" unless a candidate-fetch + `detect_ambiguity` scan has
+  *successfully completed*. A 503 leaves the gate `failed` → "Start run" blocked.
+
+Locked Codex rulings carried forward: `modal_location_ruling = import-in-place`,
+`loc_disposition = single-pr-cap-exemption`, `search_backend_ruling = serper-ok`,
+`label_ruling = truncated-representative-text-ok`.
+
+## §1. Issue + acceptance
+
+GH #505 (I-rdy-009, Phase 3.6): "F2 ambiguity detection runs in the **main
+ask/create-run flow**, not only the test harness. **Acceptance: an ambiguous query
+triggers the disambiguation modal in the product flow; Codex APPROVE.**" Depends on
+I-rdy-003 (done).
+
+The issue title names `ambiguity_detector` — the module
+`src/polaris_v6/ambiguity_detector/` → `detect_ambiguity()`, exposed as
+`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`). This brief wires **that**
+detector (NOT the slice-001 PICO scope-axes detector — different mechanism, §3.0).
+
+## §2. Grounded current state (all files read)
+
+- **`/dashboard` (`web/app/dashboard/page.tsx`) is the main create-run flow:**
+  template + question → "Check scope" (`checkScope` → `POST /scope/check`) →
+  "Start run" (`createRun` → `POST /runs` → redirect `/runs/{id}`).
+- **The dashboard ALREADY calls the ambiguity detector — but the path is dead for
+  question-only queries.** `runScopeCheck` (`page.tsx:138-149`) runs
+  `checkAmbiguity` only `if (decision.verdict === "accepted" && uploads.length > 0)`;
+  candidates are built **solely from uploaded-document `chunk_preview`s**. A
+  question-only query (no uploads — the common demo case) **never reaches
+  `detect_ambiguity`**. When it does fire (uploads present) it renders an inline
+  ambiguity **card** (`page.tsx:386-434`), not a modal.
+- **`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`)** body:
+  `{question, candidates: list[{source_id, text}], min_cluster_size,
+  similarity_threshold}`. With no candidates `detect_ambiguity([])` returns
+  `is_ambiguous=False` — **`/ambiguity` is useless for a bare question without a
+  candidate source.**
+- **`detect_ambiguity` (`ambiguity_detector.py:108`)** is pure-Python
+  (trigram-cosine greedy clustering — no embeddings/LLM/network). Consumes
+  `list[CandidateSnippet(source_id, text)]`; ≥2 qualifying clusters ⇒ ambiguous.
+  Its docstring + the `/ambiguity` request docstring both name the missing piece:
+  *"Phase 1: backend fetches via cheap retrieval before this call."* **That cheap
+  candidate-fetcher was never built — that gap IS issue #505.**
+- **`SerperClient` (`src/search/serper_client.py`)** — `get_serper_client()`
+  singleton; `async search(query, max_results)` → `list[SerperResult]`
+  (`.url/.title/.snippet`). `__init__` sets `self.enabled = bool(self.api_key)`
+  (`:211-216`); `_request()` raises `SerperError` when `not self.enabled`
+  (`:318`); **`search()` swallows `SerperError` per page (`:474`) and returns the
+  accumulated list — `[]` on a first-page failure (`:481`)** — so `search()` never
+  raises; the fail-loud guard must be explicit (§3.1). Same Serper backend
+  slice-002 production retrieval uses (`polaris_graph/retrieval2/real_fetcher.py`).
+- **`web/lib/api.ts:184-217`** `checkAmbiguity` → `POST /ambiguity` →
+  `AmbiguityResult {is_ambiguous, clusters: [{cluster_id, representative_text,
+  member_source_ids}], fallback_used}`.
+- **`DisambiguationModal` (`web/app/intake/components/disambiguation_modal.tsx`)** —
+  a `@base-ui/react` `Dialog`. Props `{open, clusters: DisambiguationCluster[],
+  onSelectCluster(id), onCancel}`; `DisambiguationCluster = {cluster_id, label,
+  sample_snippets[]}`. The literal "disambiguation modal."
+
+## §3. The plan — Codex option (a): cheap clinical candidate-snippet source
+
+### §3.0 Why option (a), not option (b)
+
+Option (b) (narrow acceptance to the PICO `AmbiguityModal`) is rejected: the PICO
+modal is driven by `ScopeDecision.ambiguity_axes` — the *scope classifier's* PICO
+axes, a different mechanism from `detect_ambiguity` (candidate-clustering). Issue
+#505 names `ambiguity_detector` = `detect_ambiguity`; option (b) would satisfy the
+word "modal" while leaving `ambiguity_detector` unwired. So option (a).
+
+### §3.1 Backend — a cheap candidate-fetcher with an EXPLICIT fail-loud guard
+
+New module `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` (~55 LOC):
+
+```
+async def fetch_candidate_snippets(question: str, *, max_results: int = 10)
+    -> list[CandidateSnippet]
+```
+
+Logic, in order:
+1. `client = get_serper_client()`. **If `not client.enabled`** (no
+   `SERPER_API_KEY`) → `raise CandidateFetchError("SERPER_API_KEY unset")`
+   immediately — do NOT call `search()` (it would swallow the error, return `[]`).
+2. `results = await client.search(question, max_results=max_results)`.
+3. Map each `SerperResult` → `CandidateSnippet(source_id=r.url,
+   text=f"{r.title}. {r.snippet}".strip())`; drop entries with empty text.
+4. **If the mapped list is empty** → `raise CandidateFetchError("search returned
+   zero candidate snippets")`. Per LAW II, zero results means *search failed*, NOT
+   *unambiguous* — never return `[]` to the detector. (`≥1` snippet is valid input;
+   `detect_ambiguity` correctly reports a single snippet as non-ambiguous.)
+
+`CandidateFetchError` is a small new exception class in the same module.
+
+### §3.2 Backend — a question-only endpoint with a 503 on fetch failure
+
+New route in `src/polaris_v6/api/ambiguity.py` (~32 LOC), on the **existing**
+`APIRouter(prefix="/ambiguity")` (already mounted — the dashboard reaches
+`/ambiguity` today, so `/ambiguity/scan` auto-mounts):
+
+```
+POST /ambiguity/scan   body {question: str (min_length=4, max_length=2000)}
+                       -> AmbiguityCheckResponse
+```
+
+`try: snippets = await fetch_candidate_snippets(question)` →
+`detect_ambiguity(snippets)` → return the **same `AmbiguityCheckResponse` shape**
+`/ambiguity` already returns. `except CandidateFetchError as exc:` →
+`raise HTTPException(503, {"error": True, "code": "candidate_fetch_unavailable",
+"message": str(exc)})` — mirroring the `/api/disambiguation`
+`label_client_unavailable` 503 precedent (`disambiguation_route.py:89-92`).
+
+### §3.3 Frontend — dashboard wiring, modal, AND a hard scan-gate (P1-001 fix)
+
+`web/lib/api.ts`: add `scanAmbiguity(question) -> AmbiguityResult` →
+`POST /ambiguity/scan` (~14 LOC); a non-OK response throws via the existing
+`asJsonOrThrow` helper.
+
+`web/app/dashboard/page.tsx` — **four distinct state values, no collision:**
+
+- `ambiguity: AmbiguityResult | null` — the scan result; read by the createRun
+  gate; set on a successful scan; never cleared by closing the modal.
+- `acknowledgedAmbiguity: boolean` — gate flag; set true ONLY by `onSelectCluster`.
+- `disambigModalOpen: boolean` — **new** — drives the dialog only.
+- `clinicalScanGate: "not_run" | "ok" | "failed"` — **new — the P1-001 fix.**
+  Tracks whether the mandatory ambiguity scan for a clinical question-only run has
+  *successfully completed*.
+
+**`runScopeCheck`:** at start `setClinicalScanGate("not_run")`,
+`setAmbiguity(null)`, `setAcknowledgedAmbiguity(false)`. After `checkScope`
+returns `decision`:
+- Existing `uploads.length > 0 && verdict==="accepted"` branch (`checkAmbiguity`
+  from upload chunks) — **unchanged**; it does not touch `clinicalScanGate`.
+- **New clinical question-only branch:** if `template === "clinical" &&
+  uploads.length === 0 && decision.verdict !== "rejected"`:
+  `try { const r = await scanAmbiguity(question.trim()); setAmbiguity(r);
+  setClinicalScanGate("ok"); if (r.is_ambiguous) setDisambigModalOpen(true); }
+  catch (e) { setClinicalScanGate("failed"); setError("Ambiguity check is
+  unavailable — retry Check scope before starting a run."); }`.
+
+**`onSubmit` createRun gate** — add, after the existing `rejected` check, BEFORE
+`createRun`:
+```
+if (template === "clinical" && uploads.length === 0 && clinicalScanGate !== "ok") {
+  setError(clinicalScanGate === "failed"
+    ? "Ambiguity check is unavailable — retry Check scope before starting a run."
+    : "Run Check scope first — the ambiguity guard must complete for clinical questions.");
+  return;   // hard block — no createRun, no navigation
+}
+```
+This closes the fail-open: a 503 (or a never-run scan) leaves `clinicalScanGate`
+≠ `"ok"` → "Start run" is hard-blocked. The existing
+`ambiguity?.is_ambiguous && !acknowledgedAmbiguity` gate (`page.tsx:167`) still
+blocks the *ambiguous-and-unacknowledged* case. Both gates coexist.
+
+**Modal + inline notice (replaces the card at `page.tsx:386-434`):**
+- Imported `DisambiguationModal` (`import-in-place`), `open={disambigModalOpen}`.
+  3-line adapter `AmbiguityCluster[] → DisambiguationCluster[]`:
+  `{cluster_id, label: representative_text.slice(0,80), sample_snippets:
+  [representative_text]}`.
+- `onSelectCluster(id)` → `setAcknowledgedAmbiguity(true)` +
+  `setDisambigModalOpen(false)`. `onCancel` → `setDisambigModalOpen(false)` ONLY
+  (`ambiguity`, `acknowledgedAmbiguity`, `clinicalScanGate` untouched).
+- One-line inline notice shown whenever `ambiguity?.is_ambiguous &&
+  !acknowledgedAmbiguity`, with a "Review meanings" button re-opening the modal.
+
+e2e Playwright spec `web/tests/e2e/dashboard_ambiguity.spec.ts`: (1) ambiguous
+clinical query → `DisambiguationModal` opens; (2) **`/ambiguity/scan` mocked
+`503` → "Start run" stays blocked with the unavailable error, no `/runs` POST, no
+navigation** (the P1-001 regression test). Mirrors
+`web/tests/e2e/intake_disambiguation.spec.ts`.
+
+**Honest environment note:** `web/` is Next.js 16 (`web/AGENTS.md` — read
+`node_modules/next/dist/docs/` before frontend code). `npm run build`/Playwright
+may be environment-limited in the autonomous session; if so the diff ships with
+the spec authored + lint/type-check run as far as the env allows + a clear note
+that the e2e run is CI-verified.
+
+## §4. Deliverable files + LOC estimate
+
+`loc_disposition = single-pr-cap-exemption` (Codex iter-2). Single PR, ~270 LOC.
+
+| File | New/Mod | ~LOC |
+|---|---|---|
+| `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` | new | 55 |
+| `src/polaris_v6/ambiguity_detector/__init__.py` | mod (export `fetch_candidate_snippets`, `CandidateFetchError`) | 4 |
+| `src/polaris_v6/api/ambiguity.py` | mod (+`/ambiguity/scan`) | 32 |
+| `tests/v6/test_ambiguity_scan.py` | new — fetcher fail-loud (no key → raises; zero snippets → raises; happy path), `/ambiguity/scan` 200 + 503, real `detect_ambiguity`, Serper stubbed at the `get_serper_client` boundary | 75 |
+| `web/lib/api.ts` | mod (+`scanAmbiguity`) | 14 |
+| `web/app/dashboard/page.tsx` | mod (card→modal, scan call, adapter, `disambigModalOpen` + `clinicalScanGate` state, createRun scan-gate) | ~95 churn (~50 del + ~45 add) |
+| `web/tests/e2e/dashboard_ambiguity.spec.ts` | new (modal-opens + 503-blocks-Start-run) | 60 |
+
+New-retrieval code itself ~90 LOC (under the ~120 carve threshold); size is
+dominated by the card→modal replacement + e2e. Cap exemption ruled by Codex iter-2.
+
+## §5. Adjacent-file scan — files I have ALSO checked and they're clean
+
+`src/polaris_v6/api/app.py` (router mounting; the new endpoint rides the existing
+`ambiguity` router), `src/polaris_v6/api/scope.py`, `src/polaris_v6/api/runs.py`,
+`src/polaris_v6/ambiguity_detector/__init__.py`, `src/search/serper_client.py`
+(`enabled` `:211-216`; `_request` raise `:318`; `search` swallow `:474`; return
+`:481`), `src/polaris_graph/retrieval2/real_fetcher.py`,
+`src/polaris_graph/api/intake_route.py`, `src/polaris_graph/scope/scope_decision.py`,
+`src/polaris_graph/api/disambiguation_route.py`,
+`web/app/intake/components/disambiguation_modal.tsx`,
+`web/app/intake/components/intake_form.tsx`, `web/app/dashboard/page.tsx`
+(`runScopeCheck` `:129-155`, `onSubmit` gate `:157-187`), `web/lib/api.ts`.
+
+## §6. Questions for Codex
+
+1. Does §3.3's `clinicalScanGate` tri-state + the `onSubmit` hard-block fully
+   resolve P1-001 (no fail-open path from a 503 scan into `createRun`)?
+2. Any remaining P0/P1 execution risk.
+
+## §7. Output schema (CLAUDE.md §8.3.9 — bind to this)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+verdict_reasoning: <text>
+```
+Loose prose without the schema → resubmit.
+
+codex
+I’ll verify the relevant dashboard and API shapes against the brief, then give the schema-only verdict with any blocker-level issues called out.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function|const runScopeCheck|onSubmit|checkAmbiguity|createRun|template|uploads|scopeDecision|ambiguity" web/app/dashboard/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export async function checkAmbiguity|asJsonOrThrow|AmbiguityResult|createRun|checkScope" web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "APIRouter|Ambiguity|detect_ambiguity|CandidateSnippet|@router.post" src/polaris_v6/api/ambiguity.py src/polaris_v6/ambiguity_detector/ambiguity_detector.py src/polaris_v6/ambiguity_detector/__init__.py src/search/serper_client.py' in C:\POLARIS
+ succeeded in 718ms:
+17:  checkAmbiguity,
+19:  createRun,
+29:// Static fallback if /templates is unreachable. Keeps the dashboard usable
+59:function templatesToCards(
+63:    id: t.template_id as TemplateId,
+64:    title: t.template_name,
+69:export default function DashboardPage() {
+71:  const [template, setTemplate] = useState<TemplateId>("clinical");
+75:  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+79:  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+82:  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+84:  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+91:          setTemplates(templatesToCards(live));
+129:  const runScopeCheck = async () => {
+136:      const decision = await checkScope(template, question.trim());
+138:      if (decision.verdict === "accepted" && uploads.length > 0) {
+139:        const candidates = uploads.flatMap((u, ui) =>
+146:          const result = await checkAmbiguity(question.trim(), candidates);
+157:  const onSubmit = async (event: React.FormEvent) => {
+163:    if (scopeDecision?.verdict === "rejected") {
+167:    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+176:      const run = await createRun({
+177:        template,
+179:        document_ids: uploads.map((u) => u.document_id),
+210:            Pick a template and ask a focused question. Every claim returned
+215:        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+222:              aria-label="Research template"
+225:              {templates.map((t) => {
+226:                const selected = template === t.id;
+229:                  // makes template selection keyboard-operable. Survived 7
+232:                  // templates, WCAG 2.1.1 Level A failure).
+315:            {uploads.length > 0 && (
+317:                {uploads.map((u) => (
+349:          {scopeDecision && (
+354:                scopeDecision.verdict === "rejected"
+356:                  : scopeDecision.verdict === "needs_clarification"
+366:                  {scopeDecision.verdict.replace("_", " ")}
+370:                <p className="text-sm">{scopeDecision.rationale}</p>
+371:                {scopeDecision.refusals.length > 0 && (
+373:                    Refused: {scopeDecision.refusals.join(", ")}
+376:                {scopeDecision.intended_source_tiers.length > 0 && (
+379:                    {scopeDecision.intended_source_tiers.join(", ")}
+386:          {ambiguity?.is_ambiguous && (
+394:                  Disambiguation needed (ambiguity guard)
+397:                  {ambiguity.clusters.length} possible meanings detected
+402:                  Your question or uploads suggest more than one topic. Pick one
+407:                  {ambiguity.clusters.map((c) => (
+429:                      : "Acknowledge ambiguity"}
+463:              disabled={submitting || scopeDecision?.verdict === "rejected"}
+
+ succeeded in 763ms:
+98:async function asJsonOrThrow<T>(response: Response): Promise<T> {
+111:export async function createRun(
+119:  return asJsonOrThrow<RunStatusResponse>(response);
+124:  return asJsonOrThrow<RunStatusResponse>(response);
+150:  return asJsonOrThrow<UploadResponse>(response);
+164:  return asJsonOrThrow<UploadResponse>(response);
+190:export interface AmbiguityResult {
+201:export async function checkAmbiguity(
+204:): Promise<AmbiguityResult> {
+215:  return asJsonOrThrow<AmbiguityResult>(response);
+218:export async function checkScope(
+227:  return asJsonOrThrow<ScopeDecision>(response);
+245:  return asJsonOrThrow<TemplateContent[]>(response);
+299:  return asJsonOrThrow<EvidenceContract>(response);
+326:  return asJsonOrThrow<VegaLiteSpec>(response);
+444:  return asJsonOrThrow<DisambiguationResponse>(response);
+488:  return asJsonOrThrow<IntakeSuccessResponse>(response);
+499:  return asJsonOrThrow<IntakeHealthResponse>(response);
+586:  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+598:  return asJsonOrThrow<RetrievalHealthResponse>(response);
+814:  return asJsonOrThrow<GenerationSuccessResponse>(response);
+826:  return asJsonOrThrow<GenerationHealthResponse>(response);
+943:  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+1022:  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+1031:  return asJsonOrThrow<BenchmarkScoreboard>(response);
+1069:  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+1080:  return asJsonOrThrow<MemoryEntry>(
+
+ succeeded in 785ms:
+src/polaris_v6/api/ambiguity.py:4:AmbiguityResult so the frontend can render a disambiguation modal
+src/polaris_v6/api/ambiguity.py:13:from fastapi import APIRouter
+src/polaris_v6/api/ambiguity.py:17:    CandidateSnippet,
+src/polaris_v6/api/ambiguity.py:18:    detect_ambiguity,
+src/polaris_v6/api/ambiguity.py:21:router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+src/polaris_v6/api/ambiguity.py:29:class AmbiguityCheckRequest(BaseModel):
+src/polaris_v6/api/ambiguity.py:43:class AmbiguityClusterOut(BaseModel):
+src/polaris_v6/api/ambiguity.py:49:class AmbiguityCheckResponse(BaseModel):
+src/polaris_v6/api/ambiguity.py:51:    clusters: list[AmbiguityClusterOut]
+src/polaris_v6/api/ambiguity.py:55:@router.post("", response_model=AmbiguityCheckResponse)
+src/polaris_v6/api/ambiguity.py:56:def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+src/polaris_v6/api/ambiguity.py:58:        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+src/polaris_v6/api/ambiguity.py:60:    result = detect_ambiguity(
+src/polaris_v6/api/ambiguity.py:65:    return AmbiguityCheckResponse(
+src/polaris_v6/api/ambiguity.py:68:            AmbiguityClusterOut(
+src/polaris_v6/ambiguity_detector/__init__.py:1:"""Ambiguity detector — HDBSCAN-based detection of multi-meaning queries
+src/polaris_v6/ambiguity_detector/__init__.py:18:    AmbiguityCluster,
+src/polaris_v6/ambiguity_detector/__init__.py:19:    AmbiguityResult,
+src/polaris_v6/ambiguity_detector/__init__.py:20:    CandidateSnippet,
+src/polaris_v6/ambiguity_detector/__init__.py:21:    detect_ambiguity,
+src/polaris_v6/ambiguity_detector/__init__.py:25:    "AmbiguityCluster",
+src/polaris_v6/ambiguity_detector/__init__.py:26:    "AmbiguityResult",
+src/polaris_v6/ambiguity_detector/__init__.py:27:    "CandidateSnippet",
+src/polaris_v6/ambiguity_detector/__init__.py:28:    "detect_ambiguity",
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:11:4. If ≥2 clusters meet min_cluster_size, return AmbiguityResult with
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:32:class CandidateSnippet:
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:40:class AmbiguityCluster:
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:49:class AmbiguityResult:
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:58:    clusters: list[AmbiguityCluster]
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:87:    snippets: Sequence[CandidateSnippet], *, similarity_threshold: float
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:108:def detect_ambiguity(
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:109:    snippets: Sequence[CandidateSnippet],
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:114:) -> AmbiguityResult:
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:126:        return AmbiguityResult(is_ambiguous=False, clusters=[], fallback_used=True)
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:134:        AmbiguityCluster(
+src/polaris_v6/ambiguity_detector/ambiguity_detector.py:142:    return AmbiguityResult(
+
+codex
+The current code matches the brief’s baseline: upload-backed ambiguity is already present, question-only is not. I’m checking the submit path and component contract now for any remaining acceptance-risk gaps.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts -TotalCount 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/dashboard/page.tsx -TotalCount 520' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/intake/components/disambiguation_modal.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/ambiguity.py' in C:\POLARIS
+ succeeded in 842ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  checkAmbiguity,
+  checkScope,
+  createRun,
+  listTemplates,
+  uploadDocument,
+  type AmbiguityResult,
+  type ScopeDecision,
+  type TemplateContent,
+  type TemplateId,
+  type UploadResponse,
+} from "@/lib/api";
+
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+    {
+      id: "tech",
+      title: "Technology assessment",
+      domain: "arXiv / IEEE / ACM",
+    },
+    {
+      id: "due_diligence",
+      title: "Due diligence",
+      domain: "SEC EDGAR / USPTO",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const [question, setQuestion] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (question.trim().length < 4) {
+      setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Start a research run
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Pick a template and ask a focused question. Every claim returned
+            will carry a provenance token tied to a primary source.
+          </p>
+        </section>
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-foreground text-sm font-semibold">
+              Template
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+                  // <div> — keyboard-only users locked out of non-default
+                  // templates, WCAG 2.1.1 Level A failure).
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTemplate(t.id)}
+                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                      selected
+                        ? "border-foreground"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                  >
+                    <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
+                      {t.domain}
+                    </span>
+                    <span className="text-card-foreground mt-1 block text-base font-semibold">
+                      {t.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="question"
+              className="text-foreground text-sm font-semibold"
+            >
+              Research question
+            </label>
+            <Input
+              id="question"
+              type="text"
+              placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              minLength={4}
+              maxLength={2000}
+              required
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-foreground text-sm font-semibold">
+              Optional: upload supporting documents
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+                dragOver
+                  ? "border-foreground bg-muted/40"
+                  : "border-border bg-muted/10"
+              }`}
+            >
+              <p className="text-muted-foreground">
+                Drag PDFs, .docx, .md, or .txt here, or
+              </p>
+              <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
+                <span>browse files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.md,.txt"
+                  className="hidden"
+                  disabled={uploading || submitting}
+                  onChange={(e) => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {uploading && (
+                <p className="text-muted-foreground text-xs">Uploading…</p>
+              )}
+            </div>
+            {uploads.length > 0 && (
+              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+                {uploads.map((u) => (
+                  <li
+                    key={u.document_id}
+                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {u.filename}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {(u.bytes / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="ml-2 uppercase">{u.classification}</span>
+                      <span className="ml-2">{u.parse_status}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUploads((prev) =>
+                          prev.filter((p) => p.document_id !== u.document_id),
+                        )
+                      }
+                      className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {scopeDecision && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/60"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-foreground mt-2 text-sm font-medium">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-foreground mt-2 text-xs font-medium">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (ambiguity guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/" />}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
+              {submitting ? "Queuing…" : "Start run"}
+            </Button>
+          </div>
+        </form>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ succeeded in 899ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+
+ succeeded in 918ms:
+"use client";
+
+import { useEffect, useRef } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+
+import { Button } from "@/components/ui/button";
+import type { DisambiguationCluster } from "@/lib/api";
+
+const MAX_SAMPLE_LEN = 80;
+
+export type DisambiguationModalProps = {
+  open: boolean;
+  clusters: DisambiguationCluster[];
+  onSelectCluster: (cluster_id: number) => void;
+  onCancel: () => void;
+};
+
+function previewSnippets(snippets: string[]): string {
+  const joined = snippets.slice(0, 2).join(" · ");
+  return joined.length > MAX_SAMPLE_LEN
+    ? joined.slice(0, MAX_SAMPLE_LEN - 1) + "…"
+    : joined;
+}
+
+export function DisambiguationModal({
+  open,
+  clusters,
+  onSelectCluster,
+  onCancel,
+}: DisambiguationModalProps) {
+  const is_cancelled_ref = useRef(false);
+  useEffect(() => {
+    if (open) is_cancelled_ref.current = false;
+  }, [open]);
+  const handleCancel = () => {
+    if (is_cancelled_ref.current) return;
+    is_cancelled_ref.current = true;
+    onCancel();
+  };
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next_open) => {
+        if (!next_open) handleCancel();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs" />
+        <DialogPrimitive.Popup
+          data-slot="disambiguation-modal"
+          className="bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border p-6 shadow-lg transition duration-200 ease-in-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+        >
+          <div className="flex flex-col gap-1">
+            <DialogPrimitive.Title className="text-foreground text-lg font-semibold">
+              Did you mean…
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+              We found multiple meanings. Pick one to focus the search.
+            </DialogPrimitive.Description>
+          </div>
+          {clusters.length > 0 && (
+            <ul className="flex flex-col gap-3">
+              {clusters.map((c) => (
+                <li key={c.cluster_id}>
+                  <button
+                    type="button"
+                    data-testid={`disambiguation-cluster-${c.cluster_id}`}
+                    aria-label={`Pick ${c.label}`}
+                    onClick={() => onSelectCluster(c.cluster_id)}
+                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  >
+                    <span className="text-foreground text-sm font-semibold">
+                      {c.label}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {previewSnippets(c.sample_snippets)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <DialogPrimitive.Close
+              render={
+                <Button variant="outline" onClick={handleCancel}>
+                  Cancel
+                </Button>
+              }
+            />
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 961ms:
+"""POST /ambiguity — F2 ambiguity check endpoint.
+
+Takes a question + optional candidate snippets, returns the
+AmbiguityResult so the frontend can render a disambiguation modal
+before any expensive retrieval / generator cost is incurred.
+
+Phase 0 contract: candidates are passed in by the caller (typically a
+cheap candidate-fetcher in the backend will populate them in Phase 1).
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from polaris_v6.ambiguity_detector import (
+    CandidateSnippet,
+    detect_ambiguity,
+)
+
+router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+
+
+class CandidateIn(BaseModel):
+    source_id: str
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
+class AmbiguityCheckRequest(BaseModel):
+    question: str = Field(..., min_length=4, max_length=2000)
+    candidates: list[CandidateIn] = Field(
+        ...,
+        min_length=0,
+        description=(
+            "Pre-fetched candidate snippets. Phase 0: caller supplies. "
+            "Phase 1: backend fetches via cheap retrieval before this call."
+        ),
+    )
+    min_cluster_size: int = Field(default=2, ge=1)
+    similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class AmbiguityClusterOut(BaseModel):
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str]
+
+
+class AmbiguityCheckResponse(BaseModel):
+    is_ambiguous: bool
+    clusters: list[AmbiguityClusterOut]
+    fallback_used: bool
+
+
+@router.post("", response_model=AmbiguityCheckResponse)
+def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+    snippets = [
+        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+    ]
+    result = detect_ambiguity(
+        snippets,
+        min_cluster_size=payload.min_cluster_size,
+        similarity_threshold=payload.similarity_threshold,
+    )
+    return AmbiguityCheckResponse(
+        is_ambiguous=result.is_ambiguous,
+        clusters=[
+            AmbiguityClusterOut(
+                cluster_id=c.cluster_id,
+                representative_text=c.representative_text,
+                member_source_ids=c.member_source_ids,
+            )
+            for c in result.clusters
+        ],
+        fallback_used=result.fallback_used,
+    )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/app.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval2/real_fetcher.py -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/search/serper_client.py | Select-Object -Skip 190 -First 320' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/next.config.ts' in C:\POLARIS
+ succeeded in 841ms:
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        daily_budget_usd: float = 50.0,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        """
+        Initialize Serper client.
+
+        Args:
+            api_key: Serper API key (defaults to SERPER_API_KEY env var)
+            daily_budget_usd: Daily budget limit in USD
+            timeout: Request timeout in seconds
+        """
+        self.api_key = api_key or os.getenv("SERPER_API_KEY")
+        self.daily_budget = daily_budget_usd
+        self.timeout = timeout
+
+        # Validate API key
+        if not self.api_key:
+            logger.warning("Serper API key not configured (SERPER_API_KEY)")
+            self.enabled = False
+        else:
+            self.enabled = True
+            logger.info("Serper client initialized")
+
+        # Statistics
+        self.stats = SerperStats()
+
+        # Circuit breaker
+        self._failure_count = 0
+        self._circuit_open_until = 0
+        self._max_failures = 5
+        self._circuit_timeout = 300  # 5 minutes
+
+        # HTTP client (reusable)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                headers={
+                    "X-API-KEY": self.api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        return self._client
+
+    async def close(self):
+        """Close HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker is open."""
+        if self._failure_count < self._max_failures:
+            return False
+
+        if time.time() > self._circuit_open_until:
+            # Reset circuit
+            self._failure_count = 0
+            logger.info("Serper circuit breaker reset")
+            return False
+
+        return True
+
+    def _record_failure(self):
+        """Record a failure for circuit breaker."""
+        self._failure_count += 1
+        if self._failure_count >= self._max_failures:
+            self._circuit_open_until = time.time() + self._circuit_timeout
+            logger.error(f"Serper circuit breaker OPEN for {self._circuit_timeout}s")
+
+    def _record_success(self):
+        """Record success to reset failure count."""
+        self._failure_count = 0
+
+    def _check_budget(self, num_requests: int = 1) -> bool:
+        """Check if requests fit within budget."""
+        # Free tier check
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            return True
+
+        # Paid tier check
+        if self.stats.total_cost_usd + (num_requests / 1000 * COST_PER_1000_QUERIES) > self.daily_budget:
+            logger.warning(f"Serper daily budget exceeded: ${self.daily_budget}")
+            return False
+
+        return True
+
+    def _update_cost(self, num_requests: int = 1):
+        """Update cost tracking after requests."""
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            self.stats.free_queries_used += num_requests
+        else:
+            # Some or all are paid
+            free_remaining = max(0, FREE_TIER_QUERIES - total_used)
+            paid = num_requests - free_remaining
+
+            self.stats.free_queries_used += free_remaining
+            self.stats.paid_queries_used += paid
+            self.stats.total_cost_usd += (paid / 1000) * COST_PER_1000_QUERIES
+
+    async def _request(
+        self,
+        endpoint: str,
+        payload: Dict[str, Any],
+        search_type: str = "search",
+    ) -> Dict[str, Any]:
+        """
+        Make request to Serper API.
+
+        Args:
+            endpoint: API endpoint URL
+            payload: Request payload
+            search_type: Type of search for stats tracking
+
+        Returns:
+            API response as dictionary
+        """
+        if not self.enabled:
+            raise SerperError("Serper client not enabled (missing API key)")
+
+        if self._check_circuit_breaker():
+            raise SerperError("Serper circuit breaker is open")
+
+        if not self._check_budget():
+            raise SerperQuotaError("Daily budget exceeded")
+
+        client = await self._get_client()
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await client.post(endpoint, json=payload)
+
+                # Handle specific status codes
+                if response.status_code == 401:
+                    raise SerperAuthError("Invalid API key")
+
+                if response.status_code == 429:
+                    self.stats.rate_limits += 1
+                    raise SerperRateLimitError("Rate limit exceeded")
+
+                if response.status_code == 403:
+                    error_data = response.json() if response.content else {}
+                    if "quota" in str(error_data).lower():
+                        raise SerperQuotaError("Monthly quota exceeded")
+                    raise SerperError(f"Forbidden: {error_data}")
+
+                response.raise_for_status()
+
+                # Success
+                self._record_success()
+                self.stats.requests_made += 1
+                self._update_cost(1)
+
+                # Track by type
+                type_attr = f"{search_type}_requests"
+                if hasattr(self.stats, type_attr):
+                    setattr(self.stats, type_attr, getattr(self.stats, type_attr) + 1)
+
+                return response.json()
+
+            except httpx.TimeoutException:
+                logger.warning(f"Serper timeout (attempt {attempt + 1}/{MAX_RETRIES})")
+                if attempt == MAX_RETRIES - 1:
+                    self._record_failure()
+                    self.stats.errors += 1
+                    raise SerperError("Request timeout")
+                await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+
+            except httpx.HTTPError as e:
+                logger.error(f"Serper HTTP error: {e}")
+                self._record_failure()
+                self.stats.errors += 1
+                raise SerperError(f"HTTP error: {e}")
+
+    # =========================================================================
+    # SEARCH ENDPOINTS
+    # =========================================================================
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        time_range: Optional[str] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results (up to 100)
+            gl: Geographic location (country code)
+            hl: Language code
+            location: Precise location string (e.g., "North America")
+            domains: Include only these domains (site: filter)
+            exclude_domains: Exclude these domains (-site: filter)
+            time_range: Time filter (d=day, w=week, m=month, y=year)
+
+        Returns:
+            List of SerperResult objects
+        """
+        # Build query with domain filters
+        search_query = query
+        if domains:
+            site_filter = " OR ".join([f"site:{d}" for d in domains])
+            search_query = f"({query}) ({site_filter})"
+        if exclude_domains:
+            exclude_filter = " ".join([f"-site:{d}" for d in exclude_domains])
+            search_query = f"{search_query} {exclude_filter}"
+
+        # Pagination for comprehensive results
+        all_results = []
+        seen_urls = set()
+        pages_needed = min((max_results + 9) // 10, 10)  # Serper returns 10 per page, max 10 pages
+
+        for page in range(pages_needed):
+            payload = {
+                "q": search_query,
+                "gl": gl,
+                "hl": hl,
+                "num": 10,
+                "page": page + 1,
+            }
+
+            if location:
+                payload["location"] = location
+
+            if time_range:
+                payload["tbs"] = f"qdr:{time_range}"
+
+            try:
+                data = await self._request(ENDPOINTS["search"], payload, "search")
+
+                # Process organic results
+                for item in data.get("organic", []):
+                    url = item.get("link", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        result = SerperResult(
+                            url=url,
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            position=len(all_results) + 1,
+                            search_type="search",
+                            date=item.get("date"),
+                            domain=self._extract_domain(url),
+                        )
+                        all_results.append(result)
+
+                # Also include answer box if present
+                if "answerBox" in data:
+                    ab = data["answerBox"]
+                    snippet = ab.get("answer") or ab.get("snippet") or ab.get("title", "")
+                    if snippet and ab.get("link"):
+                        url = ab.get("link")
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            result = SerperResult(
+                                url=url,
+                                title=ab.get("title", "Answer Box"),
+                                snippet=snippet,
+                                position=0,  # Answer box is position 0
+                                search_type="answer_box",
+                                relevance_score=0.95,  # High relevance
+                            )
+                            all_results.insert(0, result)
+
+                if len(all_results) >= max_results:
+                    break
+
+            except SerperError as e:
+                logger.error(f"Search page {page + 1} failed: {e}")
+                break
+
+        self.stats.results_retrieved += len(all_results)
+        logger.info(f"Serper search '{query[:50]}...' returned {len(all_results)} results")
+
+        return all_results[:max_results]
+
+    async def scholar(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Scholar search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results
+            gl: Geographic location
+            hl: Language
+            location: Precise location
+            year_from: Filter papers from this year
+            year_to: Filter papers until this year
+
+        Returns:
+            List of SerperResult objects with academic metadata
+        """
+        all_results = []
+        seen_urls = set()
+        pages_needed = min((max_results + 9) // 10, 5)  # Cap at 5 pages for Scholar
+
+ succeeded in 856ms:
+"""Real Serper + Semantic Scholar fetcher behind FetchHttpFn protocol.
+
+Per `.codex/slices/slice_002/architecture_proposal.md` §"Implementation order"
+PR 7 row.
+
+Two backends, fanned out per query:
+  1. Serper (https://google.serper.dev/search) — Google-results proxy.
+     Requires SERPER_API_KEY env var. Returns up to 10 hits per query.
+  2. Semantic Scholar (https://api.semanticscholar.org/graph/v1/paper/search)
+     — academic-paper graph. SEMANTIC_SCHOLAR_API_KEY optional but recommended.
+
+Results from both backends merge into a single list[FetchResult] handed back
+to the orchestrator, which then runs them through clinical_source_registry
+to drop anything not on the T1/T2/T3 allowlist.
+
+Fail-loud per LAW II:
+- SERPER_API_KEY missing → RuntimeError at construction. No silent skip.
+- Both backends down → RuntimeError. No silent empty list.
+- Semantic Scholar without key → still runs (1 RPS unauthenticated tier),
+  but logs the missing key for ops visibility.
+
+Rate limiting:
+- Serper: 1 request per query (no fan-out within Serper); httpx default
+  timeout 10s.
+- Semantic Scholar: bounded to 1 RPS unauthenticated, 5 RPS with key —
+  enforced via simple sleep() between calls in the same fetcher instance.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+
+import httpx
+
+from polaris_graph.retrieval2.clinical_retriever import FetchResult
+
+_LOG = logging.getLogger(__name__)
+
+SERPER_ENDPOINT = "https://google.serper.dev/search"
+S2_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+DEFAULT_TIMEOUT_S = 10.0
+
+
+@dataclass
+class RealFetcherConfig:
+    """Construction-time config for the real fetcher."""
+
+    serper_api_key: str
+    semantic_scholar_api_key: str | None = None
+    serper_results_per_query: int = 10
+    s2_results_per_query: int = 10
+    s2_rate_limit_seconds: float = 1.05  # >1s for safety on the 1 RPS tier
+    timeout_s: float = DEFAULT_TIMEOUT_S
+
+
+def load_config_from_env() -> RealFetcherConfig:
+    """Build a RealFetcherConfig from environment variables.
+
+    Raises RuntimeError if SERPER_API_KEY is unset (fail loud per LAW II).
+    SEMANTIC_SCHOLAR_API_KEY is optional; absence is logged at WARNING.
+    """
+    serper = os.environ.get("SERPER_API_KEY", "").strip()
+    if not serper:
+        raise RuntimeError(
+            "SERPER_API_KEY is required for slice 002 real_fetcher. Set it "
+            "in .env or environment before mounting the retrieval route. "
+            "Per CLAUDE.md LAW II, this MUST fail loudly rather than "
+            "silently skipping the Serper backend."
+        )
+    s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip() or None
+    if not s2_key:
+        _LOG.warning(
+            "SEMANTIC_SCHOLAR_API_KEY unset; falling back to "
+            "unauthenticated 1 RPS tier"
+        )
+    return RealFetcherConfig(
+        serper_api_key=serper,
+        semantic_scholar_api_key=s2_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-backend fetch primitives
+# ---------------------------------------------------------------------------
+
+def _fetch_serper(
+    query: str,
+    config: RealFetcherConfig,
+    client: httpx.Client,
+) -> list[FetchResult]:
+    """Single Serper search call. Raises on persistent network failure."""
+    payload = {"q": query, "num": config.serper_results_per_query}
+    headers = {
+        "X-API-KEY": config.serper_api_key,
+        "Content-Type": "application/json",
+    }
+    response = client.post(
+        SERPER_ENDPOINT,
+        json=payload,
+        headers=headers,
+        timeout=config.timeout_s,
+    )
+    response.raise_for_status()
+    data = response.json()
+    organic = data.get("organic", [])
+    results: list[FetchResult] = []
+    for hit in organic:
+        url = hit.get("link", "")
+        if not url:
+            continue
+        results.append(
+            FetchResult(
+                url=url,
+                title=hit.get("title", "") or "untitled",
+                snippet=hit.get("snippet", "") or "",
+            )
+        )
+    return results
+
+
+def _fetch_semantic_scholar(
+    query: str,
+    config: RealFetcherConfig,
+    client: httpx.Client,
+) -> list[FetchResult]:
+    """Single Semantic Scholar search call. Raises on persistent failure."""
+    params = {
+        "query": query,
+        "limit": config.s2_results_per_query,
+        "fields": "title,abstract,url,year,authors,externalIds",
+    }
+    headers = {}
+    if config.semantic_scholar_api_key:
+        headers["x-api-key"] = config.semantic_scholar_api_key
+    response = client.get(
+        S2_ENDPOINT,
+        params=params,
+        headers=headers,
+        timeout=config.timeout_s,
+    )
+    if response.status_code == 429:
+        # Rate-limited; sleep + retry once. After that fail loud.
+        time.sleep(config.s2_rate_limit_seconds * 2)
+        response = client.get(
+            S2_ENDPOINT,
+            params=params,
+            headers=headers,
+            timeout=config.timeout_s,
+        )
+    response.raise_for_status()
+    data = response.json()
+    papers = data.get("data", []) or []
+    results: list[FetchResult] = []
+    for paper in papers:
+        url = paper.get("url") or ""
+        if not url:
+            ext = paper.get("externalIds") or {}
+            doi = ext.get("DOI")
+            if doi:
+                url = f"https://doi.org/{doi}"
+        if not url:
+            continue
+        title = paper.get("title") or "untitled"
+        abstract = paper.get("abstract") or ""
+        snippet = abstract[:500] if abstract else ""
+        results.append(
+            FetchResult(
+                url=url,
+                title=title,
+                snippet=snippet,
+            )
+        )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Combined fetcher (FetchHttpFn protocol implementation)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RealFetcher:
+    """Stateful FetchHttpFn impl that batches + rate-limits S2 calls."""
+
+    config: RealFetcherConfig
+    _last_s2_call_at: float = field(default=0.0, init=False, repr=False)
+
+    def __call__(self, query: str) -> list[FetchResult]:
+        results: list[FetchResult] = []
+        with httpx.Client() as client:
+            # Serper first (fast, paid; high-confidence allowlist hits).
+            try:
+                serper_hits = _fetch_serper(query, self.config, client)
+                results.extend(serper_hits)
+            except httpx.HTTPError as exc:
+                _LOG.warning(
+                    "Serper backend failed for query %r: %s. Continuing "
+                    "with Semantic Scholar only.",
+                    query,
+                    exc,
+                )
+
+            # S2 with simple rate-limit gate.
+            since = time.perf_counter() - self._last_s2_call_at
+            if since < self.config.s2_rate_limit_seconds:
+                time.sleep(self.config.s2_rate_limit_seconds - since)
+            try:
+                s2_hits = _fetch_semantic_scholar(query, self.config, client)
+                results.extend(s2_hits)
+            except httpx.HTTPError as exc:
+                _LOG.warning(
+                    "Semantic Scholar backend failed for query %r: %s. "
+                    "Returning Serper-only results.",
+                    query,
+                    exc,
+                )
+            finally:
+
+ succeeded in 904ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+    app.include_router(transparency_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
+
+    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+    app.include_router(graph_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+ succeeded in 938ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "interface DisambiguationCluster|type DisambiguationCluster|sample_snippets|disambigu" web/lib/api.ts web/tests/e2e/intake_disambiguation.spec.ts src/polaris_graph/api/disambiguation_route.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/ambiguity_detector/ambiguity_detector.py -TotalCount 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web/tests/e2e | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/ambiguity_detector/__init__.py' in C:\POLARIS
+ succeeded in 770ms:
+src/polaris_graph/api/disambiguation_route.py:1:"""F2 disambiguation route (I-f2-003): cluster + label candidate snippets."""
+src/polaris_graph/api/disambiguation_route.py:16:from polaris_graph.intake.disambiguation_clusterer import cluster_candidates
+src/polaris_graph/api/disambiguation_route.py:18:router = APIRouter(tags=["disambiguation"])
+src/polaris_graph/api/disambiguation_route.py:35:    sample_snippets: list[str]
+src/polaris_graph/api/disambiguation_route.py:60:            raise RuntimeError("OpenRouter returned empty disambiguation label")
+src/polaris_graph/api/disambiguation_route.py:75:@router.post("/disambiguation", response_model=None)
+src/polaris_graph/api/disambiguation_route.py:76:def post_disambiguation(req: DisambiguationRequest,
+src/polaris_graph/api/disambiguation_route.py:97:            sample_snippets=lc.sample_snippets) for lc in labeled],
+src/polaris_graph/api/disambiguation_route.py:101:@router.get("/disambiguation/health")
+src/polaris_graph/api/disambiguation_route.py:102:def get_disambiguation_health() -> dict[str, Any]:
+web/lib/api.ts:419:  needs_disambiguation?: boolean;
+web/lib/api.ts:423:export type DisambiguationCluster = {
+web/lib/api.ts:426:  sample_snippets: string[];
+web/lib/api.ts:439:  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+web/tests/e2e/intake_disambiguation.spec.ts:21:          needs_disambiguation: true,
+web/tests/e2e/intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e/intake_disambiguation.spec.ts:48:            sample_snippets: ["BPEI syndrome..."],
+web/tests/e2e/intake_disambiguation.spec.ts:53:            sample_snippets: ["BPEI institute..."],
+web/tests/e2e/intake_disambiguation.spec.ts:58:            sample_snippets: ["BPEI chemical..."],
+web/tests/e2e/intake_disambiguation.spec.ts:71:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests/e2e/intake_disambiguation.spec.ts:76:  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+web/tests/e2e/intake_disambiguation.spec.ts:79:  await page.getByTestId("disambiguation-cluster-1").click();
+web/tests/e2e/intake_disambiguation.spec.ts:83:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
+
+ succeeded in 816ms:
+"""HDBSCAN-based ambiguity detector for research questions.
+
+Per docs/carney_delivery_plan_v6_2.md F2 (ambiguity detector backend) and
+memory bpei_phantom_completion_lessons.md, the BPEI failure happened
+because the scope gate has no way to detect when a short acronym question
+maps to multiple unrelated source clusters. This module fixes that by:
+
+1. Running a cheap candidate retrieval (top-K from search providers).
+2. Embedding the candidate snippets via a deterministic encoder.
+3. Clustering with HDBSCAN.
+4. If ≥2 clusters meet min_cluster_size, return AmbiguityResult with
+   per-cluster representative snippets so the UI can render a
+   disambiguation modal.
+
+Phase 0 ships the API surface + a pure-Python fallback that uses character
+3-gram cosine + a simple density-based grouping when scikit-learn /
+hdbscan are not installed (so this code can be unit-tested without the
+heavy ML stack). Phase 1 wires the real HDBSCAN path once the backend
+venv is provisioned.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Sequence
+
+
+@dataclass
+class CandidateSnippet:
+    """One candidate retrieval result feeding the disambiguation pass."""
+
+    source_id: str
+    text: str
+
+
+@dataclass
+class AmbiguityCluster:
+    """A discovered semantic cluster of candidates."""
+
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AmbiguityResult:
+    """Detector verdict.
+
+    `is_ambiguous` is True iff there are ≥2 clusters each with at least
+    `min_cluster_size` members. Each cluster's representative snippet is
+    surfaced to the user via the F2 disambiguation modal.
+    """
+
+    is_ambiguous: bool
+    clusters: list[AmbiguityCluster]
+    fallback_used: bool = False
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _trigrams(text: str) -> Counter[str]:
+    text_lower = text.lower()
+    counts: Counter[str] = Counter()
+    for token in _TOKEN_RE.findall(text_lower):
+        padded = f"  {token}  "
+        for i in range(len(padded) - 2):
+            counts[padded[i : i + 3]] += 1
+    return counts
+
+
+def _cosine(a: Counter[str], b: Counter[str]) -> float:
+    if not a or not b:
+        return 0.0
+    dot = sum(a[k] * b[k] for k in a.keys() & b.keys())
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _greedy_cluster(
+    snippets: Sequence[CandidateSnippet], *, similarity_threshold: float
+) -> list[list[int]]:
+    if not snippets:
+        return []
+    grams = [_trigrams(s.text) for s in snippets]
+    unassigned = list(range(len(snippets)))
+    clusters: list[list[int]] = []
+    while unassigned:
+        seed = unassigned.pop(0)
+        members = [seed]
+        remaining: list[int] = []
+        for idx in unassigned:
+            if _cosine(grams[seed], grams[idx]) >= similarity_threshold:
+                members.append(idx)
+            else:
+                remaining.append(idx)
+        unassigned = remaining
+        clusters.append(members)
+    return clusters
+
+
+def detect_ambiguity(
+    snippets: Sequence[CandidateSnippet],
+    *,
+    min_cluster_size: int = 2,
+    similarity_threshold: float = 0.5,
+    max_clusters_surfaced: int = 4,
+) -> AmbiguityResult:
+    """Detect whether a candidate set has ≥2 distinct semantic clusters.
+
+    Args:
+        snippets: candidate retrieval snippets.
+        min_cluster_size: a cluster must have at least this many members
+            to count toward the ambiguity verdict.
+        similarity_threshold: trigram-cosine cutoff for the fallback
+            clusterer.
+        max_clusters_surfaced: cap on clusters returned to UI.
+    """
+    if not snippets:
+        return AmbiguityResult(is_ambiguous=False, clusters=[], fallback_used=True)
+
+    raw_clusters = _greedy_cluster(snippets, similarity_threshold=similarity_threshold)
+    qualifying = [c for c in raw_clusters if len(c) >= min_cluster_size]
+    qualifying.sort(key=len, reverse=True)
+    qualifying = qualifying[:max_clusters_surfaced]
+
+    out_clusters = [
+        AmbiguityCluster(
+            cluster_id=i,
+            representative_text=snippets[member_indices[0]].text,
+            member_source_ids=[snippets[idx].source_id for idx in member_indices],
+        )
+        for i, member_indices in enumerate(qualifying)
+    ]
+
+    return AmbiguityResult(
+        is_ambiguous=len(out_clusters) >= 2,
+        clusters=out_clusters,
+        fallback_used=True,
+    )
+
+ succeeded in 815ms:
+"""Ambiguity detector — HDBSCAN-based detection of multi-meaning queries
+before retrieval. Surfaces a disambiguation modal when ≥2 distinct
+concept-clusters share the query's entity space.
+
+Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
+with min_cluster_size sources, the question is ambiguous and the UI
+shows a disambiguation modal.
+
+Historical: this module was originally named ``bpei/`` after the
+2026-04-30 'phantom completion' incident where a user typed the literal
+string "BPEI" as an adversarial probe and the system fabricated an
+answer. The directory carried the commemorative tag through 2026-05-12,
+when I-naming-001 (GH#434) renamed it to its descriptive name. See
+``memory/bpei_phantom_completion_lessons.md`` (user-level memory at
+``~/.claude/projects/C--POLARIS/memory/``) for the incident write-up.
+"""
+from .ambiguity_detector import (
+    AmbiguityCluster,
+    AmbiguityResult,
+    CandidateSnippet,
+    detect_ambiguity,
+)
+
+__all__ = [
+    "AmbiguityCluster",
+    "AmbiguityResult",
+    "CandidateSnippet",
+    "detect_ambiguity",
+]
+
+ succeeded in 888ms:
+visual_60_baselines.spec.ts-snapshots
+visual.spec.ts-snapshots
+accessibility.spec.ts
+audit_bundle.spec.ts
+audit_live_adversarial.spec.ts
+audit_live_multitab.spec.ts
+audit_live.spec.ts
+benchmark.spec.ts
+bundle_preview.spec.ts
+chart_click_through.spec.ts
+cited_recall_badge.spec.ts
+command_palette_adversarial.spec.ts
+command_palette_suggest.spec.ts
+command_palette.spec.ts
+comparison_table_chart.spec.ts
+contract_editor.spec.ts
+cross_browser_smoke.spec.ts
+cross_session_surface.spec.ts
+demo_walkthrough.spec.ts
+disambiguation_modal.spec.ts
+evidence_tooltip_edges.spec.ts
+evidence_tooltip_mobile.spec.ts
+evidence_tooltip_perf.spec.ts
+evidence_tooltip.spec.ts
+f1_a11y.spec.ts
+f1_multi_tab.spec.ts
+f2_walkthrough.spec.ts
+follow_up_append.spec.ts
+forest_plot_chart.spec.ts
+frame_coverage_adversarial.spec.ts
+frame_coverage_panel.spec.ts
+generation.spec.ts
+graph_page_smoke.spec.ts
+inspector.spec.ts
+intake_disambiguation_negative.spec.ts
+intake_disambiguation.spec.ts
+intake_edge.spec.ts
+intake.spec.ts
+landing_template_grid.spec.ts
+memory_page_controls.spec.ts
+multi_source_panel.spec.ts
+p2c_001_chain.spec.ts
+p2c_005_mobile.spec.ts
+perf_core_web_vitals.spec.ts
+performance_hover.spec.ts
+performance.spec.ts
+pin_regression_alert.spec.ts
+pin_replay_diff.spec.ts
+pin_replay.spec.ts
+pin_retraction_handled.spec.ts
+retrieval.spec.ts
+sentence_hover.spec.ts
+sentence_inspector_adversarial.spec.ts
+sentence_inspector_agreement.spec.ts
+sentence_inspector_ai_agent.spec.ts
+sentence_inspector_contradiction.spec.ts
+sentence_inspector_evaluator_edge.spec.ts
+sentence_inspector_evaluator_flag.spec.ts
+sentence_inspector_latency.spec.ts
+sentence_inspector_multispan.spec.ts
+sentence_inspector_retracted_stale.spec.ts
+sentence_inspector_source.spec.ts
+sentence_inspector_surfaces.spec.ts
+sentence_inspector_synthesis.spec.ts
+sentence_inspector.spec.ts
+split_screen.spec.ts
+sse_client.spec.ts
+timeline_chart.spec.ts
+two_run_picker.spec.ts
+upload_doc_preview.spec.ts
+upload_dropzone.spec.ts
+upload_evidence_toggle.spec.ts
+upload_parse_status.spec.ts
+vega_lite_chart.spec.ts
+visual_60_baselines.spec.ts
+visual.spec.ts
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"page.goto\\(.*dashboard|getByRole\\(.*Start run|text=Start run|getByText\\(.*Start run\" web/tests -g \"*.ts\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Start run|Check scope|/dashboard|createRun|/api/v6/runs|/runs" web/tests/e2e -g "*.spec.ts"' in C:\POLARIS
+ succeeded in 606ms:
+web/tests/e2e\accessibility.spec.ts:50:  test("/dashboard initial render is WCAG-AA clean", async ({ page }) => {
+web/tests/e2e\accessibility.spec.ts:51:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\accessibility.spec.ts:55:  test("/dashboard after scope rejection is WCAG-AA clean", async ({
+web/tests/e2e\accessibility.spec.ts:58:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\accessibility.spec.ts:60:    await page.getByRole("button", { name: /Check scope/ }).click();
+web/tests/e2e\accessibility.spec.ts:121:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\accessibility.spec.ts:169:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\accessibility.spec.ts:259:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\accessibility.spec.ts:296:    // /runs/[runId] page also uses the destructive error pattern; verify it.
+web/tests/e2e\accessibility.spec.ts:297:    await page.goto("/runs/does_not_exist_runid_404", {
+web/tests/e2e\graph_page_smoke.spec.ts:2: * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
+web/tests/e2e\graph_page_smoke.spec.ts:4: * Mocks the backend `/api/runs/<id>/graph` endpoint with a deterministic
+web/tests/e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web/tests/e2e\graph_page_smoke.spec.ts:24:    await page.goto("/runs/test_fixture_001/graph");
+web/tests/e2e\graph_page_smoke.spec.ts:30:    await page.goto("/runs/test_fixture_001/graph");
+web/tests/e2e\graph_page_smoke.spec.ts:41:    await page.goto("/runs/test_fixture_001/graph");
+web/tests/e2e\graph_page_smoke.spec.ts:52:    await page.goto("/runs/test_fixture_001/graph");
+web/tests/e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web/tests/e2e\graph_page_smoke.spec.ts:63:    await page.goto("/runs/no_such_run/graph");
+web/tests/e2e\inspector.spec.ts:86:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\inspector.spec.ts:88:    await page.getByRole("button", { name: /Check scope/ }).click();
+web/tests/e2e\inspector.spec.ts:96:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests/e2e\inspector.spec.ts:101:    await page.getByRole("button", { name: /Check scope/ }).click();
+web/tests/e2e\visual.spec.ts:26:  test("/dashboard initial render", async ({ page }) => {
+web/tests/e2e\visual.spec.ts:27:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+
+ succeeded in 651ms:
+web/tests\e2e\accessibility.spec.ts:51:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\accessibility.spec.ts:58:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\accessibility.spec.ts:121:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\accessibility.spec.ts:169:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\accessibility.spec.ts:259:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\inspector.spec.ts:86:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\inspector.spec.ts:96:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web/tests\e2e\visual.spec.ts:27:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-002
+    title: "clinicalScanGate is not bound to the submitted question"
+    evidence: >
+      §3.3 stores only clinicalScanGate = "ok" after a successful scan. The
+      onSubmit gate checks only template/uploads/gate, not whether the scan was
+      for the current trimmed question.
+    impact: >
+      Repro: enter clinical question A, run Check scope, get scan 200/"ok", edit
+      the question to ambiguous question B, then click Start run. clinicalScanGate
+      remains "ok", ambiguity is still A's result, and createRun can POST B
+      without a successful detect_ambiguity scan for B.
+    required_change: >
+      Track a scan key, at minimum {template, trimmedQuestion, uploads signature}
+      for the successful ambiguity scan, and require it to match current submit
+      input. Also clear or invalidate ambiguity/acknowledgedAmbiguity/gate on
+      question/template/upload changes, or enforce the key comparison in onSubmit.
+p2:
+  - id: P2-001
+    title: "Upload-backed ambiguity path may no longer auto-open the modal"
+    evidence: >
+      §3.3 says the existing uploads.length > 0 checkAmbiguity branch is
+      unchanged, while only the new question-only scan branch explicitly calls
+      setDisambigModalOpen(true).
+    impact: >
+      If the old card is replaced by modal-plus-inline notice, upload-backed
+      ambiguity may show only the inline notice until the user clicks Review
+      meanings. That is weaker than 'ambiguous query triggers modal' for the
+      upload path.
+    required_change: >
+      When the upload-backed checkAmbiguity result is ambiguous, also open
+      disambigModalOpen. This is not blocking for the clinical question-only demo
+      path.
+convergence_call: continue
+verdict_reasoning: >
+  The tri-state hard block resolves the prior 503-specific fail-open: a failed
+  /ambiguity/scan leaves clinicalScanGate != "ok", so Start run is blocked.
+  However, the gate is not tied to the actual submitted question, so a stale
+  successful scan can authorize a different clinical question. That is still a
+  P1 acceptance risk because the create-run flow can proceed without
+  detect_ambiguity successfully running on the query being run.
+tokens used
+34,992
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-002
+    title: "clinicalScanGate is not bound to the submitted question"
+    evidence: >
+      §3.3 stores only clinicalScanGate = "ok" after a successful scan. The
+      onSubmit gate checks only template/uploads/gate, not whether the scan was
+      for the current trimmed question.
+    impact: >
+      Repro: enter clinical question A, run Check scope, get scan 200/"ok", edit
+      the question to ambiguous question B, then click Start run. clinicalScanGate
+      remains "ok", ambiguity is still A's result, and createRun can POST B
+      without a successful detect_ambiguity scan for B.
+    required_change: >
+      Track a scan key, at minimum {template, trimmedQuestion, uploads signature}
+      for the successful ambiguity scan, and require it to match current submit
+      input. Also clear or invalidate ambiguity/acknowledgedAmbiguity/gate on
+      question/template/upload changes, or enforce the key comparison in onSubmit.
+p2:
+  - id: P2-001
+    title: "Upload-backed ambiguity path may no longer auto-open the modal"
+    evidence: >
+      §3.3 says the existing uploads.length > 0 checkAmbiguity branch is
+      unchanged, while only the new question-only scan branch explicitly calls
+      setDisambigModalOpen(true).
+    impact: >
+      If the old card is replaced by modal-plus-inline notice, upload-backed
+      ambiguity may show only the inline notice until the user clicks Review
+      meanings. That is weaker than 'ambiguous query triggers modal' for the
+      upload path.
+    required_change: >
+      When the upload-backed checkAmbiguity result is ambiguous, also open
+      disambigModalOpen. This is not blocking for the clinical question-only demo
+      path.
+convergence_call: continue
+verdict_reasoning: >
+  The tri-state hard block resolves the prior 503-specific fail-open: a failed
+  /ambiguity/scan leaves clinicalScanGate != "ok", so Start run is blocked.
+  However, the gate is not tied to the actual submitted question, so a stale
+  successful scan can authorize a different clinical question. That is still a
+  P1 acceptance risk because the create-run flow can proceed without
+  detect_ambiguity successfully running on the query being run.

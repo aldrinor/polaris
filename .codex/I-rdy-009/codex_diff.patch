@@ -1,0 +1,983 @@
+diff --git a/src/polaris_v6/ambiguity_detector/__init__.py b/src/polaris_v6/ambiguity_detector/__init__.py
+index fc2de1d5..3ad93582 100644
+--- a/src/polaris_v6/ambiguity_detector/__init__.py
++++ b/src/polaris_v6/ambiguity_detector/__init__.py
+@@ -6,6 +6,10 @@ Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
+ with min_cluster_size sources, the question is ambiguous and the UI
+ shows a disambiguation modal.
+ 
++``candidate_fetcher`` (I-rdy-009 / #505) supplies the candidate snippets
++for a question-only query via one cheap web search — the "Phase 1"
++retrieval the detector docstring anticipated.
++
+ Historical: this module was originally named ``bpei/`` after the
+ 2026-04-30 'phantom completion' incident where a user typed the literal
+ string "BPEI" as an adversarial probe and the system fabricated an
+@@ -20,10 +24,13 @@ from .ambiguity_detector import (
+     CandidateSnippet,
+     detect_ambiguity,
+ )
++from .candidate_fetcher import CandidateFetchError, fetch_candidate_snippets
+ 
+ __all__ = [
+     "AmbiguityCluster",
+     "AmbiguityResult",
+     "CandidateSnippet",
++    "CandidateFetchError",
+     "detect_ambiguity",
++    "fetch_candidate_snippets",
+ ]
+diff --git a/src/polaris_v6/ambiguity_detector/candidate_fetcher.py b/src/polaris_v6/ambiguity_detector/candidate_fetcher.py
+new file mode 100644
+index 00000000..e7d7aeb9
+--- /dev/null
++++ b/src/polaris_v6/ambiguity_detector/candidate_fetcher.py
+@@ -0,0 +1,134 @@
++"""Cheap candidate-snippet fetcher feeding the ambiguity detector.
++
++Issue I-rdy-009 (#505), Phase 3.6. ``detect_ambiguity`` needs candidate
++snippets to cluster, but the dashboard create-run flow has no candidate
++source for a *question-only* query (no uploaded documents). Both the
++``ambiguity_detector`` module docstring and the ``/ambiguity`` request
++schema named the missing piece:
++
++    "Phase 1: backend fetches via cheap retrieval before this call."
++
++This module IS that cheap retrieval — a single Serper ``/search`` call
++mapped into ``CandidateSnippet`` objects.
++
++Why a self-contained Serper call
++--------------------------------
++The I-rdy-009 brief originally specified reusing ``SerperClient`` from
++``src/search/serper_client.py``. At implement time ``src/search/__init__.py``
++was found broken — it imports ``src.search.engines`` and
++``src.search.fan_out_executor``, neither of which exists — so
++``import src.search.serper_client`` raises ``ModuleNotFoundError`` and
++``SerperClient`` is unimportable. This module therefore issues the Serper
++``/search`` request directly via ``httpx``, mirroring the proven pattern
++in ``src/polaris_graph/retrieval2/real_fetcher.py`` (slice-002's real
++Serper fetcher). Same Serper service, same endpoint, same fail-loud
++contract — and no dependency on the broken ``src.search`` package.
++
++Fail-loud per CLAUDE.md LAW II
++------------------------------
++A missing ``SERPER_API_KEY``, a network/HTTP failure, or a search that
++yields zero usable snippets raises ``CandidateFetchError`` rather than
++returning an empty list. An empty list would be silently misread by
++``detect_ambiguity`` as "not ambiguous" — the exact false-negative this
++guard exists to prevent. Zero results means *search failed*, not *the
++question is unambiguous*.
++"""
++
++from __future__ import annotations
++
++import os
++
++import httpx
++
++from polaris_v6.ambiguity_detector.ambiguity_detector import CandidateSnippet
++
++SERPER_SEARCH_ENDPOINT = "https://google.serper.dev/search"
++DEFAULT_MAX_RESULTS = 10
++DEFAULT_TIMEOUT_S = 10.0
++
++
++class CandidateFetchError(RuntimeError):
++    """Raised when candidate snippets cannot be fetched for a question.
++
++    Surfaced by ``POST /ambiguity/scan`` as HTTP 503
++    ``candidate_fetch_unavailable`` so the caller fails loud rather than
++    proceeding on an empty (falsely-unambiguous) candidate set.
++    """
++
++
++async def _fetch_serper_organic(
++    question: str, *, api_key: str, max_results: int, timeout_s: float
++) -> list[dict]:
++    """Issue one Serper ``/search`` request; return the raw ``organic`` list.
++
++    Raises ``httpx.HTTPError`` on network failure or a non-2xx response.
++    Isolated as a seam so tests can stub the network boundary without
++    mocking the detector itself (per CLAUDE.md §9.4).
++    """
++    payload = {"q": question, "num": max_results}
++    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
++    async with httpx.AsyncClient() as client:
++        response = await client.post(
++            SERPER_SEARCH_ENDPOINT, json=payload, headers=headers, timeout=timeout_s
++        )
++        response.raise_for_status()
++        data = response.json()
++    return data.get("organic", []) or []
++
++
++async def fetch_candidate_snippets(
++    question: str,
++    *,
++    max_results: int = DEFAULT_MAX_RESULTS,
++    timeout_s: float = DEFAULT_TIMEOUT_S,
++) -> list[CandidateSnippet]:
++    """Fetch candidate snippets for ``question`` via one cheap web search.
++
++    Args:
++        question: the user-typed research question.
++        max_results: cap on web-search results requested.
++        timeout_s: per-request HTTP timeout.
++
++    Returns:
++        A non-empty list of ``CandidateSnippet`` (``source_id`` = result
++        URL, ``text`` = ``"<title>. <snippet>"``).
++
++    Raises:
++        CandidateFetchError: when ``SERPER_API_KEY`` is unset, the search
++            request fails, or it yields zero usable snippets. Never
++            returns an empty list — see the module docstring.
++    """
++    api_key = os.environ.get("SERPER_API_KEY", "").strip()
++    if not api_key:
++        raise CandidateFetchError(
++            "SERPER_API_KEY is unset; cannot fetch ambiguity candidates."
++        )
++
++    try:
++        organic = await _fetch_serper_organic(
++            question, api_key=api_key, max_results=max_results, timeout_s=timeout_s
++        )
++    except httpx.HTTPError as exc:
++        raise CandidateFetchError(
++            f"Serper web search failed for {question!r}: {exc}"
++        ) from exc
++
++    snippets: list[CandidateSnippet] = []
++    for hit in organic:
++        url = hit.get("link", "") or ""
++        if not url:
++            continue
++        title = hit.get("title", "") or ""
++        snippet = hit.get("snippet", "") or ""
++        text = f"{title}. {snippet}".strip()
++        if text in (".", ""):
++            # Both title and snippet were empty — nothing to cluster on.
++            continue
++        snippets.append(CandidateSnippet(source_id=url, text=text))
++
++    if not snippets:
++        raise CandidateFetchError(
++            f"web search returned zero candidate snippets for {question!r}; "
++            "the search backend is unreachable or returned no usable results."
++        )
++    return snippets
+diff --git a/src/polaris_v6/api/ambiguity.py b/src/polaris_v6/api/ambiguity.py
+index 03fc45e4..ced86ab0 100644
+--- a/src/polaris_v6/api/ambiguity.py
++++ b/src/polaris_v6/api/ambiguity.py
+@@ -1,22 +1,34 @@
+-"""POST /ambiguity — F2 ambiguity check endpoint.
+-
+-Takes a question + optional candidate snippets, returns the
+-AmbiguityResult so the frontend can render a disambiguation modal
+-before any expensive retrieval / generator cost is incurred.
+-
+-Phase 0 contract: candidates are passed in by the caller (typically a
+-cheap candidate-fetcher in the backend will populate them in Phase 1).
++"""POST /ambiguity — F2 ambiguity check endpoints.
++
++Two routes:
++
++* ``POST /ambiguity`` — caller supplies candidate snippets directly
++  (e.g. the dashboard builds them from uploaded-document chunks).
++* ``POST /ambiguity/scan`` (I-rdy-009 / #505) — *question-only*. The
++  backend fetches candidate snippets via one cheap web search before
++  running ``detect_ambiguity``, so an ambiguous bare question triggers
++  the disambiguation modal in the main create-run flow. On a
++  candidate-fetch failure it returns HTTP 503
++  ``candidate_fetch_unavailable`` — never a silent false-unambiguous
++  result.
++
++Both return the same ``AmbiguityCheckResponse`` so the frontend can
++render a disambiguation modal before any expensive retrieval / generator
++cost is incurred.
+ """
+ 
+ from __future__ import annotations
+ 
+-from fastapi import APIRouter
++from fastapi import APIRouter, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from polaris_v6.ambiguity_detector import (
++    CandidateFetchError,
+     CandidateSnippet,
+     detect_ambiguity,
++    fetch_candidate_snippets,
+ )
++from polaris_v6.ambiguity_detector.ambiguity_detector import AmbiguityResult
+ 
+ router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+ 
+@@ -40,6 +52,13 @@ class AmbiguityCheckRequest(BaseModel):
+     similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+ 
+ 
++class AmbiguityScanRequest(BaseModel):
++    """POST body for /ambiguity/scan — a question with no caller-supplied
++    candidates. The backend fetches candidates itself."""
++
++    question: str = Field(..., min_length=4, max_length=2000)
++
++
+ class AmbiguityClusterOut(BaseModel):
+     cluster_id: int
+     representative_text: str
+@@ -52,16 +71,8 @@ class AmbiguityCheckResponse(BaseModel):
+     fallback_used: bool
+ 
+ 
+-@router.post("", response_model=AmbiguityCheckResponse)
+-def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+-    snippets = [
+-        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+-    ]
+-    result = detect_ambiguity(
+-        snippets,
+-        min_cluster_size=payload.min_cluster_size,
+-        similarity_threshold=payload.similarity_threshold,
+-    )
++def _to_check_response(result: AmbiguityResult) -> AmbiguityCheckResponse:
++    """Map a detector ``AmbiguityResult`` onto the HTTP response shape."""
+     return AmbiguityCheckResponse(
+         is_ambiguous=result.is_ambiguous,
+         clusters=[
+@@ -74,3 +85,42 @@ def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+         ],
+         fallback_used=result.fallback_used,
+     )
++
++
++@router.post("", response_model=AmbiguityCheckResponse)
++def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
++    snippets = [
++        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
++    ]
++    result = detect_ambiguity(
++        snippets,
++        min_cluster_size=payload.min_cluster_size,
++        similarity_threshold=payload.similarity_threshold,
++    )
++    return _to_check_response(result)
++
++
++@router.post("/scan", response_model=AmbiguityCheckResponse)
++async def scan_ambiguity(payload: AmbiguityScanRequest) -> AmbiguityCheckResponse:
++    """Question-only ambiguity check for the main create-run flow.
++
++    Fetches candidate snippets server-side via one cheap web search (the
++    "Phase 1" candidate retrieval the ``/ambiguity`` docstring
++    anticipated), then runs ``detect_ambiguity``. A candidate-fetch
++    failure (no ``SERPER_API_KEY``, search unreachable, zero results)
++    returns HTTP 503 ``candidate_fetch_unavailable`` rather than a
++    silent false-unambiguous result.
++    """
++    try:
++        snippets = await fetch_candidate_snippets(payload.question)
++    except CandidateFetchError as exc:
++        raise HTTPException(
++            status_code=503,
++            detail={
++                "error": True,
++                "code": "candidate_fetch_unavailable",
++                "message": str(exc),
++            },
++        ) from exc
++    result = detect_ambiguity(snippets)
++    return _to_check_response(result)
+diff --git a/tests/v6/test_ambiguity_scan.py b/tests/v6/test_ambiguity_scan.py
+new file mode 100644
+index 00000000..daefd403
+--- /dev/null
++++ b/tests/v6/test_ambiguity_scan.py
+@@ -0,0 +1,161 @@
++"""Tests for the I-rdy-009 (#505) question-only ambiguity scan.
++
++Covers:
++* ``fetch_candidate_snippets`` fail-loud behaviour — a missing
++  ``SERPER_API_KEY``, an HTTP failure, or a zero-snippet search raises
++  ``CandidateFetchError`` rather than returning ``[]`` (which would be a
++  silent false-unambiguous result).
++* ``POST /ambiguity/scan`` — 200 on a successful scan (ambiguous and
++  unambiguous), 503 ``candidate_fetch_unavailable`` on a fetch failure,
++  422 on a too-short question.
++
++``detect_ambiguity`` runs for real; only the Serper network boundary is
++stubbed, at ``candidate_fetcher._fetch_serper_organic`` (per CLAUDE.md
++§9.4 — do not mock the detector itself).
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++import httpx
++import pytest
++
++from polaris_v6.ambiguity_detector.candidate_fetcher import (
++    CandidateFetchError,
++    fetch_candidate_snippets,
++)
++
++_FETCH = "polaris_v6.ambiguity_detector.candidate_fetcher._fetch_serper_organic"
++
++# Four BPEI-style organic hits that cluster into two distinct meanings —
++# the same fixture text test_api_ambiguity.py uses for /ambiguity.
++_BPEI_ORGANIC = [
++    {"link": "https://med.example/1", "title": "BPEI in cardiology",
++     "snippet": "BPEI stands for blood pressure end-inspiration index in cardiovascular monitoring."},
++    {"link": "https://med.example/2", "title": "Respiratory BPEI",
++     "snippet": "Clinicians use BPEI as a blood pressure end-inspiration measurement during the respiratory cycle."},
++    {"link": "https://fin.example/1", "title": "BPEI investment products",
++     "snippet": "BPEI in finance refers to bank-protected enterprise investment instruments."},
++    {"link": "https://fin.example/2", "title": "Sovereign-guarantee BPEI",
++     "snippet": "Bank-protected enterprise investment (BPEI) products carry sovereign-guarantee structures."},
++]
++
++# Three near-identical hits — one meaning, not ambiguous.
++_HOUSING_ORGANIC = [
++    {"link": "https://h.example/1", "title": "Housing starts Q3 2025",
++     "snippet": "Canadian housing starts rose 3.4% in Q3 2025."},
++    {"link": "https://h.example/2", "title": "CMHC housing data",
++     "snippet": "CMHC reports housing starts up 3.4% in Q3 2025."},
++    {"link": "https://h.example/3", "title": "Q3 2025 starts",
++     "snippet": "Q3 2025 housing starts data confirms a 3.4% increase."},
++]
++
++
++def _returns(organic: list[dict]):
++    async def _fake(question, *, api_key, max_results, timeout_s):  # noqa: ARG001
++        return list(organic)
++
++    return _fake
++
++
++def _raises(exc: Exception):
++    async def _fake(question, *, api_key, max_results, timeout_s):  # noqa: ARG001
++        raise exc
++
++    return _fake
++
++
++# --------------------------------------------------------------------------
++# fetch_candidate_snippets — fail-loud guard
++# --------------------------------------------------------------------------
++
++def test_fetch_raises_when_serper_key_missing(monkeypatch):
++    monkeypatch.delenv("SERPER_API_KEY", raising=False)
++    monkeypatch.setattr(_FETCH, _returns(_BPEI_ORGANIC))
++    with pytest.raises(CandidateFetchError, match="SERPER_API_KEY"):
++        asyncio.run(fetch_candidate_snippets("What is BPEI?"))
++
++
++def test_fetch_raises_when_search_request_fails(monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(_FETCH, _raises(httpx.ConnectError("network down")))
++    with pytest.raises(CandidateFetchError, match="Serper web search failed"):
++        asyncio.run(fetch_candidate_snippets("What is BPEI?"))
++
++
++def test_fetch_raises_when_search_returns_nothing(monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(_FETCH, _returns([]))
++    with pytest.raises(CandidateFetchError, match="zero candidate snippets"):
++        asyncio.run(fetch_candidate_snippets("What is BPEI?"))
++
++
++def test_fetch_raises_when_all_hits_have_empty_text(monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(
++        _FETCH, _returns([{"link": "https://x.example/1", "title": "", "snippet": ""}])
++    )
++    with pytest.raises(CandidateFetchError, match="zero candidate snippets"):
++        asyncio.run(fetch_candidate_snippets("What is BPEI?"))
++
++
++def test_fetch_happy_path_maps_hits_to_snippets(monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(_FETCH, _returns(_BPEI_ORGANIC))
++    snippets = asyncio.run(fetch_candidate_snippets("What is BPEI?"))
++    assert len(snippets) == 4
++    assert snippets[0].source_id == "https://med.example/1"
++    assert "blood pressure" in snippets[0].text.lower()
++    # title and snippet are both present in the candidate text
++    assert "BPEI in cardiology" in snippets[0].text
++
++
++# --------------------------------------------------------------------------
++# POST /ambiguity/scan
++# --------------------------------------------------------------------------
++
++@pytest.fixture
++def client():
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    try:
++        from polaris_v6.api.app import create_app
++
++        app = create_app()
++    except OSError as exc:  # e.g. gpg binary unavailable on this host
++        pytest.skip(f"create_app() unavailable in this environment: {exc}")
++    return TestClient(app)
++
++
++def test_scan_detects_ambiguous_question(client, monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(_FETCH, _returns(_BPEI_ORGANIC))
++    response = client.post("/ambiguity/scan", json={"question": "What is BPEI?"})
++    assert response.status_code == 200
++    body = response.json()
++    assert body["is_ambiguous"] is True
++    assert len(body["clusters"]) >= 2
++
++
++def test_scan_unambiguous_question(client, monkeypatch):
++    monkeypatch.setenv("SERPER_API_KEY", "test-key")
++    monkeypatch.setattr(_FETCH, _returns(_HOUSING_ORGANIC))
++    response = client.post(
++        "/ambiguity/scan", json={"question": "Q3 2025 housing starts?"}
++    )
++    assert response.status_code == 200
++    assert response.json()["is_ambiguous"] is False
++
++
++def test_scan_503_when_candidate_fetch_unavailable(client, monkeypatch):
++    monkeypatch.delenv("SERPER_API_KEY", raising=False)
++    response = client.post("/ambiguity/scan", json={"question": "What is BPEI?"})
++    assert response.status_code == 503
++    assert response.json()["detail"]["code"] == "candidate_fetch_unavailable"
++
++
++def test_scan_rejects_short_question(client):
++    response = client.post("/ambiguity/scan", json={"question": "x"})
++    assert response.status_code == 422
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 565e7018..29d3bc03 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -2,8 +2,9 @@
+ 
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+-import { useEffect, useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ 
++import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -18,6 +19,7 @@ import {
+   checkScope,
+   createRun,
+   listTemplates,
++  scanAmbiguity,
+   uploadDocument,
+   type AmbiguityResult,
+   type ScopeDecision,
+@@ -66,6 +68,13 @@ function templatesToCards(
+   }));
+ }
+ 
++// I-rdy-009 (#505): tri-state hard gate for the clinical question-only
++// ambiguity scan. "Start run" is blocked for a clinical question-only run
++// unless a candidate-fetch + detect_ambiguity scan has *successfully*
++// completed — a failed or never-run scan must never fail open into
++// createRun.
++type ScanGate = "not_run" | "ok" | "failed";
++
+ export default function DashboardPage() {
+   const router = useRouter();
+   const [template, setTemplate] = useState<TemplateId>("clinical");
+@@ -81,8 +90,18 @@ export default function DashboardPage() {
+   const [dragOver, setDragOver] = useState(false);
+   const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+   const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
++  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
++  const [clinicalScanGate, setClinicalScanGate] = useState<ScanGate>("not_run");
+   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+ 
++  // I-rdy-009 (#505): monotonic scan generation. Every scan claims a
++  // generation at start; any input edit (invalidateAmbiguityScan) bumps it.
++  // An in-flight scan whose generation is stale on resolution discards its
++  // result — so a scan started for question A can never set the gate "ok"
++  // for an edited-to question B (a ref, so the bump is synchronous and the
++  // discard is order-independent of the resolving promise).
++  const scanGenerationRef = useRef(0);
++
+   useEffect(() => {
+     let cancelled = false;
+     listTemplates()
+@@ -99,6 +118,20 @@ export default function DashboardPage() {
+     };
+   }, []);
+ 
++  // I-rdy-009 (#505): any change to the question, template, or upload set
++  // invalidates a prior ambiguity scan. A stale "ok" gate must not let an
++  // edited question reach createRun without its own detect_ambiguity scan.
++  // Bumping the generation also cancels any in-flight scan. Called from the
++  // question / template / upload event handlers (not an effect — per the
++  // react-hooks/set-state-in-effect rule).
++  const invalidateAmbiguityScan = () => {
++    scanGenerationRef.current += 1;
++    setClinicalScanGate("not_run");
++    setAmbiguity(null);
++    setAcknowledgedAmbiguity(false);
++    setDisambigModalOpen(false);
++  };
++
+   const handleFiles = async (files: FileList | File[]) => {
+     const list = Array.from(files);
+     if (list.length === 0) return;
+@@ -111,6 +144,7 @@ export default function DashboardPage() {
+         results.push(result);
+       }
+       setUploads((prev) => [...prev, ...results]);
++      invalidateAmbiguityScan();
+     } catch (err) {
+       setError(err instanceof Error ? err.message : "Upload failed");
+     } finally {
+@@ -128,14 +162,23 @@ export default function DashboardPage() {
+ 
+   const runScopeCheck = async () => {
+     if (question.trim().length < 1) return;
++    // Claim a fresh generation; an edit mid-scan bumps past it and the
++    // result-application guards below will discard this scan's output.
++    const myGeneration = (scanGenerationRef.current += 1);
+     setScopeChecking(true);
+     setError(null);
+     setAmbiguity(null);
+     setAcknowledgedAmbiguity(false);
++    setDisambigModalOpen(false);
++    setClinicalScanGate("not_run");
++    // Captured here so the async branches below use a stable value.
++    const clinicalQuestionOnly = template === "clinical" && uploads.length === 0;
+     try {
+       const decision = await checkScope(template, question.trim());
++      if (scanGenerationRef.current !== myGeneration) return; // stale — discard
+       setScopeDecision(decision);
+       if (decision.verdict === "accepted" && uploads.length > 0) {
++        // Upload-backed ambiguity: candidates come from document chunks.
+         const candidates = uploads.flatMap((u, ui) =>
+           u.chunk_preview.map((text, ci) => ({
+             source_id: `${u.document_id}:${ui}-${ci}`,
+@@ -144,12 +187,27 @@ export default function DashboardPage() {
+         );
+         if (candidates.length > 0) {
+           const result = await checkAmbiguity(question.trim(), candidates);
++          if (scanGenerationRef.current !== myGeneration) return; // stale
+           setAmbiguity(result);
++          if (result.is_ambiguous) setDisambigModalOpen(true);
+         }
++      } else if (decision.verdict !== "rejected" && clinicalQuestionOnly) {
++        // Question-only clinical run: the backend fetches candidates and
++        // runs detect_ambiguity. A successful scan is mandatory before a
++        // run may start (see the onSubmit gate below).
++        const result = await scanAmbiguity(question.trim());
++        if (scanGenerationRef.current !== myGeneration) return; // stale
++        setAmbiguity(result);
++        setClinicalScanGate("ok");
++        if (result.is_ambiguous) setDisambigModalOpen(true);
+       }
+     } catch (err) {
++      if (scanGenerationRef.current !== myGeneration) return; // stale — discard
++      if (clinicalQuestionOnly) setClinicalScanGate("failed");
+       setError(err instanceof Error ? err.message : "Scope check failed");
+     } finally {
++      // Always clear the in-progress flag — only one runScopeCheck is ever
++      // in flight (the button is disabled while scopeChecking).
+       setScopeChecking(false);
+     }
+   };
+@@ -164,9 +222,24 @@ export default function DashboardPage() {
+       setError("Scope gate rejected this question. Reframe before submitting.");
+       return;
+     }
++    // I-rdy-009 (#505): a clinical question-only run must not start unless
++    // the ambiguity scan succeeded. A 503, a never-run scan, a post-scan
++    // edit, or a discarded stale in-flight scan all leave the gate != "ok".
++    if (
++      template === "clinical" &&
++      uploads.length === 0 &&
++      clinicalScanGate !== "ok"
++    ) {
++      setError(
++        clinicalScanGate === "failed"
++          ? "Ambiguity check is unavailable — retry Check scope before starting a run."
++          : "Run Check scope first — the ambiguity guard must complete for clinical questions.",
++      );
++      return;
++    }
+     if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+       setError(
+-        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
++        "Ambiguity detected. Resolve it in the disambiguation modal before starting a run.",
+       );
+       return;
+     }
+@@ -235,7 +308,10 @@ export default function DashboardPage() {
+                     type="button"
+                     role="radio"
+                     aria-checked={selected}
+-                    onClick={() => setTemplate(t.id)}
++                    onClick={() => {
++                      setTemplate(t.id);
++                      invalidateAmbiguityScan();
++                    }}
+                     className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                       selected
+                         ? "border-foreground"
+@@ -266,7 +342,10 @@ export default function DashboardPage() {
+               type="text"
+               placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+               value={question}
+-              onChange={(e) => setQuestion(e.target.value)}
++              onChange={(e) => {
++                setQuestion(e.target.value);
++                invalidateAmbiguityScan();
++              }}
+               minLength={4}
+               maxLength={2000}
+               required
+@@ -331,11 +410,12 @@ export default function DashboardPage() {
+                     </span>
+                     <button
+                       type="button"
+-                      onClick={() =>
++                      onClick={() => {
+                         setUploads((prev) =>
+                           prev.filter((p) => p.document_id !== u.document_id),
+-                        )
+-                      }
++                        );
++                        invalidateAmbiguityScan();
++                      }}
+                       className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                     >
+                       remove
+@@ -383,56 +463,46 @@ export default function DashboardPage() {
+             </Card>
+           )}
+ 
+-          {ambiguity?.is_ambiguous && (
+-            <Card
++          {/* I-rdy-009 (#505): inline notice — surfaces an unresolved
++              ambiguity and re-opens the disambiguation modal. The modal
++              itself (below) is the primary surface; this keeps the user
++              able to act after dismissing it, and explains why "Start run"
++              is blocked. */}
++          {ambiguity?.is_ambiguous && !acknowledgedAmbiguity && (
++            <div
+               role="status"
+               aria-live="polite"
+-              className="border-yellow-500/50 bg-yellow-50/40"
++              data-testid="dashboard-ambiguity-notice"
++              className="border-yellow-500/50 bg-yellow-50/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
+             >
+-              <CardHeader>
+-                <CardDescription className="text-xs tracking-widest uppercase">
+-                  Disambiguation needed (ambiguity guard)
+-                </CardDescription>
+-                <CardTitle className="text-base">
+-                  {ambiguity.clusters.length} possible meanings detected
+-                </CardTitle>
+-              </CardHeader>
+-              <CardContent>
+-                <p className="text-sm">
+-                  Your question or uploads suggest more than one topic. Pick one
+-                  to refine the question, or acknowledge to proceed with all of
+-                  them in scope.
+-                </p>
+-                <ul className="mt-3 flex flex-col gap-2 text-sm">
+-                  {ambiguity.clusters.map((c) => (
+-                    <li
+-                      key={c.cluster_id}
+-                      className="border-border bg-background rounded-md border p-2"
+-                    >
+-                      <span className="text-foreground font-medium">
+-                        Cluster {c.cluster_id + 1}:
+-                      </span>{" "}
+-                      <span className="text-muted-foreground">
+-                        {c.representative_text}
+-                      </span>
+-                    </li>
+-                  ))}
+-                </ul>
+-                <div className="mt-3 flex gap-2">
+-                  <Button
+-                    type="button"
+-                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+-                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+-                  >
+-                    {acknowledgedAmbiguity
+-                      ? "Acknowledged — will run on all clusters"
+-                      : "Acknowledge ambiguity"}
+-                  </Button>
+-                </div>
+-              </CardContent>
+-            </Card>
++              <span className="text-foreground">
++                Disambiguation needed — {ambiguity.clusters.length} possible
++                meanings detected. Resolve before starting a run.
++              </span>
++              <Button
++                type="button"
++                variant="outline"
++                onClick={() => setDisambigModalOpen(true)}
++              >
++                Review meanings
++              </Button>
++            </div>
+           )}
+ 
++          <DisambiguationModal
++            open={disambigModalOpen}
++            clusters={(ambiguity?.clusters ?? []).map((c) => ({
++              cluster_id: c.cluster_id,
++              label: c.representative_text.slice(0, 80),
++              sample_snippets: [c.representative_text],
++            }))}
++            onSelectCluster={() => {
++              setAcknowledgedAmbiguity(true);
++              setDisambigModalOpen(false);
++            }}
++            onCancel={() => setDisambigModalOpen(false)}
++          />
++
+           {error && (
+             <p
+               role="alert"
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index ca1f76fb..3997ac58 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -215,6 +215,23 @@ export async function checkAmbiguity(
+   return asJsonOrThrow<AmbiguityResult>(response);
+ }
+ 
++// I-rdy-009 (#505): question-only ambiguity scan for the create-run flow.
++// The backend fetches candidate snippets itself (one cheap web search),
++// so an ambiguous bare question triggers the disambiguation modal without
++// the caller having to supply candidates. A non-OK response (e.g. 503
++// candidate_fetch_unavailable) throws via asJsonOrThrow — the caller must
++// treat that as a hard failure, never a silent "not ambiguous".
++export async function scanAmbiguity(
++  question: string,
++): Promise<AmbiguityResult> {
++  const response = await authFetch(`${BACKEND_URL}/ambiguity/scan`, {
++    method: "POST",
++    headers: { "content-type": "application/json" },
++    body: JSON.stringify({ question }),
++  });
++  return asJsonOrThrow<AmbiguityResult>(response);
++}
++
+ export async function checkScope(
+   template: TemplateId,
+   question: string,
+diff --git a/web/tests/e2e/dashboard_ambiguity.spec.ts b/web/tests/e2e/dashboard_ambiguity.spec.ts
+new file mode 100644
+index 00000000..360fd4a9
+--- /dev/null
++++ b/web/tests/e2e/dashboard_ambiguity.spec.ts
+@@ -0,0 +1,193 @@
++import { expect, test } from "@playwright/test";
++
++// I-rdy-009 (#505): F2 ambiguity detection in the main create-run flow.
++// An ambiguous clinical question-only query must open the disambiguation
++// modal; a failed, stale, or in-flight-superseded ambiguity scan must
++// hard-block "Start run".
++
++const ACCEPTED_SCOPE = {
++  verdict: "accepted",
++  rationale: "In scope for the clinical template.",
++  refusals: [],
++  intended_source_tiers: ["T1"],
++};
++
++/** Mock GET /templates (mount) and POST /scope/check (Check scope). */
++async function mockBaseRoutes(page: import("@playwright/test").Page) {
++  await page.route("**/templates", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify([]),
++    });
++  });
++  await page.route("**/scope/check", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify(ACCEPTED_SCOPE),
++    });
++  });
++}
++
++test("ambiguous clinical question opens the disambiguation modal", async ({
++  page,
++}) => {
++  await mockBaseRoutes(page);
++  await page.route("**/ambiguity/scan", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        is_ambiguous: true,
++        clusters: [
++          {
++            cluster_id: 0,
++            representative_text:
++              "BPEI is the blood pressure end-inspiration index in cardiology.",
++            member_source_ids: ["m1"],
++          },
++          {
++            cluster_id: 1,
++            representative_text:
++              "BPEI is a bank-protected enterprise investment instrument.",
++            member_source_ids: ["f1"],
++          },
++        ],
++        fallback_used: true,
++      }),
++    });
++  });
++
++  await page.goto("/dashboard");
++  await page.locator("#question").fill("What is BPEI?");
++  await page.getByRole("button", { name: "Check scope" }).click();
++
++  // The disambiguation modal opens on its own — no extra click needed.
++  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
++  await expect(
++    page.locator('[data-testid^="disambiguation-cluster-"]'),
++  ).toHaveCount(2);
++});
++
++test("a 503 ambiguity scan hard-blocks Start run", async ({ page }) => {
++  await mockBaseRoutes(page);
++  await page.route("**/ambiguity/scan", async (route) => {
++    await route.fulfill({
++      status: 503,
++      contentType: "application/json",
++      body: JSON.stringify({
++        detail: {
++          error: true,
++          code: "candidate_fetch_unavailable",
++          message: "SERPER_API_KEY is unset.",
++        },
++      }),
++    });
++  });
++  let runs_called = false;
++  await page.route("**/runs", async (route) => {
++    runs_called = true;
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({ run_id: "must-not-happen" }),
++    });
++  });
++
++  await page.goto("/dashboard");
++  await page.locator("#question").fill("What is BPEI in cardiology?");
++  await page.getByRole("button", { name: "Check scope" }).click();
++  // The failed scan surfaces an error.
++  await expect(page.getByRole("alert")).toBeVisible();
++
++  await page.getByRole("button", { name: "Start run" }).click();
++  await expect(page.getByRole("alert")).toContainText(
++    "Ambiguity check is unavailable",
++  );
++  expect(runs_called).toBe(false);
++  expect(page.url()).toContain("/dashboard");
++});
++
++test("editing the question after a scan re-blocks Start run (stale gate)", async ({
++  page,
++}) => {
++  await mockBaseRoutes(page);
++  await page.route("**/ambiguity/scan", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        is_ambiguous: false,
++        clusters: [],
++        fallback_used: true,
++      }),
++    });
++  });
++  let runs_called = false;
++  await page.route("**/runs", async (route) => {
++    runs_called = true;
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({ run_id: "must-not-happen" }),
++    });
++  });
++
++  await page.goto("/dashboard");
++  await page.locator("#question").fill("Does aspirin reduce headaches in adults?");
++  await page.getByRole("button", { name: "Check scope" }).click();
++  // A successful unambiguous scan — the scope decision card appears.
++  await expect(page.getByText("Scope discovery")).toBeVisible();
++
++  // Edit the question: this invalidates the prior scan's "ok" gate.
++  await page.locator("#question").fill("Does ibuprofen reduce fever in children?");
++  await page.getByRole("button", { name: "Start run" }).click();
++  await expect(page.getByRole("alert")).toContainText("Run Check scope first");
++  expect(runs_called).toBe(false);
++  expect(page.url()).toContain("/dashboard");
++});
++
++test("editing the question during an in-flight scan re-blocks Start run", async ({
++  page,
++}) => {
++  await mockBaseRoutes(page);
++  await page.route("**/ambiguity/scan", async (route) => {
++    // Slow scan — opens a window to edit the question while it is in flight.
++    await new Promise((resolve) => setTimeout(resolve, 600));
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        is_ambiguous: false,
++        clusters: [],
++        fallback_used: true,
++      }),
++    });
++  });
++  let runs_called = false;
++  await page.route("**/runs", async (route) => {
++    runs_called = true;
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({ run_id: "must-not-happen" }),
++    });
++  });
++
++  await page.goto("/dashboard");
++  await page.locator("#question").fill("Does aspirin reduce headaches in adults?");
++  // Start the scan, then edit the question while it is still in flight —
++  // the resolving scan must NOT set the gate "ok" for the edited question.
++  await page.getByRole("button", { name: "Check scope" }).click();
++  await page.locator("#question").fill("Does ibuprofen reduce fever in children?");
++  // Wait for the (now stale) scan to resolve — Check scope re-enables.
++  await expect(
++    page.getByRole("button", { name: "Check scope" }),
++  ).toBeEnabled();
++
++  await page.getByRole("button", { name: "Start run" }).click();
++  await expect(page.getByRole("alert")).toContainText("Run Check scope first");
++  expect(runs_called).toBe(false);
++  expect(page.url()).toContain("/dashboard");
++});
+# canonical-diff-sha256: eaa4f74c7bbb4b60e4d960fcaec083308a0d466ea38c1cb1297991072e066150

@@ -1,0 +1,4531 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e30fe-5031-7733-90bb-201475f66940
+--------
+user
+# Codex BRIEF review — I-rdy-009 (#505): wire ambiguity_detector into the ask/create-run flow
+
+**Type:** BRIEF review (acceptance-criteria + scope correctness). Phase 3.6 of the
+Carney demo execution plan. **iter 2 of 5.**
+
+## §0. Iteration cap directive (CLAUDE.md §8.3.1, verbatim, binding)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## §0.5 Changes since iter 1 (what your REQUEST_CHANGES fixed)
+
+iter-1 returned **REQUEST_CHANGES**. Your three findings, all accepted, all addressed:
+
+1. **P1 — false backend contract (FIXED).** iter-1 Option A claimed `/api/intake`
+   returns `candidate_snippets` / `needs_disambiguation` server-side. **You were
+   right — it does not.** I verified directly: `src/polaris_graph/scope/scope_decision.py:127`
+   `ScopeDecision` has fields `status, scope_class, ambiguity_axes,
+   clarifications_needed, provenance, decision_id, decided_at_utc, latency_ms` —
+   **no `candidate_snippets`, no `needs_disambiguation`.** `intake_route.py:93`
+   returns exactly `ScopeDecision.model_dump(mode="json")`. Those two fields exist
+   ONLY as optional types in `web/lib/api.ts:419-420`. So `runDisambiguation` /
+   `/api/disambiguation` is unreachable from the real intake response — iter-1's
+   Option A was not executable. **This brief drops the `/api/intake` path entirely.**
+2. **scope_ruling = option-C (ADOPTED).** Clinical-template-only coverage for #505;
+   non-clinical question-only ambiguity = carved follow-up. And your amendment:
+   Option A insufficient frontend-only → **this brief adopts your option (a)**: build
+   a real clinical candidate-snippet source feeding the detector. (Option (b),
+   narrowing acceptance to the PICO `AmbiguityModal`, is rejected — see §3.0.)
+3. **P2 — `/api/disambiguation` is not external-call-free (NOTED).** It labels
+   clusters via OpenRouter (`disambiguation_route.py:65,89-92`). Irrelevant now
+   because this brief does **not** use `/api/disambiguation` — but recorded so the
+   claim is not repeated.
+
+`modal_location_ruling = import-in-place` (iter-1) is honored — §3.3 reuses the
+existing `DisambiguationModal` component in place; no new modal, no promotion.
+
+## §1. Issue + acceptance
+
+GH #505 (I-rdy-009, Phase 3.6): "F2 ambiguity detection runs in the **main
+ask/create-run flow**, not only the test harness. **Acceptance: an ambiguous query
+triggers the disambiguation modal in the product flow; Codex APPROVE.**" Depends on
+I-rdy-003 (done).
+
+The issue title names `ambiguity_detector`. That is the module
+`src/polaris_v6/ambiguity_detector/` → `detect_ambiguity()`, exposed as
+`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`). This brief wires **that**
+detector. (It is NOT the slice-001 PICO scope-axes detector — that is a different
+mechanism; see §3.0.)
+
+## §2. Grounded current state (all files read this iter)
+
+- **`/dashboard` (`web/app/dashboard/page.tsx`) is the main create-run flow:**
+  template + question → "Check scope" (`checkScope` → `POST /scope/check`) →
+  "Start run" (`createRun` → `POST /runs` → redirect `/runs/{id}`).
+- **The dashboard ALREADY calls the ambiguity detector — but the path is dead for
+  question-only queries.** `runScopeCheck` (`page.tsx:138-149`) runs
+  `checkAmbiguity` only `if (decision.verdict === "accepted" && uploads.length > 0)`,
+  and the candidates are built **solely from uploaded-document `chunk_preview`s**.
+  A question-only query (no uploads — the common demo case) **never reaches
+  `detect_ambiguity`**. When it does fire (uploads present), it renders an inline
+  ambiguity **card** (`page.tsx:386-434`), not a modal.
+- **`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`)** body:
+  `{question, candidates: list[{source_id, text}], min_cluster_size,
+  similarity_threshold}`. `candidates` is `Field(..., min_length=0)` — empty is
+  allowed, and `detect_ambiguity([])` returns `is_ambiguous=False, fallback_used=True`.
+  **So `/ambiguity` called with no candidates always says "not ambiguous"** — it
+  needs a candidate source to be useful for a bare question.
+- **`detect_ambiguity` (`ambiguity_detector.py:108`)** is pure-Python (trigram-cosine
+  greedy clustering — no embeddings, no LLM, no network). It consumes
+  `list[CandidateSnippet(source_id, text)]`; ≥2 qualifying clusters ⇒ ambiguous.
+  Its own docstring + the `/ambiguity` request docstring both name the missing
+  piece: *"Phase 1: backend fetches via cheap retrieval before this call."*
+  **That cheap candidate-fetcher was never built.** That gap IS issue #505.
+- **`web/lib/api.ts:201-217`** `checkAmbiguity(question, candidates)` →
+  `POST /ambiguity` → `AmbiguityResult {is_ambiguous, clusters:
+  [{cluster_id, representative_text, member_source_ids}], fallback_used}`.
+- **`DisambiguationModal` (`web/app/intake/components/disambiguation_modal.tsx`)** —
+  a `@base-ui/react` `Dialog`. Props `{open, clusters: DisambiguationCluster[],
+  onSelectCluster(id), onCancel}`; `DisambiguationCluster = {cluster_id, label,
+  sample_snippets[]}`. It is the literal "disambiguation modal." Shape differs from
+  `AmbiguityResult.clusters` (`representative_text`/`member_source_ids` vs
+  `label`/`sample_snippets`) → a 3-line adapter bridges them (§3.3).
+- **Cheapest reusable search helper for candidate snippets:** `SerperClient`
+  (`src/search/serper_client.py`) — `get_serper_client().search(query, max_results)`
+  is **async**, returns `list[SerperResult]` each with `.url/.title/.snippet`, and
+  degrades gracefully when `SERPER_API_KEY` is unset (`enabled=False`, `.search()`
+  raises `SerperError` — catchable). It is the same Serper backend slice-002
+  production retrieval already uses (`polaris_graph/retrieval2/real_fetcher.py`).
+  Chosen over `real_fetcher.RealFetcher` because the latter is sync and raises
+  `RuntimeError` at construction on a missing key (hard 500, no graceful 503).
+
+## §3. The plan — Codex option (a): cheap clinical candidate-snippet source
+
+### §3.0 Why option (a), not option (b)
+
+Your iter-1 amendment offered (a) build a candidate source, or (b) narrow
+acceptance to the PICO `AmbiguityModal`. **Option (b) is rejected:** the PICO
+`AmbiguityModal` is driven by `ScopeDecision.status=="ambiguous_needs_clarification"`
++ `ambiguity_axes` — the **scope classifier's** PICO axes, a *different mechanism*
+from `detect_ambiguity` (candidate-clustering). Issue #505's title says
+`ambiguity_detector`, which IS `detect_ambiguity`. Wiring the PICO modal would
+satisfy the word "modal" while leaving `ambiguity_detector` still unwired — i.e.
+it under-delivers the issue. So **option (a).**
+
+### §3.1 Backend — a cheap candidate-fetcher (clinical-scoped)
+
+New module `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` (~45 LOC):
+
+```
+async def fetch_candidate_snippets(question: str, *, max_results: int = 10)
+    -> list[CandidateSnippet]
+```
+
+One `await get_serper_client().search(question, max_results=max_results)` call;
+map each `SerperResult` → `CandidateSnippet(source_id=result.url,
+text=f"{result.title}. {result.snippet}".strip())`; drop empty-text results.
+**Fail-loud per LAW II:** if `SERPER_API_KEY` is unset the helper lets
+`SerperError` propagate (no silent empty list — an empty list would falsely read
+as "unambiguous").
+
+### §3.2 Backend — a question-only endpoint on the existing ambiguity router
+
+New route in `src/polaris_v6/api/ambiguity.py` (~30 LOC), on the **existing**
+`APIRouter(prefix="/ambiguity")` (already mounted — the dashboard reaches
+`/ambiguity` today, so `/ambiguity/scan` auto-mounts):
+
+```
+POST /ambiguity/scan   body {question: str}   -> AmbiguityCheckResponse
+```
+
+`await fetch_candidate_snippets(question)` → `detect_ambiguity(snippets)` →
+return the **same `AmbiguityCheckResponse` shape** `/ambiguity` already returns.
+On `SerperError` → `HTTPException(503, {"code": "candidate_fetch_unavailable",
+...})` — mirroring the `/api/disambiguation` `label_client_unavailable` 503
+precedent (`disambiguation_route.py:89-92`). A separate route (not extending
+`/ambiguity`) keeps the upload-candidate path and its sync contract untouched.
+
+### §3.3 Frontend — dashboard clinical-template wiring → DisambiguationModal
+
+- `web/lib/api.ts`: add `scanAmbiguity(question) -> AmbiguityResult` →
+  `POST /ambiguity/scan` (~14 LOC).
+- `web/app/dashboard/page.tsx`: in `runScopeCheck`, when
+  `decision.verdict === "accepted" && template === "clinical" &&
+  uploads.length === 0`, call `scanAmbiguity(question.trim())`. (The existing
+  `uploads.length > 0` branch is unchanged — uploads still use `checkAmbiguity`.)
+- **Replace the inline ambiguity card (`page.tsx:386-434`) with the imported
+  `DisambiguationModal`** (`import-in-place` per your iter-1 ruling). 3-line
+  adapter `AmbiguityCluster[] → DisambiguationCluster[]`:
+  `{cluster_id, label: representative_text.slice(0,80), sample_snippets:
+  [representative_text]}`.
+- Modal behaviour: `onSelectCluster` → set `acknowledgedAmbiguity = true`, close
+  modal (user has picked which meaning they intend; the existing pre-`createRun`
+  gate `ambiguity?.is_ambiguous && !acknowledgedAmbiguity` at `page.tsx:167`
+  already blocks "Start run" until then). `onCancel` → close modal, user edits
+  the question. No createRun-gate logic changes — only its trigger surface.
+- e2e Playwright spec `web/tests/e2e/dashboard_ambiguity.spec.ts`: an ambiguous
+  clinical query in the dashboard flow opens `DisambiguationModal` (route-mock
+  `/ambiguity/scan`, mirroring `web/tests/e2e/intake_disambiguation.spec.ts`).
+
+**Honest environment note:** `web/` is Next.js 16 (`web/AGENTS.md` — read
+`node_modules/next/dist/docs/` before frontend code). `npm run build`/Playwright
+may be environment-limited in the autonomous session; if so the diff ships with
+the spec authored + lint/type-check run as far as the env allows + a clear note
+that the e2e run is CI-verified.
+
+## §4. Deliverable files + LOC estimate + cap question
+
+| File | New/Mod | ~LOC |
+|---|---|---|
+| `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` | new | 45 |
+| `src/polaris_v6/api/ambiguity.py` | mod (+endpoint) | 30 |
+| `tests/v6/test_ambiguity_scan.py` | new (fetcher + endpoint, real `detect_ambiguity`, Serper stubbed at the `get_serper_client` boundary) | 60 |
+| `web/lib/api.ts` | mod (+`scanAmbiguity`) | 14 |
+| `web/app/dashboard/page.tsx` | mod (card→modal, scan call, adapter) | ~95 churn (~50 del + ~45 add) |
+| `web/tests/e2e/dashboard_ambiguity.spec.ts` | new | 55 |
+
+**Estimated isolated-code diff: ~260 LOC churn** (the new-retrieval-code portion
+itself is only ~75 LOC — well under the ~120 threshold that would force carving
+the fetcher into its own issue; the size is dominated by the card→modal
+replacement churn + e2e). This exceeds the 200-LOC PR cap. **Codex please rule
+`loc_disposition`:**
+
+- **(i) cap-exemption, single PR (recommended).** Backend endpoint + frontend
+  caller + e2e are one coherent feature; splitting leaves either a backend
+  endpoint with no caller or a frontend caller hitting a 404 for a full review
+  cycle — a worse reviewable state than one slightly-over-cap diff.
+- **(ii) carve into 2 PRs.** PR-1 = `candidate_fetcher.py` + `/ambiguity/scan` +
+  `test_ambiguity_scan.py` (~135 LOC); PR-2 (#505 proper) = `api.ts` + dashboard
+  + e2e (~165 LOC), depends on PR-1. Each under cap; adds one cycle.
+
+## §5. Adjacent-file scan — files I have ALSO checked and they're clean
+
+`src/polaris_v6/api/app.py` (router mounting; appeared in the `serper` grep —
+will confirm at implement-time whether it already references a serper helper),
+`src/polaris_v6/api/scope.py`, `src/polaris_v6/api/runs.py`,
+`src/polaris_v6/ambiguity_detector/__init__.py` (exports `CandidateSnippet,
+detect_ambiguity` — `candidate_fetcher` will be added to `__all__`),
+`src/search/serper_client.py`, `src/polaris_graph/retrieval2/real_fetcher.py`,
+`src/polaris_graph/api/intake_route.py`, `src/polaris_graph/scope/scope_decision.py`,
+`src/polaris_graph/api/disambiguation_route.py`,
+`web/app/intake/components/disambiguation_modal.tsx`,
+`web/app/intake/components/intake_form.tsx`, `web/app/dashboard/page.tsx`,
+`web/lib/api.ts`. The `DisambiguationModal` internals were read for exact props.
+
+## §6. Questions for Codex
+
+1. **`loc_disposition`** — (i) cap-exemption single PR, or (ii) carve into 2 PRs?
+   (Recommendation: (i).)
+2. **`search_backend_ruling`** — the candidate-fetcher reuses `SerperClient`
+   (Serper.dev), the SAME runtime search backend slice-002 production retrieval
+   already uses. No new sovereignty surface is introduced versus HEAD; any future
+   sovereign-search migration is a single-helper swap shared with the retrieval
+   layer. Acceptable, or should #505 gate on a sovereign search backend?
+3. **`label_ruling`** — `/ambiguity` produces no LLM cluster label, only
+   `representative_text`; the adapter truncates `representative_text` to 80 chars
+   as `DisambiguationModal`'s `label`. Acceptable for the demo, or P-level concern?
+4. Any P0/P1 execution risk in §3.
+
+## §7. Output schema (CLAUDE.md §8.3.9 — bind to this)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+loc_disposition: <single-pr-cap-exemption | carve-2-pr + reasoning>
+search_backend_ruling: <serper-ok | requires-sovereign-backend + reasoning>
+label_ruling: <truncated-representative-text-ok | other>
+convergence_call: continue | accept_remaining
+verdict_reasoning: <text>
+```
+Loose prose without the schema → resubmit.
+
+codex
+I’ll verify the brief against the current code paths and contracts before ruling. I’m focusing on whether the proposed endpoint/caller can actually satisfy #505 without introducing a blocking scope or runtime risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class ScopeDecision|def detect_ambiguity|APIRouter|AmbiguityCheck|checkAmbiguity|runScopeCheck|DisambiguationModal|SerperClient|get_serper_client|createRun|POST /ambiguity|ambiguity" src web tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files src web tests | rg "(ambiguity|dashboard|serper|scope|runs|intake|AGENTS|CLAUDE)"' in C:\POLARIS
+ succeeded in 788ms:
+tests\v6\test_scope.py
+tests\v6\test_api_health_and_runs.py
+tests\v6\test_api_ambiguity.py
+tests\v6\test_ambiguity_detector.py
+tests\v3\test_scope.py
+tests\integration\test_serper_sync.py
+tests\scripts\test_aggregate_beat_both_runs.py
+tests\unit\test_live_dashboard_playwright.py
+web\CLAUDE.md
+tests\screenshots\campaigns\01_dashboard_loaded_user_mode.png
+tests\screenshots\campaigns\01_dashboard_loaded.png
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+tests\v6\acceptance\test_runs_db_integration.py
+web\screenshots\dashboard_empty.png
+web\screenshots\research_dashboard_scope_accepted.png
+web\screenshots\research_dashboard.png
+web\screenshots\research_dashboard_scope_rejected.png
+tests\polaris_v6\queue\test_template_to_scope_domain.py
+web\tests\e2e\visual.spec.ts-snapshots\dashboard-initial-chromium-win32.png
+web\AGENTS.md
+tests\e2e\dashboard_tests.py
+src\search\serper_client.py
+web\app\dashboard\page.tsx
+web\app\intake\page.tsx
+web\app\intake\components\scope_decision_view.tsx
+web\app\intake\components\pdf_drop_banner.tsx
+web\app\intake\components\intake_form.tsx
+web\app\intake\components\disambiguation_modal.tsx
+web\app\intake\components\ambiguity_modal.tsx
+src\polaris_v6\scope\__init__.py
+src\polaris_v6\scope\decision.py
+tests\polaris_graph\api\test_intake_route.py
+tests\polaris_graph\api\test_intake_orchestrator.py
+tests\polaris_graph\scope\__init__.py
+tests\polaris_graph\scope\test_scope_decision.py
+tests\polaris_graph\scope\test_default_llm_completion_async_fix.py
+tests\polaris_graph\scope\test_clinical_classifier.py
+tests\polaris_graph\scope\test_classifier_llm_fallback.py
+tests\polaris_graph\scope\test_ambiguity_detector.py
+web\app\runs\[runId]\page.tsx
+web\app\runs\[runId]\graph\page.tsx
+tests\polaris_graph\intake\__init__.py
+tests\polaris_graph\intake\test_question_normalizer.py
+tests\polaris_graph\intake\test_disambiguation_clusterer.py
+tests\polaris_graph\intake\test_cluster_labeler.py
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py
+tests\polaris_graph\test_m_int_4_scope_llm_integration.py
+tests\polaris_graph\test_md5_scope_classifier.py
+tests\polaris_graph\test_scope_query_validator.py
+tests\polaris_graph\test_scope_gate.py
+src\polaris_v6\api\scope.py
+src\polaris_v6\api\runs.py
+src\polaris_v6\api\ambiguity.py
+web\app\runs\[runId]\graph\components\use_graph_state.ts
+web\app\runs\[runId]\graph\components\snowball.ts
+web\app\runs\[runId]\graph\components\graph_styles.ts
+web\app\runs\[runId]\graph\components\graph_export_buttons.tsx
+web\app\runs\[runId]\graph\components\graph_export.ts
+web\app\runs\[runId]\graph\components\claim_graph.tsx
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx
+src\polaris_v6\ambiguity_detector\__init__.py
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py
+src\polaris_graph\dashboard.py
+src\polaris_graph\api\intake_route.py
+src\polaris_graph\api\intake.py
+src\polaris_graph\audit_ir\scope_classifier_llm.py
+src\polaris_graph\audit_ir\scope_classifier.py
+src\polaris_graph\intake\disambiguation_clusterer.py
+src\polaris_graph\intake\cluster_labeler.py
+src\polaris_graph\intake\question_normalizer.py
+src\polaris_graph\intake\__init__.py
+src\polaris_graph\nodes\scope.py
+src\polaris_graph\nodes\scope_gate.py
+src\polaris_graph\scope\clinical_classifier.py
+src\polaris_graph\scope\ambiguity_detector_clinical.py
+src\polaris_graph\scope\scope_decision.py
+src\polaris_graph\scope\__init__.py
+src\polaris_graph\scope\patterns\pico_patterns.yaml
+src\polaris_graph\scope\patterns\out_of_scope_patterns.yaml
+src\polaris_graph\retrieval\scope_query_validator.py
+
+ succeeded in 797ms:
+tests\polaris_v6\api\test_app_slice_route_mount.py:65:        "ambiguity_axes": [
+tests\polaris_v6\api\test_app_slice_route_mount.py:180:        "ambiguity_axes": [
+tests\polaris_graph\scope\test_scope_decision.py:53:def test_ambiguity_axis_single_interpretation_not_ambiguous():
+tests\polaris_graph\scope\test_scope_decision.py:62:def test_ambiguity_axis_multiple_interpretations_needs_clarification():
+tests\polaris_graph\scope\test_scope_decision.py:71:def test_ambiguity_axis_rejects_empty_interpretations():
+tests\polaris_graph\scope\test_scope_decision.py:80:def test_ambiguity_axis_rejects_more_than_5_interpretations():
+tests\polaris_graph\scope\test_scope_decision.py:89:def test_ambiguity_axis_rejects_invalid_axis():
+tests\polaris_graph\scope\test_scope_decision.py:116:def test_ambiguity_axes_all_clear_not_ambiguous():
+tests\polaris_graph\scope\test_scope_decision.py:126:def test_ambiguity_axes_one_ambiguous_propagates():
+tests\polaris_graph\scope\test_scope_decision.py:136:def test_ambiguity_axes_field_axis_must_match_name():
+tests\polaris_graph\scope\test_scope_decision.py:153:    assert d.ambiguity_axes == []
+tests\polaris_graph\scope\test_scope_decision.py:180:        scope_class=None, ambiguity=None,
+tests\polaris_graph\scope\test_scope_decision.py:186:    assert d.ambiguity_axes == []
+tests\polaris_graph\scope\test_scope_decision.py:193:    d = assemble_scope_decision(scope_class=sc, ambiguity=None, latency_ms=5)
+tests\polaris_graph\scope\test_scope_decision.py:197:    assert d.ambiguity_axes == []
+tests\polaris_graph\scope\test_scope_decision.py:201:def test_assemble_in_scope_no_ambiguity():
+tests\polaris_graph\scope\test_scope_decision.py:209:    d = assemble_scope_decision(scope_class=sc, ambiguity=axes, latency_ms=12)
+tests\polaris_graph\scope\test_scope_decision.py:212:    assert len(d.ambiguity_axes) == 3
+tests\polaris_graph\scope\test_scope_decision.py:214:    assert d.provenance["ambiguity_detector_layer"] == "pico_axes_v1"
+tests\polaris_graph\scope\test_scope_decision.py:217:def test_assemble_in_scope_with_outcome_ambiguity():
+tests\polaris_graph\scope\test_scope_decision.py:225:    d = assemble_scope_decision(scope_class=sc, ambiguity=axes, latency_ms=8)
+tests\polaris_graph\scope\test_scope_decision.py:231:def test_assemble_in_scope_with_multi_axis_ambiguity():
+tests\polaris_graph\scope\test_scope_decision.py:239:    d = assemble_scope_decision(scope_class=sc, ambiguity=axes)
+tests\polaris_graph\scope\test_scope_decision.py:248:def test_assemble_raises_when_in_scope_classifier_but_no_ambiguity():
+tests\polaris_graph\scope\test_scope_decision.py:250:    with pytest.raises(ValueError, match="ambiguity is required"):
+tests\polaris_graph\scope\test_scope_decision.py:251:        assemble_scope_decision(scope_class=sc, ambiguity=None)
+tests\polaris_graph\scope\test_scope_decision.py:256:        assemble_scope_decision(scope_class=None, ambiguity=None, refused=False)
+tests\polaris_graph\scope\test_scope_decision.py:269:    d = assemble_scope_decision(scope_class=sc, ambiguity=axes, latency_ms=12)
+tests\polaris_graph\scope\test_ambiguity_detector.py:1:"""Tests for ambiguity_detector_clinical — PICO axes detection."""
+tests\polaris_graph\scope\test_ambiguity_detector.py:7:from polaris_graph.scope.ambiguity_detector_clinical import detect_ambiguity
+tests\polaris_graph\scope\test_ambiguity_detector.py:10:# ---------- Population ambiguity ----------
+tests\polaris_graph\scope\test_ambiguity_detector.py:14:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:24:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:31:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:39:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:45:# ---------- Intervention ambiguity ----------
+tests\polaris_graph\scope\test_ambiguity_detector.py:49:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:58:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:66:    result = detect_ambiguity("Does drug therapy improve pain")
+tests\polaris_graph\scope\test_ambiguity_detector.py:70:# ---------- Outcome ambiguity ----------
+tests\polaris_graph\scope\test_ambiguity_detector.py:74:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:83:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:92:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:101:def test_multiple_ambiguity_axes_at_once():
+tests\polaris_graph\scope\test_ambiguity_detector.py:103:    (cardiovascular) ambiguity. Both should be flagged."""
+tests\polaris_graph\scope\test_ambiguity_detector.py:104:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:114:def test_no_ambiguity_when_question_fully_specified():
+tests\polaris_graph\scope\test_ambiguity_detector.py:116:    result = detect_ambiguity(
+tests\polaris_graph\scope\test_ambiguity_detector.py:129:    result = detect_ambiguity("Does aspirin help adults?")
+tests\polaris_graph\scope\test_ambiguity_detector.py:137:    result = detect_ambiguity("Does metformin reduce all-cause mortality at 12 months in patients with diabetes type 2?")
+tests\polaris_graph\scope\test_ambiguity_detector.py:147:        detect_ambiguity(42)  # type: ignore[arg-type]
+tests\polaris_graph\scope\test_ambiguity_detector.py:154:    r1 = detect_ambiguity(text)
+tests\polaris_graph\scope\test_ambiguity_detector.py:155:    r2 = detect_ambiguity(text)
+tests\polaris_graph\scope\test_ambiguity_detector.py:166:    result = detect_ambiguity("does X help Y in Z")
+tests\polaris_graph\scope\test_ambiguity_detector.py:167:    # No population/intervention/outcome ambiguity terms matched
+tests\polaris_graph\retrieval2\test_query_planner.py:58:        ambiguity_axes=axes,
+tests\polaris_graph\retrieval2\test_clinical_retriever.py:68:        ambiguity_axes=axes,
+tests\polaris_graph\retrieval2\test_clinical_retriever.py:121:    runs after the user has resolved ambiguity."""
+tests\polaris_graph\golden\test_slice_004_goldens.py:112:        ambiguity_axes=[
+tests\polaris_graph\golden\test_slice_001_goldens.py:154:    expected_axes = expected.get("ambiguity_axes", [])
+tests\polaris_graph\golden\test_slice_001_goldens.py:155:    assert len(result.ambiguity_axes) == len(expected_axes), (
+tests\polaris_graph\golden\test_slice_001_goldens.py:156:        f"{golden_path.name}: ambiguity_axes count mismatch — "
+tests\polaris_graph\golden\test_slice_001_goldens.py:157:        f"got {len(result.ambiguity_axes)}, expected {len(expected_axes)}"
+tests\polaris_graph\golden\test_slice_001_goldens.py:161:    for actual_axis, expected_axis in zip(result.ambiguity_axes, expected_axes):
+src\search\__init__.py:29:    SerperClient,
+src\search\__init__.py:32:    get_serper_client,
+src\search\__init__.py:59:    "SerperClient",
+src\search\__init__.py:62:    "get_serper_client",
+tests\polaris_graph\benchmark\test_polaris_runner.py:48:            "ambiguity_axes": [],
+src\search\serper_client.py:29:    from src.search.serper_client import SerperClient
+src\search\serper_client.py:30:    client = SerperClient()
+src\search\serper_client.py:179:class SerperClient:
+src\search\serper_client.py:939:_serper_client: Optional[SerperClient] = None
+src\search\serper_client.py:942:def get_serper_client() -> SerperClient:
+src\search\serper_client.py:946:        _serper_client = SerperClient()
+src\search\serper_client.py:955:    "SerperClient",
+src\search\serper_client.py:962:    "get_serper_client",
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:47:        ambiguity_axes=[
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:70:        ambiguity_axes=[
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:78:        ambiguity_axes=[
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:46:        ambiguity_axes=[
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:71:        ambiguity_axes=[
+tests\v6\test_api_ambiguity.py:1:"""Tests for the F2 /ambiguity endpoint."""
+tests\v6\test_api_ambiguity.py:17:def test_check_ambiguity_unambiguous_housing(client):
+tests\v6\test_api_ambiguity.py:19:        "/ambiguity",
+tests\v6\test_api_ambiguity.py:34:def test_check_ambiguity_bpei_pattern(client):
+tests\v6\test_api_ambiguity.py:36:        "/ambiguity",
+tests\v6\test_api_ambiguity.py:68:def test_check_ambiguity_rejects_short_question(client):
+tests\v6\test_api_ambiguity.py:70:        "/ambiguity",
+tests\v6\test_api_ambiguity.py:79:def test_check_ambiguity_empty_candidates(client):
+tests\v6\test_api_ambiguity.py:81:        "/ambiguity",
+tests\v6\test_ambiguity_detector.py:1:"""Tests for the F2 ambiguity detector.
+tests\v6\test_ambiguity_detector.py:11:from polaris_v6.ambiguity_detector import (
+tests\v6\test_ambiguity_detector.py:14:    detect_ambiguity,
+tests\v6\test_ambiguity_detector.py:24:    result = detect_ambiguity(snippets, min_cluster_size=2)
+tests\v6\test_ambiguity_detector.py:28:def test_bpei_pattern_detects_ambiguity():
+tests\v6\test_ambiguity_detector.py:47:    result = detect_ambiguity(snippets, min_cluster_size=2)
+tests\v6\test_ambiguity_detector.py:53:    result = detect_ambiguity([], min_cluster_size=2)
+tests\v6\test_ambiguity_detector.py:64:    result = detect_ambiguity(snippets, min_cluster_size=2)
+tests\v6\test_ambiguity_detector.py:75:    result = detect_ambiguity(
+tests\polaris_graph\api\test_retrieval_route.py:46:        "ambiguity_axes": [
+tests\polaris_graph\api\test_retrieval_route.py:90:    payload["ambiguity_axes"] = []
+tests\polaris_graph\api\test_retrieval_route.py:104:    payload["ambiguity_axes"] = []
+tests\polaris_graph\api\test_intake_route.py:70:def test_intake_post_pico_ambiguity_returns_clarifications(client: TestClient):
+tests\polaris_graph\api\test_intake_route.py:84:        (a for a in body["decision"]["ambiguity_axes"] if a["axis"] == "population"),
+tests\polaris_graph\api\test_intake_route.py:142:    assert "ambiguity_axes" in decision
+tests\polaris_graph\api\test_intake_orchestrator.py:3:These tests exercise the full pipeline (normalize → classify → ambiguity →
+tests\polaris_graph\api\test_intake_orchestrator.py:18:    """test_001: well-formed clinical question with outcome ambiguity only."""
+tests\polaris_graph\api\test_intake_orchestrator.py:27:    outcome_axis = next(a for a in result.ambiguity_axes if a.axis == "outcome")
+tests\polaris_graph\api\test_intake_orchestrator.py:32:    """test_002: diabetes (population type ambiguity) + cardiovascular outcomes."""
+tests\polaris_graph\api\test_intake_orchestrator.py:39:    pop_axis = next(a for a in result.ambiguity_axes if a.axis == "population")
+tests\polaris_graph\api\test_intake_orchestrator.py:40:    out_axis = next(a for a in result.ambiguity_axes if a.axis == "outcome")
+tests\polaris_graph\api\test_intake_orchestrator.py:47:    """test_003: physical therapy modality ambiguity."""
+tests\polaris_graph\api\test_intake_orchestrator.py:53:    intervention_axis = next(a for a in result.ambiguity_axes if a.axis == "intervention")
+tests\polaris_graph\api\test_intake_orchestrator.py:64:    assert result.ambiguity_axes == []
+tests\polaris_graph\api\test_intake_orchestrator.py:75:    assert result.ambiguity_axes == []
+tests\unit\test_clarification_agent.py:41:            ambiguity_type="scope",
+tests\unit\test_clarification_agent.py:45:        assert q.ambiguity_type == "scope"
+tests\unit\test_clarification_agent.py:53:            ambiguity_type="geographic",
+tests\unit\test_clarification_agent.py:66:                ambiguity_type="test",
+tests\unit\test_clarification_agent.py:80:            ambiguity_types=["scope"],
+tests\unit\test_clarification_agent.py:94:            ambiguity_type="scope",
+tests\unit\test_clarification_agent.py:100:            ambiguity_types=["scope", "context"],
+tests\unit\test_clarification_agent.py:116:            ambiguity_types=[],
+tests\unit\test_clarification_agent.py:132:    def test_all_ambiguity_types(self):
+tests\unit\test_clarification_agent.py:133:        """Test all ambiguity types are defined."""
+tests\unit\test_clarification_agent.py:172:        assert "ambiguity" in prompt.lower()
+tests\unit\test_clarification_agent.py:190:            ambiguity_types=[],
+tests\unit\test_clarification_agent.py:212:            ambiguity_types=["scope", "geographic"],
+tests\unit\test_clarification_agent.py:216:                    ambiguity_type="scope",
+tests\unit\test_clarification_agent.py:291:            ambiguity_types=["scope"],
+tests\unit\test_clarification_agent.py:295:                    ambiguity_type="scope",
+tests\unit\test_clarification_agent.py:317:            ambiguity_types=[],
+src\polaris_v6\scope\decision.py:24:class ScopeDecision(BaseModel):
+web\tests\e2e\bundle_preview.spec.ts:7:  ambiguity_axes: [],
+tests\polaris_graph\api\test_audit_bundle_route.py:47:        "ambiguity_axes": [
+web\lib\api.ts:111:export async function createRun(
+web\lib\api.ts:201:export async function checkAmbiguity(
+web\lib\api.ts:205:  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+web\lib\api.ts:413:  ambiguity_axes: IntakeAmbiguityAxis[];
+web\app\intake\page.tsx:11:    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+web\app\intake\page.tsx:48:            (efficacy / safety / diagnosis / prognosis), and PICO axis ambiguity
+web\app\intake\components\scope_decision_view.tsx:119:        {decision.ambiguity_axes.length ? (
+web\app\intake\components\scope_decision_view.tsx:123:              {decision.ambiguity_axes.map((axis) => (
+web\app\intake\components\intake_form.tsx:16:import { AmbiguityModal } from "./ambiguity_modal";
+web\app\intake\components\intake_form.tsx:17:import { DisambiguationModal } from "./disambiguation_modal";
+web\app\intake\components\intake_form.tsx:183:      <DisambiguationModal
+web\app\intake\components\disambiguation_modal.tsx:11:export type DisambiguationModalProps = {
+web\app\intake\components\disambiguation_modal.tsx:25:export function DisambiguationModal({
+web\app\intake\components\disambiguation_modal.tsx:30:}: DisambiguationModalProps) {
+web\tests\e2e\f2_walkthrough.spec.ts:15:  ambiguity_axes: [],
+web\app\intake\components\ambiguity_modal.tsx:23:    decision?.ambiguity_axes.filter((axis) => axis.needs_clarification) ?? [];
+web\app\intake\components\ambiguity_modal.tsx:41:          data-slot="ambiguity-modal"
+web\app\intake\components\ambiguity_modal.tsx:56:              POLARIS detected ambiguity along the PICO axes below. Pick a
+web\tests\e2e\intake_disambiguation_negative.spec.ts:9:  ambiguity_axes: [],
+web\tests\e2e\intake_disambiguation.spec.ts:15:          ambiguity_axes: [],
+web\tests\e2e\intake.spec.ts:89:    // Population axis flagged for diabetes-type ambiguity.
+web\app\dashboard\page.tsx:17:  checkAmbiguity,
+web\app\dashboard\page.tsx:19:  createRun,
+web\app\dashboard\page.tsx:82:  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+web\app\dashboard\page.tsx:129:  const runScopeCheck = async () => {
+web\app\dashboard\page.tsx:146:          const result = await checkAmbiguity(question.trim(), candidates);
+web\app\dashboard\page.tsx:167:    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+web\app\dashboard\page.tsx:176:      const run = await createRun({
+web\app\dashboard\page.tsx:386:          {ambiguity?.is_ambiguous && (
+web\app\dashboard\page.tsx:394:                  Disambiguation needed (ambiguity guard)
+web\app\dashboard\page.tsx:397:                  {ambiguity.clusters.length} possible meanings detected
+web\app\dashboard\page.tsx:407:                  {ambiguity.clusters.map((c) => (
+web\app\dashboard\page.tsx:429:                      : "Acknowledge ambiguity"}
+web\app\dashboard\page.tsx:456:              onClick={runScopeCheck}
+src\auth\auth_routes.py:6:from fastapi import APIRouter, Depends, HTTPException
+src\auth\auth_routes.py:18:router = APIRouter(prefix="/api/auth", tags=["auth"])
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:5:import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:15:export function DisambiguationModalHarnessClient({ count }: { count: number }) {
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx:20:      <DisambiguationModal
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx:1:import { DisambiguationModalHarnessClient } from "./_client";
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx:14:  return <DisambiguationModalHarnessClient count={count} />;
+src\agents\auditor_agent.py:2105:            from src.search.serper_client import SerperClient
+src\agents\auditor_agent.py:2118:            client = SerperClient()
+src\agents\search_agent.py:437:    from src.search.serper_client import SerperClient, get_serper_client, SerperResult
+src\agents\search_agent.py:441:    logger.warning("SerperClient not available, using fallback implementations")
+src\agents\search_agent.py:461:    Replaces async SerperClient to avoid event loop conflicts.
+src\polaris_graph\api\benchmark_route.py:27:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\benchmark_route.py:31:router = APIRouter(tags=["benchmark"])
+src\polaris_graph\api\audit_bundle_route.py:16:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\audit_bundle_route.py:38:router = APIRouter(tags=["audit-bundle"])
+src\polaris_graph\api\generation_route.py:19:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\generation_route.py:38:router = APIRouter(tags=["generation"])
+src\polaris_graph\api\graph_route.py:20:from fastapi import APIRouter, HTTPException
+src\polaris_graph\api\graph_route.py:26:router = APIRouter(tags=["graph"])
+src\polaris_graph\api\disambiguation_route.py:11:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\disambiguation_route.py:18:router = APIRouter(tags=["disambiguation"])
+src\polaris_graph\api\intake.py:18:    [if out_of_scope] → assemble_scope_decision(scope_class=out_of_scope, ambiguity=None)
+src\polaris_graph\api\intake.py:20:        ambiguity_detector_clinical.detect_ambiguity()
+src\polaris_graph\api\intake.py:23:        assemble_scope_decision(scope_class=..., ambiguity=...)
+src\polaris_graph\api\intake.py:46:from polaris_graph.scope.ambiguity_detector_clinical import detect_ambiguity
+src\polaris_graph\api\intake.py:96:    """Orchestrate the front-half ambiguity-detection pipeline.
+src\polaris_graph\api\intake.py:145:            ambiguity=None,
+src\polaris_graph\api\intake.py:151:    # Step 4: out_of_scope path (no ambiguity detection needed)
+src\polaris_graph\api\intake.py:156:            ambiguity=None,
+src\polaris_graph\api\intake.py:176:            ambiguity=None,
+src\polaris_graph\api\intake.py:180:    # Step 6: clinical_* — run ambiguity detection
+src\polaris_graph\api\intake.py:181:    axes = detect_ambiguity(normalized.normalized)
+src\polaris_graph\api\intake.py:185:        ambiguity=axes,
+src\polaris_graph\api\intake_route.py:5:    api/intake_route.py → FastAPI APIRouter exposing it as POST /api/intake
+src\polaris_graph\api\intake_route.py:27:from fastapi import APIRouter, HTTPException
+src\polaris_graph\api\intake_route.py:33:router = APIRouter(tags=["intake"])
+src\polaris_graph\api\intake_route.py:107:            "ambiguity_detector_clinical",
+src\polaris_graph\api\retrieval_route.py:33:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\retrieval_route.py:43:router = APIRouter(tags=["retrieval"])
+src\polaris_graph\api\__init__.py:3:Slice 001: intake.py orchestrates intake → classify → ambiguity → decision.
+src\polaris_graph\audit_ir\inspector_router.py:26:from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+src\polaris_graph\audit_ir\inspector_router.py:143:router = APIRouter()
+src\polaris_graph\scope\__init__.py:1:"""Scope — clinical question scope discovery + ambiguity detection."""
+src\polaris_graph\scope\scope_decision.py:31:"""The three PICO axes used by slice 001's ambiguity detector. Comparator
+src\polaris_graph\scope\scope_decision.py:78:    """One PICO axis's ambiguity assessment."""
+src\polaris_graph\scope\scope_decision.py:103:    """Per-PICO ambiguity. Slice 001 uses three axes (P/I/O); Comparator
+src\polaris_graph\scope\scope_decision.py:127:class ScopeDecision(BaseModel):
+src\polaris_graph\scope\scope_decision.py:139:    ambiguity_axes: list[AmbiguityAxis] = Field(
+src\polaris_graph\scope\scope_decision.py:149:        description="Layer-trace dict: classifier_layer, ambiguity_detector_layer, etc.",
+src\polaris_graph\scope\scope_decision.py:172:    ambiguity: AmbiguityAxes | None,
+src\polaris_graph\scope\scope_decision.py:178:    """Combine classifier output + ambiguity output into final decision.
+src\polaris_graph\scope\scope_decision.py:183:        - Elif ambiguity.is_ambiguous → status='ambiguous_needs_clarification'
+src\polaris_graph\scope\scope_decision.py:190:            ambiguity_axes=[],
+src\polaris_graph\scope\scope_decision.py:204:            ambiguity_axes=[],
+src\polaris_graph\scope\scope_decision.py:213:    if ambiguity is None:
+src\polaris_graph\scope\scope_decision.py:214:        raise ValueError("ambiguity is required when scope_class is in-scope")
+src\polaris_graph\scope\scope_decision.py:216:    axes = [ambiguity.population, ambiguity.intervention, ambiguity.outcome]
+src\polaris_graph\scope\scope_decision.py:224:        if ambiguity.is_ambiguous
+src\polaris_graph\scope\scope_decision.py:231:        ambiguity_axes=axes,
+src\polaris_graph\scope\scope_decision.py:235:            "ambiguity_detector_layer": "pico_axes_v1",
+src\polaris_graph\scope\clinical_classifier.py:54:      - scope_class.value in clinical_*  → caller proceeds to ambiguity detection
+src\polaris_graph\scope\ambiguity_detector_clinical.py:1:"""PICO ambiguity detector for clinical questions.
+src\polaris_graph\scope\ambiguity_detector_clinical.py:3:Per slice 001 architecture proposal §"PICO axes for ambiguity (not free-form)".
+src\polaris_graph\scope\ambiguity_detector_clinical.py:4:Detects ambiguity along three axes: Population, Intervention, Outcome.
+src\polaris_graph\scope\ambiguity_detector_clinical.py:13:ambiguity dictionary lives inline rather than a YAML file because slice 1's
+src\polaris_graph\scope\ambiguity_detector_clinical.py:17:For production: a future enhancement could add LLM-based ambiguity
+src\polaris_graph\scope\ambiguity_detector_clinical.py:32:# Population ambiguity dictionary
+src\polaris_graph\scope\ambiguity_detector_clinical.py:64:# Intervention ambiguity dictionary
+src\polaris_graph\scope\ambiguity_detector_clinical.py:98:# Outcome ambiguity dictionary
+src\polaris_graph\scope\ambiguity_detector_clinical.py:125:    ambiguity_dict: list[tuple[re.Pattern[str], list[str]]],
+src\polaris_graph\scope\ambiguity_detector_clinical.py:129:    """Match text against an axis's ambiguity dictionary."""
+src\polaris_graph\scope\ambiguity_detector_clinical.py:130:    for pattern, interpretations in ambiguity_dict:
+src\polaris_graph\scope\ambiguity_detector_clinical.py:144:def detect_ambiguity(normalized_text: str) -> AmbiguityAxes:
+src\polaris_graph\scope\ambiguity_detector_clinical.py:145:    """Detect PICO-axis ambiguity in a clinical question.
+src\polaris_graph\scope\ambiguity_detector_clinical.py:161:            f"detect_ambiguity expected str, got {type(normalized_text).__name__}"
+src\polaris_graph\scope\ambiguity_detector_clinical.py:164:    # When no ambiguity is detected we fall back to the normalized
+src\polaris_graph\evaluator\external_evaluator.py:82:# vs mid-sentence ambiguity. Previous pass-2 design treated them as
+src\polaris_graph\retrieval2\query_planner.py:65:    Axes that are not present (e.g. ambiguity_axes is empty for a
+src\polaris_graph\retrieval2\query_planner.py:73:    for axis in decision.ambiguity_axes:
+src\polaris_graph\intake\question_normalizer.py:14:that classifier/ambiguity-detector can reason about." Pure function — no
+src\polaris_graph\intake\question_normalizer.py:68:    Downstream classifier and ambiguity detector operate on `normalized`,
+src\polaris_v6\api\ambiguity.py:1:"""POST /ambiguity — F2 ambiguity check endpoint.
+src\polaris_v6\api\ambiguity.py:13:from fastapi import APIRouter
+src\polaris_v6\api\ambiguity.py:16:from polaris_v6.ambiguity_detector import (
+src\polaris_v6\api\ambiguity.py:18:    detect_ambiguity,
+src\polaris_v6\api\ambiguity.py:21:router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+src\polaris_v6\api\ambiguity.py:29:class AmbiguityCheckRequest(BaseModel):
+src\polaris_v6\api\ambiguity.py:49:class AmbiguityCheckResponse(BaseModel):
+src\polaris_v6\api\ambiguity.py:55:@router.post("", response_model=AmbiguityCheckResponse)
+src\polaris_v6\api\ambiguity.py:56:def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+src\polaris_v6\api\ambiguity.py:60:    result = detect_ambiguity(
+src\polaris_v6\api\ambiguity.py:65:    return AmbiguityCheckResponse(
+src\polaris_v6\ambiguity_detector\__init__.py:17:from .ambiguity_detector import (
+src\polaris_v6\ambiguity_detector\__init__.py:21:    detect_ambiguity,
+src\polaris_v6\ambiguity_detector\__init__.py:28:    "detect_ambiguity",
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py:1:"""HDBSCAN-based ambiguity detector for research questions.
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py:3:Per docs/carney_delivery_plan_v6_2.md F2 (ambiguity detector backend) and
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py:108:def detect_ambiguity(
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py:120:            to count toward the ambiguity verdict.
+src\polaris_v6\api\upload.py:21:from fastapi import APIRouter, Form, HTTPException, UploadFile
+src\polaris_v6\api\upload.py:24:router = APIRouter(prefix="/upload", tags=["upload"])
+src\polaris_v6\api\followup.py:7:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\followup.py:15:router = APIRouter(prefix="/runs", tags=["followup"])
+src\polaris_v6\api\transparency.py:20:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\transparency.py:26:router = APIRouter(prefix="/transparency", tags=["transparency"])
+src\polaris_graph\retrieval\tier_classifier.py:19:       rather than hiding it. The plan A-F04 "UNKNOWN ambiguity" gets
+src\polaris_v6\api\runs.py:13:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\runs.py:20:router = APIRouter(prefix="/runs", tags=["runs"])
+src\polaris_v6\api\charts.py:7:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\charts.py:15:router = APIRouter(prefix="/runs", tags=["charts"])
+src\polaris_v6\api\auth.py:25:from fastapi import APIRouter, Depends, HTTPException, Request
+src\polaris_v6\api\auth.py:48:router = APIRouter(tags=["auth"])
+src\polaris_v6\api\app.py:16:from polaris_v6.api.ambiguity import router as ambiguity_router
+src\polaris_v6\api\app.py:35:# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+src\polaris_v6\api\app.py:95:    app.include_router(ambiguity_router)
+src\polaris_v6\api\templates.py:9:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\templates.py:17:router = APIRouter(prefix="/templates", tags=["templates"])
+src\polaris_v6\api\compare.py:8:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\compare.py:14:router = APIRouter(prefix="/runs", tags=["compare"])
+src\polaris_v6\api\bundle.py:23:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_v6\api\bundle.py:41:router = APIRouter(prefix="/runs", tags=["bundle"])
+src\polaris_v6\api\memory.py:9:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\memory.py:20:router = APIRouter(prefix="/workspaces", tags=["memory"])
+src\polaris_v6\api\artifact_to_slice_chain.py:229:        ambiguity_axes=[],
+src\polaris_v6\api\health.py:3:from fastapi import APIRouter
+src\polaris_v6\api\health.py:8:router = APIRouter(tags=["health"])
+src\polaris_v6\api\stream.py:20:from fastapi import APIRouter, Header
+src\polaris_v6\api\stream.py:25:router = APIRouter(prefix="/stream", tags=["stream"])
+src\polaris_v6\api\scope.py:5:from fastapi import APIRouter
+src\polaris_v6\api\scope.py:11:router = APIRouter(prefix="/scope", tags=["scope"])
+
+ succeeded in 897ms:
+
+    Directory: C:\POLARIS
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-07 10:31 PM                [44;1m.claude[0m
+d----          2026-05-16  6:17 AM                [44;1m.codex[0m
+d----          2026-04-29  2:47 PM                [44;1m.codex_tmp_m_int_6_v1_review_fresh[0m
+d--h-          2026-05-16  6:08 AM                [44;1m.git[0m
+d----          2026-05-07 10:31 PM                [44;1m.github[0m
+d----          2026-05-07 10:31 PM                [44;1m.legacy[0m
+d----          2026-05-02  9:10 AM                [44;1m.private[0m
+d----          2026-05-12 10:56 AM                [44;1m.pytest_cache[0m
+d----          2026-05-10  3:48 AM                [44;1m.pytest_scope_gate_tmp2[0m
+d----          2026-04-28  9:37 PM                [44;1m.pytest_tmp[0m
+d----          2026-04-28 12:23 PM                [44;1m.tmp_pytest_base[0m
+d----          2026-04-29 12:54 PM                [44;1m.tmp_pytest_m_int_3[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review[0m
+d----          2026-04-28  3:43 PM                [44;1m.tmp_pytest_md3_review2[0m
+d----          2026-04-28 11:50 PM                [44;1m.tmp-pytest[0m
+d----          2026-05-11  8:23 PM                [44;1marchive[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_billing_quota_store_review_alt[0m
+d----          2026-05-12  5:57 PM                [44;1mcodex_tmp_i_arch_001a_review[0m
+d----          2026-05-12 11:53 PM                [44;1mcodex_tmp_i_arch_001f_iter2_manual[0m
+d----          2026-05-12 11:51 PM                [44;1mcodex_tmp_i_arch_001f_iter2_pytest_run[0m
+d----          2026-05-12 11:46 PM                [44;1mcodex_tmp_i_arch_001f_manual_probe[0m
+d----          2026-05-12 11:45 PM                [44;1mcodex_tmp_i_arch_001f_review_basetemp[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_actor_0d00737908a74619aadb0f3ca326ba8c[0m
+d----          2026-05-12  6:13 PM                [44;1mcodex_tmp_i_arch001a_manual_8df334a540ae4cebb698e2441b372d59[0m
+d----          2026-05-12  6:12 PM                [44;1mcodex_tmp_i_arch001a_pytest_probe[0m
+d----          2026-05-12 10:20 PM                [44;1mcodex_tmp_i_arch001d_bundle_probe[0m
+d----          2026-05-10  2:04 AM                [44;1mcodex_tmp_i_bug_107_iter3_verify_run[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base[0m
+d----          2026-05-10  1:54 AM                [44;1mcodex_tmp_i_bug_107_review_base2[0m
+d----          2026-05-13  1:44 AM                [44;1mcodex_tmp_i_carney_003_pytest_review[0m
+d----          2026-05-13  2:08 AM                [44;1mcodex_tmp_i_carney003_iter3_pytest_rerun[0m
+d----          2026-05-13  1:58 AM                [44;1mcodex_tmp_i_carney003_py_probe_d2d3c3131b064e448ff4c208d1178fca[0m
+d----          2026-05-13  1:57 AM                [44;1mcodex_tmp_i_carney003_review_0ec83421ebe74ec3bd6426a6399b7034[0m
+d----          2026-05-13  1:57 AM                [44;1mcodex_tmp_i_carney003_review_run_aa01ca940c594ed6a694df0286818e01[0m
+d----          2026-05-13  2:35 AM                [44;1mcodex_tmp_i_carney004_iter2_review[0m
+d----          2026-05-13 11:54 AM                [44;1mcodex_tmp_i_carney008_iter3_pytest_81719627da7d499e82529658336f7da7[0m
+d----          2026-05-13 11:54 AM                [44;1mcodex_tmp_i_carney008_iter3_verify_90c2720a78df4fa1ae82b8fe33fb9c49[0m
+d----          2026-05-13 11:31 AM                [44;1mcodex_tmp_i_carney008_pytest[0m
+d----          2026-05-13 11:42 AM                [44;1mcodex_tmp_i_carney008_pytest_new[0m
+d----          2026-05-13 11:43 AM                [44;1mcodex_tmp_i_carney008_pytest_run_fresh[0m
+d----          2026-05-15  3:55 AM                [44;1mcodex_tmp_i_rdy_004_iter2_auth_run[0m
+d----          2026-05-15  3:55 AM                [44;1mcodex_tmp_i_rdy_004_iter2_combined_run[0m
+d----          2026-05-15  3:45 AM                [44;1mcodex_tmp_i_rdy_004_pytest[0m
+d----          2026-05-15 12:32 PM                [44;1mcodex_tmp_i_rdy005_bench_65660dd3314c44f0b6606faf09d3477f[0m
+d----          2026-05-15 12:19 PM                [44;1mcodex_tmp_i_rdy005_review_040abd52[0m
+d----          2026-05-15 12:14 PM                [44;1mcodex_tmp_i_rdy005_review_77866715[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_review_rerun[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single[0m
+d----          2026-04-29  4:03 PM                [44;1mcodex_tmp_m_int_10_v1_single2[0m
+d----          2026-04-29  4:11 PM                [44;1mcodex_tmp_m_int_10_v2_review[0m
+d----          2026-04-29  4:12 PM                [44;1mcodex_tmp_m_int_10_v2_review_fresh[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review[0m
+d----          2026-04-29  4:18 PM                [44;1mcodex_tmp_m_int_10_v3_review_probe[0m
+d----          2026-04-29  9:34 PM                [44;1mcodex_tmp_m_int_11_v1_review[0m
+d----          2026-04-29  9:35 PM                [44;1mcodex_tmp_m_int_11_v1_review_fresh_20260429[0m
+d----          2026-04-29  9:41 PM                [44;1mcodex_tmp_m_int_11_v2_review[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh[0m
+d----          2026-04-29  9:44 PM                [44;1mcodex_tmp_m_int_11_v2_review_fresh_subset[0m
+d----          2026-04-29  2:15 PM                [44;1mcodex_tmp_m_int_5_v2_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review[0m
+d----          2026-04-29  2:25 PM                [44;1mcodex_tmp_m_int_5_v3_review_probe[0m
+d----          2026-04-29  2:33 PM                [44;1mcodex_tmp_m_int_5_v4_review[0m
+d----          2026-04-29  2:34 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh[0m
+d----          2026-04-29  2:35 PM                [44;1mcodex_tmp_m_int_5_v4_review_fresh2[0m
+d----          2026-04-29  2:47 PM                [44;1mcodex_tmp_m_int_6_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review[0m
+d----          2026-04-29  2:59 PM                [44;1mcodex_tmp_m_int_7_v1_review_fresh[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review[0m
+d----          2026-04-29  3:08 PM                [44;1mcodex_tmp_m_int_7_v2_review_alt[0m
+d----          2026-04-29  3:09 PM                [44;1mcodex_tmp_m_int_7_v2_single[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review[0m
+d----          2026-04-29  3:17 PM                [44;1mcodex_tmp_m_int_7_v3_review_fresh[0m
+d----          2026-04-29  3:42 PM                [44;1mcodex_tmp_m_int_9_v1_review[0m
+d----          2026-04-29  3:43 PM                [44;1mcodex_tmp_m_int_9_v1_review_single[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review[0m
+d----          2026-04-29  3:51 PM                [44;1mcodex_tmp_m_int_9_v2_review_fresh[0m
+d----          2026-05-12 10:32 PM                [44;1mcodex_tmp_manual_1dd40099bce94e8a97eddfb27f94a9ad[0m
+d----          2026-05-12 10:33 PM                [44;1mcodex_tmp_manual_i_arch001d_e181e4ae3b4b4ed1bdc15e03e159a57b[0m
+d----          2026-05-12 10:25 PM                [44;1mcodex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2[0m
+d----          2026-05-12 10:31 PM                [44;1mcodex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e[0m
+d----          2026-05-15 10:54 AM                [44;1mconfig[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_f2ltuo3t[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_hhthuj3n[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_xdvktanm[0m
+d----          2026-04-30 12:26 AM                [44;1mdashboard_probe_znaia9ry[0m
+d----          2026-04-30 12:27 AM                [44;1mdashboard_probe_zw62d2fs[0m
+d----          2026-03-24  2:56 PM                [44;1mdata[0m
+d----          2026-05-16  5:04 AM                [44;1mdocs[0m
+d----          2026-05-07 10:31 PM                [44;1mhelm[0m
+d----          2026-05-15 10:54 AM                [44;1minfra[0m
+d----          2026-05-15 10:54 AM                [44;1mlogs[0m
+d----          2026-04-29  4:05 PM                [44;1mm_int_10_manual_57asn199[0m
+d----          2026-04-29  3:10 PM                [44;1mm_int_7_v2_manual_5fgxbzoc[0m
+d----          2026-04-29  3:19 PM                [44;1mm_int_7_v3_manual_dhypw5bz[0m
+d----          2026-04-30 12:48 AM                [44;1mm_live_4_r2_3qyr9r66[0m
+d----          2026-04-29  4:13 PM                [44;1mm10v2_manual_yz_33hqh[0m
+d----          2026-04-29  9:28 PM                [44;1mm10v3_one_wlcrnh2f[0m
+d----          2026-04-29  3:00 PM                [44;1mmanual_pytest_base_m_int_7[0m
+d----          2026-04-29  3:01 PM                [44;1mmanual_pytest_base_m_int_7_ok[0m
+d----          2026-04-29  1:21 PM                [44;1mmanual_tmp_m_int_3_v3[0m
+d----          2026-04-28  9:30 PM                [44;1mmd3_pytest_run2[0m
+d----          2026-02-24  1:09 AM                [44;1mmemory[0m
+d----          2026-02-11  2:02 AM                [44;1mmodels[0m
+d----          2026-05-14 10:47 AM                [44;1moutputs[0m
+d----          2026-05-04 12:26 AM                [44;1mpolaris-controls[0m
+d----          2026-04-28  9:52 PM                [44;1mPOLARIS.tmppytest[0m
+d----          2026-04-29  1:19 PM                [44;1mPOLARIStmp_pytest_m_int_3_reviewbasetemp[0m
+d----          2026-04-29 11:57 AM                [44;1mpy_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9[0m
+d----          2026-05-08  9:37 PM                [44;1mpytest_basetemp_i_bug_085_r2[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_3842f3b95af34ad8b6f93080344d5110[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_554e954860ba4943a4f9f6097fe8541f[0m
+d----          2026-04-29 11:56 AM                [44;1mpytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-3f9s08mh[0m
+d----          2026-05-11  8:33 PM                [44;1mpytest-cache-files-dysodq4d[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-jdgz67tr[0m
+d----          2026-05-13 11:43 AM                [44;1mpytest-cache-files-jv1aafma[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-kds8u4s5[0m
+d----          2026-05-11 11:09 PM                [44;1mpytest-cache-files-lgffjwll[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-o969a6s7[0m
+d----          2026-05-13 11:43 AM                [44;1mpytest-cache-files-sqqm9r8j[0m
+d----          2026-05-10  1:58 AM                [44;1mpytest-cache-files-szrlm1db[0m
+d----          2026-04-29  1:19 PM                [44;1mpytest-cache-files-tw8jzxb3[0m
+d----          2026-05-11 11:08 PM                [44;1mpytest-cache-files-z1miwcyi[0m
+d----          2026-05-08  9:38 PM                [44;1mpython_mode_700_probe[0m
+d----          2026-05-16  4:09 AM                [44;1mscripts[0m
+d----          2026-05-11  7:44 PM                [44;1msrc[0m
+d----          2026-05-16  5:59 AM                [44;1mstate[0m
+d----          2026-05-10  1:46 AM                [44;1mtests[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp_ae3ucgg[0m
+d----          2026-05-12  6:05 PM                [44;1mtmp_pytest_i_arch_001a[0m
+d----          2026-04-29 12:54 PM                [44;1mtmp_pytest_m_int_3[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp2ef0ie4p[0m
+d----          2026-04-29 12:46 PM                [44;1mtmp2hhmpr2y[0m
+d----          2026-05-10  3:37 AM                [44;1mtmp3jencwbw[0m
+d----          2026-04-18  8:37 PM                [44;1mtmp48c8ko2m[0m
+d----          2026-04-28  2:01 PM                [44;1mtmp63988s99[0m
+d----          2026-05-12  8:36 PM                [44;1mtmp6xbnvzw9[0m
+d----          2026-04-29  2:07 PM                [44;1mtmp8u9ua575[0m
+d----          2026-04-29 11:58 AM                [44;1mtmp9h7v7fon[0m
+d----          2026-05-10  3:16 AM                [44;1mtmpa3ivn9br[0m
+d----          2026-04-29  2:26 PM                [44;1mtmpaufjwjy5[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpgb143kt_[0m
+d----          2026-04-29 11:58 AM                [44;1mtmppvxh8fwq[0m
+d----          2026-04-28  2:01 PM                [44;1mtmpq5bdi1rl[0m
+d----          2026-04-29  2:36 PM                [44;1mtmptgnkdlz5[0m
+d----          2026-04-29  2:36 PM                [44;1mtmpu2b082f6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpuyki_w88[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpv1dnokk6[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpw2ru3yoj[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpxnalraft[0m
+d----          2026-04-29 11:58 AM                [44;1mtmpyl5f0goo[0m
+d----          2026-05-15 10:54 AM                [44;1mweb[0m
+-a---          2026-05-07 10:31 PM            599 .dockerignore
+-a---          2026-05-14 11:57 PM          89859 .env
+-a---          2026-05-16  4:09 AM           7886 .env.example
+-a---          2026-05-15 10:54 AM           6299 .gitignore
+-a---          2026-05-16  4:09 AM          15485 architecture.md
+-a---          2026-05-16  2:27 AM          51892 CLAUDE.md
+-a---          2026-05-13  1:49 AM             80 codex_tmp_i_carney_003_pubkey.asc
+-a---          2026-05-15 10:54 AM           3441 docker-compose.v6.yml
+-a---          2026-05-07 10:31 PM           1774 docker-compose.yml
+-a---          2026-05-07 10:31 PM           1197 Dockerfile
+-a---          2026-05-15 10:54 AM           3378 Dockerfile.v6
+-a---          2026-05-16  4:09 AM          11875 ground_rules.md
+-a---          2026-05-09 11:22 AM            774 pytest.ini
+-a---          2026-05-16  4:09 AM          11317 README.md
+-a---          2026-05-07 10:31 PM            673 requirements-orchestrator.txt
+-a---          2026-05-15 10:54 AM           1800 requirements-v6.txt
+-a---          2026-05-07 10:31 PM           6532 requirements.txt
+
+
+codex
+The broad grep matches the brief’s main shape: `/dashboard` is already using `/ambiguity` only on uploaded snippets, and the v6 ambiguity router is mounted directly at `/ambiguity`. I’m now checking the exact data models and UI behavior for blockers in the proposed bridge.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\api\\ambiguity.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\ambiguity_detector\\ambiguity_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\ambiguity_detector\\__init__.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\api.ts" in C:\POLARIS
+ succeeded in 721ms:
+"""POST /ambiguity — F2 ambiguity check endpoint.
+
+Takes a question + optional candidate snippets, returns the
+AmbiguityResult so the frontend can render a disambiguation modal
+before any expensive retrieval / generator cost is incurred.
+
+Phase 0 contract: candidates are passed in by the caller (typically a
+cheap candidate-fetcher in the backend will populate them in Phase 1).
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from polaris_v6.ambiguity_detector import (
+    CandidateSnippet,
+    detect_ambiguity,
+)
+
+router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+
+
+class CandidateIn(BaseModel):
+    source_id: str
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
+class AmbiguityCheckRequest(BaseModel):
+    question: str = Field(..., min_length=4, max_length=2000)
+    candidates: list[CandidateIn] = Field(
+        ...,
+        min_length=0,
+        description=(
+            "Pre-fetched candidate snippets. Phase 0: caller supplies. "
+            "Phase 1: backend fetches via cheap retrieval before this call."
+        ),
+    )
+    min_cluster_size: int = Field(default=2, ge=1)
+    similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class AmbiguityClusterOut(BaseModel):
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str]
+
+
+class AmbiguityCheckResponse(BaseModel):
+    is_ambiguous: bool
+    clusters: list[AmbiguityClusterOut]
+    fallback_used: bool
+
+
+@router.post("", response_model=AmbiguityCheckResponse)
+def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+    snippets = [
+        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+    ]
+    result = detect_ambiguity(
+        snippets,
+        min_cluster_size=payload.min_cluster_size,
+        similarity_threshold=payload.similarity_threshold,
+    )
+    return AmbiguityCheckResponse(
+        is_ambiguous=result.is_ambiguous,
+        clusters=[
+            AmbiguityClusterOut(
+                cluster_id=c.cluster_id,
+                representative_text=c.representative_text,
+                member_source_ids=c.member_source_ids,
+            )
+            for c in result.clusters
+        ],
+        fallback_used=result.fallback_used,
+    )
+
+ succeeded in 783ms:
+"""Ambiguity detector — HDBSCAN-based detection of multi-meaning queries
+before retrieval. Surfaces a disambiguation modal when ≥2 distinct
+concept-clusters share the query's entity space.
+
+Pattern: embed candidate retrievals → HDBSCAN cluster → if ≥2 clusters
+with min_cluster_size sources, the question is ambiguous and the UI
+shows a disambiguation modal.
+
+Historical: this module was originally named ``bpei/`` after the
+2026-04-30 'phantom completion' incident where a user typed the literal
+string "BPEI" as an adversarial probe and the system fabricated an
+answer. The directory carried the commemorative tag through 2026-05-12,
+when I-naming-001 (GH#434) renamed it to its descriptive name. See
+``memory/bpei_phantom_completion_lessons.md`` (user-level memory at
+``~/.claude/projects/C--POLARIS/memory/``) for the incident write-up.
+"""
+from .ambiguity_detector import (
+    AmbiguityCluster,
+    AmbiguityResult,
+    CandidateSnippet,
+    detect_ambiguity,
+)
+
+__all__ = [
+    "AmbiguityCluster",
+    "AmbiguityResult",
+    "CandidateSnippet",
+    "detect_ambiguity",
+]
+
+ succeeded in 859ms:
+"""HDBSCAN-based ambiguity detector for research questions.
+
+Per docs/carney_delivery_plan_v6_2.md F2 (ambiguity detector backend) and
+memory bpei_phantom_completion_lessons.md, the BPEI failure happened
+because the scope gate has no way to detect when a short acronym question
+maps to multiple unrelated source clusters. This module fixes that by:
+
+1. Running a cheap candidate retrieval (top-K from search providers).
+2. Embedding the candidate snippets via a deterministic encoder.
+3. Clustering with HDBSCAN.
+4. If ≥2 clusters meet min_cluster_size, return AmbiguityResult with
+   per-cluster representative snippets so the UI can render a
+   disambiguation modal.
+
+Phase 0 ships the API surface + a pure-Python fallback that uses character
+3-gram cosine + a simple density-based grouping when scikit-learn /
+hdbscan are not installed (so this code can be unit-tested without the
+heavy ML stack). Phase 1 wires the real HDBSCAN path once the backend
+venv is provisioned.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Sequence
+
+
+@dataclass
+class CandidateSnippet:
+    """One candidate retrieval result feeding the disambiguation pass."""
+
+    source_id: str
+    text: str
+
+
+@dataclass
+class AmbiguityCluster:
+    """A discovered semantic cluster of candidates."""
+
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AmbiguityResult:
+    """Detector verdict.
+
+    `is_ambiguous` is True iff there are ≥2 clusters each with at least
+    `min_cluster_size` members. Each cluster's representative snippet is
+    surfaced to the user via the F2 disambiguation modal.
+    """
+
+    is_ambiguous: bool
+    clusters: list[AmbiguityCluster]
+    fallback_used: bool = False
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _trigrams(text: str) -> Counter[str]:
+    text_lower = text.lower()
+    counts: Counter[str] = Counter()
+    for token in _TOKEN_RE.findall(text_lower):
+        padded = f"  {token}  "
+        for i in range(len(padded) - 2):
+            counts[padded[i : i + 3]] += 1
+    return counts
+
+
+def _cosine(a: Counter[str], b: Counter[str]) -> float:
+    if not a or not b:
+        return 0.0
+    dot = sum(a[k] * b[k] for k in a.keys() & b.keys())
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _greedy_cluster(
+    snippets: Sequence[CandidateSnippet], *, similarity_threshold: float
+) -> list[list[int]]:
+    if not snippets:
+        return []
+    grams = [_trigrams(s.text) for s in snippets]
+    unassigned = list(range(len(snippets)))
+    clusters: list[list[int]] = []
+    while unassigned:
+        seed = unassigned.pop(0)
+        members = [seed]
+        remaining: list[int] = []
+        for idx in unassigned:
+            if _cosine(grams[seed], grams[idx]) >= similarity_threshold:
+                members.append(idx)
+            else:
+                remaining.append(idx)
+        unassigned = remaining
+        clusters.append(members)
+    return clusters
+
+
+def detect_ambiguity(
+    snippets: Sequence[CandidateSnippet],
+    *,
+    min_cluster_size: int = 2,
+    similarity_threshold: float = 0.5,
+    max_clusters_surfaced: int = 4,
+) -> AmbiguityResult:
+    """Detect whether a candidate set has ≥2 distinct semantic clusters.
+
+    Args:
+        snippets: candidate retrieval snippets.
+        min_cluster_size: a cluster must have at least this many members
+            to count toward the ambiguity verdict.
+        similarity_threshold: trigram-cosine cutoff for the fallback
+            clusterer.
+        max_clusters_surfaced: cap on clusters returned to UI.
+    """
+    if not snippets:
+        return AmbiguityResult(is_ambiguous=False, clusters=[], fallback_used=True)
+
+    raw_clusters = _greedy_cluster(snippets, similarity_threshold=similarity_threshold)
+    qualifying = [c for c in raw_clusters if len(c) >= min_cluster_size]
+    qualifying.sort(key=len, reverse=True)
+    qualifying = qualifying[:max_clusters_surfaced]
+
+    out_clusters = [
+        AmbiguityCluster(
+            cluster_id=i,
+            representative_text=snippets[member_indices[0]].text,
+            member_source_ids=[snippets[idx].source_id for idx in member_indices],
+        )
+        for i, member_indices in enumerate(qualifying)
+    ]
+
+    return AmbiguityResult(
+        is_ambiguous=len(out_clusters) >= 2,
+        clusters=out_clusters,
+        fallback_used=True,
+    )
+
+ succeeded in 975ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(streamUrl(runId));
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given research chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await authFetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// F-snowball graph (I-snowball-002 backend + I-snowball-003a frontend).
+// Cytoscape-format graph payload mirroring src/polaris_graph/api/graph_route.py.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "sentence" | "source" | "section" | "frame";
+export type GraphEdgeType = "cites" | "contradicts" | "section_member";
+export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+export type GraphFrameStatus = "pass" | "partial" | "fail";
+
+export interface GraphNodeData {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  tier?: GraphTier;
+  sentence_text?: string;
+  source_url?: string;
+  section_title?: string;
+  frame_status?: GraphFrameStatus;
+  classes?: string;
+}
+
+export interface GraphPosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNode {
+  data: GraphNodeData;
+  position?: GraphPosition | null;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: GraphEdgeType;
+}
+
+export interface GraphEdge {
+  data: GraphEdgeData;
+}
+
+export interface GraphDiagnostics {
+  bibliography_count: number;
+  fallback_source_count: number;
+  missing_reference_occurrence_count: number;
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\search\\serper_client.py | Select-Object -Skip 160 -First 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\search\\serper_client.py | Select-Object -Skip 920 -First 55" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_graph\\retrieval2\\real_fetcher.py | Select-Object -First 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\api\\app.py" in C:\POLARIS
+ succeeded in 787ms:
+    """Rate limit exceeded."""
+    pass
+
+
+class SerperQuotaError(SerperError):
+    """Monthly quota exceeded."""
+    pass
+
+
+class SerperAuthError(SerperError):
+    """Authentication failed."""
+    pass
+
+
+# =============================================================================
+# SERPER CLIENT
+# =============================================================================
+
+class SerperClient:
+    """
+    Production-grade Serper.dev API Client.
+
+    Features:
+    - All Serper endpoints (search, scholar, news, images, places, patents)
+    - Async and sync interfaces
+    - Geographic targeting and domain filtering
+    - Circuit breaker pattern for resilience
+    - Cost tracking and budget management
+    - SOTA pagination for comprehensive results
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        daily_budget_usd: float = 50.0,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        """
+        Initialize Serper client.
+
+        Args:
+            api_key: Serper API key (defaults to SERPER_API_KEY env var)
+            daily_budget_usd: Daily budget limit in USD
+            timeout: Request timeout in seconds
+        """
+        self.api_key = api_key or os.getenv("SERPER_API_KEY")
+        self.daily_budget = daily_budget_usd
+        self.timeout = timeout
+
+        # Validate API key
+        if not self.api_key:
+            logger.warning("Serper API key not configured (SERPER_API_KEY)")
+            self.enabled = False
+        else:
+            self.enabled = True
+            logger.info("Serper client initialized")
+
+        # Statistics
+        self.stats = SerperStats()
+
+        # Circuit breaker
+        self._failure_count = 0
+        self._circuit_open_until = 0
+        self._max_failures = 5
+        self._circuit_timeout = 300  # 5 minutes
+
+        # HTTP client (reusable)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                headers={
+                    "X-API-KEY": self.api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        return self._client
+
+    async def close(self):
+        """Close HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker is open."""
+        if self._failure_count < self._max_failures:
+            return False
+
+ succeeded in 837ms:
+            results = await self.search("test", max_results=1)
+            return {
+                "status": "healthy",
+                "message": "Serper operational",
+                "test_results": len(results),
+            }
+        except SerperQuotaError:
+            return {"status": "quota_exceeded", "message": "Monthly quota exceeded"}
+        except SerperRateLimitError:
+            return {"status": "rate_limited", "message": "Rate limit active"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
+# =============================================================================
+# SINGLETON
+# =============================================================================
+
+_serper_client: Optional[SerperClient] = None
+
+
+def get_serper_client() -> SerperClient:
+    """Get singleton Serper client."""
+    global _serper_client
+    if _serper_client is None:
+        _serper_client = SerperClient()
+    return _serper_client
+
+
+# =============================================================================
+# EXPORTS
+# =============================================================================
+
+__all__ = [
+    "SerperClient",
+    "SerperResult",
+    "SerperStats",
+    "SerperError",
+    "SerperRateLimitError",
+    "SerperQuotaError",
+    "SearchType",
+    "get_serper_client",
+]
+
+ succeeded in 848ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+    app.include_router(transparency_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
+
+    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+    app.include_router(graph_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+ succeeded in 860ms:
+"""Real Serper + Semantic Scholar fetcher behind FetchHttpFn protocol.
+
+Per `.codex/slices/slice_002/architecture_proposal.md` §"Implementation order"
+PR 7 row.
+
+Two backends, fanned out per query:
+  1. Serper (https://google.serper.dev/search) — Google-results proxy.
+     Requires SERPER_API_KEY env var. Returns up to 10 hits per query.
+  2. Semantic Scholar (https://api.semanticscholar.org/graph/v1/paper/search)
+     — academic-paper graph. SEMANTIC_SCHOLAR_API_KEY optional but recommended.
+
+Results from both backends merge into a single list[FetchResult] handed back
+to the orchestrator, which then runs them through clinical_source_registry
+to drop anything not on the T1/T2/T3 allowlist.
+
+Fail-loud per LAW II:
+- SERPER_API_KEY missing → RuntimeError at construction. No silent skip.
+- Both backends down → RuntimeError. No silent empty list.
+- Semantic Scholar without key → still runs (1 RPS unauthenticated tier),
+  but logs the missing key for ops visibility.
+
+Rate limiting:
+- Serper: 1 request per query (no fan-out within Serper); httpx default
+  timeout 10s.
+- Semantic Scholar: bounded to 1 RPS unauthenticated, 5 RPS with key —
+  enforced via simple sleep() between calls in the same fetcher instance.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+
+import httpx
+
+from polaris_graph.retrieval2.clinical_retriever import FetchResult
+
+_LOG = logging.getLogger(__name__)
+
+SERPER_ENDPOINT = "https://google.serper.dev/search"
+S2_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+DEFAULT_TIMEOUT_S = 10.0
+
+
+@dataclass
+class RealFetcherConfig:
+    """Construction-time config for the real fetcher."""
+
+    serper_api_key: str
+    semantic_scholar_api_key: str | None = None
+    serper_results_per_query: int = 10
+    s2_results_per_query: int = 10
+    s2_rate_limit_seconds: float = 1.05  # >1s for safety on the 1 RPS tier
+    timeout_s: float = DEFAULT_TIMEOUT_S
+
+
+def load_config_from_env() -> RealFetcherConfig:
+    """Build a RealFetcherConfig from environment variables.
+
+    Raises RuntimeError if SERPER_API_KEY is unset (fail loud per LAW II).
+    SEMANTIC_SCHOLAR_API_KEY is optional; absence is logged at WARNING.
+    """
+    serper = os.environ.get("SERPER_API_KEY", "").strip()
+    if not serper:
+        raise RuntimeError(
+            "SERPER_API_KEY is required for slice 002 real_fetcher. Set it "
+            "in .env or environment before mounting the retrieval route. "
+            "Per CLAUDE.md LAW II, this MUST fail loudly rather than "
+            "silently skipping the Serper backend."
+        )
+    s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip() or None
+    if not s2_key:
+        _LOG.warning(
+            "SEMANTIC_SCHOLAR_API_KEY unset; falling back to "
+            "unauthenticated 1 RPS tier"
+        )
+    return RealFetcherConfig(
+        serper_api_key=serper,
+        semantic_scholar_api_key=s2_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-backend fetch primitives
+# ---------------------------------------------------------------------------
+
+def _fetch_serper(
+    query: str,
+    config: RealFetcherConfig,
+    client: httpx.Client,
+) -> list[FetchResult]:
+    """Single Serper search call. Raises on persistent network failure."""
+    payload = {"q": query, "num": config.serper_results_per_query}
+    headers = {
+        "X-API-KEY": config.serper_api_key,
+        "Content-Type": "application/json",
+    }
+    response = client.post(
+        SERPER_ENDPOINT,
+        json=payload,
+        headers=headers,
+        timeout=config.timeout_s,
+    )
+    response.raise_for_status()
+    data = response.json()
+    organic = data.get("organic", [])
+    results: list[FetchResult] = []
+    for hit in organic:
+        url = hit.get("link", "")
+        if not url:
+            continue
+        results.append(
+            FetchResult(
+                url=url,
+                title=hit.get("title", "") or "untitled",
+                snippet=hit.get("snippet", "") or "",
+            )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"async def search|def search|class SerperResult|organic|link|snippet|title|raise Serper\" src\\search\\serper_client.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\dashboard\\page.tsx | Select-Object -First 230" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\dashboard\\page.tsx | Select-Object -Skip 350 -First 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\intake\\components\\disambiguation_modal.tsx" in C:\POLARIS
+ succeeded in 793ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  checkAmbiguity,
+  checkScope,
+  createRun,
+  listTemplates,
+  uploadDocument,
+  type AmbiguityResult,
+  type ScopeDecision,
+  type TemplateContent,
+  type TemplateId,
+  type UploadResponse,
+} from "@/lib/api";
+
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+    {
+      id: "tech",
+      title: "Technology assessment",
+      domain: "arXiv / IEEE / ACM",
+    },
+    {
+      id: "due_diligence",
+      title: "Due diligence",
+      domain: "SEC EDGAR / USPTO",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const [question, setQuestion] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (question.trim().length < 4) {
+      setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Start a research run
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Pick a template and ask a focused question. Every claim returned
+            will carry a provenance token tied to a primary source.
+          </p>
+        </section>
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-foreground text-sm font-semibold">
+              Template
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+
+ succeeded in 801ms:
+105:class SerperResult:
+108:    title: str
+109:    snippet: str = ""
+318:            raise SerperError("Serper client not enabled (missing API key)")
+321:            raise SerperError("Serper circuit breaker is open")
+324:            raise SerperQuotaError("Daily budget exceeded")
+334:                    raise SerperAuthError("Invalid API key")
+338:                    raise SerperRateLimitError("Rate limit exceeded")
+343:                        raise SerperQuotaError("Monthly quota exceeded")
+344:                    raise SerperError(f"Forbidden: {error_data}")
+365:                    raise SerperError("Request timeout")
+372:                raise SerperError(f"HTTP error: {e}")
+378:    async def search(
+437:                # Process organic results
+438:                for item in data.get("organic", []):
+439:                    url = item.get("link", "")
+444:                            title=item.get("title", ""),
+445:                            snippet=item.get("snippet", ""),
+456:                    snippet = ab.get("answer") or ab.get("snippet") or ab.get("title", "")
+457:                    if snippet and ab.get("link"):
+458:                        url = ab.get("link")
+463:                                title=ab.get("title", "Answer Box"),
+464:                                snippet=snippet,
+534:                for item in data.get("organic", []):
+535:                    url = item.get("link", "")
+540:                            title=item.get("title", ""),
+541:                            snippet=item.get("snippet", ""),
+610:                    url = item.get("link", "")
+615:                            title=item.get("title", ""),
+616:                            snippet=item.get("snippet", ""),
+673:                for item in data.get("organic", []):
+674:                    url = item.get("link", "")
+679:                            title=item.get("title", ""),
+680:                            snippet=item.get("snippet", ""),
+738:                    title=item.get("title", ""),
+739:                    snippet=item.get("address", ""),
+
+ succeeded in 839ms:
+"use client";
+
+import { useEffect, useRef } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+
+import { Button } from "@/components/ui/button";
+import type { DisambiguationCluster } from "@/lib/api";
+
+const MAX_SAMPLE_LEN = 80;
+
+export type DisambiguationModalProps = {
+  open: boolean;
+  clusters: DisambiguationCluster[];
+  onSelectCluster: (cluster_id: number) => void;
+  onCancel: () => void;
+};
+
+function previewSnippets(snippets: string[]): string {
+  const joined = snippets.slice(0, 2).join(" · ");
+  return joined.length > MAX_SAMPLE_LEN
+    ? joined.slice(0, MAX_SAMPLE_LEN - 1) + "…"
+    : joined;
+}
+
+export function DisambiguationModal({
+  open,
+  clusters,
+  onSelectCluster,
+  onCancel,
+}: DisambiguationModalProps) {
+  const is_cancelled_ref = useRef(false);
+  useEffect(() => {
+    if (open) is_cancelled_ref.current = false;
+  }, [open]);
+  const handleCancel = () => {
+    if (is_cancelled_ref.current) return;
+    is_cancelled_ref.current = true;
+    onCancel();
+  };
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next_open) => {
+        if (!next_open) handleCancel();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs" />
+        <DialogPrimitive.Popup
+          data-slot="disambiguation-modal"
+          className="bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border p-6 shadow-lg transition duration-200 ease-in-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+        >
+          <div className="flex flex-col gap-1">
+            <DialogPrimitive.Title className="text-foreground text-lg font-semibold">
+              Did you mean…
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+              We found multiple meanings. Pick one to focus the search.
+            </DialogPrimitive.Description>
+          </div>
+          {clusters.length > 0 && (
+            <ul className="flex flex-col gap-3">
+              {clusters.map((c) => (
+                <li key={c.cluster_id}>
+                  <button
+                    type="button"
+                    data-testid={`disambiguation-cluster-${c.cluster_id}`}
+                    aria-label={`Pick ${c.label}`}
+                    onClick={() => onSelectCluster(c.cluster_id)}
+                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  >
+                    <span className="text-foreground text-sm font-semibold">
+                      {c.label}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {previewSnippets(c.sample_snippets)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <DialogPrimitive.Close
+              render={
+                <Button variant="outline" onClick={handleCancel}>
+                  Cancel
+                </Button>
+              }
+            />
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 886ms:
+              role="status"
+              aria-live="polite"
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/60"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-foreground mt-2 text-sm font-medium">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-foreground mt-2 text-xs font-medium">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (ambiguity guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/" />}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
+              {submitting ? "Queuing…" : "Start run"}
+            </Button>
+          </div>
+        </form>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\api\\scope.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tests\\e2e\\intake_disambiguation.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content tests\\v6\\test_api_ambiguity.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_v6\\scope\\decision.py" in C:\POLARIS
+ succeeded in 708ms:
+"""POST /scope/check — F1 scope discovery panel endpoint."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from polaris_v6.scope.decision import ScopeDecision, classify_scope
+from polaris_v6.schemas.run_request import TemplateId
+
+router = APIRouter(prefix="/scope", tags=["scope"])
+
+
+class ScopeCheckRequest(BaseModel):
+    template: TemplateId
+    question: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post("/check", response_model=ScopeDecision)
+def check_scope(payload: ScopeCheckRequest) -> ScopeDecision:
+    return classify_scope(payload.template, payload.question)
+
+ succeeded in 772ms:
+"""Tests for the F2 /ambiguity endpoint."""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture
+def client():
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from polaris_v6.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_check_ambiguity_unambiguous_housing(client):
+    response = client.post(
+        "/ambiguity",
+        json={
+            "question": "Q3 2025 housing starts?",
+            "candidates": [
+                {"source_id": "h1", "text": "Canadian housing starts rose 3.4% in Q3 2025."},
+                {"source_id": "h2", "text": "CMHC reports housing starts up 3.4% Q3 2025."},
+                {"source_id": "h3", "text": "Q3 2025 housing starts data confirms a 3.4% increase."},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_ambiguous"] is False
+
+
+def test_check_ambiguity_bpei_pattern(client):
+    response = client.post(
+        "/ambiguity",
+        json={
+            "question": "What is BPEI?",
+            "candidates": [
+                {
+                    "source_id": "med1",
+                    "text": "BPEI stands for blood pressure end-inspiration index in cardiovascular monitoring.",
+                },
+                {
+                    "source_id": "med2",
+                    "text": "Clinicians use BPEI as a blood pressure end-inspiration measurement during respiratory cycle.",
+                },
+                {
+                    "source_id": "fin1",
+                    "text": "BPEI in finance refers to bank-protected enterprise investment instruments.",
+                },
+                {
+                    "source_id": "fin2",
+                    "text": "Bank-protected enterprise investment (BPEI) products carry sovereign-guarantee structures.",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_ambiguous"] is True
+    assert len(body["clusters"]) >= 2
+    rep_texts = {c["representative_text"] for c in body["clusters"]}
+    assert any("blood pressure" in t.lower() for t in rep_texts)
+    assert any("bank" in t.lower() or "enterprise" in t.lower() for t in rep_texts)
+
+
+def test_check_ambiguity_rejects_short_question(client):
+    response = client.post(
+        "/ambiguity",
+        json={
+            "question": "x",
+            "candidates": [{"source_id": "a", "text": "test"}],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_check_ambiguity_empty_candidates(client):
+    response = client.post(
+        "/ambiguity",
+        json={"question": "What does the data show?", "candidates": []},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_ambiguous"] is False
+    assert body["clusters"] == []
+
+ succeeded in 877ms:
+"""ScopeDecision — what the scope gate decided about a question.
+
+Phase 0/1 stub: deterministic rule-based scoper. Phase 1 swap to the
+existing scope_eligibility_classifier (LLM-augmented) once the cluster
+is live and OpenRouter is wired.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+ScopeVerdict = Literal["accepted", "needs_clarification", "rejected"]
+RefusalReason = Literal[
+    "clinical_treatment_recommendation",
+    "individual_legal_advice",
+    "individual_financial_advice",
+    "personal_political_endorsement",
+    "out_of_template_scope",
+]
+
+
+class ScopeDecision(BaseModel):
+    verdict: ScopeVerdict
+    template: str
+    question: str
+    rationale: str = Field(..., min_length=8)
+    refusals: list[RefusalReason] = Field(
+        default_factory=list,
+        description=(
+            "What the gate will refuse if asked downstream. Surfaced in "
+            "F1 panel so the user knows the boundary before any cost."
+        ),
+    )
+    intended_source_tiers: list[Literal["T1", "T2", "T3"]] = Field(
+        ...,
+        description="Which tiers of source the run will draw from.",
+    )
+
+
+_REFUSAL_PATTERNS: dict[str, RefusalReason] = {
+    " should i take ": "clinical_treatment_recommendation",
+    " is this drug right for me": "clinical_treatment_recommendation",
+    " can i sue ": "individual_legal_advice",
+    " should i invest ": "individual_financial_advice",
+    " who should i vote ": "personal_political_endorsement",
+}
+
+
+def classify_scope(template: str, question: str) -> ScopeDecision:
+    """Phase 0/1 deterministic scoper — to be replaced by LLM classifier."""
+    normalized = f" {question.strip().lower()} "
+
+    refusals: list[RefusalReason] = []
+    for pattern, reason in _REFUSAL_PATTERNS.items():
+        if pattern in normalized:
+            refusals.append(reason)
+
+    if refusals:
+        return ScopeDecision(
+            verdict="rejected",
+            template=template,
+            question=question,
+            rationale=(
+                "Question reads as a personal recommendation request; "
+                "POLARIS is a research-synthesis system, not a "
+                "personal-advice service."
+            ),
+            refusals=refusals,
+            intended_source_tiers=[],
+        )
+
+    if len(question.strip()) < 12:
+        return ScopeDecision(
+            verdict="needs_clarification",
+            template=template,
+            question=question,
+            rationale=(
+                "Question is too short to fix scope. Please add the "
+                "specific timeframe, jurisdiction, or sub-topic you want."
+            ),
+            refusals=[],
+            intended_source_tiers=["T1", "T2"],
+        )
+
+    return ScopeDecision(
+        verdict="accepted",
+        template=template,
+        question=question,
+        rationale=(
+            f"Question fits the {template} template. POLARIS will draw "
+            "from primary-source government and academic data."
+        ),
+        refusals=[],
+        intended_source_tiers=["T1", "T2", "T3"],
+    )
+
+ succeeded in 900ms:
+import { expect, test } from "@playwright/test";
+
+test("BPEI: type → submit → modal → 3 candidates → pick → label flows to parent", async ({
+  page,
+}) => {
+  await page.route("**/api/intake", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: {
+          status: "in_scope",
+          scope_class: "clinical_efficacy",
+          ambiguity_axes: [],
+          clarifications_needed: [],
+          provenance: {},
+          decision_id: "test-decision-id",
+          decided_at_utc: new Date().toISOString(),
+          latency_ms: 12,
+          needs_disambiguation: true,
+          candidate_snippets: [
+            { text: "BPEI syndrome notes", embedding: [1, 0] },
+            { text: "BPEI institute notes", embedding: [0, 1] },
+            { text: "BPEI chemical notes", embedding: [-1, 0] },
+          ],
+        },
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.route("**/api/disambiguation", async (route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    expect(Array.isArray(body.candidates)).toBe(true);
+    expect(body.candidates).toHaveLength(3);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: true,
+        num_clusters: 3,
+        clusters: [
+          {
+            cluster_id: 0,
+            label: "syndrome",
+            sample_snippets: ["BPEI syndrome..."],
+          },
+          {
+            cluster_id: 1,
+            label: "institute",
+            sample_snippets: ["BPEI institute..."],
+          },
+          {
+            cluster_id: 2,
+            label: "chemical",
+            sample_snippets: ["BPEI chemical..."],
+          },
+        ],
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.goto("/intake");
+  await page.getByTestId("intake-question-input").fill("BPEI");
+
+  const t_submit = Date.now();
+  await page.getByTestId("intake-submit").click();
+  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+  const t_modal = Date.now();
+
+  expect(t_modal - t_submit).toBeLessThan(500);
+
+  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+  await expect(cards).toHaveCount(3);
+
+  await page.getByTestId("disambiguation-cluster-1").click();
+  await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+    "institute",
+  );
+  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"dashboard|/dashboard|Start run|Check scope|createRun|scope/check|/ambiguity|page.route\" web\\tests\\e2e -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\next.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\CLAUDE.md | Select-Object -First 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\AGENTS.md" in C:\POLARIS
+ succeeded in 751ms:
+web\tests\e2e\audit_live.spec.ts:11:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\accessibility.spec.ts:49:test.describe("WCAG-AA — research dashboard", () => {
+web\tests\e2e\accessibility.spec.ts:50:  test("/dashboard initial render is WCAG-AA clean", async ({ page }) => {
+web\tests\e2e\accessibility.spec.ts:51:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\accessibility.spec.ts:55:  test("/dashboard after scope rejection is WCAG-AA clean", async ({
+web\tests\e2e\accessibility.spec.ts:58:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\accessibility.spec.ts:60:    await page.getByRole("button", { name: /Check scope/ }).click();
+web\tests\e2e\accessibility.spec.ts:111:test.describe("WCAG-AA — dashboard upload list with files", () => {
+web\tests\e2e\accessibility.spec.ts:115:    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
+web\tests\e2e\accessibility.spec.ts:121:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\accessibility.spec.ts:169:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\accessibility.spec.ts:253:  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
+web\tests\e2e\accessibility.spec.ts:259:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\bundle_preview.spec.ts:59:  await page.route(`**${path}`, async (route) => {
+web\tests\e2e\audit_live_adversarial.spec.ts:7:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\cross_session_surface.spec.ts:26:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\cross_browser_smoke.spec.ts:31:    await page.route("**/api/audit/stream**", (route) => {
+web\tests\e2e\f1_a11y.spec.ts:9: * accessibility (dashboard / inspector). Specifically:
+web\tests\e2e\f2_walkthrough.spec.ts:24:  await page.route("**/api/intake", async (r) =>
+web\tests\e2e\f2_walkthrough.spec.ts:38:  await page.route("**/api/disambiguation", async (r) =>
+web\tests\e2e\f2_walkthrough.spec.ts:111:    await page.route("**/api/disambiguation", (r) => {
+web\tests\e2e\f2_walkthrough.spec.ts:150:    await page.route("**/api/intake", (r) => {
+web\tests\e2e\f2_walkthrough.spec.ts:212:  await page.route("**/api/intake", (r) => {
+web\tests\e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web\tests\e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web\tests\e2e\inspector.spec.ts:86:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\inspector.spec.ts:88:    await page.getByRole("button", { name: /Check scope/ }).click();
+web\tests\e2e\inspector.spec.ts:96:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\inspector.spec.ts:101:    await page.getByRole("button", { name: /Check scope/ }).click();
+web\tests\e2e\intake_disambiguation_negative.spec.ts:23:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:36:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:58:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:78:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\intake_disambiguation.spec.ts:6:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\intake_edge.spec.ts:7:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\memory_page_controls.spec.ts:25:  await page.route("**/workspaces/ws_demo/memory/*", async (route) => {
+web\tests\e2e\memory_page_controls.spec.ts:34:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\sse_client.spec.ts:5:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\sse_client.spec.ts:27:  await page.route("**/mock/sse-fail", async (route) => {
+web\tests\e2e\upload_doc_preview.spec.ts:8:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_doc_preview.spec.ts:26:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web\tests\e2e\upload_evidence_toggle.spec.ts:10:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_dropzone.spec.ts:5:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_parse_status.spec.ts:27:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_parse_status.spec.ts:43:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web\tests\e2e\visual_60_baselines.spec.ts:107:        await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\visual_60_baselines.spec.ts:116:        await page.route("**/api/benchmark/**", async (route) => {
+web\tests\e2e\visual.spec.ts:25:test.describe("Visual baselines — research dashboard", () => {
+web\tests\e2e\visual.spec.ts:26:  test("/dashboard initial render", async ({ page }) => {
+web\tests\e2e\visual.spec.ts:27:    await page.goto("/dashboard", { waitUntil: "networkidle" });
+web\tests\e2e\visual.spec.ts:29:      "dashboard-initial.png",
+
+ succeeded in 769ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+ succeeded in 761ms:
+@AGENTS.md
+
+ succeeded in 847ms:
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+<!-- END:nextjs-agent-rules -->
+
+<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+
+# STANDING EVALUATION & DEBUG STANDARDS (binding)
+
+Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+
+## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+
+Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+
+Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+
+**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+
+**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+
+## §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this sequence (§-1.2 governs _task-work_; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
+
+1. **GitHub Issue FIRST** (first _task-work_ call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+
+<!-- BEGIN:polaris-restart-2026-05-05 -->
+
+# POLARIS issue-driven workflow (mandatory)
+
+Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+
+- Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+- Per-Issue 5-artifact triple required (brief + verdict + diff + audit + claude_audit). CI enforcement lands at PR-D; pre-PR-D, Codex review enforces.
+- Per plan §7.A LOCKED A2 + §7.B LOCKED B1: Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); CI required check `polaris/codex-required` gates GitHub auto-merge; user reads `git log` morning.
+- **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+- **Resource discipline (CPU/RAM/GPU)** per CLAUDE.md §8.4 (added 2026-05-06): one `codex exec` at a time; kill leftover python/node/codex processes between iters; no heavy ML/CUDA processes in autonomous loops; track long-running dev servers and kill before next Issue; pre/post-task `Get-Process` inventory.
+- `gh pr merge --admin` REVOKED from Claude.
+
+Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+
+<!-- END:polaris-restart-2026-05-05 -->
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content pytest.ini' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\search\\__init__.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "from search|import search|from src.search" src tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\search\\serper_client.py | Select-Object -Skip 96 -First 360" in C:\POLARIS
+ succeeded in 754ms:
+[pytest]
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    api: marks tests as requiring API access (deselect with '-m "not api"')
+    live: marks tests that hit live external APIs (opt-in only via env, e.g. PG_ENTAILMENT_LIVE=1; skipped by default)
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --tb=short
+filterwarnings =
+    default
+    ignore::pydantic.warnings.PydanticDeprecatedSince20
+    ignore::FutureWarning:transformers
+    ignore::DeprecationWarning:google
+    ignore::DeprecationWarning:importlib
+    ignore::FutureWarning:huggingface_hub
+    ignore::pytest.PytestReturnNotNoneWarning
+    ignore::pytest.PytestCollectionWarning
+    ignore::ResourceWarning
+
+ succeeded in 815ms:
+"""
+POLARIS Search Module
+=====================
+Search engine integrations for federated search execution.
+Includes SOTA query amplification and Serper deep integration.
+"""
+
+from src.search.engines import (
+    SearchEngine,
+    SerperEngine,
+    PubMedEngine,
+    SemanticScholarEngine,
+    OpenAlexEngine,
+    get_search_engines,
+)
+
+try:
+    from src.search.query_amplifier import (
+        QueryAmplifier,
+        AmplificationResult,
+        amplify_query,
+        amplify_queries,
+        count_amplification_factor,
+    )
+except ImportError:
+    pass  # Legacy dependency (src.depth) may be archived
+
+from src.search.serper_client import (
+    SerperClient,
+    SerperResult,
+    SerperStats,
+    get_serper_client,
+)
+
+from src.search.fan_out_executor import (
+    FanOutExecutor,
+    SearchResult,
+    FanOutStats,
+    CircuitBreaker,
+    execute_fan_out,
+    calculate_expected_results,
+)
+
+__all__ = [
+    # Engines
+    "SearchEngine",
+    "SerperEngine",
+    "PubMedEngine",
+    "SemanticScholarEngine",
+    "OpenAlexEngine",
+    "get_search_engines",
+    # Query Amplification (SOTA)
+    "QueryAmplifier",
+    "AmplificationResult",
+    "amplify_query",
+    "amplify_queries",
+    "count_amplification_factor",
+    # Serper Client (SOTA)
+    "SerperClient",
+    "SerperResult",
+    "SerperStats",
+    "get_serper_client",
+    # Fan-Out Executor (SOTA)
+    "FanOutExecutor",
+    "SearchResult",
+    "FanOutStats",
+    "CircuitBreaker",
+    "execute_fan_out",
+    "calculate_expected_results",
+]
+
+ succeeded in 850ms:
+src\agents\analyst_agent.py:4:Extracts structured information from search results:
+src\agents\analyst_agent.py:559:            description="Extracts facts, entities, and claims from search results",
+src\agents\analyst_agent.py:1983:        Analyze multimodal content (PDFs, images) from search results.
+src\agents\auditor_agent.py:2105:            from src.search.serper_client import SerperClient
+src\agents\__init__.py:20:    from .search_agent import SearchAgent
+src\agents\supervisor_agent.py:35:        "analyst",      # Analyze and extract from search results
+src\agents\supervisor_agent.py:121:- analyst: Extract facts, entities, and evidence from search results
+src\agents\search_agent.py:42:from src.search.query_amplifier import QueryAmplifier, amplify_query
+src\agents\search_agent.py:437:    from src.search.serper_client import SerperClient, get_serper_client, SerperResult
+tests\v3\test_search.py:260:                    insight="Key finding from search",
+tests\integration\test_sota_compliance.py:50:        from src.orchestration.state import SearchResult
+tests\integration\test_sota_compliance.py:189:        from src.orchestration.state import SearchResult
+tests\v3\test_integration.py:4:- Evidence flows correctly from search → outline → synthesis → assembly
+tests\unit\test_fix_048.py:303:        """citation_count from search metadata is stored in evidence piece."""
+src\polaris_graph\agents\analyzer.py:4:Fetches content from search results, extracts atomic facts,
+src\polaris_graph\agents\analyzer.py:2083:                    # WARN-1 FIX: Capture STORM perspective tag from search result
+src\polaris_graph\agents\analyzer.py:2085:                    # FIX-048-K2: Propagate citation count from search metadata
+src\search\__init__.py:8:from src.search.engines import (
+src\search\__init__.py:18:    from src.search.query_amplifier import (
+src\search\__init__.py:28:from src.search.serper_client import (
+src\search\__init__.py:35:from src.search.fan_out_executor import (
+src\search\serper_client.py:29:    from src.search.serper_client import SerperClient
+src\polaris_graph\agents\storm_interviews.py:169:        description="3-5 key findings extracted from search results",
+src\polaris_graph\agents\storm_interviews.py:363:    """Import search tools from existing infrastructure."""
+src\polaris_graph\agents\storm_interviews.py:376:    Reuses the battle-tested _run_web_searches from searcher.py with
+src\polaris_graph\agents\searcher.py:151:    """Import search tools from existing infrastructure."""
+src\polaris_graph\agents\searcher.py:268:    from src.search.query_amplifier import amplify_queries
+src\polaris_graph\agents\searcher.py:1207:    from src.polaris_graph.schemas import SearchRefinement
+src\polaris_graph\agents\searcher.py:1408:    """Fetch top N pages from search results for in-loop comprehension.
+src\orchestration\state.py:104:    authors: List[str] = Field(default_factory=list, description="Author names from search results")
+src\orchestration\graph.py:681:    Identifies failed URLs from search_results with fetch_status='failed'.
+src\orchestration\graph.py:683:    # Find failed URLs from search_results (using existing ResearchState keys)
+src\orchestration\graph.py:688:            # Check fetch_status field (from SearchResult model)
+src\orchestration\graph.py:1134:    from src.agents.search_agent import SearchAgent
+src\orchestration\graph.py:1257:        # Fallback: Calculate from search_results if stats not available
+src\polaris_graph\graph_v2.py:325:    # Build RawDocument list from search results
+src\polaris_graph\memory\search_cache.py:65:                "SELECT * FROM search_cache WHERE query_hash = ?", (qhash,)
+src\polaris_graph\memory\search_cache.py:127:            cursor = await db.execute("SELECT COUNT(*) FROM search_cache")
+src\polaris_graph\memory\search_cache.py:130:            cursor = await db.execute("SELECT SUM(result_count) FROM search_cache")
+src\polaris_graph\memory\search_cache.py:134:                "SELECT search_type, COUNT(*) as cnt FROM search_cache GROUP BY search_type"
+src\polaris_graph\retrieval\crag_retriever.py:6:    1. Fetch raw documents (URLs from search node)
+src\polaris_graph\retrieval\crag_retriever.py:532:            documents: Fetched documents from search node.
+src\polaris_graph\retrieval\crag_retriever.py:802:    # Utility: build RawDocument from search results
+src\polaris_v6\ambiguity_detector\ambiguity_detector.py:8:1. Running a cheap candidate retrieval (top-K from search providers).
+src\polaris_graph\retrieval\live_retriever.py:1195:    logger.info("[live_retriever] %d unique candidates from search", total_pre_filter)
+
+ succeeded in 948ms:
+    PLACES = "places"
+    MAPS = "maps"
+    SHOPPING = "shopping"
+    PATENTS = "patents"
+    AUTOCOMPLETE = "autocomplete"
+
+
+@dataclass
+class SerperResult:
+    """Unified search result from any Serper endpoint."""
+    url: str
+    title: str
+    snippet: str = ""
+    position: int = 0
+    search_type: str = "search"
+    source: str = "serper"
+
+    # Optional metadata
+    date: Optional[str] = None
+    authors: Optional[str] = None
+    publication: Optional[str] = None
+    cited_by: Optional[int] = None
+    year: Optional[str] = None
+    domain: Optional[str] = None
+    image_url: Optional[str] = None
+
+    # Quality signals
+    relevance_score: float = 0.7
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass
+class SerperStats:
+    """Usage statistics for cost tracking."""
+    requests_made: int = 0
+    results_retrieved: int = 0
+    errors: int = 0
+    rate_limits: int = 0
+    free_queries_used: int = 0
+    paid_queries_used: int = 0
+    total_cost_usd: float = 0.0
+
+    # Per-endpoint tracking
+    search_requests: int = 0
+    scholar_requests: int = 0
+    news_requests: int = 0
+    images_requests: int = 0
+    places_requests: int = 0
+    patents_requests: int = 0
+
+
+# =============================================================================
+# EXCEPTIONS
+# =============================================================================
+
+class SerperError(Exception):
+    """Base Serper exception."""
+    pass
+
+
+class SerperRateLimitError(SerperError):
+    """Rate limit exceeded."""
+    pass
+
+
+class SerperQuotaError(SerperError):
+    """Monthly quota exceeded."""
+    pass
+
+
+class SerperAuthError(SerperError):
+    """Authentication failed."""
+    pass
+
+
+# =============================================================================
+# SERPER CLIENT
+# =============================================================================
+
+class SerperClient:
+    """
+    Production-grade Serper.dev API Client.
+
+    Features:
+    - All Serper endpoints (search, scholar, news, images, places, patents)
+    - Async and sync interfaces
+    - Geographic targeting and domain filtering
+    - Circuit breaker pattern for resilience
+    - Cost tracking and budget management
+    - SOTA pagination for comprehensive results
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        daily_budget_usd: float = 50.0,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        """
+        Initialize Serper client.
+
+        Args:
+            api_key: Serper API key (defaults to SERPER_API_KEY env var)
+            daily_budget_usd: Daily budget limit in USD
+            timeout: Request timeout in seconds
+        """
+        self.api_key = api_key or os.getenv("SERPER_API_KEY")
+        self.daily_budget = daily_budget_usd
+        self.timeout = timeout
+
+        # Validate API key
+        if not self.api_key:
+            logger.warning("Serper API key not configured (SERPER_API_KEY)")
+            self.enabled = False
+        else:
+            self.enabled = True
+            logger.info("Serper client initialized")
+
+        # Statistics
+        self.stats = SerperStats()
+
+        # Circuit breaker
+        self._failure_count = 0
+        self._circuit_open_until = 0
+        self._max_failures = 5
+        self._circuit_timeout = 300  # 5 minutes
+
+        # HTTP client (reusable)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                headers={
+                    "X-API-KEY": self.api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        return self._client
+
+    async def close(self):
+        """Close HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker is open."""
+        if self._failure_count < self._max_failures:
+            return False
+
+        if time.time() > self._circuit_open_until:
+            # Reset circuit
+            self._failure_count = 0
+            logger.info("Serper circuit breaker reset")
+            return False
+
+        return True
+
+    def _record_failure(self):
+        """Record a failure for circuit breaker."""
+        self._failure_count += 1
+        if self._failure_count >= self._max_failures:
+            self._circuit_open_until = time.time() + self._circuit_timeout
+            logger.error(f"Serper circuit breaker OPEN for {self._circuit_timeout}s")
+
+    def _record_success(self):
+        """Record success to reset failure count."""
+        self._failure_count = 0
+
+    def _check_budget(self, num_requests: int = 1) -> bool:
+        """Check if requests fit within budget."""
+        # Free tier check
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            return True
+
+        # Paid tier check
+        if self.stats.total_cost_usd + (num_requests / 1000 * COST_PER_1000_QUERIES) > self.daily_budget:
+            logger.warning(f"Serper daily budget exceeded: ${self.daily_budget}")
+            return False
+
+        return True
+
+    def _update_cost(self, num_requests: int = 1):
+        """Update cost tracking after requests."""
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            self.stats.free_queries_used += num_requests
+        else:
+            # Some or all are paid
+            free_remaining = max(0, FREE_TIER_QUERIES - total_used)
+            paid = num_requests - free_remaining
+
+            self.stats.free_queries_used += free_remaining
+            self.stats.paid_queries_used += paid
+            self.stats.total_cost_usd += (paid / 1000) * COST_PER_1000_QUERIES
+
+    async def _request(
+        self,
+        endpoint: str,
+        payload: Dict[str, Any],
+        search_type: str = "search",
+    ) -> Dict[str, Any]:
+        """
+        Make request to Serper API.
+
+        Args:
+            endpoint: API endpoint URL
+            payload: Request payload
+            search_type: Type of search for stats tracking
+
+        Returns:
+            API response as dictionary
+        """
+        if not self.enabled:
+            raise SerperError("Serper client not enabled (missing API key)")
+
+        if self._check_circuit_breaker():
+            raise SerperError("Serper circuit breaker is open")
+
+        if not self._check_budget():
+            raise SerperQuotaError("Daily budget exceeded")
+
+        client = await self._get_client()
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await client.post(endpoint, json=payload)
+
+                # Handle specific status codes
+                if response.status_code == 401:
+                    raise SerperAuthError("Invalid API key")
+
+                if response.status_code == 429:
+                    self.stats.rate_limits += 1
+                    raise SerperRateLimitError("Rate limit exceeded")
+
+                if response.status_code == 403:
+                    error_data = response.json() if response.content else {}
+                    if "quota" in str(error_data).lower():
+                        raise SerperQuotaError("Monthly quota exceeded")
+                    raise SerperError(f"Forbidden: {error_data}")
+
+                response.raise_for_status()
+
+                # Success
+                self._record_success()
+                self.stats.requests_made += 1
+                self._update_cost(1)
+
+                # Track by type
+                type_attr = f"{search_type}_requests"
+                if hasattr(self.stats, type_attr):
+                    setattr(self.stats, type_attr, getattr(self.stats, type_attr) + 1)
+
+                return response.json()
+
+            except httpx.TimeoutException:
+                logger.warning(f"Serper timeout (attempt {attempt + 1}/{MAX_RETRIES})")
+                if attempt == MAX_RETRIES - 1:
+                    self._record_failure()
+                    self.stats.errors += 1
+                    raise SerperError("Request timeout")
+                await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+
+            except httpx.HTTPError as e:
+                logger.error(f"Serper HTTP error: {e}")
+                self._record_failure()
+                self.stats.errors += 1
+                raise SerperError(f"HTTP error: {e}")
+
+    # =========================================================================
+    # SEARCH ENDPOINTS
+    # =========================================================================
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        time_range: Optional[str] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results (up to 100)
+            gl: Geographic location (country code)
+            hl: Language code
+            location: Precise location string (e.g., "North America")
+            domains: Include only these domains (site: filter)
+            exclude_domains: Exclude these domains (-site: filter)
+            time_range: Time filter (d=day, w=week, m=month, y=year)
+
+        Returns:
+            List of SerperResult objects
+        """
+        # Build query with domain filters
+        search_query = query
+        if domains:
+            site_filter = " OR ".join([f"site:{d}" for d in domains])
+            search_query = f"({query}) ({site_filter})"
+        if exclude_domains:
+            exclude_filter = " ".join([f"-site:{d}" for d in exclude_domains])
+            search_query = f"{search_query} {exclude_filter}"
+
+        # Pagination for comprehensive results
+        all_results = []
+        seen_urls = set()
+        pages_needed = min((max_results + 9) // 10, 10)  # Serper returns 10 per page, max 10 pages
+
+        for page in range(pages_needed):
+            payload = {
+                "q": search_query,
+                "gl": gl,
+                "hl": hl,
+                "num": 10,
+                "page": page + 1,
+            }
+
+            if location:
+                payload["location"] = location
+
+            if time_range:
+                payload["tbs"] = f"qdr:{time_range}"
+
+            try:
+                data = await self._request(ENDPOINTS["search"], payload, "search")
+
+                # Process organic results
+                for item in data.get("organic", []):
+                    url = item.get("link", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        result = SerperResult(
+                            url=url,
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            position=len(all_results) + 1,
+                            search_type="search",
+                            date=item.get("date"),
+                            domain=self._extract_domain(url),
+                        )
+                        all_results.append(result)
+
+                # Also include answer box if present
+                if "answerBox" in data:
+                    ab = data["answerBox"]
+                    snippet = ab.get("answer") or ab.get("snippet") or ab.get("title", "")
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\search\\serper_client.py | Select-Object -Skip 430 -First 70" in C:\POLARIS
+ succeeded in 587ms:
+            if time_range:
+                payload["tbs"] = f"qdr:{time_range}"
+
+            try:
+                data = await self._request(ENDPOINTS["search"], payload, "search")
+
+                # Process organic results
+                for item in data.get("organic", []):
+                    url = item.get("link", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        result = SerperResult(
+                            url=url,
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            position=len(all_results) + 1,
+                            search_type="search",
+                            date=item.get("date"),
+                            domain=self._extract_domain(url),
+                        )
+                        all_results.append(result)
+
+                # Also include answer box if present
+                if "answerBox" in data:
+                    ab = data["answerBox"]
+                    snippet = ab.get("answer") or ab.get("snippet") or ab.get("title", "")
+                    if snippet and ab.get("link"):
+                        url = ab.get("link")
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            result = SerperResult(
+                                url=url,
+                                title=ab.get("title", "Answer Box"),
+                                snippet=snippet,
+                                position=0,  # Answer box is position 0
+                                search_type="answer_box",
+                                relevance_score=0.95,  # High relevance
+                            )
+                            all_results.insert(0, result)
+
+                if len(all_results) >= max_results:
+                    break
+
+            except SerperError as e:
+                logger.error(f"Search page {page + 1} failed: {e}")
+                break
+
+        self.stats.results_retrieved += len(all_results)
+        logger.info(f"Serper search '{query[:50]}...' returned {len(all_results)} results")
+
+        return all_results[:max_results]
+
+    async def scholar(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Scholar search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results
+            gl: Geographic location
+            hl: Language
+
+codex
+I found one contract mismatch that matters: `SerperClient.search()` does not currently propagate `SerperError`; it catches it per page and returns the accumulated results, which is `[]` on a missing key. That directly affects the proposed fail-loud behavior for `/ambiguity/scan`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"if not self.enabled|except SerperError as e|return all_results\\[:max_results\\]|class SerperClient|async def search\" src\\search\\serper_client.py" in C:\POLARIS
+ succeeded in 573ms:
+179:class SerperClient:
+317:        if not self.enabled:
+378:    async def search(
+474:            except SerperError as e:
+481:        return all_results[:max_results]
+555:            except SerperError as e:
+562:        return all_results[:max_results]
+629:            except SerperError as e:
+636:        return all_results[:max_results]
+692:            except SerperError as e:
+699:        return all_results[:max_results]
+751:        except SerperError as e:
+889:        return all_results[:max_results]
+914:        if not self.enabled:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\intake\\components\\intake_form.tsx | Select-Object -Skip 130 -First 85" in C:\POLARIS
+ succeeded in 598ms:
+              POLARIS only researches clinical evidence questions (efficacy,
+              safety, diagnosis, prognosis). Other domains will be marked out of
+              scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">or try:</span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <Card
+          data-testid="intake-error"
+          className="border-rose-500/40 bg-rose-500/5"
+        >
+          <CardContent className="text-rose-700 dark:text-rose-300">
+            {state.message}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <ScopeDecisionView decision={state.decision} />
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={(cid) => {
+          const found = disambigClusters.find((c) => c.cluster_id === cid);
+          setPickedClusterLabel(found?.label ?? null);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+
+      <output data-testid="disambig-picked-label" className="sr-only">
+        {pickedClusterLabel ?? ""}
+      </output>
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\intake\\components\\intake_form.tsx | Select-Object -First 130" in C:\POLARIS
+ succeeded in 622ms:
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { DisambiguationModal } from "./disambiguation_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+const FRENCH_STOPWORD_RE =
+  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
+const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
+
+function looksNonEnglish(s: string): boolean {
+  if (FRENCH_ACCENTED_RE.test(s)) return true;
+  const matches = s.match(FRENCH_STOPWORD_RE);
+  return (matches?.length ?? 0) >= 3;
+}
+
+export function IntakeForm() {
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
+    null,
+  );
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+    if (looksNonEnglish(trimmed)) {
+      setState({
+        kind: "error",
+        message: "POLARIS currently supports English questions only.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+      if (
+        result.decision.needs_disambiguation &&
+        result.decision.candidate_snippets &&
+        result.decision.candidate_snippets.length > 0
+      ) {
+        const dis = await runDisambiguation(result.decision.candidate_snippets);
+        if (dis.is_ambiguous && dis.clusters.length > 1) {
+          setDisambigClusters(dis.clusters);
+          setDisambigOpen(true);
+        }
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "candidate_fetcher fail-loud premise is false as written. `SerperClient._request()` raises on missing key, but `SerperClient.search()` catches `SerperError` and returns accumulated results, which is `[]` on first-page failure (`src/search/serper_client.py:474`, `:481`). A naive `await get_serper_client().search(...)` therefore feeds `detect_ambiguity([])` and returns `is_ambiguous=false`, recreating the false-unambiguous path the brief explicitly intends to avoid. Fix brief to require an explicit fail-loud guard, e.g. check `client.enabled` before search and/or treat zero fetched snippets from `/ambiguity/scan` as `503 candidate_fetch_unavailable` unless there is a deliberate tested no-results policy."
+p2:
+  - "Modal cancel/close needs a distinct modal-open/dismissed state. Clearing `ambiguity` to close the modal would also bypass the existing createRun ambiguity gate; setting `acknowledgedAmbiguity` would falsely permit Start run. Not P1 if implementation keeps `ambiguity` intact and only closes the dialog."
+loc_disposition: "single-pr-cap-exemption + reasoning: approve the cap exemption once the P1 is fixed. Backend scan endpoint, frontend product caller, and e2e are one reviewable feature; splitting creates a temporary backend-without-product or frontend-404 state."
+search_backend_ruling: "serper-ok + reasoning: acceptable for #505 because it reuses the existing runtime search backend and does not add a new sovereignty surface. Do not gate #505 on sovereign search, but the fail-loud semantics above must be explicit and tested."
+label_ruling: "truncated-representative-text-ok"
+convergence_call: continue
+verdict_reasoning: "The revised scope is directionally correct: it wires the actual v6 `detect_ambiguity()` into the dashboard ask/create-run path for clinical question-only flows and reuses the existing modal in place. The remaining blocker is concrete: the planned Serper call does not fail loud today, so missing/auth/quota/network failures can silently become empty candidates and a false unambiguous response."
+```
+tokens used
+71,007
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "candidate_fetcher fail-loud premise is false as written. `SerperClient._request()` raises on missing key, but `SerperClient.search()` catches `SerperError` and returns accumulated results, which is `[]` on first-page failure (`src/search/serper_client.py:474`, `:481`). A naive `await get_serper_client().search(...)` therefore feeds `detect_ambiguity([])` and returns `is_ambiguous=false`, recreating the false-unambiguous path the brief explicitly intends to avoid. Fix brief to require an explicit fail-loud guard, e.g. check `client.enabled` before search and/or treat zero fetched snippets from `/ambiguity/scan` as `503 candidate_fetch_unavailable` unless there is a deliberate tested no-results policy."
+p2:
+  - "Modal cancel/close needs a distinct modal-open/dismissed state. Clearing `ambiguity` to close the modal would also bypass the existing createRun ambiguity gate; setting `acknowledgedAmbiguity` would falsely permit Start run. Not P1 if implementation keeps `ambiguity` intact and only closes the dialog."
+loc_disposition: "single-pr-cap-exemption + reasoning: approve the cap exemption once the P1 is fixed. Backend scan endpoint, frontend product caller, and e2e are one reviewable feature; splitting creates a temporary backend-without-product or frontend-404 state."
+search_backend_ruling: "serper-ok + reasoning: acceptable for #505 because it reuses the existing runtime search backend and does not add a new sovereignty surface. Do not gate #505 on sovereign search, but the fail-loud semantics above must be explicit and tested."
+label_ruling: "truncated-representative-text-ok"
+convergence_call: continue
+verdict_reasoning: "The revised scope is directionally correct: it wires the actual v6 `detect_ambiguity()` into the dashboard ask/create-run path for clinical question-only flows and reuses the existing modal in place. The remaining blocker is concrete: the planned Serper call does not fail loud today, so missing/auth/quota/network failures can silently become empty candidates and a false unambiguous response."
+```

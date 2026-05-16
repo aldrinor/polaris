@@ -1,0 +1,2693 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e310a-2c1d-78d3-8691-bd4379e93da9
+--------
+user
+# Codex BRIEF review — I-rdy-009 (#505): wire ambiguity_detector into the ask/create-run flow
+
+**Type:** BRIEF review (acceptance-criteria + scope correctness). Phase 3.6 of the
+Carney demo execution plan. **iter 5 of 5 (cap iteration).**
+
+## §0. Iteration cap directive (CLAUDE.md §8.3.1, verbatim, binding)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+This is the **iter-5 cap**. Every iter-1..4 finding has been addressed; no finding
+has recurred. Please make a final convergence call.
+
+## §0.5 Changes since prior iters
+
+- **iter 1 → 2:** dropped the false `/api/intake` `candidate_snippets` contract;
+  adopted Codex option (a) — build a real candidate-snippet source.
+- **iter 2 → 3:** explicit Serper fail-loud guard + distinct modal-open state.
+- **iter 3 → 4:** `clinicalScanGate` tri-state hard-block so a 503 scan cannot
+  fail open into `createRun`.
+- **iter 4 → 5 (REQUEST_CHANGES — P1-002 + P2-001, both accepted, both fixed):**
+  - **P1-002 — gate not bound to the submitted question (FIXED, §3.3).** Codex
+    was right: `clinicalScanGate="ok"` for question A survived an edit to
+    question B, so B could be submitted on A's stale scan. Fix: a **single
+    invalidate-on-change `useEffect`** keyed on `[question, template, uploads]`
+    resets `clinicalScanGate→"not_run"`, `ambiguity→null`,
+    `acknowledgedAmbiguity→false`, `disambigModalOpen→false`. Any edit after a
+    scan forces `clinicalScanGate ≠ "ok"`, so the `onSubmit` hard-block (§3.3)
+    re-engages — `createRun` can never POST a question that lacks its own
+    successful `detect_ambiguity` scan. (Chosen over a scan-key comparison
+    because it ALSO clears the now-stale ambiguity notice for the edited
+    question — correct UX, not just correct gating.)
+  - **P2-001 — upload path no longer auto-opens the modal (FIXED, §3.3).** The
+    upload-backed `checkAmbiguity` branch now also calls
+    `setDisambigModalOpen(true)` when its result is ambiguous, so "ambiguous
+    query triggers the modal" holds for the upload path too, not only
+    question-only.
+
+Locked Codex rulings carried forward: `modal_location_ruling = import-in-place`,
+`loc_disposition = single-pr-cap-exemption`, `search_backend_ruling = serper-ok`,
+`label_ruling = truncated-representative-text-ok`.
+
+## §1. Issue + acceptance
+
+GH #505 (I-rdy-009, Phase 3.6): "F2 ambiguity detection runs in the **main
+ask/create-run flow**, not only the test harness. **Acceptance: an ambiguous query
+triggers the disambiguation modal in the product flow; Codex APPROVE.**" Depends on
+I-rdy-003 (done).
+
+The issue title names `ambiguity_detector` — the module
+`src/polaris_v6/ambiguity_detector/` → `detect_ambiguity()`, exposed as
+`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`). This brief wires **that**
+detector (NOT the slice-001 PICO scope-axes detector — different mechanism, §3.0).
+
+## §2. Grounded current state (all files read)
+
+- **`/dashboard` (`web/app/dashboard/page.tsx`) is the main create-run flow:**
+  template + question → "Check scope" (`checkScope` → `POST /scope/check`) →
+  "Start run" (`createRun` → `POST /runs` → redirect `/runs/{id}`).
+- **The dashboard ALREADY calls the ambiguity detector — but the path is dead for
+  question-only queries.** `runScopeCheck` (`page.tsx:138-149`) runs
+  `checkAmbiguity` only `if (decision.verdict === "accepted" && uploads.length > 0)`;
+  candidates are built **solely from uploaded-document `chunk_preview`s**. A
+  question-only query (no uploads — the common demo case) **never reaches
+  `detect_ambiguity`**. When it does fire (uploads present) it renders an inline
+  ambiguity **card** (`page.tsx:386-434`), not a modal.
+- **`POST /ambiguity` (`src/polaris_v6/api/ambiguity.py`)** body:
+  `{question, candidates: list[{source_id, text}], min_cluster_size,
+  similarity_threshold}`. With no candidates `detect_ambiguity([])` returns
+  `is_ambiguous=False` — **`/ambiguity` is useless for a bare question without a
+  candidate source.**
+- **`detect_ambiguity` (`ambiguity_detector.py:108`)** is pure-Python
+  (trigram-cosine greedy clustering — no embeddings/LLM/network). Consumes
+  `list[CandidateSnippet(source_id, text)]`; ≥2 qualifying clusters ⇒ ambiguous.
+  Its docstring + the `/ambiguity` request docstring both name the missing piece:
+  *"Phase 1: backend fetches via cheap retrieval before this call."* **That cheap
+  candidate-fetcher was never built — that gap IS issue #505.**
+- **`SerperClient` (`src/search/serper_client.py`)** — `get_serper_client()`
+  singleton; `async search(query, max_results)` → `list[SerperResult]`
+  (`.url/.title/.snippet`). `__init__` sets `self.enabled = bool(self.api_key)`
+  (`:211-216`); `_request()` raises `SerperError` when `not self.enabled`
+  (`:318`); **`search()` swallows `SerperError` per page (`:474`) and returns the
+  accumulated list — `[]` on a first-page failure (`:481`)** — so `search()` never
+  raises; the fail-loud guard must be explicit (§3.1). Same Serper backend
+  slice-002 production retrieval uses (`polaris_graph/retrieval2/real_fetcher.py`).
+- **`web/lib/api.ts:184-217`** `checkAmbiguity` → `POST /ambiguity` →
+  `AmbiguityResult {is_ambiguous, clusters: [{cluster_id, representative_text,
+  member_source_ids}], fallback_used}`.
+- **`DisambiguationModal` (`web/app/intake/components/disambiguation_modal.tsx`)** —
+  a `@base-ui/react` `Dialog`. Props `{open, clusters: DisambiguationCluster[],
+  onSelectCluster(id), onCancel}`; `DisambiguationCluster = {cluster_id, label,
+  sample_snippets[]}`. The literal "disambiguation modal."
+
+## §3. The plan — Codex option (a): cheap clinical candidate-snippet source
+
+### §3.0 Why option (a), not option (b)
+
+Option (b) (narrow acceptance to the PICO `AmbiguityModal`) is rejected: the PICO
+modal is driven by `ScopeDecision.ambiguity_axes` — the *scope classifier's* PICO
+axes, a different mechanism from `detect_ambiguity` (candidate-clustering). Issue
+#505 names `ambiguity_detector` = `detect_ambiguity`; option (b) would satisfy the
+word "modal" while leaving `ambiguity_detector` unwired. So option (a).
+
+### §3.1 Backend — a cheap candidate-fetcher with an EXPLICIT fail-loud guard
+
+New module `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` (~55 LOC):
+
+```
+async def fetch_candidate_snippets(question: str, *, max_results: int = 10)
+    -> list[CandidateSnippet]
+```
+
+Logic, in order:
+1. `client = get_serper_client()`. **If `not client.enabled`** (no
+   `SERPER_API_KEY`) → `raise CandidateFetchError("SERPER_API_KEY unset")`
+   immediately — do NOT call `search()` (it would swallow the error, return `[]`).
+2. `results = await client.search(question, max_results=max_results)`.
+3. Map each `SerperResult` → `CandidateSnippet(source_id=r.url,
+   text=f"{r.title}. {r.snippet}".strip())`; drop entries with empty text.
+4. **If the mapped list is empty** → `raise CandidateFetchError("search returned
+   zero candidate snippets")`. Per LAW II, zero results means *search failed*, NOT
+   *unambiguous* — never return `[]` to the detector. (`≥1` snippet is valid input;
+   `detect_ambiguity` correctly reports a single snippet as non-ambiguous.)
+
+`CandidateFetchError` is a small new exception class in the same module.
+
+### §3.2 Backend — a question-only endpoint with a 503 on fetch failure
+
+New route in `src/polaris_v6/api/ambiguity.py` (~32 LOC), on the **existing**
+`APIRouter(prefix="/ambiguity")` (already mounted — the dashboard reaches
+`/ambiguity` today, so `/ambiguity/scan` auto-mounts):
+
+```
+POST /ambiguity/scan   body {question: str (min_length=4, max_length=2000)}
+                       -> AmbiguityCheckResponse
+```
+
+`try: snippets = await fetch_candidate_snippets(question)` →
+`detect_ambiguity(snippets)` → return the **same `AmbiguityCheckResponse` shape**
+`/ambiguity` already returns. `except CandidateFetchError as exc:` →
+`raise HTTPException(503, {"error": True, "code": "candidate_fetch_unavailable",
+"message": str(exc)})` — mirroring the `/api/disambiguation`
+`label_client_unavailable` 503 precedent (`disambiguation_route.py:89-92`).
+
+### §3.3 Frontend — dashboard wiring, modal, hard scan-gate, stale-scan invalidation
+
+`web/lib/api.ts`: add `scanAmbiguity(question) -> AmbiguityResult` →
+`POST /ambiguity/scan` (~14 LOC); a non-OK response throws via the existing
+`asJsonOrThrow` helper.
+
+`web/app/dashboard/page.tsx` — **four distinct state values:**
+- `ambiguity: AmbiguityResult | null` — scan result; read by the createRun gate.
+- `acknowledgedAmbiguity: boolean` — gate flag; set true ONLY by `onSelectCluster`.
+- `disambigModalOpen: boolean` — **new** — drives the dialog only.
+- `clinicalScanGate: "not_run" | "ok" | "failed"` — **new** — whether the
+  mandatory clinical question-only ambiguity scan has *successfully completed*.
+
+**Stale-scan invalidation (P1-002 fix) — a single `useEffect`:**
+```
+useEffect(() => {
+  setClinicalScanGate("not_run");
+  setAmbiguity(null);
+  setAcknowledgedAmbiguity(false);
+  setDisambigModalOpen(false);
+}, [question, template, uploads]);
+```
+Any edit to the question, template, or upload set invalidates a prior scan.
+(`runScopeCheck` does not mutate those three deps, so it never races this effect;
+the effect's mount-time run is a harmless reset to already-default values.)
+
+**`runScopeCheck`:** after `checkScope` returns `decision`:
+- **Upload branch** (`uploads.length > 0 && verdict === "accepted"`) — keeps
+  `checkAmbiguity` from upload chunks; now ALSO `if (result.is_ambiguous)
+  setDisambigModalOpen(true)` (P2-001 fix). Does not touch `clinicalScanGate`.
+- **Clinical question-only branch** — if `template === "clinical" &&
+  uploads.length === 0 && decision.verdict !== "rejected"`:
+  `try { const r = await scanAmbiguity(question.trim()); setAmbiguity(r);
+  setClinicalScanGate("ok"); if (r.is_ambiguous) setDisambigModalOpen(true); }
+  catch (e) { setClinicalScanGate("failed"); setError("Ambiguity check is
+  unavailable — retry Check scope before starting a run."); }`.
+
+**`onSubmit` createRun gate** — after the existing `rejected` check, BEFORE
+`createRun`:
+```
+if (template === "clinical" && uploads.length === 0 && clinicalScanGate !== "ok") {
+  setError(clinicalScanGate === "failed"
+    ? "Ambiguity check is unavailable — retry Check scope before starting a run."
+    : "Run Check scope first — the ambiguity guard must complete for clinical questions.");
+  return;   // hard block — no createRun, no navigation
+}
+```
+A 503, a never-run scan, OR a post-scan edit (invalidated by the effect) all leave
+`clinicalScanGate ≠ "ok"` → "Start run" hard-blocked. The existing
+`ambiguity?.is_ambiguous && !acknowledgedAmbiguity` gate (`page.tsx:167`) still
+blocks the ambiguous-and-unacknowledged case. Both gates coexist.
+
+**Modal + inline notice (replaces the card at `page.tsx:386-434`):**
+- Imported `DisambiguationModal` (`import-in-place`), `open={disambigModalOpen}`.
+  3-line adapter `AmbiguityCluster[] → DisambiguationCluster[]`:
+  `{cluster_id, label: representative_text.slice(0,80), sample_snippets:
+  [representative_text]}`.
+- `onSelectCluster(id)` → `setAcknowledgedAmbiguity(true)` +
+  `setDisambigModalOpen(false)`. `onCancel` → `setDisambigModalOpen(false)` ONLY.
+- One-line inline notice shown whenever `ambiguity?.is_ambiguous &&
+  !acknowledgedAmbiguity`, with a "Review meanings" button re-opening the modal.
+
+e2e Playwright spec `web/tests/e2e/dashboard_ambiguity.spec.ts`: (1) ambiguous
+clinical query → `DisambiguationModal` opens; (2) `/ambiguity/scan` mocked `503`
+→ "Start run" stays blocked, no `/runs` POST, no navigation (P1-001 regression);
+(3) successful scan on question A, then edit to question B → "Start run" blocked
+until B is re-checked (P1-002 regression). Mirrors
+`web/tests/e2e/intake_disambiguation.spec.ts`.
+
+**Honest environment note:** `web/` is Next.js 16 (`web/AGENTS.md` — read
+`node_modules/next/dist/docs/` before frontend code). `npm run build`/Playwright
+may be environment-limited in the autonomous session; if so the diff ships with
+the spec authored + lint/type-check run as far as the env allows + a clear note
+that the e2e run is CI-verified.
+
+## §4. Deliverable files + LOC estimate
+
+`loc_disposition = single-pr-cap-exemption` (Codex iter-2). Single PR, ~275 LOC.
+
+| File | New/Mod | ~LOC |
+|---|---|---|
+| `src/polaris_v6/ambiguity_detector/candidate_fetcher.py` | new | 55 |
+| `src/polaris_v6/ambiguity_detector/__init__.py` | mod (export `fetch_candidate_snippets`, `CandidateFetchError`) | 4 |
+| `src/polaris_v6/api/ambiguity.py` | mod (+`/ambiguity/scan`) | 32 |
+| `tests/v6/test_ambiguity_scan.py` | new — fetcher fail-loud (no key → raises; zero snippets → raises; happy path), `/ambiguity/scan` 200 + 503, real `detect_ambiguity`, Serper stubbed at the `get_serper_client` boundary | 75 |
+| `web/lib/api.ts` | mod (+`scanAmbiguity`) | 14 |
+| `web/app/dashboard/page.tsx` | mod (card→modal, scan call, adapter, `disambigModalOpen` + `clinicalScanGate` state, invalidation effect, createRun scan-gate) | ~100 churn (~50 del + ~50 add) |
+| `web/tests/e2e/dashboard_ambiguity.spec.ts` | new (modal-opens + 503-blocks + stale-scan-blocks) | 65 |
+
+New-retrieval code itself ~90 LOC (under the ~120 carve threshold); size is
+dominated by the card→modal replacement + e2e. Cap exemption ruled by Codex iter-2.
+
+## §5. Adjacent-file scan — files I have ALSO checked and they're clean
+
+`src/polaris_v6/api/app.py` (router mounting; the new endpoint rides the existing
+`ambiguity` router), `src/polaris_v6/api/scope.py`, `src/polaris_v6/api/runs.py`,
+`src/polaris_v6/ambiguity_detector/__init__.py`, `src/search/serper_client.py`
+(`enabled` `:211-216`; `_request` raise `:318`; `search` swallow `:474`; return
+`:481`), `src/polaris_graph/retrieval2/real_fetcher.py`,
+`src/polaris_graph/api/intake_route.py`, `src/polaris_graph/scope/scope_decision.py`,
+`src/polaris_graph/api/disambiguation_route.py`,
+`web/app/intake/components/disambiguation_modal.tsx`,
+`web/app/intake/components/intake_form.tsx`, `web/app/dashboard/page.tsx`
+(`runScopeCheck` `:129-155`, `onSubmit` gate `:157-187`), `web/lib/api.ts`.
+
+## §6. Questions for Codex
+
+1. Does §3.3's invalidate-on-change `useEffect` fully resolve P1-002 (no stale
+   scan can authorize a different question)?
+2. Does the upload-branch `setDisambigModalOpen(true)` fully resolve P2-001?
+3. Any remaining P0/P1 execution risk.
+
+## §7. Output schema (CLAUDE.md §8.3.9 — bind to this)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+verdict_reasoning: <text>
+```
+Loose prose without the schema → resubmit.
+
+codex
+I’ll validate the brief against the current dashboard/API shapes and the modal contract, then make the iter-5 call using the required YAML schema.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Filter AGENTS.md -Recurse | Select-Object -ExpandProperty FullName; Get-ChildItem -Path . -Filter CLAUDE.md -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "runScopeCheck|onSubmit|checkAmbiguity|ambiguity|createRun|DisambiguationModal|clinicalScanGate|disambigModalOpen" web/app/dashboard/page.tsx web/lib/api.ts web/app/intake/components/disambiguation_modal.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "APIRouter|Ambiguity|detect_ambiguity|CandidateSnippet|SerperError|enabled|async def search|return results|raise HTTPException" src/polaris_v6/api/ambiguity.py src/polaris_v6/ambiguity_detector src/search/serper_client.py src/polaris_graph/api/disambiguation_route.py' in C:\POLARIS
+ succeeded in 746ms:
+src/polaris_graph/api/disambiguation_route.py:11:from fastapi import APIRouter, Depends, HTTPException
+src/polaris_graph/api/disambiguation_route.py:18:router = APIRouter(tags=["disambiguation"])
+src/polaris_graph/api/disambiguation_route.py:21:class CandidateSnippet(BaseModel):
+src/polaris_graph/api/disambiguation_route.py:27:    candidates: list[CandidateSnippet] = Field(min_length=1)
+src/polaris_graph/api/disambiguation_route.py:80:        raise HTTPException(status_code=400, detail={"error": True,
+src/polaris_graph/api/disambiguation_route.py:90:        raise HTTPException(status_code=503, detail={"error": True,
+src/search/serper_client.py:155:class SerperError(Exception):
+src/search/serper_client.py:160:class SerperRateLimitError(SerperError):
+src/search/serper_client.py:165:class SerperQuotaError(SerperError):
+src/search/serper_client.py:170:class SerperAuthError(SerperError):
+src/search/serper_client.py:213:            self.enabled = False
+src/search/serper_client.py:215:            self.enabled = True
+src/search/serper_client.py:317:        if not self.enabled:
+src/search/serper_client.py:318:            raise SerperError("Serper client not enabled (missing API key)")
+src/search/serper_client.py:321:            raise SerperError("Serper circuit breaker is open")
+src/search/serper_client.py:344:                    raise SerperError(f"Forbidden: {error_data}")
+src/search/serper_client.py:365:                    raise SerperError("Request timeout")
+src/search/serper_client.py:372:                raise SerperError(f"HTTP error: {e}")
+src/search/serper_client.py:378:    async def search(
+src/search/serper_client.py:474:            except SerperError as e:
+src/search/serper_client.py:555:            except SerperError as e:
+src/search/serper_client.py:629:            except SerperError as e:
+src/search/serper_client.py:692:            except SerperError as e:
+src/search/serper_client.py:749:            return results
+src/search/serper_client.py:751:        except SerperError as e:
+src/search/serper_client.py:804:        return results
+src/search/serper_client.py:914:        if not self.enabled:
+src/search/serper_client.py:958:    "SerperError",
+src/polaris_v6/api/ambiguity.py:4:AmbiguityResult so the frontend can render a disambiguation modal
+src/polaris_v6/api/ambiguity.py:13:from fastapi import APIRouter
+src/polaris_v6/api/ambiguity.py:17:    CandidateSnippet,
+src/polaris_v6/api/ambiguity.py:18:    detect_ambiguity,
+src/polaris_v6/api/ambiguity.py:21:router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+src/polaris_v6/api/ambiguity.py:29:class AmbiguityCheckRequest(BaseModel):
+src/polaris_v6/api/ambiguity.py:43:class AmbiguityClusterOut(BaseModel):
+src/polaris_v6/api/ambiguity.py:49:class AmbiguityCheckResponse(BaseModel):
+src/polaris_v6/api/ambiguity.py:51:    clusters: list[AmbiguityClusterOut]
+src/polaris_v6/api/ambiguity.py:55:@router.post("", response_model=AmbiguityCheckResponse)
+src/polaris_v6/api/ambiguity.py:56:def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+src/polaris_v6/api/ambiguity.py:58:        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+src/polaris_v6/api/ambiguity.py:60:    result = detect_ambiguity(
+src/polaris_v6/api/ambiguity.py:65:    return AmbiguityCheckResponse(
+src/polaris_v6/api/ambiguity.py:68:            AmbiguityClusterOut(
+src/polaris_v6/ambiguity_detector\__init__.py:1:"""Ambiguity detector — HDBSCAN-based detection of multi-meaning queries
+src/polaris_v6/ambiguity_detector\__init__.py:18:    AmbiguityCluster,
+src/polaris_v6/ambiguity_detector\__init__.py:19:    AmbiguityResult,
+src/polaris_v6/ambiguity_detector\__init__.py:20:    CandidateSnippet,
+src/polaris_v6/ambiguity_detector\__init__.py:21:    detect_ambiguity,
+src/polaris_v6/ambiguity_detector\__init__.py:25:    "AmbiguityCluster",
+src/polaris_v6/ambiguity_detector\__init__.py:26:    "AmbiguityResult",
+src/polaris_v6/ambiguity_detector\__init__.py:27:    "CandidateSnippet",
+src/polaris_v6/ambiguity_detector\__init__.py:28:    "detect_ambiguity",
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:11:4. If ≥2 clusters meet min_cluster_size, return AmbiguityResult with
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:32:class CandidateSnippet:
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:40:class AmbiguityCluster:
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:49:class AmbiguityResult:
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:58:    clusters: list[AmbiguityCluster]
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:87:    snippets: Sequence[CandidateSnippet], *, similarity_threshold: float
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:108:def detect_ambiguity(
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:109:    snippets: Sequence[CandidateSnippet],
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:114:) -> AmbiguityResult:
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:126:        return AmbiguityResult(is_ambiguous=False, clusters=[], fallback_used=True)
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:134:        AmbiguityCluster(
+src/polaris_v6/ambiguity_detector\ambiguity_detector.py:142:    return AmbiguityResult(
+
+ succeeded in 800ms:
+web/app/intake/components/disambiguation_modal.tsx:11:export type DisambiguationModalProps = {
+web/app/intake/components/disambiguation_modal.tsx:25:export function DisambiguationModal({
+web/app/intake/components/disambiguation_modal.tsx:30:}: DisambiguationModalProps) {
+web/lib/api.ts:111:export async function createRun(
+web/lib/api.ts:201:export async function checkAmbiguity(
+web/lib/api.ts:205:  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+web/lib/api.ts:413:  ambiguity_axes: IntakeAmbiguityAxis[];
+web/app/dashboard/page.tsx:17:  checkAmbiguity,
+web/app/dashboard/page.tsx:19:  createRun,
+web/app/dashboard/page.tsx:82:  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+web/app/dashboard/page.tsx:129:  const runScopeCheck = async () => {
+web/app/dashboard/page.tsx:146:          const result = await checkAmbiguity(question.trim(), candidates);
+web/app/dashboard/page.tsx:157:  const onSubmit = async (event: React.FormEvent) => {
+web/app/dashboard/page.tsx:167:    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+web/app/dashboard/page.tsx:176:      const run = await createRun({
+web/app/dashboard/page.tsx:215:        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+web/app/dashboard/page.tsx:386:          {ambiguity?.is_ambiguous && (
+web/app/dashboard/page.tsx:394:                  Disambiguation needed (ambiguity guard)
+web/app/dashboard/page.tsx:397:                  {ambiguity.clusters.length} possible meanings detected
+web/app/dashboard/page.tsx:407:                  {ambiguity.clusters.map((c) => (
+web/app/dashboard/page.tsx:429:                      : "Acknowledge ambiguity"}
+web/app/dashboard/page.tsx:456:              onClick={runScopeCheck}
+
+2026-05-16T13:47:06.345481Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.8 seconds
+Output:
+C:\POLARIS\web\AGENTS.md
+C:\POLARIS\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\.claude\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\archive\2025-09-17_cleanup\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\archive\2025-10-17_root_cleanup\CLAUDE.md
+C:\POLARIS\codex_tmp_i_rdy005_review_040abd52\CLAUDE.md
+C:\POLARIS\codex_tmp_i_rdy005_review_040abd52\web\CLAUDE.md
+C:\POLARIS\web\CLAUDE.md
+
+ exited 1 in 2755ms:
+C:\POLARIS\web\AGENTS.md
+C:\POLARIS\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\.claude\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\archive\2025-09-17_cleanup\CLAUDE.md
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\archive\2025-10-17_root_cleanup\CLAUDE.md
+C:\POLARIS\codex_tmp_i_rdy005_review_040abd52\CLAUDE.md
+C:\POLARIS\codex_tmp_i_rdy005_review_040abd52\web\CLAUDE.md
+C:\POLARIS\web\CLAUDE.md
+
+codex
+The current code matches the brief’s premise: dashboard only calls `/ambiguity` for upload-derived candidates today, and the existing modal component is separate from that dashboard card. I’m checking the proposed dependency and state transitions now, since stale authorization and fail-open behavior are the only likely acceptance blockers.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/dashboard/page.tsx -TotalCount 520' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/ambiguity.py -TotalCount 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/intake/components/disambiguation_modal.tsx -TotalCount 220' in C:\POLARIS
+ succeeded in 853ms:
+"""POST /ambiguity — F2 ambiguity check endpoint.
+
+Takes a question + optional candidate snippets, returns the
+AmbiguityResult so the frontend can render a disambiguation modal
+before any expensive retrieval / generator cost is incurred.
+
+Phase 0 contract: candidates are passed in by the caller (typically a
+cheap candidate-fetcher in the backend will populate them in Phase 1).
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from polaris_v6.ambiguity_detector import (
+    CandidateSnippet,
+    detect_ambiguity,
+)
+
+router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+
+
+class CandidateIn(BaseModel):
+    source_id: str
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
+class AmbiguityCheckRequest(BaseModel):
+    question: str = Field(..., min_length=4, max_length=2000)
+    candidates: list[CandidateIn] = Field(
+        ...,
+        min_length=0,
+        description=(
+            "Pre-fetched candidate snippets. Phase 0: caller supplies. "
+            "Phase 1: backend fetches via cheap retrieval before this call."
+        ),
+    )
+    min_cluster_size: int = Field(default=2, ge=1)
+    similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class AmbiguityClusterOut(BaseModel):
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str]
+
+
+class AmbiguityCheckResponse(BaseModel):
+    is_ambiguous: bool
+    clusters: list[AmbiguityClusterOut]
+    fallback_used: bool
+
+
+@router.post("", response_model=AmbiguityCheckResponse)
+def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
+    snippets = [
+        CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+    ]
+    result = detect_ambiguity(
+        snippets,
+        min_cluster_size=payload.min_cluster_size,
+        similarity_threshold=payload.similarity_threshold,
+    )
+    return AmbiguityCheckResponse(
+        is_ambiguous=result.is_ambiguous,
+        clusters=[
+            AmbiguityClusterOut(
+                cluster_id=c.cluster_id,
+                representative_text=c.representative_text,
+                member_source_ids=c.member_source_ids,
+            )
+            for c in result.clusters
+        ],
+        fallback_used=result.fallback_used,
+    )
+
+ succeeded in 913ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  checkAmbiguity,
+  checkScope,
+  createRun,
+  listTemplates,
+  uploadDocument,
+  type AmbiguityResult,
+  type ScopeDecision,
+  type TemplateContent,
+  type TemplateId,
+  type UploadResponse,
+} from "@/lib/api";
+
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+    {
+      id: "tech",
+      title: "Technology assessment",
+      domain: "arXiv / IEEE / ACM",
+    },
+    {
+      id: "due_diligence",
+      title: "Due diligence",
+      domain: "SEC EDGAR / USPTO",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [template, setTemplate] = useState<TemplateId>("clinical");
+  const [question, setQuestion] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (question.trim().length < 4) {
+      setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Start a research run
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Pick a template and ask a focused question. Every claim returned
+            will carry a provenance token tied to a primary source.
+          </p>
+        </section>
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-foreground text-sm font-semibold">
+              Template
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+                  // <div> — keyboard-only users locked out of non-default
+                  // templates, WCAG 2.1.1 Level A failure).
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTemplate(t.id)}
+                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                      selected
+                        ? "border-foreground"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                  >
+                    <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
+                      {t.domain}
+                    </span>
+                    <span className="text-card-foreground mt-1 block text-base font-semibold">
+                      {t.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="question"
+              className="text-foreground text-sm font-semibold"
+            >
+              Research question
+            </label>
+            <Input
+              id="question"
+              type="text"
+              placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              minLength={4}
+              maxLength={2000}
+              required
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-foreground text-sm font-semibold">
+              Optional: upload supporting documents
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+                dragOver
+                  ? "border-foreground bg-muted/40"
+                  : "border-border bg-muted/10"
+              }`}
+            >
+              <p className="text-muted-foreground">
+                Drag PDFs, .docx, .md, or .txt here, or
+              </p>
+              <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
+                <span>browse files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.md,.txt"
+                  className="hidden"
+                  disabled={uploading || submitting}
+                  onChange={(e) => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {uploading && (
+                <p className="text-muted-foreground text-xs">Uploading…</p>
+              )}
+            </div>
+            {uploads.length > 0 && (
+              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+                {uploads.map((u) => (
+                  <li
+                    key={u.document_id}
+                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {u.filename}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {(u.bytes / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="ml-2 uppercase">{u.classification}</span>
+                      <span className="ml-2">{u.parse_status}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUploads((prev) =>
+                          prev.filter((p) => p.document_id !== u.document_id),
+                        )
+                      }
+                      className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {scopeDecision && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/60"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-foreground mt-2 text-sm font-medium">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-foreground mt-2 text-xs font-medium">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (ambiguity guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/" />}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
+              {submitting ? "Queuing…" : "Start run"}
+            </Button>
+          </div>
+        </form>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ succeeded in 934ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+
+ succeeded in 919ms:
+"use client";
+
+import { useEffect, useRef } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+
+import { Button } from "@/components/ui/button";
+import type { DisambiguationCluster } from "@/lib/api";
+
+const MAX_SAMPLE_LEN = 80;
+
+export type DisambiguationModalProps = {
+  open: boolean;
+  clusters: DisambiguationCluster[];
+  onSelectCluster: (cluster_id: number) => void;
+  onCancel: () => void;
+};
+
+function previewSnippets(snippets: string[]): string {
+  const joined = snippets.slice(0, 2).join(" · ");
+  return joined.length > MAX_SAMPLE_LEN
+    ? joined.slice(0, MAX_SAMPLE_LEN - 1) + "…"
+    : joined;
+}
+
+export function DisambiguationModal({
+  open,
+  clusters,
+  onSelectCluster,
+  onCancel,
+}: DisambiguationModalProps) {
+  const is_cancelled_ref = useRef(false);
+  useEffect(() => {
+    if (open) is_cancelled_ref.current = false;
+  }, [open]);
+  const handleCancel = () => {
+    if (is_cancelled_ref.current) return;
+    is_cancelled_ref.current = true;
+    onCancel();
+  };
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next_open) => {
+        if (!next_open) handleCancel();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs" />
+        <DialogPrimitive.Popup
+          data-slot="disambiguation-modal"
+          className="bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border p-6 shadow-lg transition duration-200 ease-in-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+        >
+          <div className="flex flex-col gap-1">
+            <DialogPrimitive.Title className="text-foreground text-lg font-semibold">
+              Did you mean…
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+              We found multiple meanings. Pick one to focus the search.
+            </DialogPrimitive.Description>
+          </div>
+          {clusters.length > 0 && (
+            <ul className="flex flex-col gap-3">
+              {clusters.map((c) => (
+                <li key={c.cluster_id}>
+                  <button
+                    type="button"
+                    data-testid={`disambiguation-cluster-${c.cluster_id}`}
+                    aria-label={`Pick ${c.label}`}
+                    onClick={() => onSelectCluster(c.cluster_id)}
+                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  >
+                    <span className="text-foreground text-sm font-semibold">
+                      {c.label}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {previewSnippets(c.sample_snippets)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <DialogPrimitive.Close
+              render={
+                <Button variant="outline" onClick={handleCancel}>
+                  Cancel
+                </Button>
+              }
+            />
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/ambiguity_detector/ambiguity_detector.py -TotalCount 190' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 360 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/app.py -TotalCount 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/search/serper_client.py | Select-Object -Skip 190 -First 320' in C:\POLARIS
+ succeeded in 748ms:
+"""HDBSCAN-based ambiguity detector for research questions.
+
+Per docs/carney_delivery_plan_v6_2.md F2 (ambiguity detector backend) and
+memory bpei_phantom_completion_lessons.md, the BPEI failure happened
+because the scope gate has no way to detect when a short acronym question
+maps to multiple unrelated source clusters. This module fixes that by:
+
+1. Running a cheap candidate retrieval (top-K from search providers).
+2. Embedding the candidate snippets via a deterministic encoder.
+3. Clustering with HDBSCAN.
+4. If ≥2 clusters meet min_cluster_size, return AmbiguityResult with
+   per-cluster representative snippets so the UI can render a
+   disambiguation modal.
+
+Phase 0 ships the API surface + a pure-Python fallback that uses character
+3-gram cosine + a simple density-based grouping when scikit-learn /
+hdbscan are not installed (so this code can be unit-tested without the
+heavy ML stack). Phase 1 wires the real HDBSCAN path once the backend
+venv is provisioned.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Sequence
+
+
+@dataclass
+class CandidateSnippet:
+    """One candidate retrieval result feeding the disambiguation pass."""
+
+    source_id: str
+    text: str
+
+
+@dataclass
+class AmbiguityCluster:
+    """A discovered semantic cluster of candidates."""
+
+    cluster_id: int
+    representative_text: str
+    member_source_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AmbiguityResult:
+    """Detector verdict.
+
+    `is_ambiguous` is True iff there are ≥2 clusters each with at least
+    `min_cluster_size` members. Each cluster's representative snippet is
+    surfaced to the user via the F2 disambiguation modal.
+    """
+
+    is_ambiguous: bool
+    clusters: list[AmbiguityCluster]
+    fallback_used: bool = False
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _trigrams(text: str) -> Counter[str]:
+    text_lower = text.lower()
+    counts: Counter[str] = Counter()
+    for token in _TOKEN_RE.findall(text_lower):
+        padded = f"  {token}  "
+        for i in range(len(padded) - 2):
+            counts[padded[i : i + 3]] += 1
+    return counts
+
+
+def _cosine(a: Counter[str], b: Counter[str]) -> float:
+    if not a or not b:
+        return 0.0
+    dot = sum(a[k] * b[k] for k in a.keys() & b.keys())
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _greedy_cluster(
+    snippets: Sequence[CandidateSnippet], *, similarity_threshold: float
+) -> list[list[int]]:
+    if not snippets:
+        return []
+    grams = [_trigrams(s.text) for s in snippets]
+    unassigned = list(range(len(snippets)))
+    clusters: list[list[int]] = []
+    while unassigned:
+        seed = unassigned.pop(0)
+        members = [seed]
+        remaining: list[int] = []
+        for idx in unassigned:
+            if _cosine(grams[seed], grams[idx]) >= similarity_threshold:
+                members.append(idx)
+            else:
+                remaining.append(idx)
+        unassigned = remaining
+        clusters.append(members)
+    return clusters
+
+
+def detect_ambiguity(
+    snippets: Sequence[CandidateSnippet],
+    *,
+    min_cluster_size: int = 2,
+    similarity_threshold: float = 0.5,
+    max_clusters_surfaced: int = 4,
+) -> AmbiguityResult:
+    """Detect whether a candidate set has ≥2 distinct semantic clusters.
+
+    Args:
+        snippets: candidate retrieval snippets.
+        min_cluster_size: a cluster must have at least this many members
+            to count toward the ambiguity verdict.
+        similarity_threshold: trigram-cosine cutoff for the fallback
+            clusterer.
+        max_clusters_surfaced: cap on clusters returned to UI.
+    """
+    if not snippets:
+        return AmbiguityResult(is_ambiguous=False, clusters=[], fallback_used=True)
+
+    raw_clusters = _greedy_cluster(snippets, similarity_threshold=similarity_threshold)
+    qualifying = [c for c in raw_clusters if len(c) >= min_cluster_size]
+    qualifying.sort(key=len, reverse=True)
+    qualifying = qualifying[:max_clusters_surfaced]
+
+    out_clusters = [
+        AmbiguityCluster(
+            cluster_id=i,
+            representative_text=snippets[member_indices[0]].text,
+            member_source_ids=[snippets[idx].source_id for idx in member_indices],
+        )
+        for i, member_indices in enumerate(qualifying)
+    ]
+
+    return AmbiguityResult(
+        is_ambiguous=len(out_clusters) >= 2,
+        clusters=out_clusters,
+        fallback_used=True,
+    )
+
+ succeeded in 849ms:
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+
+ succeeded in 816ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+    app.include_router(transparency_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+
+ succeeded in 903ms:
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        daily_budget_usd: float = 50.0,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        """
+        Initialize Serper client.
+
+        Args:
+            api_key: Serper API key (defaults to SERPER_API_KEY env var)
+            daily_budget_usd: Daily budget limit in USD
+            timeout: Request timeout in seconds
+        """
+        self.api_key = api_key or os.getenv("SERPER_API_KEY")
+        self.daily_budget = daily_budget_usd
+        self.timeout = timeout
+
+        # Validate API key
+        if not self.api_key:
+            logger.warning("Serper API key not configured (SERPER_API_KEY)")
+            self.enabled = False
+        else:
+            self.enabled = True
+            logger.info("Serper client initialized")
+
+        # Statistics
+        self.stats = SerperStats()
+
+        # Circuit breaker
+        self._failure_count = 0
+        self._circuit_open_until = 0
+        self._max_failures = 5
+        self._circuit_timeout = 300  # 5 minutes
+
+        # HTTP client (reusable)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                headers={
+                    "X-API-KEY": self.api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        return self._client
+
+    async def close(self):
+        """Close HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker is open."""
+        if self._failure_count < self._max_failures:
+            return False
+
+        if time.time() > self._circuit_open_until:
+            # Reset circuit
+            self._failure_count = 0
+            logger.info("Serper circuit breaker reset")
+            return False
+
+        return True
+
+    def _record_failure(self):
+        """Record a failure for circuit breaker."""
+        self._failure_count += 1
+        if self._failure_count >= self._max_failures:
+            self._circuit_open_until = time.time() + self._circuit_timeout
+            logger.error(f"Serper circuit breaker OPEN for {self._circuit_timeout}s")
+
+    def _record_success(self):
+        """Record success to reset failure count."""
+        self._failure_count = 0
+
+    def _check_budget(self, num_requests: int = 1) -> bool:
+        """Check if requests fit within budget."""
+        # Free tier check
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            return True
+
+        # Paid tier check
+        if self.stats.total_cost_usd + (num_requests / 1000 * COST_PER_1000_QUERIES) > self.daily_budget:
+            logger.warning(f"Serper daily budget exceeded: ${self.daily_budget}")
+            return False
+
+        return True
+
+    def _update_cost(self, num_requests: int = 1):
+        """Update cost tracking after requests."""
+        total_used = self.stats.free_queries_used + self.stats.paid_queries_used
+
+        if total_used + num_requests <= FREE_TIER_QUERIES:
+            self.stats.free_queries_used += num_requests
+        else:
+            # Some or all are paid
+            free_remaining = max(0, FREE_TIER_QUERIES - total_used)
+            paid = num_requests - free_remaining
+
+            self.stats.free_queries_used += free_remaining
+            self.stats.paid_queries_used += paid
+            self.stats.total_cost_usd += (paid / 1000) * COST_PER_1000_QUERIES
+
+    async def _request(
+        self,
+        endpoint: str,
+        payload: Dict[str, Any],
+        search_type: str = "search",
+    ) -> Dict[str, Any]:
+        """
+        Make request to Serper API.
+
+        Args:
+            endpoint: API endpoint URL
+            payload: Request payload
+            search_type: Type of search for stats tracking
+
+        Returns:
+            API response as dictionary
+        """
+        if not self.enabled:
+            raise SerperError("Serper client not enabled (missing API key)")
+
+        if self._check_circuit_breaker():
+            raise SerperError("Serper circuit breaker is open")
+
+        if not self._check_budget():
+            raise SerperQuotaError("Daily budget exceeded")
+
+        client = await self._get_client()
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await client.post(endpoint, json=payload)
+
+                # Handle specific status codes
+                if response.status_code == 401:
+                    raise SerperAuthError("Invalid API key")
+
+                if response.status_code == 429:
+                    self.stats.rate_limits += 1
+                    raise SerperRateLimitError("Rate limit exceeded")
+
+                if response.status_code == 403:
+                    error_data = response.json() if response.content else {}
+                    if "quota" in str(error_data).lower():
+                        raise SerperQuotaError("Monthly quota exceeded")
+                    raise SerperError(f"Forbidden: {error_data}")
+
+                response.raise_for_status()
+
+                # Success
+                self._record_success()
+                self.stats.requests_made += 1
+                self._update_cost(1)
+
+                # Track by type
+                type_attr = f"{search_type}_requests"
+                if hasattr(self.stats, type_attr):
+                    setattr(self.stats, type_attr, getattr(self.stats, type_attr) + 1)
+
+                return response.json()
+
+            except httpx.TimeoutException:
+                logger.warning(f"Serper timeout (attempt {attempt + 1}/{MAX_RETRIES})")
+                if attempt == MAX_RETRIES - 1:
+                    self._record_failure()
+                    self.stats.errors += 1
+                    raise SerperError("Request timeout")
+                await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+
+            except httpx.HTTPError as e:
+                logger.error(f"Serper HTTP error: {e}")
+                self._record_failure()
+                self.stats.errors += 1
+                raise SerperError(f"HTTP error: {e}")
+
+    # =========================================================================
+    # SEARCH ENDPOINTS
+    # =========================================================================
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        time_range: Optional[str] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results (up to 100)
+            gl: Geographic location (country code)
+            hl: Language code
+            location: Precise location string (e.g., "North America")
+            domains: Include only these domains (site: filter)
+            exclude_domains: Exclude these domains (-site: filter)
+            time_range: Time filter (d=day, w=week, m=month, y=year)
+
+        Returns:
+            List of SerperResult objects
+        """
+        # Build query with domain filters
+        search_query = query
+        if domains:
+            site_filter = " OR ".join([f"site:{d}" for d in domains])
+            search_query = f"({query}) ({site_filter})"
+        if exclude_domains:
+            exclude_filter = " ".join([f"-site:{d}" for d in exclude_domains])
+            search_query = f"{search_query} {exclude_filter}"
+
+        # Pagination for comprehensive results
+        all_results = []
+        seen_urls = set()
+        pages_needed = min((max_results + 9) // 10, 10)  # Serper returns 10 per page, max 10 pages
+
+        for page in range(pages_needed):
+            payload = {
+                "q": search_query,
+                "gl": gl,
+                "hl": hl,
+                "num": 10,
+                "page": page + 1,
+            }
+
+            if location:
+                payload["location"] = location
+
+            if time_range:
+                payload["tbs"] = f"qdr:{time_range}"
+
+            try:
+                data = await self._request(ENDPOINTS["search"], payload, "search")
+
+                # Process organic results
+                for item in data.get("organic", []):
+                    url = item.get("link", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        result = SerperResult(
+                            url=url,
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            position=len(all_results) + 1,
+                            search_type="search",
+                            date=item.get("date"),
+                            domain=self._extract_domain(url),
+                        )
+                        all_results.append(result)
+
+                # Also include answer box if present
+                if "answerBox" in data:
+                    ab = data["answerBox"]
+                    snippet = ab.get("answer") or ab.get("snippet") or ab.get("title", "")
+                    if snippet and ab.get("link"):
+                        url = ab.get("link")
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            result = SerperResult(
+                                url=url,
+                                title=ab.get("title", "Answer Box"),
+                                snippet=snippet,
+                                position=0,  # Answer box is position 0
+                                search_type="answer_box",
+                                relevance_score=0.95,  # High relevance
+                            )
+                            all_results.insert(0, result)
+
+                if len(all_results) >= max_results:
+                    break
+
+            except SerperError as e:
+                logger.error(f"Search page {page + 1} failed: {e}")
+                break
+
+        self.stats.results_retrieved += len(all_results)
+        logger.info(f"Serper search '{query[:50]}...' returned {len(all_results)} results")
+
+        return all_results[:max_results]
+
+    async def scholar(
+        self,
+        query: str,
+        max_results: int = DEFAULT_RESULTS,
+        gl: str = "us",
+        hl: str = "en",
+        location: Optional[str] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+    ) -> List[SerperResult]:
+        """
+        Execute Google Scholar search via Serper.
+
+        Args:
+            query: Search query
+            max_results: Maximum results
+            gl: Geographic location
+            hl: Language
+            location: Precise location
+            year_from: Filter papers from this year
+            year_to: Filter papers until this year
+
+        Returns:
+            List of SerperResult objects with academic metadata
+        """
+        all_results = []
+        seen_urls = set()
+        pages_needed = min((max_results + 9) // 10, 5)  # Cap at 5 pages for Scholar
+
+codex
+The proposed hard gate covers the backend failure mode the current client has: Serper search returns `[]` on first-page failure, so the fetcher’s explicit `enabled` and zero-snippet checks are necessary. I don’t see a router or response-shape mismatch with adding `/ambiguity/scan` under the existing v6 ambiguity router.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/scope.py -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "needs_clarification|verdict" src/polaris_v6 src/polaris_graph/scope web/tests -g "*.py" -g "*.ts" -g "*.tsx"' in C:\POLARIS
+ succeeded in 635ms:
+"""POST /scope/check — F1 scope discovery panel endpoint."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from polaris_v6.scope.decision import ScopeDecision, classify_scope
+from polaris_v6.schemas.run_request import TemplateId
+
+router = APIRouter(prefix="/scope", tags=["scope"])
+
+
+class ScopeCheckRequest(BaseModel):
+    template: TemplateId
+    question: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post("/check", response_model=ScopeDecision)
+def check_scope(payload: ScopeCheckRequest) -> ScopeDecision:
+    return classify_scope(payload.template, payload.question)
+
+ succeeded in 631ms:
+src/polaris_graph/scope\scope_decision.py:48:    "ambiguous_needs_clarification",
+src/polaris_graph/scope\scope_decision.py:69:        description="Which classifier layer produced this verdict"
+src/polaris_graph/scope\scope_decision.py:84:    needs_clarification: bool = Field(
+src/polaris_graph/scope\scope_decision.py:110:        description="True iff any axis has needs_clarification=True"
+src/polaris_graph/scope\scope_decision.py:183:        - Elif ambiguity.is_ambiguous → status='ambiguous_needs_clarification'
+src/polaris_graph/scope\scope_decision.py:219:        for ax in axes if ax.needs_clarification
+src/polaris_graph/scope\scope_decision.py:223:        "ambiguous_needs_clarification"
+web/tests\e2e\audit_bundle.spec.ts:91:        /(gpg_unavailable|sign_failed|fk_chain|verdict)/i,
+src/polaris_graph/scope\ambiguity_detector_clinical.py:135:                needs_clarification=True,
+src/polaris_graph/scope\ambiguity_detector_clinical.py:140:        needs_clarification=False,
+src/polaris_graph/scope\ambiguity_detector_clinical.py:153:        Each axis: (plausible_interpretations, needs_clarification).
+src/polaris_graph/scope\ambiguity_detector_clinical.py:154:        is_ambiguous = True iff ANY axis needs_clarification.
+src/polaris_graph/scope\ambiguity_detector_clinical.py:169:    # assert on needs_clarification, not interpretation content, so
+src/polaris_graph/scope\ambiguity_detector_clinical.py:183:        population.needs_clarification
+src/polaris_graph/scope\ambiguity_detector_clinical.py:184:        or intervention.needs_clarification
+src/polaris_graph/scope\ambiguity_detector_clinical.py:185:        or outcome.needs_clarification
+web/tests\e2e\bundle_preview.spec.ts:33:  pipeline_verdict: "success",
+src/polaris_v6\anti_sycophancy\nightly_eval.py:53:    verdict = "PASS" if mean <= threshold else "FAIL"
+src/polaris_v6\anti_sycophancy\nightly_eval.py:58:        "verdict": verdict,
+src/polaris_v6\anti_sycophancy\nightly_eval.py:61:        "[nightly-anti-sycophancy] N=%d mean_delta=%.4f threshold=%.4f verdict=%s",
+src/polaris_v6\anti_sycophancy\nightly_eval.py:65:        payload["verdict"],
+src/polaris_v6\regression_lab\__init__.py:5:verdicts. CI uses this to block merges that introduce regressions.
+src/polaris_v6\regression_lab\runner.py:28:    """Pair pins by run_id and emit a verdict.
+src/polaris_v6\api\artifact_to_slice_chain.py:72:    or generate an empty pipeline_verdict='success' report — both
+src/polaris_v6\api\artifact_to_slice_chain.py:318:    # content (the degradation is recorded on the manifest, not the verdict).
+src/polaris_v6\api\artifact_to_slice_chain.py:321:        pipeline_verdict: PipelineVerdict = "success"
+src/polaris_v6\api\artifact_to_slice_chain.py:323:        pipeline_verdict = "abort_no_verified_sections"
+src/polaris_v6\api\artifact_to_slice_chain.py:331:        pipeline_verdict=pipeline_verdict,
+src/polaris_v6\ambiguity_detector\ambiguity_detector.py:50:    """Detector verdict.
+src/polaris_v6\ambiguity_detector\ambiguity_detector.py:120:            to count toward the ambiguity verdict.
+src/polaris_v6\queue\actors.py:6:maps pipeline-A manifest verdict to lifecycle_status × pipeline_status.
+src/polaris_v6\queue\run_store.py:190:    Per CLAUDE.md §9.3, abort_* are pipeline verdicts (not errors). The run
+src/polaris_v6\queue\run_events.py:112:        "verdict": p.get("decision", "unknown"),
+src/polaris_v6\queue\run_events.py:123:    "strict_verify.section_completed": ("verifier_verdict", lambda p: {
+src/polaris_v6\api\bundle.py:115:    # The slice-chain pipeline_verdict collapses partial_* into "success",
+src/polaris_v6\sycophancy\scorer.py:62:    """Score a 4-framing result and return pass/fail verdict."""
+src/polaris_v6\schemas\run_status.py:4:(pipeline-A manifest verdict). Old `status` retained as computed alias for
+src/polaris_v6\schemas\run_status.py:51:        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+web/tests\e2e\generation.spec.ts:89:      await expect(page.getByTestId("verdict-badge")).toBeVisible();
+src/polaris_v6\schemas\verifier_verdict.py:1:"""Verifier verdict event schema — streamed via SSE during a run."""
+src/polaris_v6\schemas\verifier_verdict.py:21:    """A single verifier verdict for one generated sentence."""
+src/polaris_v6\compare\claim_diff.py:21:    verdict: ClaimVerdict
+src/polaris_v6\compare\claim_diff.py:35:    counts_by_verdict: dict[ClaimVerdict, int]
+src/polaris_v6\api\stream.py:10:scope_decision, retrieval_progress, evidence_id, verifier_verdict,
+src/polaris_v6\scope\decision.py:14:ScopeVerdict = Literal["accepted", "needs_clarification", "rejected"]
+src/polaris_v6\scope\decision.py:25:    verdict: ScopeVerdict
+src/polaris_v6\scope\decision.py:62:            verdict="rejected",
+src/polaris_v6\scope\decision.py:76:            verdict="needs_clarification",
+src/polaris_v6\scope\decision.py:88:        verdict="accepted",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/intake_disambiguation.spec.ts -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/scope/decision.py -TotalCount 130' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/AGENTS.md -TotalCount 80' in C:\POLARIS
+ succeeded in 727ms:
+"""ScopeDecision — what the scope gate decided about a question.
+
+Phase 0/1 stub: deterministic rule-based scoper. Phase 1 swap to the
+existing scope_eligibility_classifier (LLM-augmented) once the cluster
+is live and OpenRouter is wired.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+ScopeVerdict = Literal["accepted", "needs_clarification", "rejected"]
+RefusalReason = Literal[
+    "clinical_treatment_recommendation",
+    "individual_legal_advice",
+    "individual_financial_advice",
+    "personal_political_endorsement",
+    "out_of_template_scope",
+]
+
+
+class ScopeDecision(BaseModel):
+    verdict: ScopeVerdict
+    template: str
+    question: str
+    rationale: str = Field(..., min_length=8)
+    refusals: list[RefusalReason] = Field(
+        default_factory=list,
+        description=(
+            "What the gate will refuse if asked downstream. Surfaced in "
+            "F1 panel so the user knows the boundary before any cost."
+        ),
+    )
+    intended_source_tiers: list[Literal["T1", "T2", "T3"]] = Field(
+        ...,
+        description="Which tiers of source the run will draw from.",
+    )
+
+
+_REFUSAL_PATTERNS: dict[str, RefusalReason] = {
+    " should i take ": "clinical_treatment_recommendation",
+    " is this drug right for me": "clinical_treatment_recommendation",
+    " can i sue ": "individual_legal_advice",
+    " should i invest ": "individual_financial_advice",
+    " who should i vote ": "personal_political_endorsement",
+}
+
+
+def classify_scope(template: str, question: str) -> ScopeDecision:
+    """Phase 0/1 deterministic scoper — to be replaced by LLM classifier."""
+    normalized = f" {question.strip().lower()} "
+
+    refusals: list[RefusalReason] = []
+    for pattern, reason in _REFUSAL_PATTERNS.items():
+        if pattern in normalized:
+            refusals.append(reason)
+
+    if refusals:
+        return ScopeDecision(
+            verdict="rejected",
+            template=template,
+            question=question,
+            rationale=(
+                "Question reads as a personal recommendation request; "
+                "POLARIS is a research-synthesis system, not a "
+                "personal-advice service."
+            ),
+            refusals=refusals,
+            intended_source_tiers=[],
+        )
+
+    if len(question.strip()) < 12:
+        return ScopeDecision(
+            verdict="needs_clarification",
+            template=template,
+            question=question,
+            rationale=(
+                "Question is too short to fix scope. Please add the "
+                "specific timeframe, jurisdiction, or sub-topic you want."
+            ),
+            refusals=[],
+            intended_source_tiers=["T1", "T2"],
+        )
+
+    return ScopeDecision(
+        verdict="accepted",
+        template=template,
+        question=question,
+        rationale=(
+            f"Question fits the {template} template. POLARIS will draw "
+            "from primary-source government and academic data."
+        ),
+        refusals=[],
+        intended_source_tiers=["T1", "T2", "T3"],
+    )
+
+ succeeded in 782ms:
+import { expect, test } from "@playwright/test";
+
+test("BPEI: type → submit → modal → 3 candidates → pick → label flows to parent", async ({
+  page,
+}) => {
+  await page.route("**/api/intake", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: {
+          status: "in_scope",
+          scope_class: "clinical_efficacy",
+          ambiguity_axes: [],
+          clarifications_needed: [],
+          provenance: {},
+          decision_id: "test-decision-id",
+          decided_at_utc: new Date().toISOString(),
+          latency_ms: 12,
+          needs_disambiguation: true,
+          candidate_snippets: [
+            { text: "BPEI syndrome notes", embedding: [1, 0] },
+            { text: "BPEI institute notes", embedding: [0, 1] },
+            { text: "BPEI chemical notes", embedding: [-1, 0] },
+          ],
+        },
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.route("**/api/disambiguation", async (route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    expect(Array.isArray(body.candidates)).toBe(true);
+    expect(body.candidates).toHaveLength(3);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: true,
+        num_clusters: 3,
+        clusters: [
+          {
+            cluster_id: 0,
+            label: "syndrome",
+            sample_snippets: ["BPEI syndrome..."],
+          },
+          {
+            cluster_id: 1,
+            label: "institute",
+            sample_snippets: ["BPEI institute..."],
+          },
+          {
+            cluster_id: 2,
+            label: "chemical",
+            sample_snippets: ["BPEI chemical..."],
+          },
+        ],
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.goto("/intake");
+  await page.getByTestId("intake-question-input").fill("BPEI");
+
+  const t_submit = Date.now();
+  await page.getByTestId("intake-submit").click();
+  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+  const t_modal = Date.now();
+
+  expect(t_modal - t_submit).toBeLessThan(500);
+
+  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+  await expect(cards).toHaveCount(3);
+
+  await page.getByTestId("disambiguation-cluster-1").click();
+  await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+    "institute",
+  );
+  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
+});
+
+ succeeded in 787ms:
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+<!-- END:nextjs-agent-rules -->
+
+<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+
+# STANDING EVALUATION & DEBUG STANDARDS (binding)
+
+Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+
+## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+
+Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+
+Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+
+**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+
+**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+
+## §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this sequence (§-1.2 governs _task-work_; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
+
+1. **GitHub Issue FIRST** (first _task-work_ call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+
+<!-- BEGIN:polaris-restart-2026-05-05 -->
+
+# POLARIS issue-driven workflow (mandatory)
+
+Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+
+- Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+- Per-Issue 5-artifact triple required (brief + verdict + diff + audit + claude_audit). CI enforcement lands at PR-D; pre-PR-D, Codex review enforces.
+- Per plan §7.A LOCKED A2 + §7.B LOCKED B1: Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); CI required check `polaris/codex-required` gates GitHub auto-merge; user reads `git log` morning.
+- **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+- **Resource discipline (CPU/RAM/GPU)** per CLAUDE.md §8.4 (added 2026-05-06): one `codex exec` at a time; kill leftover python/node/codex processes between iters; no heavy ML/CUDA processes in autonomous loops; track long-running dev servers and kill before next Issue; pre/post-task `Get-Process` inventory.
+- `gh pr merge --admin` REVOKED from Claude.
+
+Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+
+<!-- END:polaris-restart-2026-05-05 -->
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class SerperResult|@dataclass" src/search/serper_client.py -A40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "rewrites|api/v6" web/next.config.ts web/next.config.*' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def get_serper_client|_serper_client" src/search/serper_client.py -A80' in C:\POLARIS
+ succeeded in 654ms:
+104:@dataclass
+105:class SerperResult:
+106-    """Unified search result from any Serper endpoint."""
+107-    url: str
+108-    title: str
+109-    snippet: str = ""
+110-    position: int = 0
+111-    search_type: str = "search"
+112-    source: str = "serper"
+113-
+114-    # Optional metadata
+115-    date: Optional[str] = None
+116-    authors: Optional[str] = None
+117-    publication: Optional[str] = None
+118-    cited_by: Optional[int] = None
+119-    year: Optional[str] = None
+120-    domain: Optional[str] = None
+121-    image_url: Optional[str] = None
+122-
+123-    # Quality signals
+124-    relevance_score: float = 0.7
+125-
+126-    def to_dict(self) -> Dict[str, Any]:
+127-        """Convert to dictionary."""
+128-        return {k: v for k, v in asdict(self).items() if v is not None}
+129-
+130-
+131:@dataclass
+132-class SerperStats:
+133-    """Usage statistics for cost tracking."""
+134-    requests_made: int = 0
+135-    results_retrieved: int = 0
+136-    errors: int = 0
+137-    rate_limits: int = 0
+138-    free_queries_used: int = 0
+139-    paid_queries_used: int = 0
+140-    total_cost_usd: float = 0.0
+141-
+142-    # Per-endpoint tracking
+143-    search_requests: int = 0
+144-    scholar_requests: int = 0
+145-    news_requests: int = 0
+146-    images_requests: int = 0
+147-    places_requests: int = 0
+148-    patents_requests: int = 0
+149-
+150-
+151-# =============================================================================
+152-# EXCEPTIONS
+153-# =============================================================================
+154-
+155-class SerperError(Exception):
+156-    """Base Serper exception."""
+157-    pass
+158-
+159-
+160-class SerperRateLimitError(SerperError):
+161-    """Rate limit exceeded."""
+162-    pass
+163-
+164-
+165-class SerperQuotaError(SerperError):
+166-    """Monthly quota exceeded."""
+167-    pass
+168-
+169-
+170-class SerperAuthError(SerperError):
+171-    """Authentication failed."""
+
+ succeeded in 697ms:
+939:_serper_client: Optional[SerperClient] = None
+940-
+941-
+942:def get_serper_client() -> SerperClient:
+943-    """Get singleton Serper client."""
+944:    global _serper_client
+945:    if _serper_client is None:
+946:        _serper_client = SerperClient()
+947:    return _serper_client
+948-
+949-
+950-# =============================================================================
+951-# EXPORTS
+952-# =============================================================================
+953-
+954-__all__ = [
+955-    "SerperClient",
+956-    "SerperResult",
+957-    "SerperStats",
+958-    "SerperError",
+959-    "SerperRateLimitError",
+960-    "SerperQuotaError",
+961-    "SearchType",
+962:    "get_serper_client",
+963-]
+
+2026-05-16T13:48:43.422119Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+web/next.config.ts:4:// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+web/next.config.ts:9:  async rewrites() {
+web/next.config.ts:16:        source: "/api/v6/:path*",
+web/next.config.ts:21:      // going through /api/v6 prefix routing.
+rg: web/next.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 753ms:
+web/next.config.ts:4:// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+web/next.config.ts:9:  async rewrites() {
+web/next.config.ts:16:        source: "/api/v6/:path*",
+web/next.config.ts:21:      // going through /api/v6 prefix routing.
+rg: web/next.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/next.config.ts -TotalCount 80' in C:\POLARIS
+ succeeded in 568ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"8\\.3\\.9|Output schema|HARD ITERATION CAP|Verdict\" CLAUDE.md" in C:\POLARIS
+ succeeded in 551ms:
+534:HARD ITERATION CAP: 5 per document. This is iter N of 5.
+540:- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+585:### 8.3.9 Output schema bound (every brief specifies)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path CLAUDE.md | Select-Object -Skip 528 -First 80' in C:\POLARIS
+ succeeded in 598ms:
+This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+
+**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+4. Proceed to next step (commit, push, PR, merge).
+
+History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
+
+### 8.3.2 Trust Codex's verdicts
+
+Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+
+### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
+
+Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
+
+`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
+
+Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
+
+### 8.3.4 No scope-narrowing for false convergence
+
+When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+
+### 8.3.5 Iteration trajectory MUST be logged
+
+Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
+
+### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
+
+Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+
+**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
+
+### 8.3.7 Codex auth uses ChatGPT subscription, not API
+
+Always invoke as `env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < brief.md > verdict.txt`. The `-u` flag UNSETS the variable, forcing OAuth fallback to `~/.codex/auth.json`. Confirm via `codex login status` returning "Logged in using ChatGPT." Never run `codex exec` without `env -u OPENAI_API_KEY`.
+
+### 8.3.8 When uncertain about brief structure or Codex-as-reviewer best practice
+
+Before iter N+1, search OpenAI engineering blog + GitHub PR-review automation literature for current best practice. Topics: constraining Codex to verdict-only output (saves tokens vs exec exploration), providing reset-target inventory deterministically, structuring rename-completeness gates, binding Codex output to JSON schema for machine-parseable verdicts.
+
+### 8.3.9 Output schema bound (every brief specifies)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Loose verdict prose is rejected — resubmit asking for the schema.
+
+---
+
+## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
+
+User directive 2026-05-07 (reflagged after I-f5-007 merged with closure prose "stopping here for natural cadence"): **"the checkpoint is by codex, not by me, why you still fuck it up."**
+
+**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
+- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
+- Codex saying "stop paper, build harness" (§8.3.6).
+- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path src/search | Select-Object Name,Mode' in C:\POLARIS
+ succeeded in 585ms:
+
+[32;1mName              [0m[32;1m Mode[0m
+[32;1m----              [0m [32;1m----[0m
+__pycache__        d----
+__init__.py        -a---
+query_amplifier.py -a---
+serper_client.py   -a---
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+verdict_reasoning: >
+  §3.3 resolves P1-002: invalidate-on-change clears the prior scan,
+  ambiguity result, acknowledgment, and modal state whenever question,
+  template, or uploads changes, and createRun hard-blocks clinical
+  question-only submissions unless clinicalScanGate is "ok". The upload
+  branch fix resolves P2-001 because upload-backed ambiguous results now
+  open the same disambiguation modal. The backend plan also correctly
+  prevents Serper failure from degrading to detect_ambiguity([]) by checking
+  client.enabled and treating zero snippets as a 503. No remaining P0/P1
+  execution risk found for #505 acceptance.
+tokens used
+48,419
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+verdict_reasoning: >
+  §3.3 resolves P1-002: invalidate-on-change clears the prior scan,
+  ambiguity result, acknowledgment, and modal state whenever question,
+  template, or uploads changes, and createRun hard-blocks clinical
+  question-only submissions unless clinicalScanGate is "ok". The upload
+  branch fix resolves P2-001 because upload-backed ambiguous results now
+  open the same disambiguation modal. The backend plan also correctly
+  prevents Serper failure from degrading to detect_ambiguity([]) by checking
+  client.enabled and treating zero snippets as a 503. No remaining P0/P1
+  execution risk found for #505 acceptance.
