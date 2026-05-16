@@ -2670,6 +2670,12 @@ async def run_one_query(
         )
 
         # Evaluator rule checks
+        # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
+        # before the evaluator. A cancel requested during the (long) generator
+        # stage is observed here rather than silently completing the run.
+        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+            return summary
+
         ev_out = run_external_evaluation(
             report_text=final_report,
             protocol=protocol,

@@ -84,13 +84,22 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
     if run_store.get_run(run_id) is None:
         return {"run_id": run_id, "status": "completed", "echo": request_payload}
 
-    # I-rdy-011 (#507): honor a cancel requested before the worker picked up
-    # the run. mark_in_progress is a compare-and-swap — it returns False when
-    # a queued cancel already flipped the row to 'cancelled'. Either signal
-    # means: do not run the pipeline for this run.
-    if run_store.is_cancel_requested(run_id) or not run_store.mark_in_progress(run_id):
+    # I-rdy-011 (#507): honor a cancel requested before pipeline start.
+    # Cancellation is detected ONLY via is_cancel_requested — never inferred
+    # from the mark_in_progress CAS return, which is also False for a retry /
+    # duplicate delivery of an already-terminal run (Codex diff-iter-1 P1: a
+    # retry must NOT rewrite a 'failed'/'completed' row to 'cancelled'). The
+    # CAS itself still guards against resurrecting a just-cancelled row.
+    if run_store.is_cancel_requested(run_id):
         run_store.mark_cancelled(run_id)
         logger.info("[actor] run_id=%s cancelled before pipeline start", run_id)
+        return {"run_id": run_id, "status": "cancelled"}
+    run_store.mark_in_progress(run_id)
+    # A cancel may have landed in the window above; the CAS means
+    # mark_in_progress did not resurrect the row if so.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled at pipeline start", run_id)
         return {"run_id": run_id, "status": "cancelled"}
     decision_id = str(uuid.uuid4())
     output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))

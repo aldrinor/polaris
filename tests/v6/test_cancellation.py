@@ -147,6 +147,39 @@ def test_actor_honors_cancel_before_pipeline(db, tmp_path, monkeypatch):
     assert rec.lifecycle_status == "cancelled"
 
 
+def test_actor_retry_of_failed_run_not_marked_cancelled(db, tmp_path, monkeypatch):
+    """Codex diff-iter-1 P1: a Dramatiq retry of an already-failed run must
+    NOT be rewritten to 'cancelled'. The actor detects cancellation only via
+    is_cancel_requested — never from the mark_in_progress CAS return (which is
+    also False for a non-queued retry row)."""
+    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
+
+    async def _fake_run_one_query(q, out_root):  # noqa: ARG001
+        out_root.mkdir(parents=True, exist_ok=True)
+        (out_root / "manifest.json").write_text(
+            json.dumps({"run_id": "SWEEP_x", "status": "success"}) + "\n"
+        )
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "scripts.run_honest_sweep_r3.run_one_query", _fake_run_one_query, raising=False
+    )
+    from polaris_v6.queue.actors import enqueue_research_run
+
+    run_store.insert_run("r12", "clinical", "Question?")
+    run_store.mark_in_progress("r12")
+    run_store.mark_failed("r12", "attempt-1 crash")  # a prior failed attempt
+    # No cancel requested — the retry must run the pipeline, not false-cancel.
+    enqueue_research_run.fn(
+        "r12", {"template": "clinical", "question": "Question?", "document_ids": []}
+    )
+    rec = run_store.get_run("r12")
+    assert rec is not None
+    # The buggy code would have marked the failed row 'cancelled'; the retry
+    # instead re-runs the pipeline and reaches 'completed'.
+    assert rec.lifecycle_status == "completed"
+
+
 # --------------------------------------------------------------------------
 # run_one_query cooperative checkpoint — _abort_if_cancelled
 # --------------------------------------------------------------------------
