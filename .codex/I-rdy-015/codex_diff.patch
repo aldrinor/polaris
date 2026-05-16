@@ -1,0 +1,240 @@
+diff --git a/.env.example b/.env.example
+index 8219ac26..4fa7c5d6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -127,6 +127,14 @@ POLARIS_VERSION=0.9.0
+ POLARIS_PORT=8000
+ CHROMA_PORT=8100
+ 
++# v6 stack (docker-compose.v6.yml) — Caddy TLS / reverse proxy (I-rdy-015).
++# For a local `docker compose -f docker-compose.v6.yml up`, localhost makes
++# Caddy use its internal CA — no public domain or ACME needed. A real
++# deploy overrides POLARIS_DOMAIN to the public hostname and sets
++# POLARIS_ACME_EMAIL (see infra/vexxhost/.env.example).
++POLARIS_DOMAIN=localhost
++POLARIS_ACME_EMAIL=
++
+ # ─────────────────────────────────────────────────────────────────
+ # SOVEREIGN MODE (optional; self-hosted search + LLM)
+ # ─────────────────────────────────────────────────────────────────
+diff --git a/Caddyfile b/Caddyfile
+new file mode 100644
+index 00000000..5dbdd462
+--- /dev/null
++++ b/Caddyfile
+@@ -0,0 +1,41 @@
++# I-rdy-015 (#511) — POLARIS v6 TLS / reverse proxy.
++#
++# Caddy fronts the v6 stack: it owns :80 + :443, terminates TLS, and is the
++# ONLY host-published surface (api:8000 and webui:3000 are Docker-network
++# internal after docker-compose.v6.yml drops their `ports:` mappings).
++#
++# Domain + ACME email are env-substituted (no hardcoded values) — supplied
++# via docker-compose.v6.yml's `env_file: .env`:
++#   POLARIS_DOMAIN       e.g. polarisresearch.ca   (localhost for dev)
++#   POLARIS_ACME_EMAIL   Let's Encrypt account email
++#
++# For a public POLARIS_DOMAIN, Caddy auto-provisions a Let's Encrypt cert
++# (ACME CA pinned below). For POLARIS_DOMAIN=localhost it uses Caddy's
++# internal CA — no ACME, no public domain needed for local `compose up`.
++
++{
++	email {$POLARIS_ACME_EMAIL:internal@localhost}
++	# Pin the ACME CA to Let's Encrypt — the issue specifies a Let's Encrypt
++	# cert; Caddy's default automatic-HTTPS may otherwise pick ZeroSSL.
++	acme_ca https://acme-v02.api.letsencrypt.org/directory
++}
++
++{$POLARIS_DOMAIN} {
++	encode zstd gzip
++
++	# /health probes FastAPI directly. The Next server only rewrites
++	# /api/v6/* and /transparency/* — NOT /health — so without this route
++	# /health would hit Next instead of the API healthcheck.
++	handle /health {
++		reverse_proxy api:8000
++	}
++
++	# Everything else → the Next webui. Its server-side rewrites forward
++	# /api/v6/* and /transparency/* to api:8000. flush_interval -1 keeps the
++	# SSE stream (/api/v6/stream/*) unbuffered.
++	handle {
++		reverse_proxy webui:3000 {
++			flush_interval -1
++		}
++	}
++}
+diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
+index 0e29a2be..bbc73c8d 100644
+--- a/docker-compose.v6.yml
++++ b/docker-compose.v6.yml
+@@ -1,13 +1,37 @@
+ # I-carney-005 — POLARIS v6 production stack (Carney demo).
+ #
+-# Stack: redis + api + worker + webui.
++# Stack: caddy + redis + api + worker + webui.
+ # Legacy pipeline-B compose (docker-compose.yml) stays untouched per
+ # I-carney-005 acceptance criterion 8.
+ #
++# I-rdy-015 (#511): Caddy fronts the stack — it is the ONLY host-published
++# surface (:80 + :443). `api` and `webui` are Docker-network internal
++# (no host `ports:` mapping) so :8000 / :3000 are not publicly reachable.
++#
+ # Bring up:  docker compose -f docker-compose.v6.yml up -d
+ # Tear down: docker compose -f docker-compose.v6.yml down -v   (NB: drops volumes)
+ 
+ services:
++  caddy:
++    # I-rdy-015 (#511): TLS termination + reverse proxy + Let's Encrypt.
++    # The ONLY service that publishes ports to the host.
++    image: caddy:2-alpine
++    ports:
++      - "80:80"
++      - "443:443"
++    env_file:
++      - .env
++    volumes:
++      - ./Caddyfile:/etc/caddy/Caddyfile:ro
++      # caddy_data persists the provisioned cert + ACME account — MUST
++      # survive restarts or every restart re-requests a cert and risks the
++      # Let's Encrypt rate limit.
++      - caddy_data:/data
++      - caddy_config:/config
++    depends_on:
++      - webui
++    restart: unless-stopped
++
+   redis:
+     image: redis:7-alpine
+     command:
+@@ -49,8 +73,11 @@ services:
+       # container so verify_app_startup() can find the auth substrate.
+       # Read-only bind; host file is 640 root:root, container reads as root.
+       - ${POLARIS_ETC_DIR:-/etc/polaris}:/etc/polaris:ro
+-    ports:
+-      - "${POLARIS_API_PORT:-8000}:8000"
++    # I-rdy-015 (#511): no host `ports:` — api is reached only by webui +
++    # worker over the Docker network as `api:8000`. `expose` documents the
++    # internal port; it is NOT published to the host.
++    expose:
++      - "8000"
+     depends_on:
+       redis:
+         condition: service_healthy
+@@ -111,8 +138,10 @@ services:
+         INTERNAL_API_URL: http://api:8000
+     environment:
+       NODE_ENV: production
+-    ports:
+-      - "${POLARIS_WEB_PORT:-3000}:3000"
++    # I-rdy-015 (#511): no host `ports:` — webui is reached only by caddy
++    # over the Docker network as `webui:3000`.
++    expose:
++      - "3000"
+     depends_on:
+       api:
+         condition: service_healthy
+@@ -121,3 +150,5 @@ services:
+ volumes:
+   redis_data:
+   shared_state:
++  caddy_data:
++  caddy_config:
+diff --git a/infra/vexxhost/.env.example b/infra/vexxhost/.env.example
+index d346f0b1..8866baa2 100644
+--- a/infra/vexxhost/.env.example
++++ b/infra/vexxhost/.env.example
+@@ -47,9 +47,13 @@ POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg
+ PG_MAX_COST_PER_RUN=5.00
+ POLARIS_GIT_COMMIT=REPLACE_ME_REPO_SHA
+ 
+-# ---- Compose port mapping ----
+-POLARIS_API_PORT=8000
+-POLARIS_WEB_PORT=3000
++# ---- Caddy TLS / reverse proxy (I-rdy-015) ----
++# Caddy fronts the v6 stack on :80/:443 and is the only host-published
++# surface — api + webui are Docker-network internal (no host ports).
++# POLARIS_DOMAIN is the public hostname Caddy serves and requests a Let's
++# Encrypt cert for; POLARIS_ACME_EMAIL is the Let's Encrypt account email.
++POLARIS_DOMAIN=polarisresearch.ca
++POLARIS_ACME_EMAIL=REPLACE_ME
+ 
+ # ---- Egress allowlist override (optional) ----
+ POLARIS_EGRESS_ALLOWLIST=/etc/polaris/egress_allowlist.txt
+diff --git a/infra/vexxhost/provision.sh b/infra/vexxhost/provision.sh
+index c9a6ddc0..6d72aecb 100644
+--- a/infra/vexxhost/provision.sh
++++ b/infra/vexxhost/provision.sh
+@@ -69,15 +69,8 @@ apt-get install -y \
+     apt-transport-https \
+     ca-certificates
+ 
+-# Caddy from official Cloudsmith repo (Czech/EU-mirrored, not US — and even
+-# if Cloudsmith CDN edges via US, the package itself is fetched once at
+-# install and we don't depend on Caddy phoning home at runtime).
+-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+-    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+-    | tee /etc/apt/sources.list.d/caddy-stable.list
+-apt-get update
+-apt-get install -y caddy
++# I-rdy-015 (#511): Caddy is no longer a host package — it runs as the
++# `caddy` service in docker-compose.v6.yml (owns :80/:443; see ./Caddyfile).
+ 
+ systemctl enable --now docker
+ 
+@@ -144,8 +137,12 @@ docker compose -f docker-compose.v6.yml up -d --build
+ echo "[provision] waiting for api + webui healthchecks..."
+ healthy=0
+ for i in $(seq 1 60); do
+-    if curl -fsS http://localhost:8000/health > /dev/null && \
+-       curl -fsS http://localhost:3000/ > /dev/null; then
++    # I-rdy-015 (#511): api + webui no longer publish host ports — probe
++    # over the Docker network (api self-check; webui via the caddy container).
++    if docker compose -f docker-compose.v6.yml exec -T api \
++           curl -fsS http://localhost:8000/health > /dev/null 2>&1 && \
++       docker compose -f docker-compose.v6.yml exec -T caddy \
++           wget -q -O - http://webui:3000/ > /dev/null 2>&1; then
+         echo "[provision] api + webui healthy at boot+$((i*5))s"
+         healthy=1
+         break
+@@ -160,31 +157,12 @@ if [ "$healthy" -ne 1 ]; then
+ fi
+ 
+ # ----- 8. Caddy reverse proxy + Let's Encrypt -----
+-cat > /etc/caddy/Caddyfile <<EOF
+-${POLARIS_DOMAIN} {
+-    tls ${POLARIS_ACME_EMAIL}
+-
+-    # /health + /transparency + /auth + /api + /stream + everything else → webui:3000
+-    # webui's Next.js rewrites handle /api/v6/* and /transparency/* server-side.
+-    reverse_proxy localhost:3000 {
+-        # SSE keepalive: don't buffer.
+-        flush_interval -1
+-    }
+-
+-    # /health probe goes direct to backend for cleaner ops signal.
+-    handle /health {
+-        reverse_proxy localhost:8000
+-    }
+-
+-    log {
+-        output file /var/log/caddy/polaris.log
+-        format json
+-    }
+-}
+-EOF
+-mkdir -p /var/log/caddy
+-caddy fmt --overwrite /etc/caddy/Caddyfile
+-systemctl reload caddy
++# I-rdy-015 (#511): Caddy runs as the compose `caddy` service. It owns
++# :80/:443, uses the repo `Caddyfile` (env-substitutes POLARIS_DOMAIN +
++# POLARIS_ACME_EMAIL from /opt/polaris/.env), and auto-provisions a Let's
++# Encrypt cert for $POLARIS_DOMAIN on first start (allow ~1-2 min for ACME).
++echo "[provision] Caddy (compose service) is provisioning Let's Encrypt for ${POLARIS_DOMAIN}..."
++echo "[provision] follow ACME progress with: docker compose -f docker-compose.v6.yml logs -f caddy"
+ 
+ echo ""
+ echo "=================================================================="
+
+# canonical-diff-sha256: e9b3ec71dd88178dc7aa26d789d0cd6998ab0d2d0d236fae64c6636261a876ee
