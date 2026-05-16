@@ -1,0 +1,2455 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e3003-99ea-7482-93e3-496353dd9244
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-pin-001 brief — reconcile stale CLAUDE.md §3.1 canonical-pin check (#524)
+
+**GH:** #524
+**Branch:** `bot/I-pin-001-canonical-pin-reconciliation` (off `polaris` @ `9185035e`)
+**This is the brief; a docs-only diff follows after APPROVE.**
+
+## Background — the finding
+
+CLAUDE.md §3.1 step 0 mandates, as a "non-negotiable HARD STOP" boot check, a
+SHA-triple verification of 10 files against `docs/canonical_pin.txt`
+(pin == working-tree == HEAD). Investigation for this issue established:
+
+1. **The verifier is dead code.** `.claude/hooks/stop_hook_v3.py` (the wired
+   Stop hook) reaches an unconditional `sys.exit(0)` at line 429, *before* its
+   `_verify_canonical_pin` (line 121). `scripts/autoloop/orchestrator.py`'s
+   copy (line 137) is superseded-autoloop code, not run by the issue-driven
+   workflow. No live code runs the `canonical_pin.txt` check.
+2. **It was deliberately neutralized 2026-05-04.** `stop_hook_v3.py` lines
+   402-453 state the check "was firing on benign Windows CRLF/LF line-ending
+   conversion, producing false-drift halts," and was replaced by
+   `docs/session_pin.txt` + `scripts/verify_cage.py`.
+3. **It still false-fires.** §3.1's literal "pin == working-tree == HEAD"
+   cannot pass on a Windows checkout (`core.autocrlf=true`, no
+   `.gitattributes` — working-tree SHA256 never equals the LF blob SHA256).
+   On 2026-05-16 a §3.1 step-0 run HARD-STOPPED the issue loop on exactly this
+   false drift (halt marker since removed; a prior
+   `state/halt_20260512…_canonical_pin_drift` shows an earlier session hit it
+   too).
+4. **The real cage is intact.** The live boot-integrity check is the
+   `polaris-controls/CHARTER.md` + `PLAN.md` SHA pins (also in §3.1 step 0,
+   verified against `state/polaris_restart/charter_sha_pin.txt`) +
+   `scripts/verify_cage.py` (33-check end-to-end). Both CHARTER/PLAN pins
+   verified OK on 2026-05-16.
+
+CLAUDE.md §3.1 step 0 is therefore **stale**: it mandates a retired, dead,
+false-firing check. This issue reconciles the documentation to the actual
+post-2026-05-04 cage. Prior Codex consult `.codex/canonical_pin_reconciliation/`
+recommended "regenerate pin + fix verifier code" — that verdict was given
+before the verifier was found to be neutralized dead code; it is moot.
+
+## Proposed change (doc reconciliation — `CLAUDE.md` only)
+
+1. **CLAUDE.md §3.1 step 0** — rewrite: remove the `canonical_pin.txt` 10-file
+   SHA-triple check and its HARD-STOP language. KEEP the `CHARTER.md` +
+   `PLAN.md` SHA-pin verification (the live cage). Add: the canonical-integrity
+   check is `scripts/verify_cage.py`. State plainly that the `canonical_pin.txt`
+   SHA-triple mechanism was retired 2026-05-04 (CRLF false-positives).
+2. **Reconcile every other `canonical_pin` reference in CLAUDE.md** — §2.1
+   ("verified at every session-resume per §3 Step 0"), §3.1 step 12
+   ("canonical_pin SHA256 computed in step 0"), and any §3/§J/§10 mentions.
+   Every surviving reference must be accurate post-rewrite.
+3. **`docs/canonical_pin.txt`** — KEEP the file (do NOT delete):
+   `scripts/verify_cage.py` line 60 lists it in `EXPECTED_CODEOWNERS_PATHS` —
+   deleting it would break verify_cage.py and require a CODEOWNERS edit. Add a
+   header comment marking it deprecated / non-enforcing.
+
+## Out of scope (deliberate — keep minimal, docs-only, <200 LOC)
+
+- Removing the dead `_verify_canonical_pin` code from `stop_hook_v3.py` /
+  `orchestrator.py` — harmless dead code; the hook's own comment slates it for
+  `.legacy/` in a dedicated hook-deprecation cleanup. P3 follow-up.
+- Stale local halt markers (`state/halt_1777*`, `state/halt_20260512T…
+  _canonical_pin_drift.md`) — `state/` is gitignored; removed as local
+  housekeeping, not part of the PR diff.
+
+## Files I have ALSO checked and they're clean
+
+- `scripts/verify_cage.py` — references `canonical_pin.txt` only in
+  `EXPECTED_CODEOWNERS_PATHS` (governance), not for pin verification → keep
+  the file; verify_cage.py is unaffected by a CLAUDE.md edit.
+- `docs/session_pin.txt` — exists; the live pin mechanism; unaffected.
+- `state/polaris_restart/charter_sha_pin.txt` — the live CHARTER/PLAN pin;
+  unaffected.
+- `scripts/autoloop/*` readers of `canonical_pin.txt` — superseded autoloop,
+  not run by the issue-driven workflow; unaffected by a doc edit.
+
+## Acceptance criteria
+
+- CLAUDE.md §3.1 step 0 no longer mandates the retired `canonical_pin.txt`
+  SHA-triple check; it points to the live cage (CHARTER/PLAN pins +
+  `verify_cage.py`).
+- Every `canonical_pin` reference remaining in CLAUDE.md is accurate.
+- `docs/canonical_pin.txt` retained + marked deprecated; `verify_cage.py`
+  unbroken.
+- No live code path changed; the diff is docs-only.
+- Codex APPROVE on brief + diff.
+
+## Direct questions for Codex
+
+1. `canonical_pin.txt`: keep + deprecate (proposed — minimal, lower-risk) or
+   full removal + `verify_cage.py`/CODEOWNERS update?
+2. Is leaving the dead `_verify_canonical_pin` code as a P3 follow-up correct,
+   or in-scope here?
+3. Anything else blocking APPROVE.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3_cosmetic: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll validate the brief against the current tree before giving a verdict. I’m checking the live references and the claimed dead-code paths, with review severity reserved for execution-impacting issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "EXPECTED_CODEOWNERS_PATHS|canonical_pin" scripts/verify_cage.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"canonical_pin|session_pin|verify_cage|charter_sha_pin|_verify_canonical_pin|sys\\.exit\\(0\\)\" CLAUDE.md docs scripts .claude state/polaris_restart 2>"'$null' in C:\POLARIS
+ succeeded in 736ms:
+58:EXPECTED_CODEOWNERS_PATHS = [
+60:    "docs/canonical_pin.txt",
+227:    for path in EXPECTED_CODEOWNERS_PATHS:
+
+ succeeded in 771ms:
+## bot/I-pin-001-canonical-pin-reconciliation
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/polaris_restart/iteration_trajectory.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_1.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_2.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_3.txt
+?? .codex/I-gen-002-phase3/codex_diff_audit_iter_4.txt
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/
+?? .codex/I-pin-001/
+?? .codex/I-rdy-004/codex_diff_audit_iter2.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_tmp_i_arch001a_actor_0d00737908a74619aadb0f3ca326ba8c/
+?? codex_tmp_i_arch001a_manual_8df334a540ae4cebb698e2441b372d59/
+?? codex_tmp_i_arch001a_pytest_probe/
+?? codex_tmp_i_arch_001a_review/
+?? codex_tmp_i_arch_001f_iter2_manual/
+?? codex_tmp_i_arch_001f_manual_probe/
+?? codex_tmp_i_carney003_py_probe_d2d3c3131b064e448ff4c208d1178fca/
+?? codex_tmp_i_carney004_iter2_review/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? codex_tmp_i_carney_003_pytest_review/
+?? codex_tmp_i_rdy005_review_040abd52/
+?? codex_tmp_i_rdy005_review_77866715/
+?? codex_tmp_manual_1dd40099bce94e8a97eddfb27f94a9ad/
+?? codex_tmp_manual_i_arch001d_e181e4ae3b4b4ed1bdc15e03e159a57b/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_scope_gate_tmp2/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/basetemp_5cee64b5902649d7a1cd8b095435da08/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/basetemp_precreated/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/pytest-cache-files-1ykvrnzz/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch001a_pytest_probe/pytest-cache-files-sht0cls4/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001a_review/basetemp1/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001a_review/basetemp2/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001f_iter2_pytest_run/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_arch_001f_review_basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_iter3_verify_run/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base/': Permission denied
+warning: could not open directory 'codex_tmp_i_bug_107_review_base2/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney003_iter3_pytest_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney003_review_run_aa01ca940c594ed6a694df0286818e01/base/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney003_review_run_aa01ca940c594ed6a694df0286818e01/pytest-cache-files-pk_aggnv/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney003_review_run_aa01ca940c594ed6a694df0286818e01/pytest-cache-files-rr_459ni/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney004_iter2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney008_iter3_pytest_81719627da7d499e82529658336f7da7/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney008_pytest/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney008_pytest_run_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_i_carney_003_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy005_bench_65660dd3314c44f0b6606faf09d3477f/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy_004_iter2_auth_run/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy_004_iter2_combined_run/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy_004_pytest/base/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy_004_pytest/pytest-cache-files-5mp7wu0d/': Permission denied
+warning: could not open directory 'codex_tmp_i_rdy_004_pytest/pytest-cache-files-wv3ugasx/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_i_arch001d_ca6cae8dc14b409f9574b6323d79e0a2/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/pytest-cache-files-78fai4pb/': Permission denied
+warning: could not open directory 'codex_tmp_review_78ab472a2f2841698f3ed07d0ff9c93e/pytest-cache-files-j9pt3f1q/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-3f9s08mh/': Permission denied
+warning: could not open directory 'pytest-cache-files-dysodq4d/': Permission denied
+warning: could not open directory 'pytest-cache-files-jdgz67tr/': Permission denied
+warning: could not open directory 'pytest-cache-files-jv1aafma/': Permission denied
+warning: could not open directory 'pytest-cache-files-kds8u4s5/': Permission denied
+warning: could not open directory 'pytest-cache-files-lgffjwll/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-sqqm9r8j/': Permission denied
+warning: could not open directory 'pytest-cache-files-szrlm1db/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest-cache-files-z1miwcyi/': Permission denied
+warning: could not open directory 'pytest_basetemp_i_bug_085_r2/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'python_mode_700_probe/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp3jencwbw/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp6xbnvzw9/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpa3ivn9br/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_i_arch_001a/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+
+ succeeded in 784ms:
+CLAUDE.md:89:5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+CLAUDE.md:140:- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+CLAUDE.md:144:- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+CLAUDE.md:213:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+CLAUDE.md:239:12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+CLAUDE.md:733:2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+state/polaris_restart\charter_sha_pin.txt:1:# charter_sha_pin.txt — pinned SHAs of polaris-controls files
+.claude\hooks\stop_hook_v3.py:10:  1. docs/canonical_pin.txt — verifies canonical files haven't drifted vs working tree
+.claude\hooks\stop_hook_v3.py:45:# Canonical files pinned in canonical_pin.txt
+.claude\hooks\stop_hook_v3.py:121:def _verify_canonical_pin() -> tuple[bool, str]:
+.claude\hooks\stop_hook_v3.py:126:    pin_text = _git_show_head("docs/canonical_pin.txt")
+.claude\hooks\stop_hook_v3.py:128:        return False, "docs/canonical_pin.txt missing from HEAD"
+.claude\hooks\stop_hook_v3.py:143:            return False, f"canonical_pin.txt missing entry for {f}"
+.claude\hooks\stop_hook_v3.py:318:    sys.exit(0)
+.claude\hooks\stop_hook_v3.py:390:        sys.exit(0)
+.claude\hooks\stop_hook_v3.py:396:        sys.exit(0)
+.claude\hooks\stop_hook_v3.py:400:        sys.exit(0)
+.claude\hooks\stop_hook_v3.py:407:    #   - canonical_pin.txt enforcement     → docs/session_pin.txt + scripts/verify_cage.py
+.claude\hooks\stop_hook_v3.py:422:    #   - scripts/verify_cage.py (33-check end-to-end verification)
+.claude\hooks\stop_hook_v3.py:429:    sys.exit(0)
+.claude\hooks\stop_hook_v3.py:433:        sys.exit(0)
+.claude\hooks\stop_hook_v3.py:441:    # The old canonical_pin.txt + Plan v13 §A enforcement is superseded by
+.claude\hooks\stop_hook_v3.py:444:    #   - docs/session_pin.txt references SHAs in polaris-controls
+.claude\hooks\stop_hook_v3.py:445:    #   - scripts/verify_cage.py runs all 33 cage checks (server-side
+.claude\hooks\stop_hook_v3.py:459:        sys.exit(0)
+.claude\hooks\stop_hook_v3.py:486:            "Add the appropriate classification, update docs/canonical_pin.txt if matrix changed, ",
+.claude\hooks\stop_hook_v3.py:495:        sys.exit(0)
+state/polaris_restart\cleanup_audit.md:97:| `.codex/REVIEW_BRIEF_FORMAT_v2.md` | R → `.codex/review_brief_format.md` | — | CLAUDE.md §4.1 `_v2`. **iter 16 CLEAN-REN-HISTORICAL-ROW-15 fix:** authoritative ACTIVE touch list at reset target (post-PR-3 archive) is the iter-12 8-file list ONLY: `.claude/hooks/stop_hook_v3.py`, `CLAUDE.md`, `docs/canonical_pin.txt`, `docs/schemas/codex_verdict.schema.json`, `scripts/autoloop/orchestrator.py`, `scripts/strip_changelog_markers.py`, `src/polaris_v6/memory/store.py`, `tests/v6/test_workspace_memory.py`. Earlier mention of `.codex/continuous/` and `.codex/_archive_pre_v6_2/` was wrong — those are immutable history per §5 gate exclusion policy + PR-3 archives them so they vanish from active tree before this rename runs. CI gate: `zero_hit_gate.sh "REVIEW_BRIEF_FORMAT_v2"` returns 0 hits post-rename. |
+state/polaris_restart\cleanup_audit.md:609:| `docs/canonical_pin.txt` | K | **iter 12 CLEAN-PINS-CLASSIFY-1 fix:** Codex iter 11 verified active reset-target use by code/workflows. KEEP. (Plan v6.2 carries forward canonical-pin discipline per CLAUDE.md §1.1 hierarchy.) |
+state/polaris_restart\cleanup_audit.md:640:| `docs/session_pin.txt` | K | **iter 12 CLEAN-PINS-CLASSIFY-1 fix:** Codex iter 11 verified active use. KEEP alongside `canonical_pin.txt`. |
+state/polaris_restart\cleanup_audit.md:1012:**Cleanup-PR-4 (atomic RENAME `_v2` protocol files; renumbered from PR-5 per iter 15)**: `.codex/REVIEW_BRIEF_FORMAT_v2.md` + `.codex/AUDIT_CYCLE_PROTOCOL_v2.md` renames PLUS update of ACTIVE referencing files only — see iter-8 8-file authoritative list (`stop_hook_v3.py`, `CLAUDE.md`, `canonical_pin.txt`, `codex_verdict.schema.json`, `autoloop/orchestrator.py`, `strip_changelog_markers.py`, `polaris_v6/memory/store.py`, `test_workspace_memory.py`). `outputs/audits/continuous/` is historical immutable payload, EXCLUDED from rename gates per the canonical gate spec. **iter 8 canonical gate spec (CI-safe, fixes iter 6/7 CLEAN-GATE-EXEC-1 + CLEAN-GATE-COMMENT-2):**
+state/polaris_restart\cleanup_audit.md:1108:  3. `docs/canonical_pin.txt`
+state/polaris_restart\cleanup_audit.md:1386:- ~~`docs/canonical_pin.txt`~~ — KEEP per §3.7 iter 12 CLEAN-PINS-CLASSIFY-1
+state/polaris_restart\cleanup_audit.md:1611:- **iter12 CLEAN-INSPECT-LIST-STALE-1 (P2)** FIXED: §6 INSPECT list demoted `docs/canonical_pin.txt` (KEEP per iter 12 §3.7) and `tests/v6/` (KEEP per iter 12 §2 tests/* group classification).
+state/polaris_restart\cleanup_audit.md:1645:- **iter11 CLEAN-PINS-CLASSIFY-1 (P2)** FIXED: §3.7 `docs/canonical_pin.txt` and `docs/session_pin.txt` reclassified INSPECT → KEEP per Codex iter-11 verified active code/workflows use.
+state/polaris_restart\cleanup_audit.md:1677:- **iter10 CLEAN-DOCS-INVENTORY-OMISSION-1 (P1)** FIXED: §3.7 added rows for ALL tracked docs/ items at reset target. New rows: `backend_modernization.md`, `benchmark/`, `carney_handover/`, `carney_delivery_plan_v5_1_redline.md` + `_v5_draft.md` + `_v6_draft.md` (ARCHIVE drafts), `compliance_templates/`, `gemma_4_verification.md`, `hardware_decision.md`, `live_code_audit.json`, `md{1..11}_*_threat_model.md` (~14 files), `opentelemetry_genai.md`, `pipeline_audit_context/`, `pricing_and_positioning.md`, `release_notes_v1.0.md`, `session_pin.txt` (INSPECT alongside canonical_pin.txt), `shippable_plan_{v2,v3,v4}_draft.md` (ARCHIVE), `supported_scope.md`, `todo_list.md` (ARCHIVE — deprecated stub per CLAUDE.md §1.1), `walkthroughs/` (INSPECT).
+state/polaris_restart\cleanup_audit.md:1695:6. The `docs/canonical_pin.txt` + `docs/session_pin.txt` INSPECT — both pin-related; verify which Plan v6.2 keeps and which is Plan-v13-era stale.
+state/polaris_restart\cleanup_audit.md:1712:- **iter9 CLEAN-INSPECT-RESET-SCOPE-1 (P2)** FIXED: §6 INSPECT list demoted reset-absent items via `git cat-file -e 365f334:<path>` for each. Demoted (NOT present at reset target; no cleanup PR action): `outputs/audits/handover_bundles/`, `outputs/audits/briefs/`, `state/active_audit/`, `state/active_pending.json`, `state/progress_ledger.jsonl`, `state/last_pointer.json`, `state/orchestrator_status.json`, `.github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope`. Remaining INSPECT (verified PRESENT at reset target): `docs/canonical_pin.txt`, `docs/test_failure_triage_2026-04-27.md`, `docs/phase_d_milestones.md`, `scripts/autoloop/*`, `.claude/hooks/*`, `tests/v6/`, `helm/`, `.github/workflows/codex_verdict_check.yml`, 95+ scripts.
+state/polaris_restart\cleanup_audit.md:1766:- **iter7 CLEAN-REN-REFS-4 (P1)** FIXED: §3.2 protocol-rename rows + §5 PR-5/6/7 prose now contain AUTHORITATIVE rename-touch lists VERIFIED by direct `git grep -l ... 365f334 --` execution at reset target. The 8-file list for `_v2` protocol files (stop_hook_v3.py, CLAUDE.md, canonical_pin.txt, codex_verdict.schema.json, autoloop/orchestrator.py, strip_changelog_markers.py, polaris_v6/memory/store.py, test_workspace_memory.py) is now complete. The 7-file list for pg_preflight_v2 (CLAUDE.md, soc2_evidence_map.md, file_directory.md, env_var_inventory.md, ground_rules.md, docker_entrypoint.sh, pg_preflight_v2.py self) is complete. Iter 7 misattributions (schema/orchestrator/strip_changelog/store.py/test_workspace wrongly bucketed under pg_preflight) corrected.
+state/polaris_restart\cleanup_audit.md:1802:- **iter6 CLEAN-REN-REFS-3 (P1)** FIXED: §5 PR-5/6/7 sections now contain explicit ACTIVE-rename-touch lists at reset target `365f334`. For `pg_preflight_v2`: 13 files including ground_rules.md (1 hit), state/restart_instructions.md (3 hits). For `REVIEW_BRIEF_FORMAT_v2|AUDIT_CYCLE_PROTOCOL_v2`: 4 files (stop_hook_v3.py + CLAUDE.md + canonical_pin.txt + carney_delivery_plan_v6_2.md). For `carney_delivery_plan_FINAL`: 2 files post-PR-4 (state/restart_instructions.md + docs/carney_delivery_plan_v6_2.md). PR ordering invariant added: PR-4 archives `.codex/*` briefs BEFORE PR-5/6/7 so renames don't have to update files no longer present.
+state/polaris_restart\cleanup_audit.md:1895:- **iter1 CLEAN-REN-1 (P1)** — `_v2` Codex protocol filenames referenced from CLAUDE.md, canonical_pin.txt, orchestrator.py, stop_hook_v3.py, schemas, tests. FIXED: §3.2 rename rows now mark renames as ATOMIC PR with all references updated in same PR + CI gate via ripgrep for old name returning zero hits post-rename.
+.claude\hooks\precommit_codex_verdict.py:98:    #   - scripts/verify_cage.py (33 cage checks on demand)
+.claude\hooks\precommit_codex_verdict.py:102:    sys.exit(0)
+.claude\hooks\precommit_codex_verdict.py:105:        sys.exit(0)
+.claude\hooks\precommit_codex_verdict.py:110:        sys.exit(0)  # malformed input → never block
+.claude\hooks\precommit_codex_verdict.py:116:        sys.exit(0)  # not a git commit, allow
+.claude\hooks\precommit_codex_verdict.py:175:        sys.exit(0)
+.claude\hooks\precommit_codex_verdict.py:178:        sys.exit(0)  # gate passed, allow
+.claude\hooks\precommit_codex_verdict.py:196:    sys.exit(0)
+state/polaris_restart\issue_breakdown.md:52:1. **§10 mechanical gates LIVE** — see plan §10. CODEOWNERS file in place; `polaris-controls/` signed-commits-required protection enabled; `gh pr merge --admin` revoked from Claude; CI workflow `polaris/codex-required.yml` deployed. Verification: `scripts/verify_cage.py` returns "33/33 cage checks pass".
+state/polaris_restart\issue_breakdown.md:53:2. **§9.6a session-start hook deployed** — `scripts/hooks/session_start_check.py` (canonical, cross-platform) + `scripts/hooks/session_start_check.sh` (fallback) + `.claude/settings.json` (TRACKED, project-shared) wire the PreToolUse matcher with `python $CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py`. Hook verifies BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` blob hashes against `state/polaris_restart/charter_sha_pin.txt` on every tool call (no same-day-stamp shortcut; stamp is informational only). Verification: any Bash/Edit/Write/MultiEdit call with mismatched or missing pin emits PreToolUse deny payload with reconciliation instructions.
+state/polaris_restart\g2_acknowledgement.md:11:## §1 Anchored SHA pins (mirrored from `state/polaris_restart/charter_sha_pin.txt`)
+state/polaris_restart\g2_acknowledgement.md:23:2. POLARIS-side `state/polaris_restart/charter_sha_pin.txt` records exactly these two SHAs in the same `<sha>  polaris-controls/<file>` format the session-start hook expects.
+state/polaris_restart\iteration_trajectory.md:36:| 10 | 0 | 0 | 6 | 7 | 130.6k | continue | **CLEAN-MANIFEST-GITIGNORE-1** state/ gitignored, sidecars won't stage. **CLEAN-GATE-ERRMASK-1** `\|\| true` masks all errors not just no-match. **CLEAN-PR5-PRECONDITION-INVERTED-1** zero_hit_gate.sh exits failure on hits, can't be used for preflight count check. **CLEAN-ORDER-ENFORCEMENT-1** "GitHub branch protection required PR order" not a real mechanism. **CLEAN-STATE-INVENTORY-OMISSION-1** state/autoloop_handover_*.md (8 files), compare_chatgpt/gemini_dr.txt, v17_vs_tier1_headtohead.md not classified. **CLEAN-DOCS-INVENTORY-OMISSION-1** docs/backend_modernization, benchmark/, carney_handover/, compliance_templates/, gemma_4_verification, hardware_decision, session_pin.txt, walkthroughs/, shippable_plan drafts, md*_threat_model.md (~14) not classified. P2: bash 4+ undeclared, count tables missing for pg_preflight/carney/full_online (Codex measured pg_preflight = 7 files / 14 hits), gitignore-absent vs tracked-removed distinction, PR-8 no-op manifest schema mismatch, scripts count 219 not 130, .claude/settings.json unclassified, §3.10 pg_preflight row stale. |
+scripts\hooks\session_start_check.sh:8:#   blob hashes against state/polaris_restart/charter_sha_pin.txt on EVERY tool call.
+scripts\hooks\session_start_check.sh:35:PIN_FILE="${REPO_ROOT}/state/polaris_restart/charter_sha_pin.txt"
+scripts\hooks\session_start_check.sh:79:    "permissionDecisionReason": "SHA pin drift: ${DRIFT}Halt per Plan §10. Resolution requires user-side reconciliation: user reads polaris-controls/CHARTER.md + PLAN.md, decides whether the live SHAs are the new canonical, then signs a commit updating state/polaris_restart/charter_sha_pin.txt. Hook will allow tool calls again on next invocation after reconciliation. Claude must NOT write the stamp file directly."
+scripts\hooks\session_start_check.py:8:- ALWAYS verifies BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt` on EVERY tool call. No stamp-based bypass.
+scripts\hooks\session_start_check.py:87:    pin_file = repo_root / "state" / "polaris_restart" / "charter_sha_pin.txt"
+scripts\hooks\session_start_check.py:115:            "state/polaris_restart/charter_sha_pin.txt. Hook will allow tool calls "
+state/polaris_restart\plan.md:677:| `docs/canonical_pin.txt` | INSPECT — if still load-bearing, KEEP; if Plan-v13-deprecated, ARCHIVE |
+state/polaris_restart\plan.md:801:Update §3.1 startup protocol step 0 to also verify `polaris-controls/CHARTER.md` SHA against current `state/polaris_restart/charter_sha_pin.txt`.
+state/polaris_restart\plan.md:807:2. Verify SHAs against state/polaris_restart/charter_sha_pin.txt
+state/polaris_restart\plan.md:834:- New: `state/polaris_restart/charter_sha_pin.txt` — pinned SHA verified at session boot
+state/polaris_restart\plan.md:846:1. ALWAYS verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` blob hashes (`git hash-object`, not `gh api`) against `state/polaris_restart/charter_sha_pin.txt` on EVERY tool call. There is NO same-day-stamp shortcut.
+state/polaris_restart\plan.md:848:3. If either SHA mismatches OR pin missing OR file missing: emit `{"hookSpecificOutput": {"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SHA pin drift detected: <details>. Halt per Plan §10. Resolution requires user-side reconciliation: user reads polaris-controls/CHARTER.md + PLAN.md, decides whether the live SHAs are the new canonical, then signs a commit updating state/polaris_restart/charter_sha_pin.txt. Hook will allow tool calls again on next invocation after reconciliation. Claude must NOT write the stamp file directly."}}` and exit 0 (Claude Code reads `permissionDecision: deny` from stdout JSON regardless of exit code).
+state/polaris_restart\plan.md:850:The earlier draft of this section described a same-day-stamp shortcut that allowed the hook to skip SHA verification once a stamp existed. PR-B iter 6 (`PRB6-P1-001`) caught this as a P1 bypass: if `polaris-controls` or `charter_sha_pin.txt` changed mid-day, the hook would not detect drift. Iter 7 closed the bypass; this section is updated to describe the safer implementation.
+state/polaris_restart\plan.md:986:Authoritative implementation in §9.6a. This subsection is a pointer only: the hook is wired via `.claude/settings.json` (TRACKED, project-scoped per memory `stop_hook_must_be_project_scoped.md`) using `$CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py` as the command. Verifies BOTH CHARTER.md AND PLAN.md SHAs via `git hash-object` against `state/polaris_restart/charter_sha_pin.txt` on every tool call. No same-day-stamp shortcut. Stamp is informational only; deny payload is the JSON in §9.6a.
+state/polaris_restart\cleanup_manifest_sidecars\del_009.per_file.txt:1:state\polaris_restart\charter_sha_pin.txt	93add1314432cf43fe57a85b445caab6d4760bbbc00fa200fa910c2442b4f759
+state/polaris_restart\cleanup_manifest_sidecars\del_010.per_file.txt:2:state\polaris_restart\charter_sha_pin.txt	0d31cf481c1b4a1b53c8cc36a07c66019fa770509f12473182c755a2b841be6e
+state/polaris_restart\cleanup_manifest_sidecars\del_011.per_file.txt:1:state\polaris_restart\charter_sha_pin.txt	93add1314432cf43fe57a85b445caab6d4760bbbc00fa200fa910c2442b4f759
+state/polaris_restart\cleanup_manifest_sidecars\del_012.per_file.txt:2:state\polaris_restart\charter_sha_pin.txt	9da2974056b65165583f5eba73e9193ea9a1f2a6bcc8c49066d8063f3ff1d1e2
+
+codex
+The search confirms the stale CLAUDE references are concentrated where the brief says: §2.1, §3.1 step 0, and step 12. I’m reading those exact sections plus the hook and cage verifier now to separate real blockers from cleanup noise.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path CLAUDE.md; for($i=80;$i -le 150;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=205;$i -le 245;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=720;$i -le 740;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path scripts/verify_cage.py; for($i=50;$i -le 70;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=220;$i -le 235;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path .claude/hooks/stop_hook_v3.py; foreach($range in @(@(1,60),@(115,165),@(395,455),@(475,500))){ for($i=$range[0];$i -le $range[1];$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path docs/canonical_pin.txt; for($i=1;$i -le [Math]::Min(80,$lines.Length);$i++){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+ succeeded in 753ms:
+  80: 
+  81: ### LAW I — Active Definition and Synchronization
+  82: You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+  83: 
+  84: **1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+  85: 1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+  86: 2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+  87: 3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+  88: 4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+  89: 5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+  90: 6. Recent `logs/session_log.md` (The History).
+  91: 7. `architecture.md` (The Baseline).
+  92: 8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+  93: 
+  94: **1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
+  95: 
+  96: **1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or omitted without following the protocols in §6.
+  97: 
+  98: ### LAW II — No Fake Working (Evidence Required)
+  99: - **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" hacks.
+ 100: - **Evidence:** Claims of completion require verifiable proof logged in the session log: created files, sizes/counts, checksums, and successful test outputs or key findings.
+ 101: - **Data & Execution Integrity:**
+ 102:   - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+ 103:   - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+ 104:   - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+ 105:   - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+ 106:   - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
+ 107: 
+ 108: ### LAW III — Proactive Information Seeking
+ 109: Do not rely on stale internalized knowledge. You must proactively search the internet for the latest official documentation, best practices, and solutions for every library, API, and function used.
+ 110: Log all consulted resources in `logs/session_log.md`.
+ 111: 
+ 112: ### LAW IV — Persistence of State (Never Forget)
+ 113: The session must be resumable without loss of context.
+ 114: Every significant action, decision, or finding must update the durable state files (§2).
+ 115: 
+ 116: ### LAW V — Absolute Code and File Hygiene
+ 117: Adhere strictly to the standards defined in §4 (Naming Conventions, Modularity, and Structure). The repository must remain clean and tidy at all times.
+ 118: 
+ 119: ### LAW VI — Zero Hard-Coding
+ 120: All parameters (endpoints, credentials, thresholds, file paths, batch sizes) must come from configuration files, CLI arguments, or environment variables.
+ 121: Fixed values for testing must reside exclusively in `tests/fixtures/`.
+ 122: 
+ 123: ### LAW VII — CLI Isolation (POLARIS-Specific)
+ 124: Phases are standalone CLI scripts. They communicate ONLY through JSON files.
+ 125: - Phase N reads ONLY from `outputs/P{N-1}/{vector_id}.json`
+ 126: - Phase N writes ONLY to `outputs/P{N}/{vector_id}.json`
+ 127: - Phase N NEVER imports code from other phases
+ 128: - Shared utilities go in `src/utils/` or `src/schemas/`
+ 129: 
+ 130: ---
+ 131: 
+ 132: ## §2. Persisted State and Mandatory Documentation
+ 133: 
+ 134: The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
+ 135: 
+ 136: ### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+ 137: - `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+ 138: - `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+ 139: - `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+ 140: - `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+ 141: - `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+ 142: - `logs/session_log.md`: A chronological, append-only audit trail.
+ 143: - `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
+ 144: - `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+ 145: - `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+ 146: - `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
+ 147: - `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+ 148: - `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+ 149: - `state/last_pointer.json`: Resume point after crash/restart.
+ 150: - `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+ 205: ## §3. Mandatory Session Protocol (Startup/Restart)
+ 206: 
+ 207: This protocol MUST be executed automatically at the start of every session and after any restart or crash.
+ 208: 
+ 209: ### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+ 210: 
+ 211: **CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+ 212: 
+ 213: 0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+ 214: 
+ 215: 1. **Read CLAUDE.md:** This file completely.
+ 216: 2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+ 217:    - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+ 218:    - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+ 219:    - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+ 220:    - `docs/carney_delivery_plan_v6_2.md` (mission)
+ 221:    - `architecture.md` (current-state baseline)
+ 222:    - `docs/blockers.md` (10 user-side decisions)
+ 223:    - `docs/agent_architecture.md`
+ 224:    - `docs/substrate_audit_2026-05-01.md`
+ 225:    - `.codex/codex_red_team_checklist.md`
+ 226:    - `.codex/REVIEW_BRIEF_FORMAT.md`
+ 227:    - `.codex/AUDIT_CYCLE_PROTOCOL.md`
+ 228:    - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
+ 229:    - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
+ 230: 3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+ 231: 4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+ 232: 5. **Review Bug Log:** `logs/bug_log.md`.
+ 233: 6. **Review File Directory:** `docs/file_directory.md`.
+ 234: 7. **Read Restart Instructions:** `state/restart_instructions.md`.
+ 235: 8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
+ 236: 9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
+ 237: 10. **Execute Recovery:** If restart_instructions has instructions, execute them.
+ 238: 11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+ 239: 12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+ 240: 
+ 241: **Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+ 242: 
+ 243: ### 3.2 Enforcement
+ 244: If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
+ 245: 
+ 720:   feedback memory: integration tests must hit real data sources)
+ 721: 
+ 722: Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+ 723: currently meet these invariants. It is frozen; see
+ 724: `src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+ 725: 
+ 726: ---
+ 727: 
+ 728: ## §10 Session boot ritual (per polaris-restart Plan §9.1)
+ 729: 
+ 730: Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+ 731: 
+ 732: 1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
+ 733: 2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+ 734: 3. **Read `state/active_issue.json`** — if shows in_progress issue, resume that issue ONLY (no scope expansion).
+ 735: 4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. Do NOT pick a task autonomously.
+ 736: 5. **State to user explicitly:**
+ 737:    - active issue ID
+ 738:    - current step within issue (brief / diff / audit / merge / complete)
+ 739:    - next action
+ 740: 
+
+ succeeded in 805ms:
+  50:     "required_signatures.enabled": True,
+  51:     "enforce_admins.enabled": True,
+  52:     "allow_force_pushes.enabled": False,
+  53:     "allow_deletions.enabled": False,
+  54:     "required_pull_request_reviews.require_code_owner_reviews": True,
+  55:     "required_pull_request_reviews.required_approving_review_count": 1,
+  56: }
+  57: 
+  58: EXPECTED_CODEOWNERS_PATHS = [
+  59:     "docs/session_pin.txt",
+  60:     "docs/canonical_pin.txt",
+  61:     "docs/blockers.md",
+  62:     "docs/task_acceptance_matrix.yaml",
+  63:     ".github/",
+  64:     ".codex/",
+  65:     ".claude/",
+  66:     "scripts/autoloop/",
+  67:     ".legacy/",
+  68: ]
+  69: 
+  70: PIN_KEY_TO_PATH = {
+ 220:     co_path = POLARIS_ROOT / ".github" / "CODEOWNERS"
+ 221:     if not co_path.is_file():
+ 222:         report.add("codeowners.exists", False, f"not found at {co_path}")
+ 223:         return
+ 224:     report.add("codeowners.exists", True)
+ 225: 
+ 226:     raw = co_path.read_text(encoding="utf-8")
+ 227:     for path in EXPECTED_CODEOWNERS_PATHS:
+ 228:         present = path in raw
+ 229:         report.add(
+ 230:             f"codeowners.covers[{path}]",
+ 231:             present,
+ 232:             f"path '{path}' not found in CODEOWNERS" if not present else "",
+ 233:         )
+ 234: 
+ 235: 
+
+ succeeded in 843ms:
+   1: #!/usr/bin/env python3
+   2: """POLARIS Stop hook v3 — plan-aware, reads from git HEAD (not working tree).
+   3: 
+   4: Per Plan v13 §B (user-approved 2026-05-02). Replaces polaris_keep_going.py
+   5: which read derived todo_list.md and was vulnerable to Claude self-editing
+   6: the file the hook reads (sister-project Failure S1).
+   7: 
+   8: Inputs (READ-ONLY, all from `git show HEAD:` — Claude cannot tamper with
+   9: HEAD without a precommit-gated commit):
+  10:   1. docs/canonical_pin.txt — verifies canonical files haven't drifted vs working tree
+  11:   2. docs/carney_delivery_plan_v6_2.md — the canonical plan
+  12:   3. docs/task_acceptance_matrix.yaml — per-task GREEN criteria + user_action_blocked + substrate_prep
+  13:   4. docs/blockers.md — canonical user-action gates
+  14:   5. outputs/audits/verdicts/<task_id>/iter_<N>.json — Codex APPROVE/REQUEST_CHANGES (Claude has zero write per §C)
+  15: 
+  16: Decision logic (per Plan v13 §B):
+  17:   - Verify canonical pin SHA matches working tree SHA → mismatch = HARD STOP (canonical drifted)
+  18:   - For each task in plan-canonical sequence:
+  19:       if verdict APPROVE → skip
+  20:       if user_action_blocked AND has_substrate_prep_pending → block stop, point to prep
+  21:       if user_action_blocked AND no_substrate_prep_pending → next task
+  22:       if next_in_sequence AND no_verdict → block stop, point to task
+  23:   - Allow stop ONLY when every task APPROVE'd OR every remaining is fully user-action with no prep
+  24: 
+  25: Per https://code.claude.com/docs/en/hooks the script:
+  26:   - Reads JSON from stdin
+  27:   - Honours stop_hook_active to prevent infinite loops
+  28:   - Exits 0 in all paths; emits decision JSON to stdout when blocking
+  29: """
+  30: 
+  31: from __future__ import annotations
+  32: 
+  33: import hashlib
+  34: import json
+  35: import os
+  36: import subprocess
+  37: import sys
+  38: from pathlib import Path
+  39: 
+  40: POLARIS_ROOT = Path("C:/POLARIS").resolve()
+  41: KILL_SWITCH = POLARIS_ROOT / "state" / "autoloop_active"
+  42: BLOCK_COUNT_FILE = POLARIS_ROOT / "state" / "autoloop_block_count_v3"
+  43: MAX_CONSECUTIVE_BLOCKS = 50
+  44: 
+  45: # Canonical files pinned in canonical_pin.txt
+  46: CANONICAL_FILES = [
+  47:     "docs/carney_delivery_plan_v6_2.md",
+  48:     "architecture.md",
+  49:     "docs/blockers.md",
+  50:     "docs/task_acceptance_matrix.yaml",
+  51:     "docs/agent_architecture.md",
+  52:     "docs/substrate_audit_2026-05-01.md",
+  53:     ".codex/codex_red_team_checklist.md",
+  54:     ".codex/REVIEW_BRIEF_FORMAT.md",
+  55:     ".codex/AUDIT_CYCLE_PROTOCOL.md",
+  56:     "CLAUDE.md",
+  57: ]
+  58: 
+  59: 
+  60: def _is_polaris_session() -> bool:
+ 115:     content = _git_show_head(path)
+ 116:     if content is None:
+ 117:         return None
+ 118:     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+ 119: 
+ 120: 
+ 121: def _verify_canonical_pin() -> tuple[bool, str]:
+ 122:     """Verify each canonical file's working-tree SHA matches HEAD SHA matches pin file.
+ 123: 
+ 124:     Returns (ok, message). On mismatch, message names the offending file.
+ 125:     """
+ 126:     pin_text = _git_show_head("docs/canonical_pin.txt")
+ 127:     if pin_text is None:
+ 128:         return False, "docs/canonical_pin.txt missing from HEAD"
+ 129: 
+ 130:     expected = {}
+ 131:     for line in pin_text.splitlines():
+ 132:         line = line.strip()
+ 133:         if not line or line.startswith("#"):
+ 134:             continue
+ 135:         parts = line.split(None, 1)
+ 136:         if len(parts) != 2:
+ 137:             continue
+ 138:         expected[parts[1].strip()] = parts[0].strip()
+ 139: 
+ 140:     for f in CANONICAL_FILES:
+ 141:         exp = expected.get(f)
+ 142:         if not exp:
+ 143:             return False, f"canonical_pin.txt missing entry for {f}"
+ 144:         actual_head = _git_show_head_sha256(f)
+ 145:         if actual_head != exp:
+ 146:             return False, f"HEAD SHA mismatch for {f}: pin says {exp[:12]}, HEAD has {(actual_head or 'MISSING')[:12]}"
+ 147:         # Also verify working tree matches HEAD (so working-tree edits between
+ 148:         # commits don't cause a stale read of canonical content during execution)
+ 149:         actual_wt = _file_sha256(f)
+ 150:         if actual_wt != actual_head:
+ 151:             return False, f"working-tree drift for {f}: HEAD has {actual_head[:12]}, working-tree has {(actual_wt or 'MISSING')[:12]}"
+ 152: 
+ 153:     return True, "canonical pin verified"
+ 154: 
+ 155: 
+ 156: def _parse_matrix_tasks_from_head() -> list[dict]:
+ 157:     """Parse task_acceptance_matrix.yaml from HEAD into ordered task list.
+ 158: 
+ 159:     Lightweight YAML parser — good enough for our matrix structure (no
+ 160:     external dep). Returns list of dicts with: task_id, user_action,
+ 161:     substrate_prep (list), green_criteria, blocking_consequence.
+ 162:     """
+ 163:     text = _git_show_head("docs/task_acceptance_matrix.yaml")
+ 164:     if text is None:
+ 165:         return []
+ 395:     except Exception:
+ 396:         sys.exit(0)
+ 397: 
+ 398:     # Honour stop_hook_active to prevent infinite-loop.
+ 399:     if payload.get("stop_hook_active"):
+ 400:         sys.exit(0)
+ 401: 
+ 402:     # === HOOK NEUTRALIZED 2026-05-04 ===
+ 403:     # The entire Plan v13 §A/§B validation pipeline below this point is
+ 404:     # DEPRECATED by the 2026-05-04 cage restart. Everything it checks
+ 405:     # has been replaced or retired:
+ 406:     #
+ 407:     #   - canonical_pin.txt enforcement     → docs/session_pin.txt + scripts/verify_cage.py
+ 408:     #   - task_acceptance_matrix.yaml       → polaris-controls/PLAN.md slice progression
+ 409:     #   - halt-resolution markers (path 3)  → ABOLISHED; moved to .legacy/halt_resolutions_abandoned/
+ 410:     #   - "infrastructure-only:" magic      → server-side branch protection + Trusted App
+ 411:     #   - matrix task classification        → slice spec at polaris-controls/slices/
+ 412:     #
+ 413:     # The validation steps below would (a) fire on benign Windows CRLF
+ 414:     # line-ending drift, (b) demand classifications using halt-resolution
+ 415:     # markers that are now forbidden by the new design, (c) parse a matrix
+ 416:     # that is itself deprecated. Net effect: noise, not safety.
+ 417:     #
+ 418:     # The new cage does the real work via:
+ 419:     #   - GitHub branch protection (signed commits, no force-push)
+ 420:     #   - .github/workflows/legacy_protection.yml (.legacy/ contract)
+ 421:     #   - .github/workflows/protection_drift_check.yml (daily drift)
+ 422:     #   - scripts/verify_cage.py (33-check end-to-end verification)
+ 423:     #   - .github/CODEOWNERS (control-plane edits gated)
+ 424:     #
+ 425:     # Returning here lets the Stop event proceed cleanly. The function
+ 426:     # body below this exit point is preserved for reference / future
+ 427:     # archaeology and will be removed entirely when the hook file itself
+ 428:     # is moved to .legacy/ in a dedicated cleanup slice.
+ 429:     sys.exit(0)
+ 430: 
+ 431:     # Kill switch off → loop disabled, allow stop
+ 432:     if not KILL_SWITCH.exists():
+ 433:         sys.exit(0)
+ 434: 
+ 435:     # NOTE: dropped MAX_CONSECUTIVE_BLOCKS counter (anti-pattern per
+ 436:     # https://code.claude.com/docs/en/hooks: "Make your validation script
+ 437:     # idempotent (same input → same result)... Check state from files/environment
+ 438:     # rather than hook call count"). Validation is now purely state-based.
+ 439: 
+ 440:     # Step A: canonical pin verification — DEPRECATED 2026-05-04.
+ 441:     # The old canonical_pin.txt + Plan v13 §A enforcement is superseded by
+ 442:     # the new cage:
+ 443:     #   - polaris-controls (admin-only sister repo) holds CHARTER + PLAN
+ 444:     #   - docs/session_pin.txt references SHAs in polaris-controls
+ 445:     #   - scripts/verify_cage.py runs all 33 cage checks (server-side
+ 446:     #     branch protection + cross-repo SHA pin + CODEOWNERS)
+ 447:     #   - daily protection_drift_check.yml workflow catches config drift
+ 448:     # The local file-SHA check here was firing on benign Windows CRLF/LF
+ 449:     # line-ending conversion (working tree differs from HEAD blob even
+ 450:     # when content is identical), producing false-drift halts.
+ 451:     # Skipped intentionally; not removed yet pending full hook deprecation
+ 452:     # in slice 0+ work.
+ 453:     pass
+ 454: 
+ 455:     # Step B: parse matrix from HEAD
+ 475:             lines.append(f"  - {item['task_id']}: {item['title']}{ua}")
+ 476:         if len(unclassified) > 15:
+ 477:             lines.append(f"  ... and {len(unclassified) - 15} more")
+ 478:         lines += [
+ 479:             "",
+ 480:             "Each unclassified task MUST be brought into ONE of these states (in matrix or filesystem):",
+ 481:             "  (a) substrate_prep entry — orchestrator-completable scaffold (manifest / runbook / outline / harness)",
+ 482:             "  (b) phase_gate: phase_<N> — defers task until phase N starts (orchestrator skips silently)",
+ 483:             "  (c) user_action_only: { rationale: '...', required_external: '...' } — external-only, documented",
+ 484:             "  (d) outputs/audits/halt_resolutions/<task_id>_halt.md — explicit halt with rationale",
+ 485:             "",
+ 486:             "Add the appropriate classification, update docs/canonical_pin.txt if matrix changed, ",
+ 487:             "commit infrastructure-only, then continue. DO NOT stop without classifying.",
+ 488:         ]
+ 489:         _emit_block("\n".join(lines))
+ 490: 
+ 491:     # Step D: find next actionable
+ 492:     next_task, prep_id = _next_actionable_task(tasks)
+ 493:     if next_task is None:
+ 494:         # Every task is classified AND nothing actionable remaining → genuinely done
+ 495:         sys.exit(0)
+ 496: 
+ 497:     # Block stop, point at next actionable
+ 498:     target = prep_id or next_task["task_id"]
+ 499:     if prep_id:
+ 500:         msg = f"prep sub-task {prep_id} (parent {next_task['task_id']} is user-action-blocked)"
+
+ succeeded in 857ms:
+   1: 3c77e65463bab9e41a7ad54d1bb79ef1b83ddc21b8c0c1599d38e2402738bc3a  docs/carney_delivery_plan_v6_2.md
+   2: 8e8e7e2fb9358f83b9c27257f51cd3d8e82dd693b5e5ae7ffd698c46c411a19f  architecture.md
+   3: 5d97dddba498c4dd50550f29b46f22dc8b6d26cd10532caa4405a0229d770199  docs/blockers.md
+   4: 0124a6240fd9b943e88112d2093a2f06ab14e77b0c12cb0f3084e703790936e2  docs/task_acceptance_matrix.yaml
+   5: 61764ac6cbae2f241207acc32ee508aa99f084d324f0978f2ef89fc055b02122  docs/agent_architecture.md
+   6: 0ba71ca0ed94aac749b02e668b72f86af7ebfda6ee058e4319cb5953d0014617  docs/substrate_audit_2026-05-01.md
+   7: 92d9e650daad50d69b418979593801aef756473f28173af2f5fff7c78bec787f  .codex/codex_red_team_checklist.md
+   8: f6db0746c0312a10276c55b4cee2eaf2b7edc67155abe44b9fcd2ead7e4509ab  .codex/REVIEW_BRIEF_FORMAT.md
+   9: b51789187d70d7677ab7dcde356c3d2b321b33375028e2ba403de54ea9587cac  .codex/AUDIT_CYCLE_PROTOCOL.md
+  10: 652da8119a163b8155f39b3dc5d7c1e98dacabf8d1196a6aa144dbbe7db2325e  CLAUDE.md
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .claude/settings.json -Raw' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"canonical_pin|CANONICAL_FILES|_verify_canonical_pin|verify_canonical\" scripts/autoloop .claude scripts docs -g '"'!**/__pycache__/**'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path docs/session_pin.txt -TotalCount 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .github/CODEOWNERS -Raw' in C:\POLARIS
+ succeeded in 824ms:
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/POLARIS/.claude/hooks/stop_hook_v3.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/POLARIS/.claude/hooks/precommit_codex_verdict.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
+
+
+ succeeded in 774ms:
+# POLARIS CODEOWNERS
+# Authority: only @aldrinor can approve PRs touching the paths below.
+# Per polaris-controls/CHARTER.md (admin-only sister repo) and PLAN.md.
+# Branch protection requires code-owner review on `polaris` and `main` branches.
+
+# === Control-plane / security-control paths ===
+# Edits here change the cage itself. Always require user review.
+
+docs/session_pin.txt              @aldrinor
+docs/canonical_pin.txt            @aldrinor
+docs/blockers.md                  @aldrinor
+docs/task_acceptance_matrix.yaml  @aldrinor
+docs/carney_delivery_plan_v6_2.md @aldrinor
+docs/agent_architecture.md        @aldrinor
+
+.github/                          @aldrinor
+.codex/                           @aldrinor
+.claude/                          @aldrinor
+
+scripts/autoloop/                 @aldrinor
+scripts/verify_github_protections.py @aldrinor
+
+# Per polaris-restart Plan §9.6a — session-start hook is structural cage:
+scripts/hooks/                    @aldrinor
+
+# Per polaris-restart Plan §9.5 — restart substrate (charter pin, plan, issues, cleanup):
+state/polaris_restart/            @aldrinor
+state/active_issue.json           @aldrinor
+state/restart_instructions.md     @aldrinor
+state/handover.md                 @aldrinor
+
+# Per polaris-restart Plan §9.4 — handover doc:
+docs/handover.md                  @aldrinor
+
+CLAUDE.md                         @aldrinor
+architecture.md                   @aldrinor
+
+# Per polaris-restart Plan §10.0 — web/ workflow DNA also owner-protected
+# (PR-B iter 8 PRB7-P2-002 fix; web/AGENTS.md carries mandatory workflow DNA):
+web/AGENTS.md                     @aldrinor
+web/CLAUDE.md                     @aldrinor
+
+# === Archive / legacy ===
+# Anything in .legacy/ is read-only post-cutover. Edits require owner review.
+.legacy/                          @aldrinor
+
+# === Tests for the cage itself ===
+tests/autoloop/                   @aldrinor
+
+
+ succeeded in 847ms:
+scripts/autoloop\verdict_validator.py:10:    AND committed.canonical_pin_sha == sha256(canonical_pin.txt @ commit)
+scripts/autoloop\verdict_validator.py:60:def _validate_canonical_pin(verdict: dict, pin_path: Path) -> tuple[bool, str]:
+scripts/autoloop\verdict_validator.py:61:    expected = verdict.get("canonical_pin_sha", "")
+scripts/autoloop\verdict_validator.py:64:        return False, f"canonical_pin mismatch: verdict={expected[:12]}, file={actual[:12]}"
+scripts/autoloop\verdict_validator.py:65:    return True, "canonical_pin ok"
+scripts/autoloop\verdict_validator.py:187:    rerun_for_schema.setdefault("canonical_pin_sha", committed.get("canonical_pin_sha", "0" * 64))
+scripts/autoloop\verdict_validator.py:208:    ok, msg = _validate_canonical_pin(committed, args.canonical_pin)
+scripts/autoloop\verdict_gate.py:16:  - Validate: schema valid, HMAC valid, verdict == APPROVE, canonical_pin_sha matches.
+scripts/autoloop\verdict_gate.py:42:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts/autoloop\verdict_gate.py:290:                    "canonical_pin_sha", "hmac_sha256", "findings", "timestamp"}
+scripts/autoloop\verdict_gate.py:316:def _validate_canonical_pin(verdict: dict) -> tuple[bool, str]:
+scripts/autoloop\verdict_gate.py:317:    expected = verdict.get("canonical_pin_sha")
+scripts/autoloop\verdict_gate.py:319:        return False, "verdict missing canonical_pin_sha"
+scripts/autoloop\verdict_gate.py:322:        return False, f"canonical_pin_sha mismatch: verdict={expected[:12]}, current={actual[:12]}"
+scripts/autoloop\verdict_gate.py:547:        ok, msg = _validate_canonical_pin(verdict)
+scripts/autoloop\smoke_bootstrap.py:14:  (d) verdict_gate.py validates: schema, HMAC, canonical_pin, diff_sha256
+scripts/autoloop\smoke_bootstrap.py:37:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts/autoloop\smoke_bootstrap.py:157:- canonical_pin_sha: {pin_sha}
+scripts/autoloop\smoke_bootstrap.py:205:    verdict["canonical_pin_sha"] = pin_sha
+scripts/autoloop\smoke_bootstrap.py:240:        "canonical_pin_sha": pin_sha,
+docs\carney_delivery_plan_v6_2.md:6:**Pin authority:** SHA256 of this file is recorded in `docs/canonical_pin.txt`; any subsequent edit requires a new user-signed commit + pin bump per Plan v13 §A.
+docs\carney_delivery_plan_v6_2.md:444:**Subsequent commits will hash-pin the canonical via `docs/canonical_pin.txt` (Plan v13 §A Step 0c).** Any future edits require user-signed canonical-edit commits with new hash.
+docs\hardware_decision.md:9:**Canonical pin file SHA256 (composite):** `5a5afbbaf12c01a4e04d2a710cdbdefebf4faf3ff709c113b3e172149d8878b2` (sha256 of `docs/canonical_pin.txt` at commit time)
+docs\hardware_decision.md:118:All pins listed above are validated against `docs/canonical_pin.txt` at commit time via the orchestrator's `_verify_canonical_pin()` step. If any pin drifts between this document's commit and a future read, the next session's startup §3 Step 0 will HALT and require user-signed reconciliation.
+.claude\hooks\stop_hook_v3.py:10:  1. docs/canonical_pin.txt — verifies canonical files haven't drifted vs working tree
+.claude\hooks\stop_hook_v3.py:45:# Canonical files pinned in canonical_pin.txt
+.claude\hooks\stop_hook_v3.py:46:CANONICAL_FILES = [
+.claude\hooks\stop_hook_v3.py:121:def _verify_canonical_pin() -> tuple[bool, str]:
+.claude\hooks\stop_hook_v3.py:126:    pin_text = _git_show_head("docs/canonical_pin.txt")
+.claude\hooks\stop_hook_v3.py:128:        return False, "docs/canonical_pin.txt missing from HEAD"
+.claude\hooks\stop_hook_v3.py:140:    for f in CANONICAL_FILES:
+.claude\hooks\stop_hook_v3.py:143:            return False, f"canonical_pin.txt missing entry for {f}"
+.claude\hooks\stop_hook_v3.py:407:    #   - canonical_pin.txt enforcement     → docs/session_pin.txt + scripts/verify_cage.py
+.claude\hooks\stop_hook_v3.py:441:    # The old canonical_pin.txt + Plan v13 §A enforcement is superseded by
+.claude\hooks\stop_hook_v3.py:486:            "Add the appropriate classification, update docs/canonical_pin.txt if matrix changed, ",
+scripts\autoloop\backfill_pre_bootstrap_verdicts.py:17:  - canonical_pin_sha: current pin
+scripts\autoloop\backfill_pre_bootstrap_verdicts.py:33:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts\autoloop\backfill_pre_bootstrap_verdicts.py:282:            "canonical_pin_sha": pin_sha,
+scripts/autoloop\orchestrator.py:61:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts/autoloop\orchestrator.py:63:CANONICAL_FILES = [
+scripts/autoloop\orchestrator.py:137:def _verify_canonical_pin() -> tuple[bool, str]:
+scripts/autoloop\orchestrator.py:138:    pin_text = _git_show_head("docs/canonical_pin.txt")
+scripts/autoloop\orchestrator.py:140:        return False, "canonical_pin.txt missing from HEAD"
+scripts/autoloop\orchestrator.py:149:    for f in CANONICAL_FILES:
+scripts/autoloop\orchestrator.py:276:You MUST verify this pin matches `git show HEAD:docs/canonical_pin.txt` SHA before
+scripts/autoloop\orchestrator.py:459:- task_id="{task_id}", iter=<your iteration>, canonical_pin_sha="{pin_sha}",
+scripts/autoloop\orchestrator.py:531:    verdict["canonical_pin_sha"] = hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest()
+scripts/autoloop\orchestrator.py:732:            ok, msg = _verify_canonical_pin()
+scripts\autoloop\orchestrator.py:61:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts\autoloop\orchestrator.py:63:CANONICAL_FILES = [
+scripts\autoloop\orchestrator.py:137:def _verify_canonical_pin() -> tuple[bool, str]:
+scripts\autoloop\orchestrator.py:138:    pin_text = _git_show_head("docs/canonical_pin.txt")
+scripts\autoloop\orchestrator.py:140:        return False, "canonical_pin.txt missing from HEAD"
+scripts\autoloop\orchestrator.py:149:    for f in CANONICAL_FILES:
+scripts\autoloop\orchestrator.py:276:You MUST verify this pin matches `git show HEAD:docs/canonical_pin.txt` SHA before
+scripts\autoloop\orchestrator.py:459:- task_id="{task_id}", iter=<your iteration>, canonical_pin_sha="{pin_sha}",
+scripts\autoloop\orchestrator.py:531:    verdict["canonical_pin_sha"] = hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest()
+scripts\autoloop\orchestrator.py:732:            ok, msg = _verify_canonical_pin()
+scripts\autoloop\smoke_bootstrap.py:14:  (d) verdict_gate.py validates: schema, HMAC, canonical_pin, diff_sha256
+scripts\autoloop\smoke_bootstrap.py:37:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts\autoloop\smoke_bootstrap.py:157:- canonical_pin_sha: {pin_sha}
+scripts\autoloop\smoke_bootstrap.py:205:    verdict["canonical_pin_sha"] = pin_sha
+scripts\autoloop\smoke_bootstrap.py:240:        "canonical_pin_sha": pin_sha,
+scripts\autoloop\verdict_gate.py:16:  - Validate: schema valid, HMAC valid, verdict == APPROVE, canonical_pin_sha matches.
+scripts\autoloop\verdict_gate.py:42:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts\autoloop\verdict_gate.py:290:                    "canonical_pin_sha", "hmac_sha256", "findings", "timestamp"}
+scripts\autoloop\verdict_gate.py:316:def _validate_canonical_pin(verdict: dict) -> tuple[bool, str]:
+scripts\autoloop\verdict_gate.py:317:    expected = verdict.get("canonical_pin_sha")
+scripts\autoloop\verdict_gate.py:319:        return False, "verdict missing canonical_pin_sha"
+scripts\autoloop\verdict_gate.py:322:        return False, f"canonical_pin_sha mismatch: verdict={expected[:12]}, current={actual[:12]}"
+scripts\autoloop\verdict_gate.py:547:        ok, msg = _validate_canonical_pin(verdict)
+scripts\autoloop\verdict_validator.py:10:    AND committed.canonical_pin_sha == sha256(canonical_pin.txt @ commit)
+scripts\autoloop\verdict_validator.py:60:def _validate_canonical_pin(verdict: dict, pin_path: Path) -> tuple[bool, str]:
+scripts\autoloop\verdict_validator.py:61:    expected = verdict.get("canonical_pin_sha", "")
+scripts\autoloop\verdict_validator.py:64:        return False, f"canonical_pin mismatch: verdict={expected[:12]}, file={actual[:12]}"
+scripts\autoloop\verdict_validator.py:65:    return True, "canonical_pin ok"
+scripts\autoloop\verdict_validator.py:187:    rerun_for_schema.setdefault("canonical_pin_sha", committed.get("canonical_pin_sha", "0" * 64))
+scripts\autoloop\verdict_validator.py:208:    ok, msg = _validate_canonical_pin(committed, args.canonical_pin)
+scripts/autoloop\backfill_pre_bootstrap_verdicts.py:17:  - canonical_pin_sha: current pin
+scripts/autoloop\backfill_pre_bootstrap_verdicts.py:33:CANONICAL_PIN = POLARIS_ROOT / "docs" / "canonical_pin.txt"
+scripts/autoloop\backfill_pre_bootstrap_verdicts.py:282:            "canonical_pin_sha": pin_sha,
+docs\schemas\codex_verdict.schema.json:14:    "canonical_pin_sha",
+docs\schemas\codex_verdict.schema.json:55:    "canonical_pin_sha": {
+docs\schemas\codex_verdict.schema.json:58:      "description": "SHA256 of docs/canonical_pin.txt at the commit being reviewed. Mismatch with git HEAD = HARD STOP per §A."
+docs\task_acceptance_matrix.yaml:10:plan_pin_ref: "docs/canonical_pin.txt"
+docs\walkthroughs\2A.7\recording_template.md:45:canonical_pin_sha: <from docs/canonical_pin.txt>
+scripts\verify_cage.py:60:    "docs/canonical_pin.txt",
+
+ succeeded in 840ms:
+# POLARIS session pin v1
+# Authority: aldrinor only, signed PR
+# Format: each line is `<key>: <git-blob-sha-or-TBD>`
+# Source of truth: aldrinor/polaris-controls HEAD on main
+# Verification at session start (mechanical):
+#   gh api repos/aldrinor/polaris-controls/contents/<path> --jq .sha
+#   compare returned blob SHA to corresponding line below
+#   ANY mismatch -> Claude HALTS, emits halt notice, surfaces to user
+# Verification on every PR (server-side):
+#   Trusted GitHub App (polaris-trusted-verifier) reads this file from PR head,
+#   fetches each pinned file's blob SHA from polaris-controls main HEAD,
+#   posts commit-status success only if all match.
+
+# === STATUS: ACTIVE ===
+# Pinned to aldrinor/polaris-controls main HEAD as of 2026-05-04.
+# These are git blob SHA1 hashes returned by:
+#   gh api repos/aldrinor/polaris-controls/contents/<path> --jq .sha
+# Initial commit: fd86bc6 (unsigned bootstrap; branch protection applied
+# post-push to require signed commits going forward).
+
+charter_blob_sha:    f4935571ed8fff4ba20a945a45ab990206d624f7
+plan_blob_sha:       0dd0dd80eedcb41493f844172bea0767acffbebe
+slice_blob_sha:      f73085a1809bc9e2c9b66bbb38403aa1ef7986ff
+golden_blob_sha:     37e5aef895fecee340ff92ac3fc985d0d1b0d897
+
+# Active slice
+active_slice_id:     slice_001_clinical_scope_discovery
+
+# Plan version
+plan_version:        v1
+charter_version:     v1
+effective_date:      2026-05-04
+
+codex
+One extra thing surfaced outside the brief: `canonical_pin` still appears in legacy autoloop/verdict tooling and a few non-CLAUDE docs. I’m checking whether any of those are wired into current CI or hooks before deciding whether they are merely stale follow-up text or execution blockers.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"verdict_gate|verdict_validator|canonical_pin_sha|canonical_pin\\.txt|verify_cage|codex_verdict\" .github .claude scripts/hooks scripts -g '"'!scripts/autoloop/**'"' -g '"'!**/__pycache__/**'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path scripts/hooks/session_start_check.py; for($i=1;$i -le [Math]::Min(150,$lines.Length);$i++){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path .github/workflows -File | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"scripts/autoloop|verdict_gate|verdict_validator|canonical_pin_sha|canonical_pin\\.txt\" .github/workflows .github/actions 2>"'$null' in C:\POLARIS
+ succeeded in 730ms:
+.claude\settings.local.json:506:            "command": "python C:/POLARIS/.claude/hooks/precommit_codex_verdict.py"
+.claude\settings.json:19:            "command": "python C:/POLARIS/.claude/hooks/precommit_codex_verdict.py"
+.github\CODEOWNERS:10:docs/canonical_pin.txt            @aldrinor
+scripts\claude_cross_review.py:12:def parse_codex_verdicts(out_path: Path) -> dict:
+scripts\claude_cross_review.py:50:        all_codex.update(parse_codex_verdicts(f))
+scripts\claude_cross_review.py:95:            "codex_verdict": cv["verdict"],
+.claude\hooks\precommit_codex_verdict.py:23:VERDICT_GATE = POLARIS_ROOT / "scripts" / "autoloop" / "verdict_gate.py"
+.claude\hooks\precommit_codex_verdict.py:87:    # The Plan v13 §C verdict_gate.py enforcement is DEPRECATED by the
+.claude\hooks\precommit_codex_verdict.py:93:    #   - verdict_gate.py self-attestation → server-side branch protection
+.claude\hooks\precommit_codex_verdict.py:98:    #   - scripts/verify_cage.py (33 cage checks on demand)
+.claude\hooks\precommit_codex_verdict.py:169:                    f"verdict_gate.py invocation failed: {e}. Per Plan v13 §C, "
+.claude\hooks\precommit_codex_verdict.py:186:    reason = "\n".join(reason_parts) or "verdict_gate.py exited non-zero with no output"
+.claude\hooks\stop_hook_v3.py:10:  1. docs/canonical_pin.txt — verifies canonical files haven't drifted vs working tree
+.claude\hooks\stop_hook_v3.py:45:# Canonical files pinned in canonical_pin.txt
+.claude\hooks\stop_hook_v3.py:126:    pin_text = _git_show_head("docs/canonical_pin.txt")
+.claude\hooks\stop_hook_v3.py:128:        return False, "docs/canonical_pin.txt missing from HEAD"
+.claude\hooks\stop_hook_v3.py:143:            return False, f"canonical_pin.txt missing entry for {f}"
+.claude\hooks\stop_hook_v3.py:407:    #   - canonical_pin.txt enforcement     → docs/session_pin.txt + scripts/verify_cage.py
+.claude\hooks\stop_hook_v3.py:422:    #   - scripts/verify_cage.py (33-check end-to-end verification)
+.claude\hooks\stop_hook_v3.py:441:    # The old canonical_pin.txt + Plan v13 §A enforcement is superseded by
+.claude\hooks\stop_hook_v3.py:445:    #   - scripts/verify_cage.py runs all 33 cage checks (server-side
+.claude\hooks\stop_hook_v3.py:486:            "Add the appropriate classification, update docs/canonical_pin.txt if matrix changed, ",
+.github\workflows\codex_verdict_check.yml:83:          cp docs/canonical_pin.txt /tmp/codex_input/canonical_pin.txt
+.github\workflows\codex_verdict_check.yml:84:          cp docs/schemas/codex_verdict.schema.json /tmp/codex_input/verdict_schema.json
+.github\workflows\codex_verdict_check.yml:183:          PIN_SHA=$(sha256sum /tmp/codex_input/canonical_pin.txt | awk '{print $1}')
+.github\workflows\codex_verdict_check.yml:201:  - canonical_pin_sha: ${PIN_SHA}
+.github\workflows\codex_verdict_check.yml:324:            scripts/autoloop/verdict_validator.py
+.github\workflows\codex_verdict_check.yml:326:            docs/schemas/codex_verdict.schema.json
+.github\workflows\codex_verdict_check.yml:358:          python validator/scripts/autoloop/verdict_validator.py \
+.github\workflows\codex_verdict_check.yml:362:            --schema validator/docs/schemas/codex_verdict.schema.json \
+.github\workflows\codex_verdict_check.yml:364:            --canonical-pin pr/docs/canonical_pin.txt \
+scripts\verify_cage.py:19:    python scripts/verify_cage.py
+scripts\verify_cage.py:20:    python scripts/verify_cage.py --json             # machine-readable
+scripts\verify_cage.py:21:    python scripts/verify_cage.py --polaris-only     # skip cross-repo
+scripts\verify_cage.py:60:    "docs/canonical_pin.txt",
+
+2026-05-16T09:01:25.998206Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+.github/workflows\codex_verdict_check.yml:83:          cp docs/canonical_pin.txt /tmp/codex_input/canonical_pin.txt
+.github/workflows\codex_verdict_check.yml:183:          PIN_SHA=$(sha256sum /tmp/codex_input/canonical_pin.txt | awk '{print $1}')
+.github/workflows\codex_verdict_check.yml:201:  - canonical_pin_sha: ${PIN_SHA}
+.github/workflows\codex_verdict_check.yml:324:            scripts/autoloop/verdict_validator.py
+.github/workflows\codex_verdict_check.yml:325:            scripts/autoloop/scan_for_secrets.py
+.github/workflows\codex_verdict_check.yml:346:          python validator/scripts/autoloop/scan_for_secrets.py \
+.github/workflows\codex_verdict_check.yml:358:          python validator/scripts/autoloop/verdict_validator.py \
+.github/workflows\codex_verdict_check.yml:364:            --canonical-pin pr/docs/canonical_pin.txt \
+
+ exited 1 in 801ms:
+.github/workflows\codex_verdict_check.yml:83:          cp docs/canonical_pin.txt /tmp/codex_input/canonical_pin.txt
+.github/workflows\codex_verdict_check.yml:183:          PIN_SHA=$(sha256sum /tmp/codex_input/canonical_pin.txt | awk '{print $1}')
+.github/workflows\codex_verdict_check.yml:201:  - canonical_pin_sha: ${PIN_SHA}
+.github/workflows\codex_verdict_check.yml:324:            scripts/autoloop/verdict_validator.py
+.github/workflows\codex_verdict_check.yml:325:            scripts/autoloop/scan_for_secrets.py
+.github/workflows\codex_verdict_check.yml:346:          python validator/scripts/autoloop/scan_for_secrets.py \
+.github/workflows\codex_verdict_check.yml:358:          python validator/scripts/autoloop/verdict_validator.py \
+.github/workflows\codex_verdict_check.yml:364:            --canonical-pin pr/docs/canonical_pin.txt \
+
+ succeeded in 823ms:
+anti_sycophancy.yml
+cleanup_pr_ancestry_check.yml
+codex_verdict_check.yml
+codex-required.yml
+legacy_protection.yml
+m_live_4_regression_gate.yml.pending_workflow_scope
+protection_drift_check.yml
+sovereignty.yml.pending_workflow_scope
+web_ci.yml
+
+ succeeded in 861ms:
+   1: #!/usr/bin/env python3
+   2: """scripts/hooks/session_start_check.py
+   3: 
+   4: Per polaris-restart Plan §9.6a — Persisted session-start hook (CRITICAL).
+   5: Cross-platform (Python) sibling to session_start_check.sh.
+   6: 
+   7: Fires BEFORE any Bash/Edit/Write/MultiEdit tool call. Behavior (iter 7 PRB6-P1-001 fix):
+   8: - ALWAYS verifies BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt` on EVERY tool call. No stamp-based bypass.
+   9: - If both SHAs match pins: refresh stamp and allow tool calls.
+  10: - If either-file mismatch / pin missing / file missing: deny tool call with explicit user-side reconciliation reason.
+  11: - The stamp is informational only — records last successful check time + observed SHAs. NOT a bypass token.
+  12: - Future requirement: §10 boot ritual (read CHARTER+PLAN, state active issue) is NOT enforced by this hook directly — it relies on the assistant reading CLAUDE.md §10 and the `state/active_issue.json` file, both of which are reachable via Read tool. This hook is the SHA-pin gate, not the full-ritual gate.
+  13: 
+  14: Created 2026-05-05 night (PR-B iter 2 fix for CLEAN-PR-B-P1-004 Windows compat).
+  15: 
+  16: The bash variant fails on Windows native bash with `signal pipe Win32 error 5`.
+  17: This Python variant runs cross-platform (Windows Python, Linux Python, macOS Python).
+  18: 
+  19: CODEOWNERS-protected per §10.0. Claude cannot edit this file post-PR-D.
+  20: """
+  21: 
+  22: from __future__ import annotations
+  23: 
+  24: import datetime
+  25: import json
+  26: import os
+  27: import pathlib
+  28: import subprocess
+  29: import sys
+  30: 
+  31: 
+  32: def _utc_iso() -> str:
+  33:     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+  34: 
+  35: 
+  36: def _read_pins(pin_file: pathlib.Path) -> dict[str, str]:
+  37:     """Parse pin file → {<basename>: <sha>}. Empty if file missing/malformed."""
+  38:     pins: dict[str, str] = {}
+  39:     if not pin_file.exists():
+  40:         return pins
+  41:     for raw_line in pin_file.read_text(encoding="utf-8").splitlines():
+  42:         line = raw_line.strip()
+  43:         if not line or line.startswith("#"):
+  44:             continue
+  45:         parts = line.split()
+  46:         if len(parts) >= 2 and len(parts[0]) == 40:
+  47:             pins[parts[1].split("/")[-1]] = parts[0]
+  48:     return pins
+  49: 
+  50: 
+  51: def _live_sha(file_path: pathlib.Path) -> str:
+  52:     if not file_path.exists():
+  53:         return ""
+  54:     try:
+  55:         result = subprocess.run(
+  56:             ["git", "-C", str(file_path.parent), "hash-object", file_path.name],
+  57:             capture_output=True,
+  58:             text=True,
+  59:             check=True,
+  60:             timeout=10,
+  61:         )
+  62:         return result.stdout.strip()
+  63:     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+  64:         return ""
+  65: 
+  66: 
+  67: def _emit_deny(reason: str) -> None:
+  68:     payload = {
+  69:         "hookSpecificOutput": {
+  70:             "hookEventName": "PreToolUse",
+  71:             "permissionDecision": "deny",
+  72:             "permissionDecisionReason": reason,
+  73:         }
+  74:     }
+  75:     print(json.dumps(payload))
+  76: 
+  77: 
+  78: def main() -> int:
+  79:     repo_root = pathlib.Path(os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
+  80:     today = datetime.date.today().strftime("%Y%m%d")
+  81:     stamp = repo_root / "state" / "polaris_restart" / f"session_started_{today}.stamp"
+  82: 
+  83:     # iter 7 PRB6-P1-001 fix: ALWAYS verify SHAs on every tool call.
+  84:     # Earlier the hook auto-skipped if stamp existed → if CHARTER/PLAN changed
+  85:     # mid-day, the cage would not detect drift. Now verify every call; stamp is
+  86:     # informational only (records last successful check time + observed SHAs).
+  87:     pin_file = repo_root / "state" / "polaris_restart" / "charter_sha_pin.txt"
+  88:     pins = _read_pins(pin_file)
+  89: 
+  90:     # polaris-controls location (PR-B2 relocation 2026-05-05 night per user
+  91:     # directive "everything inside polaris folder"). Primary: nested under
+  92:     # POLARIS repo root. Sibling fallback retained for fresh-clone-elsewhere
+  93:     # scenarios where someone unpacks to a layout that hasn't completed PR-B2.
+  94:     sister_candidates = [
+  95:         repo_root / "polaris-controls",
+  96:         repo_root.parent / "polaris-controls",
+  97:     ]
+  98:     sister_root = next((p for p in sister_candidates if p.exists()), sister_candidates[0])
+  99: 
+ 100:     drift = []
+ 101:     live_shas = {}
+ 102:     for fname in ("CHARTER.md", "PLAN.md"):
+ 103:         live = _live_sha(sister_root / fname)
+ 104:         live_shas[fname] = live
+ 105:         pin = pins.get(fname, "")
+ 106:         if not live or not pin or live != pin:
+ 107:             drift.append(f"{fname} pin={pin or 'MISSING'} live={live or 'UNREADABLE'}")
+ 108: 
+ 109:     if drift:
+ 110:         _emit_deny(
+ 111:             "SHA pin drift detected: " + "; ".join(drift) + ". "
+ 112:             "Halt per Plan §10. Resolution requires user-side reconciliation: "
+ 113:             "user reads polaris-controls/CHARTER.md + PLAN.md, decides whether "
+ 114:             "the live SHAs are the new canonical, then signs a commit updating "
+ 115:             "state/polaris_restart/charter_sha_pin.txt. Hook will allow tool calls "
+ 116:             "again on next invocation after reconciliation. Claude must NOT write "
+ 117:             "the stamp file directly."
+ 118:         )
+ 119:         return 0
+ 120: 
+ 121:     active_file = repo_root / "state" / "active_issue.json"
+ 122:     active = active_file.read_text(encoding="utf-8") if active_file.exists() else "{}"
+ 123: 
+ 124:     stamp.parent.mkdir(parents=True, exist_ok=True)
+ 125:     stamp.write_text(
+ 126:         f"session_started: {_utc_iso()}\n"
+ 127:         f"active_issue: {active}\n"
+ 128:         f"charter_sha: {live_shas.get('CHARTER.md', '')}\n"
+ 129:         f"plan_sha: {live_shas.get('PLAN.md', '')}\n",
+ 130:         encoding="utf-8",
+ 131:     )
+ 132:     return 0
+ 133: 
+ 134: 
+ 135: if __name__ == "__main__":
+ 136:     sys.exit(main())
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path .github/workflows/codex_verdict_check.yml; foreach($range in @(@(1,110),@(170,210),@(310,370))){ for($i=$range[0];$i -le $range[1];$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .github/workflows/codex-required.yml -Raw' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path scripts/autoloop/verdict_validator.py; for($i=50;$i -le 70;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=200;$i -le 215;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path .claude/hooks/precommit_codex_verdict.py; for($i=80;$i -le 110;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=150;$i -le 200;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }' in C:\POLARIS
+ succeeded in 703ms:
+   1: name: codex-verdict-check
+   2: 
+   3: # Plan v13 §C three-phase gate. Server-side cryptographic re-validation
+   4: # of the local Codex verdict via independently-run Codex on a self-hosted
+   5: # Canadian runner (sovereignty per §C-server P1-15).
+   6: #
+   7: # Phase A (trusted-setup): checkout PR + extract task brief into artifact.
+   8: #   No model keys exposed.
+   9: # Phase B (codex-rerun): in Docker egress jail with Caddy reverse-proxy
+  10: #   sidecar. Real OPENAI_API_KEY lives in proxy container env only;
+  11: #   Codex container has dummy "REDACTED-USE-PROXY" + OPENAI_BASE_URL.
+  12: #   No GitHub creds. Only network egress: api.openai.com:443 via proxy.
+  13: # Phase C (verdict-validate): validator code from trusted main ref
+  14: #   (PR cannot tamper). Only CODEX_HMAC_KEY in env. Validates schema +
+  15: #   HMAC + canonical pin + structural-equivalence per Plan v13 §C
+  16: #   severity-aware rule.
+  17: 
+  18: on:
+  19:   pull_request:
+  20:     branches: [polaris]
+  21:     types: [opened, synchronize, reopened]
+  22: 
+  23: permissions:
+  24:   contents: read
+  25:   pull-requests: read
+  26: 
+  27: concurrency:
+  28:   group: codex-verdict-${{ github.event.pull_request.head.sha }}
+  29:   cancel-in-progress: true
+  30: 
+  31: jobs:
+  32: 
+  33:   trusted-setup:
+  34:     name: Phase A — trusted setup (no model keys)
+  35:     runs-on: [self-hosted, polaris-ca-bhs]
+  36:     timeout-minutes: 5
+  37:     outputs:
+  38:       task_id: ${{ steps.extract.outputs.task_id }}
+  39:       diff_sha256: ${{ steps.extract.outputs.diff_sha256 }}
+  40:     steps:
+  41:       - name: Checkout PR
+  42:         uses: actions/checkout@v4
+  43:         with:
+  44:           ref: ${{ github.event.pull_request.head.sha }}
+  45:           fetch-depth: 0
+  46: 
+  47:       - name: Extract task_id from commit message
+  48:         id: extract
+  49:         shell: bash
+  50:         run: |
+  51:           set -euo pipefail
+  52:           # Look across ALL commits in the PR, not just last (Codex P1-7 + P0-7 fix)
+  53:           MSG=$(git log "origin/polaris..HEAD" --format=%B)
+  54:           TASK_ID=$(echo "$MSG" | grep -oP "^task:\s*\K[\w.]+" | head -1 || true)
+  55:           if [[ -z "$TASK_ID" ]]; then
+  56:               echo "::error::PR commit message(s) missing required `task: <task_id>` line per Plan v13 §I."
+  57:               exit 1
+  58:           fi
+  59:           echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+  60: 
+  61:           # Compute diff sha256 for downstream verdict cross-check.
+  62:           # Codex round-2 P1 fix: exclude verdict/manifest/audit-log paths so
+  63:           # the CI hash matches the orchestrator's local hash (which excludes
+  64:           # these for atomic substrate+verdict commit).
+  65:           mkdir -p /tmp/codex_input
+  66:           git diff origin/polaris... -- \
+  67:               ':(exclude)outputs/audits/verdicts/**' \
+  68:               ':(exclude)outputs/audits/codex_audit.jsonl' \
+  69:               ':(exclude)outputs/audits/manifests/**' \
+  70:               > /tmp/codex_input/diff.patch
+  71:           DIFF_SHA=$(sha256sum /tmp/codex_input/diff.patch | awk '{print $1}')
+  72:           echo "diff_sha256=$DIFF_SHA" >> "$GITHUB_OUTPUT"
+  73: 
+  74:           # Codex P0-7 fix: do NOT pass the PR's brief file to Codex. PR content is
+  75:           # untrusted — feeding it as a Codex prompt with OAuth tokens accessible is
+  76:           # a prompt-injection vector. Instead, generate a TEMPLATE-DRIVEN brief in
+  77:           # Phase B from the diff + matrix entry. PR's outputs/audits/briefs/ file is
+  78:           # used only as INFORMATIONAL CONTEXT, never as the prompt.
+  79:           mkdir -p /tmp/codex_input/committed_verdict
+  80:           if [[ -d "outputs/audits/verdicts/${TASK_ID}/" ]]; then
+  81:               cp -r "outputs/audits/verdicts/${TASK_ID}/." /tmp/codex_input/committed_verdict/
+  82:           fi
+  83:           cp docs/canonical_pin.txt /tmp/codex_input/canonical_pin.txt
+  84:           cp docs/schemas/codex_verdict.schema.json /tmp/codex_input/verdict_schema.json
+  85:           cp docs/task_acceptance_matrix.yaml /tmp/codex_input/matrix.yaml
+  86: 
+  87:           # Provide PR's brief as informational context only (clearly labeled)
+  88:           BRIEF_PATH="outputs/audits/briefs/${TASK_ID}_review_brief.md"
+  89:           if [[ -f "$BRIEF_PATH" ]]; then
+  90:               cp "$BRIEF_PATH" /tmp/codex_input/pr_brief_for_context.md
+  91:           fi
+  92: 
+  93:       - name: Upload codex-input artifact
+  94:         uses: actions/upload-artifact@v4
+  95:         with:
+  96:           name: codex-input
+  97:           path: /tmp/codex_input/
+  98:           retention-days: 1
+  99:           if-no-files-found: error
+ 100: 
+ 101:   codex-rerun:
+ 102:     name: Phase B — Codex re-review (egress jail, OAuth via mounted credentials)
+ 103:     runs-on: [self-hosted, polaris-ca-bhs]
+ 104:     timeout-minutes: 30
+ 105:     needs: trusted-setup
+ 106:     # No `environment:` binding — no API-key secret needed.
+ 107:     # Codex authenticates via OAuth tokens at $HOME/.codex/auth.json on the runner;
+ 108:     # `codex login` ran ONCE during runner provisioning (Plan v13 §G #10/#11 folded).
+ 109:     steps:
+ 110:       - name: Download codex-input
+ 170:       - name: Generate trusted review brief (Codex P0-7 fix)
+ 171:         id: gen_brief
+ 172:         shell: bash
+ 173:         run: |
+ 174:           set -euo pipefail
+ 175:           # Generate a TRUSTED template-driven brief that Codex will see, NOT the PR's
+ 176:           # arbitrary brief file. Brief is a deterministic function of:
+ 177:           #   - task_id (extracted from commit message via grep, not freeform)
+ 178:           #   - matrix row for that task (from canonical, hash-pinned)
+ 179:           #   - diff.patch (the actual code to review)
+ 180:           # Codex's view never includes free-form PR-controlled prose that could
+ 181:           # contain prompt-injection.
+ 182:           TASK_ID="${{ needs.trusted-setup.outputs.task_id }}"
+ 183:           PIN_SHA=$(sha256sum /tmp/codex_input/canonical_pin.txt | awk '{print $1}')
+ 184:           cat > /tmp/codex_input/trusted_brief.md <<EOF
+ 185: # POLARIS — Trusted Review Brief for task ${TASK_ID}
+ 186: 
+ 187: You are reviewing a PR commit against the POLARIS Plan v13 contract. This brief
+ 188: is generated server-side from the canonical (hash ${PIN_SHA}); it is NOT the
+ 189: PR-authored brief (which would be untrusted input).
+ 190: 
+ 191: ## Your task
+ 192: 
+ 193: Apply the POLARIS Codex Red-Team Checklist v1.0 to the diff in /input/diff.patch
+ 194: against the GREEN criteria for task ${TASK_ID} in /input/matrix.yaml.
+ 195: 
+ 196: ## Output format
+ 197: 
+ 198: Emit a JSON verdict matching /input/verdict_schema.json. Required fields:
+ 199:   - verdict: APPROVE | REQUEST_CHANGES | BLOCKED
+ 200:   - findings[]: severity-stratified P0/P1/P2/P3 with file/line/category/description
+ 201:   - canonical_pin_sha: ${PIN_SHA}
+ 202:   - task_id: ${TASK_ID}
+ 203:   - codex_session_id: <from your session>
+ 204:   - model + reasoning_effort
+ 205:   - timestamp: ISO-8601 UTC
+ 206: 
+ 207: DO NOT output Authorization headers, API keys, OAuth tokens, or PEM blocks.
+ 208: Output is server-side scanned for credential exfiltration before publish.
+ 209: 
+ 210: ## Information context (UNTRUSTED — PR-authored)
+ 310:     environment: hmac_validator
+ 311:     steps:
+ 312:       - name: Checkout validator from trusted base ref (Codex round-3 P0 fix)
+ 313:         uses: actions/checkout@v4
+ 314:         with:
+ 315:           # Use PR's base branch (`polaris`), NOT `refs/heads/main`. main doesn't
+ 316:           # have the validator code yet (only initial commit until end-of-Phase-0
+ 317:           # PR lands `polaris -> main`). The trust property (PR can't tamper with
+ 318:           # validator) holds because branch protection on `polaris` requires this
+ 319:           # very workflow's status check before merging — so PR code can never
+ 320:           # bypass-merge into polaris and then exploit the validator.
+ 321:           ref: ${{ github.event.pull_request.base.ref }}
+ 322:           path: validator
+ 323:           sparse-checkout: |
+ 324:             scripts/autoloop/verdict_validator.py
+ 325:             scripts/autoloop/scan_for_secrets.py
+ 326:             docs/schemas/codex_verdict.schema.json
+ 327:             docs/keys/msn_public.gpg
+ 328:           sparse-checkout-cone-mode: false
+ 329: 
+ 330:       - name: Checkout PR (read-only paths needed for committed verdict + manifest)
+ 331:         uses: actions/checkout@v4
+ 332:         with:
+ 333:           ref: ${{ github.event.pull_request.head.sha }}
+ 334:           path: pr
+ 335: 
+ 336:       - name: Download codex-output
+ 337:         uses: actions/download-artifact@v4
+ 338:         with:
+ 339:           name: codex-output-raw
+ 340:           path: artifacts
+ 341: 
+ 342:       - name: Scan rerun output for credential exfiltration
+ 343:         shell: bash
+ 344:         run: |
+ 345:           set -euo pipefail
+ 346:           python validator/scripts/autoloop/scan_for_secrets.py \
+ 347:             artifacts/verdict-rerun.json \
+ 348:             artifacts/proxy_caddy.log \
+ 349:             --strict
+ 350:           # Exits 1 on any pattern match.
+ 351: 
+ 352:       - name: Validate verdict (schema + HMAC + canonical-pin + structural-equivalence)
+ 353:         env:
+ 354:           CODEX_HMAC_KEY: ${{ secrets.CODEX_HMAC_KEY }}
+ 355:         shell: bash
+ 356:         run: |
+ 357:           set -euo pipefail
+ 358:           python validator/scripts/autoloop/verdict_validator.py \
+ 359:             --task-id "${{ needs.trusted-setup.outputs.task_id }}" \
+ 360:             --committed-verdict-dir "pr/outputs/audits/verdicts/${{ needs.trusted-setup.outputs.task_id }}" \
+ 361:             --rerun-verdict artifacts/verdict-rerun.json \
+ 362:             --schema validator/docs/schemas/codex_verdict.schema.json \
+ 363:             --gpg-public-key validator/docs/keys/msn_public.gpg \
+ 364:             --canonical-pin pr/docs/canonical_pin.txt \
+ 365:             --commit-sha "${{ github.event.pull_request.head.sha }}" \
+ 366:             --diff-sha256 "${{ needs.trusted-setup.outputs.diff_sha256 }}"
+
+ succeeded in 815ms:
+name: codex-required
+# Per polaris-restart Plan section 10.1 + section 10.0 Codex isolation invariant.
+# Required-status-check that gates `gh pr merge` for `bot/<issue_id>` PRs.
+# Verifies the full §3.0 5-artifact triple is present and BOTH Codex
+# verdicts (brief + diff) end with `verdict: APPROVE` as the FINAL verdict
+# (not an arbitrary transcript line).
+#
+# Hardening notes (per PR-D iter 2 fixes):
+# - PR-controlled head ref is passed via `env:` and validated against a
+#   narrow safe regex BEFORE being used in bash; never interpolated as
+#   `${{ ... }}` directly into shell source (PRD2-P1-002, P1-003).
+# - Verdict files must declare a final verdict block at the END of the
+#   artifact (PRD2-P1-001) so transcript prompt text containing the literal
+#   string "verdict: APPROVE" cannot fool the gate. The convention is:
+#   the LAST `verdict: APPROVE` or `verdict: REQUEST_CHANGES` line in the
+#   file is treated as authoritative.
+#
+# Phase-2 hardening (post-PR-F, separate work): self-hosted runner with
+# mounted `~/.codex/auth.json` so `codex exec` runs ON THE RUNNER per
+# §10.0 line 898. Until then, this workflow parses verdict files committed
+# by Claude; user reads `git log` morning per §7.B B1 as after-the-fact
+# review surface.
+
+on:
+  pull_request:
+    branches: [polaris, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  codex-required:
+    runs-on: ubuntu-latest
+    env:
+      # PR-D iter 2 PRD2-P1-002 fix: PR-controlled value passed via env,
+      # not interpolated directly into shell source. Branch names can
+      # contain `$()`, quotes, semicolons, etc.
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR-D iter 3 PRD3-P1-001 fix: full history needed for `git diff
+          # base...head` to compute canonical PR diff and bind to
+          # codex_diff.patch.
+          fetch-depth: 0
+
+      - name: extract_and_validate_issue_id
+        id: issue
+        run: |
+          set -euo pipefail
+          # Bot-PR head refs follow `bot/<issue_id>` per plan §3.0 + §7.A
+          # LOCKED A2. Cleanup-PR-* and other infrastructure PRs are not
+          # gated by codex-required (they have their own review trail).
+          #
+          # PR-D iter 2 PRD2-P1-002 fix: read $HEAD_REF from env, validate
+          # against a narrow safe regex, reject if it doesn't match.
+          # PR-D iter 3 PRD3-P2-002 fix: tightened regex to canonical
+          # issue_breakdown.md schema `^I-[a-z0-9]{2,8}-[0-9]{3}`.
+          # PR-D iter 4 PRD4-P1-001 fix: capture ONLY the base issue ID
+          # (group 1). Optional descriptive slug after `-<NAME>` is
+          # accepted in the head ref but DROPPED from issue_id, because
+          # issue_breakdown.md §3 + §35 require the literal base ID for
+          # artifact paths (e.g. `.codex/I-f1-001/`, NOT
+          # `.codex/I-f1-001-scope-discovery/`).
+          # PR-D iter 5 PRD5-P1-001 + iter 6 PRD6-P1-001 fix: explicit
+          # infra-branch allowlist with EXACT enumeration of canonical
+          # restart-sequence + cleanup-PR ids. PR-D itself
+          # (`bot/pr-d-mechanical-gates`) and other infra branches SKIP
+          # the gate cleanly. Only canonical `bot/I-...` issue branches
+          # are gated.
+          # Examples that SKIP: `bot/pr-d-mechanical-gates`,
+          # `bot/cleanup-pr-3a-archive-m1m26`, `bot/pr-e`.
+          # Examples that GATE: `bot/I-f1-001`, `bot/I-f1-001-scope-discovery`,
+          # `bot/I-bug-079`, `bot/I-hand-003-final` -> issue_id =
+          # `I-f1-001`, `I-bug-079`, `I-hand-003`.
+          # Examples that REJECT (closed: branch-name bypass): `bot/pr-malicious`,
+          # `bot/setup-anything`, `bot/slice-foo`, `bot/cleanup-pr-9` (no canonical PR-9).
+          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3})(-[a-z0-9_-]+)?$ ]]; then
+            issue_id="${BASH_REMATCH[1]}"
+            printf 'issue_id=%s\n' "$issue_id" >> "$GITHUB_OUTPUT"
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+            echo "Validated bot-PR head ref: $HEAD_REF -> issue_id=$issue_id"
+          elif [[ "$HEAD_REF" =~ ^bot/(pr-(a|a2|a3|b|b2|c|d|e|f)|cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8))(-[a-z0-9_-]+)?$ ]]; then
+            # PR-D iter 6 PRD6-P1-001 fix: infra allowlist NARROWED to
+            # exact known PR letters / cleanup PR ids. Branch name bypass
+            # closed: `bot/pr-malicious`, `bot/setup-anything`, `bot/slice-foo`
+            # all FAIL CLOSED to the catch-all reject below.
+            #
+            # Infrastructure branches enumerated explicitly (per PR-A..PR-F
+            # restart sequence + Cleanup-PR-1..8 canonical 10-PR table):
+            #   - bot/pr-a, bot/pr-a2, bot/pr-a3 (restart plan, issue_breakdown, cleanup_audit)
+            #   - bot/pr-b, bot/pr-b2 (DNA doc substrate, polaris-controls relocation)
+            #   - bot/pr-c (cleanup execution wrapper)
+            #   - bot/pr-d (this PR — mechanical gates)
+            #   - bot/pr-e (open all GitHub Issues)
+            #   - bot/pr-f (execute Issue #1 — bridge to issue-driven flow)
+            #   - bot/cleanup-pr-1..8 (with 3a/3b/3c sub-PRs per iter-17 split)
+            #
+            # Optional descriptive `-<slug>` suffix accepted (e.g.
+            # `bot/pr-d-mechanical-gates`, `bot/cleanup-pr-3a-archive-m1m26`)
+            # but does not change the allowlist match.
+            #
+            # These infra branches follow their own review protocol (Codex
+            # review per their own brief like
+            # `.codex/pr_d_mechanical_gates_review_brief.md`, NOT the §3.0
+            # 5-artifact triple). Skip the codex-required gate.
+            echo "Infrastructure bot branch '$HEAD_REF' (PR-A..F or Cleanup-PR-1..8); skipping codex-required gate"
+            echo "       (review trail in .codex/<pr-name>_review_brief.md per PR-D iter 5/6 fix)"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            printf 'infra_branch=true\n' >> "$GITHUB_OUTPUT"
+          elif [[ "$HEAD_REF" == bot/* ]]; then
+            # Starts with bot/ but doesn't match canonical issue_id schema
+            # AND doesn't match the infra-branch allowlist. Reject explicitly
+            # to prevent malformed issue IDs sneaking through the gate.
+            echo "ERROR: head ref '$HEAD_REF' starts with bot/ but doesn't match"
+            echo "       (a) canonical issue schema 'I-[a-z0-9]{2,8}-[0-9]{3}[-<NAME>]'"
+            echo "           (per state/polaris_restart/issue_breakdown.md §3)"
+            echo "       OR (b) infra allowlist: bot/pr-(a|a2|a3|b|b2|c|d|e|f) or"
+            echo "          bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8) [with optional -<slug>]"
+            echo "       Use one of the allowed branch-name patterns."
+            exit 1
+          else
+            echo "Non-bot PR (head ref does not start with bot/); skipping codex-required gate"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify_codex_artifacts
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ISSUE_ID: ${{ steps.issue.outputs.issue_id }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # PR-D iter 1 P1-001 fix: require the FULL 5-artifact triple per
+        # CLAUDE.md §3.0 mandatory contract.
+        # PR-D iter 2 PRD2-P1-001 fix: parse the FINAL verdict line in
+        # each verdict file, not any matching line. Codex verdict
+        # transcripts include prompt text that may itself contain the
+        # literal string "verdict: APPROVE" (e.g., the brief schema block).
+        # The LAST verdict-line in the file is authoritative.
+        # PR-D iter 2 PRD2-P1-002 fix: ISSUE_ID also passed via env, validated
+        # by upstream regex; safe to use in pathspecs.
+        # PR-D iter 3 PRD3-P1-001 fix: BIND `codex_diff.patch` to the
+        # actual PR diff via sha256. Compute canonical PR diff (excluding
+        # review-artifact paths the gate itself accepts), hash it, and
+        # require codex_diff.patch to declare the matching hash via a
+        # `# canonical-diff-sha256: <64-hex>` trailer line. Without this
+        # binding, Codex APPROVE on codex_diff.patch could cover code
+        # different from what the PR actually contains.
+        run: |
+          set -euo pipefail
+          BRIEF=".codex/${ISSUE_ID}/brief.md"
+          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
+          DIFF_PATCH=".codex/${ISSUE_ID}/codex_diff.patch"
+          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
+          CLAUDE_AUDIT="outputs/audits/${ISSUE_ID}/claude_audit.md"
+
+          missing=0
+          for f in "$BRIEF" "$BRIEF_VERDICT" "$DIFF_PATCH" "$DIFF_VERDICT" "$CLAUDE_AUDIT"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: missing $f (CLAUDE.md §3.0 5-artifact triple)"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            exit 1
+          fi
+
+          # Parse FINAL verdict line (last `verdict: ...` line in file).
+          # Plan §7.C LOCKED C2: APPROVE means zero P0 AND zero P1.
+          # `grep` returns the last match via `tail -1`; `[[ "$x" = "verdict: APPROVE" ]]`
+          # ensures exact equality (not substring).
+          check_final_verdict() {
+            local file="$1"
+            local label="$2"
+            local final
+            final="$(grep -E '^verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES)$' "$file" | tail -1 || true)"
+            if [ -z "$final" ]; then
+              echo "ERROR: $label ($file) contains no final verdict line ('verdict: APPROVE' or 'verdict: REQUEST_CHANGES')"
+              return 1
+            fi
+            if [ "$final" != "verdict: APPROVE" ]; then
+              echo "ERROR: $label ($file) final verdict is NOT APPROVE: $final"
+              return 1
+            fi
+            echo "OK: $label final verdict APPROVE"
+          }
+
+          check_final_verdict "$BRIEF_VERDICT" "brief"
+          check_final_verdict "$DIFF_VERDICT" "diff"
+
+          # PR-D iter 3 PRD3-P1-001 fix: bind codex_diff.patch to actual
+          # PR diff. Compute canonical PR diff EXCLUDING review-artifact
+          # paths (those are part of the PR but NOT what Codex reviewed
+          # as the "code change"):
+          #   - .codex/<ISSUE_ID>/**       (brief, verdicts, diff patch, audit)
+          #   - outputs/audits/<ISSUE_ID>/** (claude audit)
+          # Everything else in `git diff base...head` IS the code change
+          # Codex reviewed and must match the codex_diff.patch hash.
+          echo "Computing canonical PR diff base=$BASE_SHA head=$HEAD_SHA"
+          canonical_diff="$(mktemp)"
+          git diff "${BASE_SHA}...${HEAD_SHA}" -- \
+            ":(exclude).codex/${ISSUE_ID}/" \
+            ":(exclude)outputs/audits/${ISSUE_ID}/" \
+            > "$canonical_diff"
+
+          actual_hash="$(sha256sum "$canonical_diff" | awk '{print $1}')"
+          echo "Canonical PR diff sha256: $actual_hash"
+
+          # Codex-approved diff must declare its canonical hash via a
+          # trailer line `# canonical-diff-sha256: <64-hex>` ANYWHERE in
+          # codex_diff.patch. Convention: Claude appends this line as a
+          # patch comment after running `sha256sum` on the same canonical
+          # diff right before submitting to Codex review. The hash binds
+          # the Codex APPROVE to one specific code change.
+          declared_hash="$(grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' "$DIFF_PATCH" | tail -1 | awk '{print $3}' || true)"
+          if [ -z "$declared_hash" ]; then
+            echo "ERROR: $DIFF_PATCH has no '# canonical-diff-sha256: <64-hex>' trailer line"
+            echo "       Required by PR-D iter 3 PRD3-P1-001 fix to bind Codex APPROVE"
+            echo "       to a specific code change (otherwise approved patch and actual"
+            echo "       PR diff can diverge silently)."
+            exit 1
+          fi
+
+          if [ "$actual_hash" != "$declared_hash" ]; then
+            echo "ERROR: PR diff hash mismatch — codex_diff.patch was approved for a"
+            echo "       different code change than the actual PR contains."
+            echo "  declared (in codex_diff.patch trailer): $declared_hash"
+            echo "  actual (current canonical PR diff):     $actual_hash"
+            echo "Either re-run Codex review on the current PR diff and update the"
+            echo "trailer with the new hash, or revert the un-reviewed code changes."
+            exit 1
+          fi
+
+          echo "OK: 5-artifact triple present, both Codex final verdicts APPROVE,"
+          echo "    and codex_diff.patch hash matches actual PR diff for $ISSUE_ID"
+
+      - name: skip_summary
+        if: steps.issue.outputs.skip == 'true'
+        env:
+          IS_INFRA: ${{ steps.issue.outputs.infra_branch }}
+          HEAD_REF_FOR_LOG: ${{ github.event.pull_request.head.ref }}
+        # PR-D iter 6 PRD6-P2-001 fix: distinguish infra-branch skip from
+        # non-bot skip in audit log. Earlier wording always said "PR head
+        # ref does not start with bot/" even when an infra bot/* branch
+        # had matched the allowlist.
+        run: |
+          if [ "${IS_INFRA:-false}" = "true" ]; then
+            echo "codex-required: skipped (infra branch '$HEAD_REF_FOR_LOG' on PR-A..F or Cleanup-PR-1..8 allowlist; uses its own review trail in .codex/<pr-name>_review_brief.md)"
+          else
+            echo "codex-required: skipped (non-bot PR head ref '$HEAD_REF_FOR_LOG'; not gated by §3.0 issue-driven workflow)"
+          fi
+
+
+ succeeded in 814ms:
+  50: 
+  51: 
+  52: def _validate_hmac(verdict: dict, key: bytes) -> tuple[bool, str]:
+  53:     expected = verdict.get("hmac_sha256", "")
+  54:     actual = hmac.new(key, _canonical_serialize(verdict), hashlib.sha256).hexdigest()
+  55:     if not hmac.compare_digest(actual, expected):
+  56:         return False, f"hmac mismatch: expected {expected[:12]}, computed {actual[:12]}"
+  57:     return True, "hmac ok"
+  58: 
+  59: 
+  60: def _validate_canonical_pin(verdict: dict, pin_path: Path) -> tuple[bool, str]:
+  61:     expected = verdict.get("canonical_pin_sha", "")
+  62:     actual = hashlib.sha256(pin_path.read_bytes()).hexdigest()
+  63:     if actual != expected:
+  64:         return False, f"canonical_pin mismatch: verdict={expected[:12]}, file={actual[:12]}"
+  65:     return True, "canonical_pin ok"
+  66: 
+  67: 
+  68: def _validate_diff_sha(verdict: dict, expected_diff_sha: str) -> tuple[bool, str]:
+  69:     if expected_diff_sha and verdict.get("diff_sha256") != expected_diff_sha:
+  70:         return False, (
+ 200: 
+ 201:     # 2. HMAC (committed only — rerun is unsigned by design, since it's a fresh
+ 202:     #    Codex run on the diff, not a separate commit)
+ 203:     ok, msg = _validate_hmac(committed, hmac_key)
+ 204:     if not ok:
+ 205:         failures.append(f"committed: {msg}")
+ 206: 
+ 207:     # 3. Canonical pin
+ 208:     ok, msg = _validate_canonical_pin(committed, args.canonical_pin)
+ 209:     if not ok:
+ 210:         failures.append(f"committed: {msg}")
+ 211: 
+ 212:     # 4. Diff SHA cross-check
+ 213:     ok, msg = _validate_diff_sha(committed, args.diff_sha256)
+ 214:     if not ok:
+ 215:         failures.append(f"committed: {msg}")
+
+ succeeded in 883ms:
+  80:             return tok == "commit"
+  81:         return False
+  82:     return False
+  83: 
+  84: 
+  85: def main() -> None:
+  86:     # === HOOK NEUTRALIZED 2026-05-04 ===
+  87:     # The Plan v13 §C verdict_gate.py enforcement is DEPRECATED by the
+  88:     # 2026-05-04 cage restart. The old hook required matrix-task implication
+  89:     # or `infrastructure-only:` magic-string in commit messages. Both are
+  90:     # superseded:
+  91:     #   - matrix YAML deprecated → polaris-controls/PLAN.md slice progression
+  92:     #   - infrastructure-only magic → deleted from new design (escape hatch)
+  93:     #   - verdict_gate.py self-attestation → server-side branch protection
+  94:     # Real enforcement now lives at:
+  95:     #   - GitHub branch protection (signed commits, PR-only on main)
+  96:     #   - .github/workflows/* CI checks
+  97:     #   - .github/CODEOWNERS gate on control-plane paths
+  98:     #   - scripts/verify_cage.py (33 cage checks on demand)
+  99:     # The local precommit gate was firing on legitimate slice 1 work that
+ 100:     # has no matrix entry (because matrix is itself deprecated). Net effect:
+ 101:     # blocking real progress on superseded checks.
+ 102:     sys.exit(0)
+ 103: 
+ 104:     if not _is_polaris_session():
+ 105:         sys.exit(0)
+ 106: 
+ 107:     try:
+ 108:         payload = json.loads(sys.stdin.read())
+ 109:     except Exception:
+ 110:         sys.exit(0)  # malformed input → never block
+ 150:     except Exception:
+ 151:         pass  # best-effort; gate falls through if message unparseable
+ 152: 
+ 153:     try:
+ 154:         result = subprocess.run(
+ 155:             [sys.executable, str(VERDICT_GATE)] + msg_file_arg,
+ 156:             cwd=str(POLARIS_ROOT),
+ 157:             capture_output=True,
+ 158:             text=True,
+ 159:             timeout=30,
+ 160:             encoding="utf-8",
+ 161:         )
+ 162:     except Exception as e:
+ 163:         # Gate script unavailable → BLOCK (fail-loud, never fail-open per Plan v13 §C)
+ 164:         out = {
+ 165:             "hookSpecificOutput": {
+ 166:                 "hookEventName": "PreToolUse",
+ 167:                 "permissionDecision": "deny",
+ 168:                 "permissionDecisionReason": (
+ 169:                     f"verdict_gate.py invocation failed: {e}. Per Plan v13 §C, "
+ 170:                     f"NO PASS-THROUGH BRANCHES — gate must run successfully or commit blocks."
+ 171:                 ),
+ 172:             }
+ 173:         }
+ 174:         sys.stdout.write(json.dumps(out))
+ 175:         sys.exit(0)
+ 176: 
+ 177:     if result.returncode == 0:
+ 178:         sys.exit(0)  # gate passed, allow
+ 179: 
+ 180:     # Gate blocked
+ 181:     reason_parts = []
+ 182:     if result.stderr:
+ 183:         reason_parts.append(result.stderr.strip())
+ 184:     if result.stdout:
+ 185:         reason_parts.append(result.stdout.strip())
+ 186:     reason = "\n".join(reason_parts) or "verdict_gate.py exited non-zero with no output"
+ 187: 
+ 188:     out = {
+ 189:         "hookSpecificOutput": {
+ 190:             "hookEventName": "PreToolUse",
+ 191:             "permissionDecision": "deny",
+ 192:             "permissionDecisionReason": reason[:2000],  # cap to avoid runaway
+ 193:         }
+ 194:     }
+ 195:     sys.stdout.write(json.dumps(out))
+ 196:     sys.exit(0)
+ 197: 
+ 198: 
+ 199: if __name__ == "__main__":
+ 200:     main()
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "codex_verdict_check|codex-required|EXPECTED_WORKFLOWS|workflow" scripts/verify_cage.py .github/workflows' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines=Get-Content -Path scripts/verify_cage.py; for($i=1;$i -le 130;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }; for($i=260;$i -le 340;$i++){ if($i -le $lines.Length){ '"'{0,4}: {1}' -f "'$i,$lines[$i-1] } }' in C:\POLARIS
+ succeeded in 614ms:
+.github/workflows\codex-required.yml:1:name: codex-required
+.github/workflows\codex-required.yml:20:# §10.0 line 898. Until then, this workflow parses verdict files committed
+.github/workflows\codex-required.yml:34:  codex-required:
+.github/workflows\codex-required.yml:55:          # gated by codex-required (they have their own review trail).
+.github/workflows\codex-required.yml:108:            # 5-artifact triple). Skip the codex-required gate.
+.github/workflows\codex-required.yml:109:            echo "Infrastructure bot branch '$HEAD_REF' (PR-A..F or Cleanup-PR-1..8); skipping codex-required gate"
+.github/workflows\codex-required.yml:126:            echo "Non-bot PR (head ref does not start with bot/); skipping codex-required gate"
+.github/workflows\codex-required.yml:252:            echo "codex-required: skipped (infra branch '$HEAD_REF_FOR_LOG' on PR-A..F or Cleanup-PR-1..8 allowlist; uses its own review trail in .codex/<pr-name>_review_brief.md)"
+.github/workflows\codex-required.yml:254:            echo "codex-required: skipped (non-bot PR head ref '$HEAD_REF_FOR_LOG'; not gated by §3.0 issue-driven workflow)"
+.github/workflows\codex_verdict_check.yml:319:          # very workflow's status check before merging — so PR code can never
+.github/workflows\web_ci.yml:10:      - ".github/workflows/web_ci.yml"
+.github/workflows\web_ci.yml:17:      - ".github/workflows/web_ci.yml"
+.github/workflows\protection_drift_check.yml:23:  workflow_dispatch:     # allow manual trigger
+.github/workflows\protection_drift_check.yml:139:             expected-values block in this workflow file (if drift was
+
+ succeeded in 623ms:
+   1: #!/usr/bin/env python3
+   2: """POLARIS cage verification — runs at session start and on demand.
+   3: 
+   4: Verifies the cage established 2026-05-04 per polaris-controls/PLAN.md is
+   5: intact:
+   6: 
+   7:   1. POLARIS branch protection on `polaris` and `main` matches expected
+   8:      baseline (signed commits, no force push, no deletions).
+   9:   2. polaris-controls branch protection on `main` matches expected
+  10:      baseline (signed commits, code-owner review, 1 approval).
+  11:   3. session_pin.txt SHAs match live blob SHAs of pinned files in
+  12:      polaris-controls HEAD.
+  13:   4. CODEOWNERS file present and covers expected control-plane paths.
+  14: 
+  15: Output: structured pass/fail with per-check detail. Exits 0 on full pass,
+  16: 1 on any failure.
+  17: 
+  18: Usage:
+  19:     python scripts/verify_cage.py
+  20:     python scripts/verify_cage.py --json             # machine-readable
+  21:     python scripts/verify_cage.py --polaris-only     # skip cross-repo
+  22: 
+  23: Dependencies: gh CLI authenticated as aldrinor with metadata read on both
+  24: repos. No third-party Python packages required.
+  25: """
+  26: 
+  27: from __future__ import annotations
+  28: 
+  29: import argparse
+  30: import json
+  31: import re
+  32: import subprocess
+  33: import sys
+  34: from dataclasses import asdict, dataclass, field
+  35: from pathlib import Path
+  36: from typing import Any
+  37: 
+  38: REPO_OWNER = "aldrinor"
+  39: POLARIS_REPO = "polaris"
+  40: CONTROLS_REPO = "polaris-controls"
+  41: POLARIS_ROOT = Path(__file__).resolve().parent.parent
+  42: 
+  43: EXPECTED_PROTECTION_POLARIS = {
+  44:     "required_signatures.enabled": True,
+  45:     "allow_force_pushes.enabled": False,
+  46:     "allow_deletions.enabled": False,
+  47: }
+  48: 
+  49: EXPECTED_PROTECTION_CONTROLS = {
+  50:     "required_signatures.enabled": True,
+  51:     "enforce_admins.enabled": True,
+  52:     "allow_force_pushes.enabled": False,
+  53:     "allow_deletions.enabled": False,
+  54:     "required_pull_request_reviews.require_code_owner_reviews": True,
+  55:     "required_pull_request_reviews.required_approving_review_count": 1,
+  56: }
+  57: 
+  58: EXPECTED_CODEOWNERS_PATHS = [
+  59:     "docs/session_pin.txt",
+  60:     "docs/canonical_pin.txt",
+  61:     "docs/blockers.md",
+  62:     "docs/task_acceptance_matrix.yaml",
+  63:     ".github/",
+  64:     ".codex/",
+  65:     ".claude/",
+  66:     "scripts/autoloop/",
+  67:     ".legacy/",
+  68: ]
+  69: 
+  70: PIN_KEY_TO_PATH = {
+  71:     "charter_blob_sha": "CHARTER.md",
+  72:     "plan_blob_sha": "PLAN.md",
+  73:     "slice_blob_sha": "slices/slice_001_clinical_scope_discovery.md",
+  74:     "golden_blob_sha": "golden/slice_001/manifest.md",
+  75: }
+  76: 
+  77: 
+  78: @dataclass
+  79: class CheckResult:
+  80:     name: str
+  81:     passed: bool
+  82:     detail: str = ""
+  83: 
+  84:     def to_dict(self) -> dict[str, Any]:
+  85:         return asdict(self)
+  86: 
+  87: 
+  88: @dataclass
+  89: class Report:
+  90:     passed: bool = True
+  91:     checks: list[CheckResult] = field(default_factory=list)
+  92: 
+  93:     def add(self, name: str, passed: bool, detail: str = "") -> None:
+  94:         self.checks.append(CheckResult(name, passed, detail))
+  95:         if not passed:
+  96:             self.passed = False
+  97: 
+  98:     def to_dict(self) -> dict[str, Any]:
+  99:         return {
+ 100:             "passed": self.passed,
+ 101:             "checks": [c.to_dict() for c in self.checks],
+ 102:         }
+ 103: 
+ 104: 
+ 105: def gh(args: list[str]) -> tuple[int, str, str]:
+ 106:     result = subprocess.run(
+ 107:         ["gh"] + args, capture_output=True, text=True, check=False
+ 108:     )
+ 109:     return result.returncode, result.stdout, result.stderr
+ 110: 
+ 111: 
+ 112: def get_protection(owner: str, repo: str, branch: str) -> dict[str, Any] | None:
+ 113:     rc, out, _ = gh(["api", f"repos/{owner}/{repo}/branches/{branch}/protection"])
+ 114:     if rc != 0:
+ 115:         return None
+ 116:     try:
+ 117:         return json.loads(out)
+ 118:     except json.JSONDecodeError:
+ 119:         return None
+ 120: 
+ 121: 
+ 122: def get_blob_sha(owner: str, repo: str, path: str) -> str | None:
+ 123:     rc, out, _ = gh(
+ 124:         ["api", f"repos/{owner}/{repo}/contents/{path}", "--jq", ".sha"]
+ 125:     )
+ 126:     if rc != 0:
+ 127:         return None
+ 128:     return out.strip() or None
+ 129: 
+ 130: 
+ 260:         "--polaris-only", action="store_true",
+ 261:         help="Skip cross-repo checks against polaris-controls",
+ 262:     )
+ 263:     parser.add_argument(
+ 264:         "--json", action="store_true",
+ 265:         help="Emit JSON report instead of human-readable",
+ 266:     )
+ 267:     args = parser.parse_args()
+ 268: 
+ 269:     report = Report()
+ 270: 
+ 271:     # POLARIS branch protections
+ 272:     check_protection(
+ 273:         report, REPO_OWNER, POLARIS_REPO, "polaris", EXPECTED_PROTECTION_POLARIS
+ 274:     )
+ 275:     check_protection(
+ 276:         report, REPO_OWNER, POLARIS_REPO, "main", EXPECTED_PROTECTION_POLARIS
+ 277:     )
+ 278: 
+ 279:     # polaris-controls protections + session pin (cross-repo)
+ 280:     if not args.polaris_only:
+ 281:         check_protection(
+ 282:             report, REPO_OWNER, CONTROLS_REPO, "main", EXPECTED_PROTECTION_CONTROLS
+ 283:         )
+ 284:         check_session_pin(report)
+ 285: 
+ 286:     # CODEOWNERS file
+ 287:     check_codeowners(report)
+ 288: 
+ 289:     emit(report, args.json)
+ 290:     return 0 if report.passed else 1
+ 291: 
+ 292: 
+ 293: if __name__ == "__main__":
+ 294:     sys.exit(main())
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Header wording constraint: keep `docs/canonical_pin.txt`, but mark only the 10-file/session-boot SHA-triple enforcement as retired. Do not imply the file is wholly unused; `.github/workflows/codex_verdict_check.yml` still hashes it and `scripts/autoloop/verdict_validator.py` validates `canonical_pin_sha` for that legacy workflow."
+p3_cosmetic:
+  - "Leaving dead `_verify_canonical_pin` code in `stop_hook_v3.py` / `orchestrator.py` is correct as a P3 follow-up; it is unreachable in the wired Stop hook and superseded autoloop path."
+  - "Implementation should verify `rg -n \"canonical_pin\" CLAUDE.md` after the edit, including §1.1, §2.1, §3.1 step 0, step 12, and intra-task drift wording."
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+58,570
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Header wording constraint: keep `docs/canonical_pin.txt`, but mark only the 10-file/session-boot SHA-triple enforcement as retired. Do not imply the file is wholly unused; `.github/workflows/codex_verdict_check.yml` still hashes it and `scripts/autoloop/verdict_validator.py` validates `canonical_pin_sha` for that legacy workflow."
+p3_cosmetic:
+  - "Leaving dead `_verify_canonical_pin` code in `stop_hook_v3.py` / `orchestrator.py` is correct as a P3 follow-up; it is unreachable in the wired Stop hook and superseded autoloop path."
+  - "Implementation should verify `rg -n \"canonical_pin\" CLAUDE.md` after the edit, including §1.1, §2.1, §3.1 step 0, step 12, and intra-task drift wording."
+convergence_call: continue
+remaining_blockers_for_execution: []
