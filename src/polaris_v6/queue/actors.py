@@ -84,7 +84,14 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
     if run_store.get_run(run_id) is None:
         return {"run_id": run_id, "status": "completed", "echo": request_payload}
 
-    run_store.mark_in_progress(run_id)
+    # I-rdy-011 (#507): honor a cancel requested before the worker picked up
+    # the run. mark_in_progress is a compare-and-swap — it returns False when
+    # a queued cancel already flipped the row to 'cancelled'. Either signal
+    # means: do not run the pipeline for this run.
+    if run_store.is_cancel_requested(run_id) or not run_store.mark_in_progress(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled before pipeline start", run_id)
+        return {"run_id": run_id, "status": "cancelled"}
     decision_id = str(uuid.uuid4())
     output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
     artifact_dir_root = output_root / run_id
@@ -195,6 +202,10 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
         run_store.mark_completed(
             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
         )
+    elif pipeline_status == "cancelled":
+        # I-rdy-011 (#507): pipeline-A wrote a cooperative-cancel manifest
+        # after observing cancel_requested at a stage boundary.
+        run_store.mark_cancelled(run_id)
     elif pipeline_status.startswith("abort_"):
         run_store.mark_aborted(
             run_id,

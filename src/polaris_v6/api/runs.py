@@ -1,8 +1,13 @@
-"""Runs router — POST /runs, GET /runs/{id}.
+"""Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
 
 I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
 polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
 Replaces the previous in-memory `_run_table` dict.
+
+I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+an in-progress run records the cancel request (the worker observes it at
+the next pipeline stage boundary). Already-terminal runs are an idempotent
+no-op.
 """
 
 from __future__ import annotations
@@ -46,3 +51,27 @@ def get_run(run_id: str) -> RunStatusResponse:
     if record is None:
         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
     return record
+
+
+@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+def cancel_run(run_id: str) -> RunStatusResponse:
+    """Request cancellation of a run (I-rdy-011 / #507).
+
+    - Unknown run → 404.
+    - Already terminal (completed / failed / cancelled) → idempotent no-op,
+      returns the current record (200).
+    - queued → cancelled instantly; in_progress → cancel requested, the
+      worker aborts cooperatively at the next pipeline stage boundary.
+    """
+    record = run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    if record.lifecycle_status in run_store.TERMINAL_STATUSES:
+        return record  # idempotent — nothing to cancel
+
+    run_store.request_cancel(run_id)
+
+    updated = run_store.get_run(run_id)
+    if updated is None:  # pragma: no cover — the row existed a line ago
+        raise HTTPException(status_code=500, detail="run row vanished after cancel")
+    return updated

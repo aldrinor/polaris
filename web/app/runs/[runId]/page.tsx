@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  cancelRun,
   downloadBundleAsJson,
   getBundle,
   getRun,
@@ -24,11 +25,16 @@ interface RunPageProps {
   params: Promise<{ runId: string }>;
 }
 
+// I-rdy-011 (#507): lifecycle states from which a run can no longer be
+// cancelled — the Cancel button is disabled for these.
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+
 export default function RunDetailPage({ params }: RunPageProps) {
   const { runId } = use(params);
   const [status, setStatus] = useState<RunStatusResponse | null>(null);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +64,28 @@ export default function RunDetailPage({ params }: RunPageProps) {
       source.close();
     };
   }, [runId]);
+
+  // I-rdy-011 (#507): a queued run cancels instantly; an in-progress run
+  // aborts cooperatively at the next pipeline stage boundary. The button is
+  // disabled once the run is terminal (or its status is not yet loaded).
+  const isTerminal =
+    status !== null && TERMINAL_STATUSES.includes(status.status);
+  const cancelRequested = status?.cancel_requested ?? false;
+
+  const onCancel = async () => {
+    setCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelRun(runId);
+      setStatus(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error ? `Cancel failed: ${err.message}` : "Cancel failed",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -166,10 +194,19 @@ export default function RunDetailPage({ params }: RunPageProps) {
             <Button
               type="button"
               variant="outline"
-              disabled
-              title="Phase 1: cancel a queued or in-progress run"
+              disabled={status === null || isTerminal || cancelling}
+              title={
+                cancelRequested
+                  ? "Cancellation requested — the run is winding down"
+                  : "Cancel this queued or in-progress run"
+              }
+              onClick={onCancel}
             >
-              Cancel run
+              {cancelRequested
+                ? "Cancelling…"
+                : cancelling
+                  ? "Requesting…"
+                  : "Cancel run"}
             </Button>
             <Button
               type="button"

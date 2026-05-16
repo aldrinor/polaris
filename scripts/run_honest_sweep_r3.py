@@ -1109,6 +1109,49 @@ def _capture_run_pin(
         return None
 
 
+def _abort_if_cancelled(
+    q: dict,
+    run_dir: Path,
+    run_id: str,
+    summary: dict,
+    log_fn,
+) -> bool:
+    """I-rdy-011 (#507): cooperative cancel checkpoint for a v6 run.
+
+    If a cancellation was requested for this v6 run, write a terminal
+    `cancelled` manifest, emit the SSE terminal event, mark the summary, and
+    return True so run_one_query aborts early at this stage boundary. Returns
+    False for non-v6 runs or when no cancel is pending.
+
+    Best-effort: a run_store lookup failure returns False — a healthy run is
+    never aborted on a transient backend hiccup.
+    """
+    ext = q.get("external_run_id")
+    if not (q.get("v6_mode") and ext):
+        return False
+    try:
+        from polaris_v6.queue import run_store
+
+        if not run_store.is_cancel_requested(ext):
+            return False
+    except Exception:  # noqa: BLE001 — cancel-check failure must not abort a healthy run
+        return False
+    log_fn("[cancel]      cancellation requested — aborting run cooperatively")
+    manifest = {
+        "run_id": run_id,
+        "slug": q.get("slug", ""),
+        "domain": q.get("domain", ""),
+        "question": q.get("question", ""),
+        "status": "cancelled",
+    }
+    (run_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    emit_event(ext, "run.completed", {"status": "cancelled"})
+    summary["status"] = "cancelled"
+    return True
+
+
 async def run_one_query(
     q: dict,
     out_root: Path,
@@ -1188,6 +1231,11 @@ async def run_one_query(
                     "reason": "; ".join(scope.protocol.scope_reasons) if scope.protocol.scope_rejected else "in_scope",
                 },
             )
+
+        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+        # retrieval stage (the first long-running stage).
+        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+            return summary
 
         # M-INT-4: best-effort LLM scope classification alongside
         # the deterministic template-driven gate. Telemetry only —
@@ -2104,6 +2152,11 @@ async def run_one_query(
                     f"[V30-P2]      ERROR: {type(_p2_exc).__name__}: "
                     f"{_p2_exc} — falling back to legacy generator"
                 )
+
+        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+        # generator stage (the most expensive stage).
+        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+            return summary
 
         multi = await generate_multi_section_report(
             research_question=q["question"],

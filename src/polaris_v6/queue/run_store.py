@@ -7,6 +7,15 @@ I-arch-001a (2026-05-12):
 - New helpers: mark_failed, mark_aborted, set_pipeline_meta
 - get_run returns the full RunStatusResponse with new optional fields
 
+I-rdy-011 (2026-05-16): cancellation support.
+- New column: cancel_requested (INTEGER 0/1).
+- request_cancel: queued → cancelled atomically (T1, instant); in_progress
+  → set the cancel flag (T2, cooperative — the worker observes it).
+- mark_in_progress is now a compare-and-swap (only transitions a queued,
+  not-cancel-requested row) so a queued cancel cannot be overwritten.
+- is_cancel_requested / mark_cancelled support the worker's cooperative
+  abort path.
+
 Default DB path: state/v6_runs.sqlite (gitignored). Override via env
 `POLARIS_V6_RUN_DB`. WAL mode enabled.
 """
@@ -23,6 +32,19 @@ from polaris_v6.schemas.run_status import RunStatusResponse
 
 DEFAULT_DB_PATH = "state/v6_runs.sqlite"
 ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+
+# Lifecycle states from which a run can no longer transition. Public so the
+# /runs/{id}/cancel endpoint shares one definition of "terminal".
+TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+# Columns selected by get_run (single source of truth for both the
+# first-attempt and post-migration-retry queries).
+_RUN_COLUMNS = (
+    "run_id, template, question, lifecycle_status, pipeline_status, "
+    "queued_at, started_at, finished_at, result_json, error_json, "
+    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id, "
+    "cancel_requested"
+)
 
 
 def _resolve_path(path: str | None) -> str:
@@ -52,7 +74,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     2. If legacy `status` column exists and `lifecycle_status` doesn't,
        RENAME COLUMN to preserve values (SQLite 3.25+, Python 3.11 ships
        SQLite 3.34+).
-    3. ADD COLUMN for each I-arch-001a field if missing.
+    3. ADD COLUMN for each I-arch-001a / I-rdy-011 field if missing.
     4. CREATE INDEX IF NOT EXISTS for query lookups.
     """
     conn.execute(
@@ -82,6 +104,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         "pipeline_status": "TEXT",
         "cost_usd": "REAL",
         "decision_id": "TEXT",
+        "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
     }.items():
         if col_name not in cols:
             conn.execute(f"ALTER TABLE runs ADD COLUMN {col_name} {col_type}")
@@ -115,12 +138,94 @@ def insert_run(run_id: str, template: str, question: str, *, path: str | None = 
         conn.close()
 
 
-def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
-    """Transition queued → in_progress, set started_at."""
+def mark_in_progress(run_id: str, *, path: str | None = None) -> bool:
+    """Transition queued → in_progress IFF the run is not cancel-requested.
+
+    I-rdy-011: compare-and-swap. The `WHERE lifecycle_status='queued' AND
+    cancel_requested=0` guard means a queued cancel that already flipped the
+    row to 'cancelled' cannot be overwritten by a worker picking the run up.
+
+    Returns True iff the row transitioned; False means the run was cancelled
+    (or already past 'queued') and the caller must not run the pipeline.
+    """
+    conn = _connect(path)
+    try:
+        cur = conn.execute(
+            "UPDATE runs SET lifecycle_status='in_progress', started_at=? "
+            "WHERE run_id=? AND lifecycle_status='queued' AND cancel_requested=0",
+            (_now_iso(), run_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def request_cancel(run_id: str, *, path: str | None = None) -> str | None:
+    """Request cancellation of a run (I-rdy-011).
+
+    - queued run → atomically transitioned to terminal 'cancelled' (T1,
+      instant — the worker's mark_in_progress CAS will then no-op).
+    - in_progress run → cancel_requested flag set; lifecycle stays
+      'in_progress' until the worker observes the flag at a pipeline stage
+      boundary and calls mark_cancelled (T2, cooperative).
+
+    Returns the resulting lifecycle_status ('cancelled' or 'in_progress'),
+    or None if the run does not exist or is already terminal.
+    """
+    conn = _connect(path)
+    try:
+        # T1: queued → cancelled, atomically.
+        cur = conn.execute(
+            "UPDATE runs SET lifecycle_status='cancelled', cancel_requested=1, "
+            "finished_at=? WHERE run_id=? AND lifecycle_status='queued'",
+            (_now_iso(), run_id),
+        )
+        if cur.rowcount > 0:
+            conn.commit()
+            return "cancelled"
+        # T2: in_progress → set the flag for the worker to observe.
+        cur = conn.execute(
+            "UPDATE runs SET cancel_requested=1 "
+            "WHERE run_id=? AND lifecycle_status='in_progress'",
+            (run_id,),
+        )
+        conn.commit()
+        return "in_progress" if cur.rowcount > 0 else None
+    finally:
+        conn.close()
+
+
+def is_cancel_requested(run_id: str, *, path: str | None = None) -> bool:
+    """True iff a cancellation has been requested for the run.
+
+    Best-effort: a missing run / missing table returns False.
+    """
+    conn = _connect(path)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT cancel_requested FROM runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return False
+        return bool(row["cancel_requested"]) if row is not None else False
+    finally:
+        conn.close()
+
+
+def mark_cancelled(run_id: str, *, path: str | None = None) -> None:
+    """Terminal transition → lifecycle_status='cancelled' + finished_at.
+
+    Used by the worker when it observes cancel_requested at a pipeline
+    stage boundary (cooperative T2 abort), and as the actor's mapping for a
+    pipeline-A manifest with status 'cancelled'.
+    """
     conn = _connect(path)
     try:
         conn.execute(
-            "UPDATE runs SET lifecycle_status='in_progress', started_at=? WHERE run_id=?",
+            "UPDATE runs SET lifecycle_status='cancelled', cancel_requested=1, "
+            "finished_at=? WHERE run_id=?",
             (_now_iso(), run_id),
         )
         conn.commit()
@@ -227,6 +332,27 @@ def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
         conn.close()
 
 
+def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+    return RunStatusResponse(
+        run_id=row["run_id"],
+        template=row["template"],
+        question=row["question"],
+        lifecycle_status=row["lifecycle_status"],
+        pipeline_status=row["pipeline_status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        result_json=row["result_json"],
+        error_json=row["error_json"],
+        query_slug=row["query_slug"],
+        manifest_run_id=row["manifest_run_id"],
+        artifact_dir=row["artifact_dir"],
+        cost_usd=row["cost_usd"],
+        decision_id=row["decision_id"],
+        cancel_requested=bool(row["cancel_requested"]),
+    )
+
+
 def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
     """Return the run record or None if missing.
 
@@ -244,10 +370,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
     try:
         try:
             row = conn.execute(
-                "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
-                "queued_at, started_at, finished_at, result_json, error_json, "
-                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
-                "FROM runs WHERE run_id=?",
+                f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
                 (run_id,),
             ).fetchone()
         except sqlite3.OperationalError as exc:
@@ -264,10 +387,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
                 init_db(path)
                 conn = _connect(path)
                 row = conn.execute(
-                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
-                    "queued_at, started_at, finished_at, result_json, error_json, "
-                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
-                    "FROM runs WHERE run_id=?",
+                    f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
                     (run_id,),
                 ).fetchone()
             else:
@@ -276,20 +396,4 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
         conn.close()
     if row is None:
         return None
-    return RunStatusResponse(
-        run_id=row["run_id"],
-        template=row["template"],
-        question=row["question"],
-        lifecycle_status=row["lifecycle_status"],
-        pipeline_status=row["pipeline_status"],
-        queued_at=row["queued_at"],
-        started_at=row["started_at"],
-        finished_at=row["finished_at"],
-        result_json=row["result_json"],
-        error_json=row["error_json"],
-        query_slug=row["query_slug"],
-        manifest_run_id=row["manifest_run_id"],
-        artifact_dir=row["artifact_dir"],
-        cost_usd=row["cost_usd"],
-        decision_id=row["decision_id"],
-    )
+    return _row_to_response(row)

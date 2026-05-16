@@ -3,6 +3,10 @@
 I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
 (pipeline-A manifest verdict). Old `status` retained as computed alias for
 tests/v6/ backcompat — populated from lifecycle_status.
+
+I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+cancel as in-flight in <5s, before an in-progress run reaches the next
+pipeline stage boundary and transitions to terminal `cancelled`.
 """
 
 from __future__ import annotations
@@ -63,6 +67,14 @@ class RunStatusResponse(BaseModel):
     artifact_dir: str | None = None
     cost_usd: float | None = None
     decision_id: str | None = None
+    # I-rdy-011: True once a cancel has been requested. For a queued run the
+    # request is applied atomically (lifecycle_status flips to 'cancelled');
+    # for an in_progress run this stays True while lifecycle_status is still
+    # 'in_progress', until the worker observes it at a stage boundary.
+    cancel_requested: bool = Field(
+        default=False,
+        description="True iff cancellation has been requested for this run.",
+    )
 
     @computed_field  # serialized in JSON and readable as attr
     @property

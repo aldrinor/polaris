@@ -83,6 +83,9 @@ export interface RunRequest {
 export interface RunStatusResponse {
   run_id: string;
   status: RunStatus;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
   template: string;
   question: string;
   queued_at: string;
@@ -121,6 +124,17 @@ export async function createRun(
 
 export async function getRun(runId: string): Promise<RunStatusResponse> {
   const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+// instantly; an in-progress run aborts cooperatively at the next pipeline
+// stage boundary. Already-terminal runs are an idempotent no-op.
+export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
   return asJsonOrThrow<RunStatusResponse>(response);
 }
 
