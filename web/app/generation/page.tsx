@@ -58,8 +58,8 @@ export default function GenerationPage() {
             Verified clinical research, end-to-end
           </h1>
           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-            POLARIS chains the full research pipeline: scope discovery (slice 001),
-            retrieval against verified clinical sources (slice 002), and
+            POLARIS chains the full research pipeline: scope discovery (slice
+            001), retrieval against verified clinical sources (slice 002), and
             generation with strict-verify (slice 003). Every shipped sentence
             carries a provenance token of the form{" "}
             <code className="bg-muted rounded px-1 py-0.5 text-xs">
