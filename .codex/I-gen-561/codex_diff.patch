@@ -1,0 +1,268 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index e5b85933..a4d02757 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1152,7 +1152,12 @@ async def run_one_query(
+         ReasoningTraceCollector,
+     )
+     from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
+-    set_reasoning_sink(ReasoningTraceCollector(out_dir=run_dir))
++    _reasoning_collector = ReasoningTraceCollector(out_dir=run_dir)
++    # I-gen-561 (#561) P2-2: materialize the (possibly empty)
++    # reasoning_trace.jsonl now, so a run that aborts before any generator
++    # LLM call still produces the file augment_v6_manifest() references.
++    _reasoning_collector.flush(run_dir)
++    set_reasoning_sink(_reasoning_collector)
+ 
+     log_path = run_dir / "run_log.txt"
+     log_f = log_path.open("w", encoding="utf-8")
+@@ -1382,6 +1387,7 @@ async def run_one_query(
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
++            set_reasoning_sink(None)
+             log_f.close()
+             return summary
+ 
+@@ -1524,6 +1530,7 @@ async def run_one_query(
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
++            set_reasoning_sink(None)
+             log_f.close()
+             return summary
+ 
+@@ -1750,6 +1757,7 @@ async def run_one_query(
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
++            set_reasoning_sink(None)
+             log_f.close()
+             return summary
+ 
+@@ -1841,6 +1849,7 @@ async def run_one_query(
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
++            set_reasoning_sink(None)
+             log_f.close()
+             return summary
+ 
+@@ -2410,6 +2419,7 @@ async def run_one_query(
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
++            set_reasoning_sink(None)
+             log_f.close()
+             return summary
+ 
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index 7fad8389..a66073d4 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -55,6 +55,12 @@ FILE_REVIEWER_README = "REVIEWER_README.md"
+ FILE_REASONING_TRACE = "reasoning_trace.jsonl"
+ SOURCES_DIR = "sources"
+ 
++# I-gen-561 (#561) P2-5: tar members that bundle_builder writes ALONGSIDE the
++# packed content files (manifest.yaml + its detached signature). They never
++# appear in `files_bytes`, so an `extra_files` path equal to one of these
++# would pass the core-file collision check yet still clash at pack time.
++_RESERVED_TAR_MEMBERS = frozenset({"manifest.yaml", "manifest.yaml.asc"})
++
+ 
+ def _sha256_bytes(data: bytes) -> str:
+     return hashlib.sha256(data).hexdigest()
+@@ -215,6 +221,12 @@ def build_manifest_and_files(
+             raise ValueError(
+                 f"extra_files path {path!r} collides with a core bundle file"
+             )
++        if path in _RESERVED_TAR_MEMBERS:
++            raise ValueError(
++                f"extra_files path {path!r} collides with a reserved tar "
++                f"member ({sorted(_RESERVED_TAR_MEMBERS)} are written "
++                f"alongside the packed files)"
++            )
+         files_bytes[path] = content
+         extra_content_types[path] = ct_extra
+ 
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index cf1b4d55..13a6834a 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -1995,6 +1995,41 @@ class OpenRouterClient:
+         timeout: Optional[float] = None,
+         reasoning_max_tokens: Optional[int] = None,
+         reasoning_exclude: Optional[bool] = None,
++    ) -> LLMResponse:
++        """Prose/output call — see :meth:`_generate_impl` for the full body.
++
++        I-gen-561 (#561) P2-1: a thin wrapper that clears the per-call
++        reasoning-trace generator context in a ``finally``, so each
++        ``generate()`` invocation's call-context is scoped to exactly that
++        call. Without this, a later non-generator ``generate()`` in the same
++        task (e.g. ``live_judge.judge_report()``) would be captured under a
++        stale generator context and mislabeled.
++        """
++        try:
++            return await self._generate_impl(
++                prompt,
++                system=system,
++                max_tokens=max_tokens,
++                temperature=temperature,
++                timeout=timeout,
++                reasoning_max_tokens=reasoning_max_tokens,
++                reasoning_exclude=reasoning_exclude,
++            )
++        finally:
++            # Clear the per-call generator context (no kwargs -> None). The
++            # internal COT-2 retry leg runs inside _generate_impl, so it still
++            # sees the context; this clears only after the whole call.
++            set_reasoning_call_context()
++
++    async def _generate_impl(
++        self,
++        prompt: str,
++        system: str = "",
++        max_tokens: int = 4096,
++        temperature: float = 0.7,
++        timeout: Optional[float] = None,
++        reasoning_max_tokens: Optional[int] = None,
++        reasoning_exclude: Optional[bool] = None,
+     ) -> LLMResponse:
+         """
+         Prose/output call — reasoning OFF, clean output only.
+@@ -2198,6 +2233,14 @@ class OpenRouterClient:
+                     timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+                 )
+                 _retry_trace_id = result.trace_call_id
++                # I-gen-561 (#561) P2-4: the retry's captured record inherits
++                # the caller's attempt-1 call-context — link it to the primary
++                # attempt and mark it attempt 2. No-op if no sink/context.
++                _finalize_reasoning_trace(
++                    _retry_trace_id,
++                    parent_call_id=_primary_trace_id,
++                    attempt_n=2,
++                )
+                 # Try extraction on retry result too
+                 if not result.content.strip() and result.reasoning:
+                     extracted = _extract_answer_from_reasoning(result.reasoning)
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 1f42c3ae..d40d9f31 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -234,3 +234,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata). convergence accept_remaining. Doc-only 4-P2 markdown edit; §4 grid stays a valid 11-column table. P1 trajectory 0.
++
++## I-gen-561 (#561, I-gen-004-followup) — reasoning-trace capture 5 P2 polish
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 0 P2. convergence continue. 5 P2 fixes (P2-1 generate() wrapper-delegate clears call-context in finally; P2-2 flush empty reasoning_trace.jsonl on construct; P2-3 5 abort sites clear set_reasoning_sink(None); P2-4 retry record parent_call_id+attempt_n=2; P2-5 manifest_builder rejects reserved tar members). Branch re-cut to canonical id I-gen-561.
++
++### Diff review
++- (pending — Codex diff review iter 1)
+diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+index 458fdb44..b2bbfff9 100644
+--- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+@@ -330,3 +330,19 @@ def test_serialize_manifest_yaml_stable():
+     a = serialize_manifest_yaml(manifest)
+     b = serialize_manifest_yaml(manifest)
+     assert a == b
++
++
++def test_build_manifest_rejects_reserved_tar_member_extra_file():
++    """I-gen-561 (#561) P2-5: an extra_files path equal to a reserved tar
++    member (manifest.yaml / manifest.yaml.asc) is rejected. Those names are
++    written by bundle_builder ALONGSIDE the packed files and would clash at
++    pack time even though they never appear in files_bytes."""
++    pool = _pool(_src("src-A"))
++    for reserved in ("manifest.yaml", "manifest.yaml.asc"):
++        with pytest.raises(ValueError, match="reserved tar member"):
++            build_manifest_and_files(
++                _decision(),
++                pool,
++                _report(),
++                extra_files={reserved: (b"x", "metadata")},
++            )
+diff --git a/tests/polaris_graph/test_reasoning_trace_capture.py b/tests/polaris_graph/test_reasoning_trace_capture.py
+index 47c59f0f..59895cb9 100644
+--- a/tests/polaris_graph/test_reasoning_trace_capture.py
++++ b/tests/polaris_graph/test_reasoning_trace_capture.py
+@@ -236,3 +236,73 @@ def test_long_reasoning_text_is_not_truncated(tmp_path):
+     assert len(rows[0]["reasoning_text"]) == 200_000, (
+         "the full reasoning log must round-trip with no truncation"
+     )
++
++
++# --- I-gen-561 (#561): reasoning-trace capture P2 polish --------------------
++
++def test_p2_2_zero_record_run_flushes_empty_jsonl(tmp_path):
++    """P2-2: a write-through collector flushed once with zero records still
++    materializes reasoning_trace.jsonl (an empty file). A run that aborts
++    before any generator LLM call must not leave the manifest's
++    reasoning_trace reference pointing at a missing file."""
++    collector = ReasoningTraceCollector(out_dir=tmp_path)
++    out_path = collector.flush(tmp_path)
++    assert out_path.name == REASONING_TRACE_FILENAME
++    assert out_path.exists(), "flush must create the file even with 0 records"
++    assert out_path.read_text(encoding="utf-8") == "", "0 records => empty file"
++
++
++def test_p2_4_retry_record_finalized_with_parent_and_attempt():
++    """P2-4: generate()'s COT-2 retry leg finalizes the retry's captured
++    record with parent_call_id=<primary> and attempt_n=2 — the retry no
++    longer inherits the caller's stale attempt-1 call-context."""
++    collector = ReasoningTraceCollector()
++    set_reasoning_sink(collector)
++    set_reasoning_call_context(section="Outline", call_type="outline", attempt_n=1)
++
++    primary = _make_response(content="", reasoning="sparse first attempt")
++    _capture_reasoning_trace(primary, "", primary.reasoning)
++    _finalize_reasoning_trace(primary.trace_call_id, status="retry")
++
++    # the retry _call captures under the still-attempt-1 context ...
++    retry = _make_response(content="", reasoning="still sparse on retry")
++    _capture_reasoning_trace(retry, "", retry.reasoning)
++    assert retry.trace_call_id is not None
++    # ... then generate()'s P2-4 finalize links it + marks attempt 2:
++    _finalize_reasoning_trace(
++        retry.trace_call_id,
++        parent_call_id=primary.trace_call_id,
++        attempt_n=2,
++    )
++
++    retry_rec = collector.records()[1]
++    assert retry_rec.parent_call_id == primary.trace_call_id
++    assert retry_rec.attempt_n == 2
++
++
++@pytest.mark.asyncio
++async def test_p2_1_generate_clears_call_context_on_exit(monkeypatch):
++    """P2-1: OpenRouterClient.generate() clears the per-call reasoning
++    call-context in a finally, so a later non-generator generate() (e.g. the
++    judge) is not captured under a stale generator context."""
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        current_reasoning_call_context,
++    )
++
++    client = OpenRouterClient(api_key="test-key", model="deepseek/deepseek-v4-pro")
++    try:
++        async def _stub_impl(*args, **kwargs):
++            # the context is still live while the real body would run
++            assert current_reasoning_call_context() is not None
++            return _make_response(content="ok", reasoning="")
++
++        monkeypatch.setattr(client, "_generate_impl", _stub_impl)
++        set_reasoning_call_context(section="Mechanism", call_type="section")
++        result = await client.generate("a prompt")
++        assert result.content == "ok"
++        assert current_reasoning_call_context() is None, (
++            "generate() must clear the call-context on every exit (P2-1)"
++        )
++    finally:
++        await client.close()
+# canonical-diff-sha256: 31439cd3a09659627f8f10f53bf3cafd98751e353c3912ef5d75e9c1c3b858bf
