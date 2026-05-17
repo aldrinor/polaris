@@ -610,7 +610,7 @@ index 00000000..4929e2e3
 +if __name__ == "__main__":
 +    sys.exit(main())
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index aa885465..57ff8be6 100644
+index aa885465..61305b4b 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -196,3 +196,16 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -629,7 +629,7 @@ index aa885465..57ff8be6 100644
 +
 +### Diff review
 +- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (`parse_verdict_block` silently dropped non-empty inline `[...]` list values — the §8.3.9 schema is shown to reviewers with `[...]` syntax, so a slim verdict could lose findings) + 2 P2 (gate's allowlist rejected top-level `.codex/AUDIT_CYCLE_PROTOCOL.md`; diff-brief file-count nit). convergence continue.
-+- iter 2: (pending — fixes applied: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass.)
++- iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. iter-1 P1 (inline-list drop) + both P2 addressed: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass. P1 trajectory 1 -> 0.
 diff --git a/tests/test_extract_codex_verdict.py b/tests/test_extract_codex_verdict.py
 new file mode 100644
 index 00000000..f762b418
@@ -801,4 +801,4 @@ index 00000000..f762b418
 +
 +def test_gate_force_approve_is_exempt():
 +    assert gate.FORCE_APPROVE_RE.match("codex_brief_verdict_iter5_force_approve.txt")
-# canonical-diff-sha256: 3bf3f3ffd7ef2f4f55e1d2ce075221379c034b99910f619cc8b700192215b919
+# canonical-diff-sha256: 30bd55e40a163de3b33dc83e64f91de5ba01ed99d2f06a40556672f4662d85e9
