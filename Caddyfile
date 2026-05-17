@@ -1,0 +1,41 @@
+# I-rdy-015 (#511) — POLARIS v6 TLS / reverse proxy.
+#
+# Caddy fronts the v6 stack: it owns :80 + :443, terminates TLS, and is the
+# ONLY host-published surface (api:8000 and webui:3000 are Docker-network
+# internal after docker-compose.v6.yml drops their `ports:` mappings).
+#
+# Domain + ACME email are env-substituted (no hardcoded values) — supplied
+# via docker-compose.v6.yml's `env_file: .env`:
+#   POLARIS_DOMAIN       e.g. polarisresearch.ca   (localhost for dev)
+#   POLARIS_ACME_EMAIL   Let's Encrypt account email
+#
+# For a public POLARIS_DOMAIN, Caddy auto-provisions a Let's Encrypt cert
+# (ACME CA pinned below). For POLARIS_DOMAIN=localhost it uses Caddy's
+# internal CA — no ACME, no public domain needed for local `compose up`.
+
+{
+	email {$POLARIS_ACME_EMAIL:internal@localhost}
+	# Pin the ACME CA to Let's Encrypt — the issue specifies a Let's Encrypt
+	# cert; Caddy's default automatic-HTTPS may otherwise pick ZeroSSL.
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+{$POLARIS_DOMAIN} {
+	encode zstd gzip
+
+	# /health probes FastAPI directly. The Next server only rewrites
+	# /api/v6/* and /transparency/* — NOT /health — so without this route
+	# /health would hit Next instead of the API healthcheck.
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	# Everything else → the Next webui. Its server-side rewrites forward
+	# /api/v6/* and /transparency/* to api:8000. flush_interval -1 keeps the
+	# SSE stream (/api/v6/stream/*) unbuffered.
+	handle {
+		reverse_proxy webui:3000 {
+			flush_interval -1
+		}
+	}
+}

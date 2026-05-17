@@ -69,15 +69,8 @@ apt-get install -y \
     apt-transport-https \
     ca-certificates
 
-# Caddy from official Cloudsmith repo (Czech/EU-mirrored, not US — and even
-# if Cloudsmith CDN edges via US, the package itself is fetched once at
-# install and we don't depend on Caddy phoning home at runtime).
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    | tee /etc/apt/sources.list.d/caddy-stable.list
-apt-get update
-apt-get install -y caddy
+# I-rdy-015 (#511): Caddy is no longer a host package — it runs as the
+# `caddy` service in docker-compose.v6.yml (owns :80/:443; see ./Caddyfile).
 
 systemctl enable --now docker
 
@@ -144,8 +137,12 @@ docker compose -f docker-compose.v6.yml up -d --build
 echo "[provision] waiting for api + webui healthchecks..."
 healthy=0
 for i in $(seq 1 60); do
-    if curl -fsS http://localhost:8000/health > /dev/null && \
-       curl -fsS http://localhost:3000/ > /dev/null; then
+    # I-rdy-015 (#511): api + webui no longer publish host ports — probe
+    # over the Docker network (api self-check; webui via the caddy container).
+    if docker compose -f docker-compose.v6.yml exec -T api \
+           curl -fsS http://localhost:8000/health > /dev/null 2>&1 && \
+       docker compose -f docker-compose.v6.yml exec -T caddy \
+           wget -q -O - http://webui:3000/ > /dev/null 2>&1; then
         echo "[provision] api + webui healthy at boot+$((i*5))s"
         healthy=1
         break
@@ -160,31 +157,12 @@ if [ "$healthy" -ne 1 ]; then
 fi
 
 # ----- 8. Caddy reverse proxy + Let's Encrypt -----
-cat > /etc/caddy/Caddyfile <<EOF
-${POLARIS_DOMAIN} {
-    tls ${POLARIS_ACME_EMAIL}
-
-    # /health + /transparency + /auth + /api + /stream + everything else → webui:3000
-    # webui's Next.js rewrites handle /api/v6/* and /transparency/* server-side.
-    reverse_proxy localhost:3000 {
-        # SSE keepalive: don't buffer.
-        flush_interval -1
-    }
-
-    # /health probe goes direct to backend for cleaner ops signal.
-    handle /health {
-        reverse_proxy localhost:8000
-    }
-
-    log {
-        output file /var/log/caddy/polaris.log
-        format json
-    }
-}
-EOF
-mkdir -p /var/log/caddy
-caddy fmt --overwrite /etc/caddy/Caddyfile
-systemctl reload caddy
+# I-rdy-015 (#511): Caddy runs as the compose `caddy` service. It owns
+# :80/:443, uses the repo `Caddyfile` (env-substitutes POLARIS_DOMAIN +
+# POLARIS_ACME_EMAIL from /opt/polaris/.env), and auto-provisions a Let's
+# Encrypt cert for $POLARIS_DOMAIN on first start (allow ~1-2 min for ACME).
+echo "[provision] Caddy (compose service) is provisioning Let's Encrypt for ${POLARIS_DOMAIN}..."
+echo "[provision] follow ACME progress with: docker compose -f docker-compose.v6.yml logs -f caddy"
 
 echo ""
 echo "=================================================================="
