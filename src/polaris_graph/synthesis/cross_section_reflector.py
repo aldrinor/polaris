@@ -438,7 +438,7 @@ def _build_bond_context(
     disulfide = bond_analysis.get("disulfide", {})
     if disulfide:
         try:
-            from src.polaris_graph.synthesis.disulfide_bridge import (
+            from src.polaris_graph.synthesis.cross_section_source_consistency import (
                 format_disulfide_findings_for_phase_r,
             )
             disulfide_text = format_disulfide_findings_for_phase_r(disulfide, section_id)

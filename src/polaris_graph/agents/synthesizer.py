@@ -2981,7 +2981,7 @@ async def synthesize_report(
     # FIX-E2E-2: Cap evidence pool before MoST analyses.
     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
-    # covalent_binder, ionic_rebalancer, disulfide_bridge (all vecs @ vecs.T).
+    # covalent_binder, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
     _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
@@ -3059,7 +3059,7 @@ async def synthesize_report(
             logger.warning("[polaris graph] MoST Ionic failed (non-blocking): %s", str(exc)[:200])
 
         try:
-            from src.polaris_graph.synthesis.disulfide_bridge import analyze_disulfide_bridges
+            from src.polaris_graph.synthesis.cross_section_source_consistency import analyze_disulfide_bridges
             disulfide_result = analyze_disulfide_bridges(sections, _most_evidence)
             bond_analysis["disulfide"] = disulfide_result
 
