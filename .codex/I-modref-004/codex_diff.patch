@@ -1020,7 +1020,7 @@ index ab5d5e1a..90ff9154 100644
      "partial_incomplete_corpus",
      "partial_rule_check_warnings",
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 2d0ef49f..d0769c2f 100644
+index 2d0ef49f..aa885465 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -186,3 +186,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -1036,7 +1036,7 @@ index 2d0ef49f..d0769c2f 100644
 +- iter 3: APPROVE — 0 P0, 0 P1, 3 P2 (P2-doc-sweep README/architecture refs — addressed in impl; P2-historical-exclusion outputs/sweep_r3_final etc; P2-operator-prose runner logs — addressed in impl). convergence_call accept_remaining. tokens 206241. P1 trajectory 3 -> 1 -> 0.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 2 P2 (live_judge.py:5-7 docstring still names Qwen3-8B + "retained for backcompat"; architecture.md:320 + pipeline_audit_context/02_prompt_templates.md:142-144 still describe judge as Qwen3-8B — both non-execution doc residue). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 286428. Shipped on iter-1 APPROVE; 2 P2 doc-residue captured as follow-up.
 diff --git a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json b/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json
 index c78514dd..6efcd3d4 100644
 --- a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json
@@ -1482,4 +1482,4 @@ index 9723f5ff..8e65c259 100644
          },
          "completeness": {"percent": 100.0, "covered": 1, "total": 1},
          "cost_usd": cost_usd,
-# canonical-diff-sha256: 43742569a1f809a88a1492707f5bcf5ccb08d9e938360d44ff10652471fa0748
+# canonical-diff-sha256: 2b71d43c74884e72870b3a8802669045d374aaf7a4eed82e7f1f3dc86659a2e0
