@@ -317,8 +317,8 @@ budget.
 
 ## 7. Evaluator (two-family)
 
-Separate from the in-pipeline `strict_verify`, a Qwen3-8B evaluator
-runs after generation:
+Separate from the in-pipeline `strict_verify`, an LLM evaluator
+(different model family from the generator) runs after generation:
 
 - `external_evaluator.run_external_evaluation`: rule-table
   evaluation (per-section coverage, citation density, etc.)

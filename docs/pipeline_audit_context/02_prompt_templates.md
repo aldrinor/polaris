@@ -140,8 +140,8 @@ CRITICAL RULES:
 
 Extract prompt at audit time. Short summary from memory:
 - Given the final `report.md` + corpus tier distribution, asks
-  Qwen3-8B to score: groundedness, comprehensiveness, citation
-  accuracy, hedging
+  the LLM judge to score: groundedness, comprehensiveness,
+  citation accuracy, hedging
 - Output: JSON with per-dimension scores + rationale
 
 **Audit questions**:

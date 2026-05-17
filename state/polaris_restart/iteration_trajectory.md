@@ -209,3 +209,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 ### Diff review
 - iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (`parse_verdict_block` silently dropped non-empty inline `[...]` list values — the §8.3.9 schema is shown to reviewers with `[...]` syntax, so a slim verdict could lose findings) + 2 P2 (gate's allowlist rejected top-level `.codex/AUDIT_CYCLE_PROTOCOL.md`; diff-brief file-count nit). convergence continue.
 - iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. iter-1 P1 (inline-list drop) + both P2 addressed: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass. P1 trajectory 1 -> 0.
+
+## I-modref-005 (#564) — de-qwen residual judge prose (live_judge docstring + architecture.md + 02_prompt_templates.md)
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (live_judge.py:10-11 NON-SAME-FAMILY line still model-specific — folded into the same docstring edit; docs/runbook.md:274 still has `Qwen3-8B` — generator-cost prose, classified #502-adjacent as Codex itself noted). convergence accept_remaining. tokens ~142262 raw. Brief §3 expanded post-APPROVE with the exhaustive-grep residual classification + P2-1 fold-in (responsive-to-review, not new scope).
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata, not a behaviour risk). convergence accept_remaining. Doc-only 3-site judge-prose edit; ast.parse clean. P1 trajectory 0.
