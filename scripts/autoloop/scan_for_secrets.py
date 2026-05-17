@@ -50,6 +50,23 @@ SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Generic bearer / basic auth
     (re.compile(r"Authorization:\s*Bearer\s+[A-Za-z0-9._\-]{20,}", re.IGNORECASE), "bearer_token"),
     (re.compile(r"https?://[^:\s]+:[^@\s]+@"), "basic_auth_url"),
+    # I-sec-001 (#535): vendor keys missed by the original list — these are
+    # exactly the shapes that leaked into committed .codex/ transcripts and
+    # were not caught by GitHub push protection either.
+    (re.compile(r"jina_[A-Za-z0-9_]{20,}"), "jina_api_key"),
+    (re.compile(r"\bfc-[A-Za-z0-9]{20,}\b"), "firecrawl_api_key"),
+    (re.compile(r"\bfw_[A-Za-z0-9]{20,}"), "fireworks_api_key"),
+    # Configured POLARIS .env secret-var NAME followed by a key-shaped value —
+    # a vendor-agnostic catch for a `.env` dump (Exa / Semantic-Scholar / Vast
+    # and any future credential have no distinctive value prefix).
+    (re.compile(
+        r"(?i)\b(?:JINA_API_KEY|EXA_API_KEY|FIRECRAWL_API_KEY|FIREWORKS_API_KEY"
+        r"|GEMINI_API_KEY|SEMANTIC_SCHOLAR_API_KEY|VAST_API_KEY"
+        r"|OPENROUTER_API_KEY|OPEN_PAGERANK_API_KEY|NCBI_API_KEY"
+        r"|OVH_APPLICATION_KEY|OVH_APPLICATION_SECRET|OVH_CONSUMER_KEY"
+        r"|POLARIS_AUTH_SECRET|POLARIS_JWT_SECRET)"
+        r"""\s*[:=]\s*["']?[A-Za-z0-9._/+~=-]{20,}"""),
+     "configured_secret_assignment"),
 ]
 
 

@@ -196,3 +196,16 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 2 P2 (live_judge.py:5-7 docstring still names Qwen3-8B + "retained for backcompat"; architecture.md:320 + pipeline_audit_context/02_prompt_templates.md:142-144 still describe judge as Qwen3-8B — both non-execution doc residue). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 286428. Shipped on iter-1 APPROVE; 2 P2 doc-residue captured as follow-up.
+
+## I-sec-001 (#535) — codex exec transcripts can capture .env secrets into committed .codex/ artifacts
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 2 P1 (brief overclaimed a verdict block "cannot" contain secrets; value-based CI backstop unsound — CI can't rely on .env values) + 2 P2. convergence continue.
+- iter 2: REQUEST_CHANGES — 2 P1 (CI gate scoped to ADDED-only — M/R/C of a tracked transcript bypasses it; a PR-head-checked-out scanner can be no-op'd by the PR) + 1 P2. convergence continue.
+- iter 3: REQUEST_CHANGES — 2 P1 (a pull_request workflow run-block is PR-head-sourced — base-ref scanner alone is not tamper-proof; filename allowlist doesn't prove slim content) + 1 P2. convergence continue.
+- iter 4: REQUEST_CHANGES — 1 P1 (gate must be an actually-required merge check; a paths-filtered required check deadlocks non-.codex PRs) + 1 P2. convergence continue.
+- iter 5: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. tokens 89509. P1 trajectory 2 -> 2 -> 2 -> 1 -> 0.
+
+### Diff review
+- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (`parse_verdict_block` silently dropped non-empty inline `[...]` list values — the §8.3.9 schema is shown to reviewers with `[...]` syntax, so a slim verdict could lose findings) + 2 P2 (gate's allowlist rejected top-level `.codex/AUDIT_CYCLE_PROTOCOL.md`; diff-brief file-count nit). convergence continue.
+- iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. iter-1 P1 (inline-list drop) + both P2 addressed: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass. P1 trajectory 1 -> 0.
