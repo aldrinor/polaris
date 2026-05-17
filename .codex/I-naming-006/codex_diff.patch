@@ -1,0 +1,56 @@
+diff --git a/src/polaris_graph/agents/synthesizer.py b/src/polaris_graph/agents/synthesizer.py
+index 7508b6cf..894fe9aa 100644
+--- a/src/polaris_graph/agents/synthesizer.py
++++ b/src/polaris_graph/agents/synthesizer.py
+@@ -2980,7 +2980,7 @@ async def synthesize_report(
+ 
+     # FIX-E2E-2: Cap evidence pool before MoST analyses.
+     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
+-    # Previous E2E run: 1000+ evidence → 80+ min CPU burn in peptide_flow,
++    # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
+     # covalent_binder, ionic_rebalancer, disulfide_bridge (all vecs @ vecs.T).
+     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
+     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
+@@ -3086,7 +3086,7 @@ async def synthesize_report(
+             logger.warning("[polaris graph] MoST Disulfide failed (non-blocking): %s", str(exc)[:200])
+ 
+         try:
+-            from src.polaris_graph.synthesis.peptide_flow import (
++            from src.polaris_graph.synthesis.narrative_flow_analyzer import (
+                 analyze_peptide_flow,
+                 apply_auto_fixes as peptide_auto_fix,
+             )
+diff --git a/src/polaris_graph/synthesis/cross_section_reflector.py b/src/polaris_graph/synthesis/cross_section_reflector.py
+index 376d3c77..c808b7ed 100644
+--- a/src/polaris_graph/synthesis/cross_section_reflector.py
++++ b/src/polaris_graph/synthesis/cross_section_reflector.py
+@@ -451,7 +451,7 @@ def _build_bond_context(
+     peptide = bond_analysis.get("peptide", {})
+     if peptide:
+         try:
+-            from src.polaris_graph.synthesis.peptide_flow import (
++            from src.polaris_graph.synthesis.narrative_flow_analyzer import (
+                 format_peptide_findings_for_phase_r,
+             )
+             peptide_text = format_peptide_findings_for_phase_r(peptide, section_id)
+diff --git a/src/polaris_graph/synthesis/peptide_flow.py b/src/polaris_graph/synthesis/narrative_flow_analyzer.py
+similarity index 100%
+rename from src/polaris_graph/synthesis/peptide_flow.py
+rename to src/polaris_graph/synthesis/narrative_flow_analyzer.py
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 2643ce80..aaa7eb1c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -274,3 +274,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 52/52, import resolves all 6 submodules, 197 passed 0 failed. P1 trajectory 0.
++
++## I-naming-006 (#440) — rename synthesis/peptide_flow.py -> narrative_flow_analyzer.py
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (cosmetic PowerShell-vs-POSIX pytest syntax note; tests run via Bash tool). convergence continue. NOT a clean substring rename — `peptide_flow` is embedded in the function name `analyze_peptide_flow`, so the rename is a targeted replace of the dotted path `synthesis.peptide_flow` only (3 files, +3/-3, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["peptide"]` cross-module key left intact — Codex confirmed.
++
++### Diff review
++- (pending — Codex diff review iter 1)
+# canonical-diff-sha256: c4b22de426ffb99b047eea67824305867fc8c9309e1836393da69d478d418eab
