@@ -1,0 +1,43 @@
+diff --git a/src/polaris_graph/agents/synthesizer.py b/src/polaris_graph/agents/synthesizer.py
+index 7fbfb1d9..e7478799 100644
+--- a/src/polaris_graph/agents/synthesizer.py
++++ b/src/polaris_graph/agents/synthesizer.py
+@@ -2981,7 +2981,7 @@ async def synthesize_report(
+     # FIX-E2E-2: Cap evidence pool before MoST analyses.
+     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
+     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
+-    # covalent_binder, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
++    # claim_evidence_binding, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
+     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
+     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
+     _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
+@@ -3013,7 +3013,7 @@ async def synthesize_report(
+     # MoST Bond Analysis (M-08 through M-11): Zero-cost structural analysis
+     if most_enabled:
+         try:
+-            from src.polaris_graph.synthesis.covalent_binder import (
++            from src.polaris_graph.synthesis.claim_evidence_binding import (
+                 analyze_covalent_bonds,
+                 apply_auto_fixes as covalent_auto_fix,
+             )
+diff --git a/src/polaris_graph/synthesis/covalent_binder.py b/src/polaris_graph/synthesis/claim_evidence_binding.py
+similarity index 100%
+rename from src/polaris_graph/synthesis/covalent_binder.py
+rename to src/polaris_graph/synthesis/claim_evidence_binding.py
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 2a29774b..bd17388b 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -290,3 +290,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata, #440 precedent). convergence accept_remaining. Targeted rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_disulfide_bridges intact. P1 trajectory 0.
++
++## I-naming-008 (#442) — rename synthesis/covalent_binder.py -> claim_evidence_binding.py
++
++### Brief review
++- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence continue. Sibling of #440/#441; simplest of the synthesis renames — `covalent_binder` is path-only (NOT embedded in any identifier; the fn is `analyze_covalent_bonds`), sole importer synthesizer.py. git mv + plain replace covalent_binder→claim_evidence_binding (2 files, +2/-2, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["covalent"]` cross-module key left intact.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 2/2, 2 public fns import, 44 passed. analyze_covalent_bonds intact. P1 trajectory 0.
+# canonical-diff-sha256: 52b2be900a3a79202c5d6189ab404326280e7947d437af10ceaf64691443aad5
