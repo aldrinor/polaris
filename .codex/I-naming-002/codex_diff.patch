@@ -167,7 +167,7 @@ index 13a6834a..105d39bf 100644
  # PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
  PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index b13a1d9f..c9158297 100644
+index b13a1d9f..cc1b550c 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -242,3 +242,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -181,7 +181,7 @@ index b13a1d9f..c9158297 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (Codex scope adjudication CONFIRMING the plan: full file + Python-identifier rename is right; keeping protocol/registry strings v30_clinical / v30_phase* / [v30] tags unchanged is correct). convergence continue. Pure rename — git mv 2 files + V30JobRunner/V30RunnerConfig/make_default_v30_runner identifier renames across 7 files.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 7/7, test_honest_sweep_job_runner 15/15, test_inspector_router 60/60. P1 trajectory 0.
 diff --git a/tests/polaris_graph/test_v30_runner.py b/tests/polaris_graph/test_honest_sweep_job_runner.py
 similarity index 95%
 rename from tests/polaris_graph/test_v30_runner.py
@@ -268,4 +268,4 @@ index 65e3658e..d8607fcb 100644
      from src.polaris_graph.audit_ir.progress_surfaces import SurfaceKind
      assert _PHASE_TO_SURFACE.get("scope") is not SurfaceKind.PREFLIGHT
  
-# canonical-diff-sha256: 9be5949caf8f5d9785f1ab9df85eeef67110dcb4d4e1c852f759a3dd9b49bdd6
+# canonical-diff-sha256: 4d6dd2be49e84b20ee45e883845e1cd9ab9285d032da552915564454607afdee

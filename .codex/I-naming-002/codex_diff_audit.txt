@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Canonical patch includes state/polaris_restart/iteration_trajectory.md process metadata with a pending diff-review note, so the patch is not literally only the 7 rename implementation files. No runtime impact."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
