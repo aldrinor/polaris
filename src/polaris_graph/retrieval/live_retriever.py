@@ -24,6 +24,7 @@ called ONCE per research question (not repeatedly in a loop).
 from __future__ import annotations
 
 import logging
+import math
 import os
 import asyncio
 import re
@@ -588,12 +589,18 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
 
 
 def _env_float(name: str, default: float) -> float:
-    """Positive-float env knob with a safe fallback (LAW VI — no hardcode)."""
+    """Positive-*finite*-float env knob with a safe fallback (LAW VI).
+
+    Non-finite overrides (``inf``/``-inf``/``nan``) fall back to ``default``:
+    ``float("inf")`` parses fine and is ``> 0``, but feeding it to e.g.
+    ``threading.Thread.join(timeout=...)`` raises ``OverflowError`` on
+    Windows (I-bug-116 / #556).
+    """
     try:
         value = float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
-    return value if value > 0 else default
+    return value if math.isfinite(value) and value > 0 else default
 
 
 def _env_int(name: str, default: int) -> int:
