@@ -324,6 +324,104 @@ async def _safe_close_crawler(crawler: Any, url: str) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# I-bug-114 (#551): per-backend hard wall-clock bound for the concurrent fetch
+# fan-out. A single backend wedged in a Playwright op must not freeze the whole
+# `asyncio.gather`. `_bounded_backend` returns within PG_BACKEND_FETCH_TIMEOUT
+# + PG_BACKEND_CLEANUP_GRACE regardless of backend state — it uses
+# `asyncio.wait` (which returns after its timeout unconditionally) and never
+# `asyncio.wait_for` (which would await the cancelled coroutine's cleanup).
+# The post-artifacts asyncio.run-teardown residual is tracked in #552.
+# ---------------------------------------------------------------------------
+
+# Strong refs to backend tasks abandoned after the cancel-grace window — kept
+# so they are not GC-warned; the done-callback also retrieves any exception.
+_DETACHED_BACKEND_TASKS: "set[asyncio.Task]" = set()
+
+
+def _backend_fetch_timeout() -> float:
+    """Per-backend in-flight wall-clock ceiling (seconds)."""
+    try:
+        return float(os.getenv("PG_BACKEND_FETCH_TIMEOUT", "60.0"))
+    except ValueError:
+        return 60.0
+
+
+def _backend_cleanup_grace() -> float:
+    """Bounded grace window for a cancelled backend's cleanup (seconds)."""
+    try:
+        return float(os.getenv("PG_BACKEND_CLEANUP_GRACE", "10.0"))
+    except ValueError:
+        return 10.0
+
+
+def _drain_detached(task: "asyncio.Task") -> None:
+    """Done-callback for a detached backend task: drop the strong ref and
+    retrieve any exception so asyncio does not log 'exception never retrieved'.
+    """
+    _DETACHED_BACKEND_TASKS.discard(task)
+    if not task.cancelled():
+        try:
+            task.exception()
+        except Exception:  # noqa: BLE001 — exception retrieval is best-effort
+            pass
+
+
+def _backend_failure(label: str, url: str, error: str) -> AccessResult:
+    """A failure AccessResult for a backend that timed out or errored."""
+    return AccessResult(
+        url=url,
+        content="",
+        access_method=label,
+        legal_alternative=None,
+        success=False,
+        metadata={"error": error},
+    )
+
+
+async def _bounded_backend(label: str, coro: Any, url: str) -> AccessResult:
+    """Run one fetch-backend coroutine under a hard wall-clock bound.
+
+    Returns within PG_BACKEND_FETCH_TIMEOUT + PG_BACKEND_CLEANUP_GRACE
+    regardless of whether `coro` ever finishes — `asyncio.wait` returns after
+    its timeout unconditionally (unlike `asyncio.wait_for`, which awaits the
+    cancelled coroutine's cleanup). A backend whose cancellation cleanup itself
+    exceeds the grace window is detached (post-artifacts teardown — see #552).
+    """
+    timeout = _backend_fetch_timeout()
+    grace = _backend_cleanup_grace()
+    task = asyncio.ensure_future(coro)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if task in done:
+        exc = task.exception()
+        if exc is not None:
+            return _backend_failure(label, url, f"{type(exc).__name__}: {exc}")
+        return task.result()
+    # Timed out — cancel, then allow a BOUNDED grace window for cleanup.
+    task.cancel()
+    done, _pending = await asyncio.wait({task}, timeout=grace)
+    if task in done:
+        if not task.cancelled():
+            try:
+                task.exception()  # retrieve, discard
+            except Exception:  # noqa: BLE001
+                pass
+        logger.warning(
+            "[ACCESS] backend %s exceeded %.0fs wall-clock for %s — cancelled",
+            label, timeout, _safe_log_str(url, 60),
+        )
+    else:
+        # Cleanup itself exceeded the grace window: detach (ref-kept,
+        # exception-drained). Residual asyncio.run-teardown case: #552.
+        _DETACHED_BACKEND_TASKS.add(task)
+        task.add_done_callback(_drain_detached)
+        logger.warning(
+            "[ACCESS] backend %s exceeded %.0fs + %.0fs grace for %s — "
+            "detached (see #552)", label, timeout, grace, _safe_log_str(url, 60),
+        )
+    return _backend_failure(label, url, f"backend_timeout_{timeout:.0f}s")
+
+
 class AccessBypass:
     """
     Research access manager.
@@ -464,20 +562,28 @@ class AccessBypass:
         # Build concurrent task list: Crawl4AI first (free/local), then Jina, then Firecrawl
         concurrent_tasks: list = []
 
+        # I-bug-114 (#551): every concurrent backend is wrapped in
+        # `_bounded_backend` so a single wedged backend (e.g. a Playwright op
+        # stuck on an anti-bot interstitial) cannot freeze the gather. Each
+        # wrapper returns an AccessResult within the per-backend wall-clock.
         crawl4ai_enabled = os.getenv("PG_CRAWL4AI_ENABLED", "1") == "1"
         if crawl4ai_enabled:
-            concurrent_tasks.append(self._try_crawl4ai(url))
+            concurrent_tasks.append(
+                _bounded_backend("crawl4ai", self._try_crawl4ai(url), url))
 
-        concurrent_tasks.append(self._try_jina_reader(url))
+        concurrent_tasks.append(
+            _bounded_backend("jina_reader", self._try_jina_reader(url), url))
 
         firecrawl_enabled = os.getenv("PG_FIRECRAWL_ENABLED", "1") == "1"
         firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
         if firecrawl_enabled and firecrawl_api_key and _firecrawl_has_credits():
-            concurrent_tasks.append(self._try_firecrawl(url))
+            concurrent_tasks.append(
+                _bounded_backend("firecrawl", self._try_firecrawl(url), url))
 
         # FIX-039/B.3: Add trafilatura to concurrent group (was dead-code fallback)
         if os.getenv("PG_TRAFILATURA_ENABLED", "0") == "1":
-            concurrent_tasks.append(self._try_trafilatura(url))
+            concurrent_tasks.append(
+                _bounded_backend("trafilatura", self._try_trafilatura(url), url))
 
         # FIX-EPIPE: Wrap gather in try/except to catch CancelledError and
         # any BaseException that escapes from subprocess crashes in crawl4ai.
