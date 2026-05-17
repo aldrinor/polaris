@@ -2843,7 +2843,7 @@ async def run_one_query(
             "1", "true", "True",
         ):
             try:
-                from src.polaris_graph.v30_sweep_integration import (
+                from src.polaris_graph.honest_sweep_integration import (
                     append_disclosure_to_report,
                     merge_v30_into_manifest,
                     run_v30_post_generation,
@@ -2852,7 +2852,7 @@ async def run_one_query(
                 # Legacy report / bibliography cross-check was
                 # deprecated after three Codex audit rounds of
                 # heuristic false-passes (see pass-4 scope narrow
-                # in v30_sweep_integration module docstring).
+                # in honest_sweep_integration module docstring).
                 # Phase 2 (M-58 + M-59 generator integration)
                 # will claim true report-coverage.
                 _report_path = run_dir / "report.md"
@@ -2864,7 +2864,7 @@ async def run_one_query(
                     log=_log,
                 )
                 # Manifest merge via factored helper (unit-tested
-                # in tests/polaris_graph/test_v30_sweep_integration.py).
+                # in tests/polaris_graph/test_honest_sweep_integration.py).
                 merge_v30_into_manifest(manifest, v30_result)
                 # Append Methods disclosure to report.md only if
                 # the report actually exists — helper never

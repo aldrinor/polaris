@@ -1,0 +1,248 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index a4d02757..eb3b929c 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2843,7 +2843,7 @@ async def run_one_query(
+             "1", "true", "True",
+         ):
+             try:
+-                from src.polaris_graph.v30_sweep_integration import (
++                from src.polaris_graph.honest_sweep_integration import (
+                     append_disclosure_to_report,
+                     merge_v30_into_manifest,
+                     run_v30_post_generation,
+@@ -2852,7 +2852,7 @@ async def run_one_query(
+                 # Legacy report / bibliography cross-check was
+                 # deprecated after three Codex audit rounds of
+                 # heuristic false-passes (see pass-4 scope narrow
+-                # in v30_sweep_integration module docstring).
++                # in honest_sweep_integration module docstring).
+                 # Phase 2 (M-58 + M-59 generator integration)
+                 # will claim true report-coverage.
+                 _report_path = run_dir / "report.md"
+@@ -2864,7 +2864,7 @@ async def run_one_query(
+                     log=_log,
+                 )
+                 # Manifest merge via factored helper (unit-tested
+-                # in tests/polaris_graph/test_v30_sweep_integration.py).
++                # in tests/polaris_graph/test_honest_sweep_integration.py).
+                 merge_v30_into_manifest(manifest, v30_result)
+                 # Append Methods disclosure to report.md only if
+                 # the report actually exists — helper never
+diff --git a/src/polaris_graph/v30_sweep_integration.py b/src/polaris_graph/honest_sweep_integration.py
+similarity index 100%
+rename from src/polaris_graph/v30_sweep_integration.py
+rename to src/polaris_graph/honest_sweep_integration.py
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index cc1b550c..96dbf75b 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -250,3 +250,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 7/7, test_honest_sweep_job_runner 15/15, test_inspector_router 60/60. P1 trajectory 0.
++
++## I-naming-003 (#437) — rename v30_sweep_integration.py -> honest_sweep_integration.py
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (non-blocking wording notes: 20 `from` + 1 bare import not "21 from"; PowerShell PYTHONPATH syntax). convergence accept_remaining. Pure file + import-path rename — git mv 2 files + substring v30_sweep_integration→honest_sweep_integration over 3 files; V30 identifiers / manifest keys / PG_V30_ENABLED env / report heading left intact (schema/config/output — Codex confirmed scope).
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 3/3, import resolves, test_honest_sweep_integration 20/20. P1 trajectory 0.
+diff --git a/tests/polaris_graph/test_v30_sweep_integration.py b/tests/polaris_graph/test_honest_sweep_integration.py
+similarity index 96%
+rename from tests/polaris_graph/test_v30_sweep_integration.py
+rename to tests/polaris_graph/test_honest_sweep_integration.py
+index d1a6b962..65cb85dd 100644
+--- a/tests/polaris_graph/test_v30_sweep_integration.py
++++ b/tests/polaris_graph/test_honest_sweep_integration.py
+@@ -149,7 +149,7 @@ class TestOptInGating:
+         _log, monkeypatch: pytest.MonkeyPatch,
+     ) -> None:
+         monkeypatch.delenv("PG_V30_ENABLED", raising=False)
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -171,7 +171,7 @@ class TestOptInGating:
+     ) -> None:
+         monkeypatch.setenv("PG_V30_ENABLED", "1")
+         # Stub M-56 so the test is network-free
+-        import src.polaris_graph.v30_sweep_integration as mod
++        import src.polaris_graph.honest_sweep_integration as mod
+         import src.polaris_graph.retrieval.frame_fetcher as ff
+         orig = ff.fetch_compiled_frame
+         monkeypatch.setattr(
+@@ -181,7 +181,7 @@ class TestOptInGating:
+             ),
+         )
+         try:
+-            from src.polaris_graph.v30_sweep_integration import (
++            from src.polaris_graph.honest_sweep_integration import (
+                 run_v30_post_generation,
+             )
+             result = run_v30_post_generation(
+@@ -217,7 +217,7 @@ class TestNoContractSkip:
+         monkeypatch: pytest.MonkeyPatch,
+     ) -> None:
+         monkeypatch.setenv("PG_V30_ENABLED", "1")
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -259,7 +259,7 @@ class TestClinicalChain:
+         # coverage only. No legacy cross-check. Mandatory
+         # warning always emitted. Disclosure prose carries
+         # explicit Phase-1 preamble.
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -318,7 +318,7 @@ class TestClinicalChain:
+                 _FakeCompiled(bindings)
+             ),
+         )
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -351,7 +351,7 @@ class TestClinicalChain:
+                 _FakeCompiled(bindings)
+             ),
+         )
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -408,7 +408,7 @@ class TestClinicalChain:
+         monkeypatch.setattr(
+             ff, "fetch_compiled_frame", _degraded_fetch,
+         )
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -430,7 +430,7 @@ class TestClinicalChain:
+         from src.polaris_graph.retrieval.frame_fetcher import (
+             FrameRow, ProvenanceClass,
+         )
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             _row_has_retrieval_evidence,
+         )
+ 
+@@ -469,7 +469,7 @@ class TestClinicalChain:
+         """Pass-4: _entity_cited_in_legacy is deprecated and now
+         a no-op stub. Call it to confirm the stub exists and
+         always returns False (documenting the scope change)."""
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             _entity_cited_in_legacy,
+         )
+ 
+@@ -505,7 +505,7 @@ class TestGapRowToTask:
+                 gap_entity_id="surpass_cvot_primary",
+             ),
+         )
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -574,7 +574,7 @@ class TestOperatorCompletionsMerge:
+             json.dumps(completions), encoding="utf-8",
+         )
+ 
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -636,7 +636,7 @@ class TestOperatorCompletionsMerge:
+             json.dumps(completions), encoding="utf-8",
+         )
+ 
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -673,7 +673,7 @@ class TestExceptionSafety:
+ 
+         monkeypatch.setattr(fc, "compile_frame", _raise)
+ 
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+@@ -699,7 +699,7 @@ class TestRunnerHookMergeHelper:
+     without running a full sweep (no network, no LLM)."""
+ 
+     def test_merge_disabled_is_noop(self) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             V30SweepResult, merge_v30_into_manifest,
+         )
+         manifest = {"status": "success", "run_id": "r1"}
+@@ -717,7 +717,7 @@ class TestRunnerHookMergeHelper:
+         assert "v30_enabled" not in manifest
+ 
+     def test_merge_enabled_with_coverage(self) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             V30SweepResult, merge_v30_into_manifest,
+         )
+         manifest = {"status": "success"}
+@@ -738,7 +738,7 @@ class TestRunnerHookMergeHelper:
+         assert "v30_skipped_reason" not in manifest
+ 
+     def test_merge_enabled_with_skipped_reason(self) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             V30SweepResult, merge_v30_into_manifest,
+         )
+         manifest = {}
+@@ -757,7 +757,7 @@ class TestRunnerHookMergeHelper:
+         assert "frame_coverage_report" not in manifest
+ 
+     def test_merge_enabled_with_error_and_warnings(self) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             V30SweepResult, merge_v30_into_manifest,
+         )
+         manifest = {}
+@@ -776,7 +776,7 @@ class TestRunnerHookMergeHelper:
+     def test_append_disclosure_no_report_returns_false(
+         self, tmp_path: Path,
+     ) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             append_disclosure_to_report,
+         )
+         result = append_disclosure_to_report(
+@@ -790,7 +790,7 @@ class TestRunnerHookMergeHelper:
+     def test_append_disclosure_existing_report(
+         self, tmp_path: Path,
+     ) -> None:
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             append_disclosure_to_report,
+         )
+         report = tmp_path / "report.md"
+@@ -829,7 +829,7 @@ class TestPolicySweepIntegration:
+             ),
+         )
+ 
+-        from src.polaris_graph.v30_sweep_integration import (
++        from src.polaris_graph.honest_sweep_integration import (
+             run_v30_post_generation,
+         )
+         result = run_v30_post_generation(
+# canonical-diff-sha256: 7aa6863d182a8ba73f355633f88dd22b83ff25cc67a5bcbcc5d788dfb63de2fe
