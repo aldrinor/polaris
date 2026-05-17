@@ -1,123 +1,611 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e338e-b1e5-74e2-88d3-a20394e176e8
+--------
+user
+# Codex brief review — I-bug-114 (#551): retrieval hangs when a fetch backend never returns
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (return THIS, nothing else)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+You are reviewing the **brief / acceptance criteria** for GitHub issue #551.
+
+## Codex iter-1 + iter-2 findings — resolutions (scope is now explicit)
+
+- **iter-1 P1** — `wait_for` awaits cancellation cleanup, no hard abandon.
+  Accepted. The wrapper no longer uses `wait_for` on a backend at all.
+- **iter-2 P1** — a detached task on the retrieval loop is still awaited by
+  `asyncio.run`'s `_cancel_all_tasks` at teardown. **Accepted as correct.**
+  This brief therefore **explicitly scopes #551 to bounding the *in-flight*
+  fetch** — the demo-fatal symptom (the #514 rehearsal's `policy` run froze
+  ~30 min *inside retrieval*, never reaching a verdict). The narrower
+  residual — a detached backend delaying `asyncio.run` *teardown* after
+  artifacts are already written — is **filed as a separate issue #552** and
+  is out of scope here (closing it airtight needs daemon-thread / subprocess
+  isolation; that is a concurrency-model redesign, not this focused fix).
+  This brief does **not** claim "guaranteed hard abandon at process level"
+  — it claims "the in-flight concurrent fetch is hard-bounded; a hung
+  backend can no longer freeze retrieval mid-run."
+- **iter-2 P2** — a detached task's later exception is never retrieved
+  (noisy "exception never retrieved"). Resolved: the detached-task
+  done-callback both discards the strong ref **and** retrieves the
+  exception.
+
+## Issue #551 (I-bug-114) — acceptance, as scoped by this brief
+
+> The **concurrent fetch fan-out** in `fetch_with_bypass` is hard-bounded:
+> a single backend that never returns — *including one wedged inside a
+> Playwright op* — can no longer freeze retrieval. `fetch_with_bypass`
+> proceeds within a bounded wall-clock using the other backends' results.
+> A regression test proves it. (The post-artifacts `asyncio.run`-teardown
+> edge is #552.)
+
+## Symptom (verified — from the #514 rehearsal live run)
+
+A pipeline-A run hung **indefinitely inside retrieval** — the process
+consumed ~40s CPU over 32 min wall, log silent ~30 min after:
+```
+18:02:28 CRAWL4AI: Fetching https://www.federalregister.gov/documents/2024/05/09/... (timeout=30s)
+18:02:28 urllib3 Redirecting ...federalregister.gov... -> https://unblock.federalregister.gov
+```
+Killed manually; never reached a verdict.
+
+## Root cause (verified — `src/tools/access_bypass.py`)
+
+`AccessBypass.fetch_with_bypass` (line 377) runs the per-backend coroutines
+(`_try_crawl4ai`, `_try_jina_reader`, `_try_firecrawl`, optional
+`_try_trafilatura`) with `await asyncio.gather(*tasks, return_exceptions=True)`.
+`gather` waits for **every** task; there is **no per-backend wall-clock
+bound**. One wedged backend (a Playwright op on an anti-bot interstitial)
+freezes the whole `gather` forever.
+
+## The fix — a hard-bounded `_bounded_backend` wrapper (in-flight bound)
+
+In `src/tools/access_bypass.py`:
+
+1. **`_backend_fetch_timeout() -> float`** — env `PG_BACKEND_FETCH_TIMEOUT`,
+   default `60.0` s. **`_backend_cleanup_grace() -> float`** — env
+   `PG_BACKEND_CLEANUP_GRACE`, default `10.0` s. Config-driven (LAW VI).
+
+2. **Module `set` `_DETACHED_BACKEND_TASKS`** + a `_drain_detached(task)`
+   done-callback that **discards the ref AND retrieves the exception**
+   (`if not task.cancelled(): task.exception()`) — no "exception never
+   retrieved" noise.
+
+3. **`_bounded_backend(label, coro, url) -> AccessResult`** — bounded by
+   construction at `timeout + grace`, because it uses `asyncio.wait`
+   (which **returns after its timeout regardless of task state** — it does
+   NOT cancel-and-await like `wait_for`):
+   ```python
+   async def _bounded_backend(label, coro, url):
+       timeout, grace = _backend_fetch_timeout(), _backend_cleanup_grace()
+       task = asyncio.ensure_future(coro)
+       done, _ = await asyncio.wait({task}, timeout=timeout)
+       if task in done:
+           exc = task.exception()
+           if exc is not None:
+               return _backend_failure(label, url, f"{type(exc).__name__}: {exc}")
+           return task.result()
+       # timed out — cancel, then give cleanup a BOUNDED grace window
+       task.cancel()
+       done, _ = await asyncio.wait({task}, timeout=grace)   # returns after grace no matter what
+       if task in done:
+           if not task.cancelled():
+               task.exception()  # retrieve, discard
+           logger.warning("[ACCESS] backend %s exceeded %.0fs — cancelled (%s)",
+                           label, timeout, url[:60])
+       else:
+           # cleanup itself exceeded grace — detach (ref-kept + exc-drained).
+           # Residual: such a task can delay asyncio.run teardown — see #552.
+           _DETACHED_BACKEND_TASKS.add(task)
+           task.add_done_callback(_drain_detached)
+           logger.warning("[ACCESS] backend %s exceeded %.0fs + %.0fs grace — "
+                           "detached (%s); see #552", label, timeout, grace, url[:60])
+       return _backend_failure(label, url, f"backend_timeout_{timeout:.0f}s")
+   ```
+   Both `asyncio.wait` calls return after their timeout unconditionally —
+   so `_bounded_backend` itself **always returns within `timeout + grace`**,
+   regardless of whether the backend coroutine ever finishes. That is the
+   hard in-flight bound.
+
+4. **`_backend_failure(label, url, err)`** — tiny helper returning a failure
+   `AccessResult(success=False, access_method=label, metadata={"error": err})`.
+
+5. **At the `concurrent_tasks` build site** (lines ~467-481): wrap each
+   append — `concurrent_tasks.append(_bounded_backend("crawl4ai",
+   self._try_crawl4ai(url), url))`, likewise `jina`, `firecrawl`,
+   `trafilatura`.
+
+No post-`gather` change needed: `_bounded_backend` always returns an
+`AccessResult` within `timeout + grace`; the existing result loop scores
+the `AccessResult` candidates and returns the highest-quality winner; if
+all backends fail, `fetch_with_bypass` falls through to its existing
+direct-HTTP path. `gather` now completes within `timeout + grace`.
+
+## Explicitly OUT of scope (do NOT block APPROVE on these)
+
+- **The `asyncio.run`-teardown residual** — a detached backend delaying
+  loop teardown *after artifacts are written*. Filed as **#552**. Closing
+  it airtight needs daemon-thread/subprocess isolation — a concurrency-model
+  redesign, deliberately not this focused in-flight fix.
+- Guarding `__aenter__`/`_safe_close_crawler` inside `_try_crawl4ai`; the
+  broader retrieval-robustness scope (G9, G10).
+
+## Regression test — `tests/` (the access_bypass test module)
+
+Proves the **in-flight** hard bound, including the cancellation-cleanup-hang
+class, with no Playwright / no live URL:
+
+- **`test_bounded_backend_returns_within_timeout_plus_grace`**: drive
+  `_bounded_backend` with a coroutine that, on `CancelledError`, enters a
+  *further* sleep (models a cleanup that hangs during cancellation — the
+  class `wait_for` cannot escape). With `PG_BACKEND_FETCH_TIMEOUT` and
+  `PG_BACKEND_CLEANUP_GRACE` set low (e.g. 1s / 1s), assert `_bounded_backend`
+  returns a failure `AccessResult` (`success is False`, `metadata['error']`
+  starts `backend_timeout`) within `timeout + grace + epsilon` wall-clock.
+- **`test_fetch_with_bypass_survives_one_hung_backend`**: monkeypatch
+  `AccessBypass._try_crawl4ai` to such a hang-on-cancel coroutine and
+  `_try_jina_reader` to a fast successful `AccessResult`; with the env
+  timeouts low, assert `fetch_with_bypass` returns the jina result within a
+  bounded wall-clock.
+- Tests set the two env vars via `monkeypatch.setenv`; the hang-on-cancel
+  coroutine's secondary sleep is itself bounded (~5s) so event-loop
+  teardown stays clean within the test.
+
+## LOC estimate
+
+~45 lines `src/tools/access_bypass.py` (4 helpers + 4 wrapped appends) +
+~95 lines test ≈ **~140 LOC**. Under the 200-LOC cap.
+
+## Files I have ALSO checked and they're clean
+
+- `src/tools/access_bypass.py` — `_try_crawl4ai` (629), `_try_jina_reader`,
+  `_try_firecrawl`, `_try_trafilatura`; `_safe_close_crawler` (267); the
+  post-`gather` result loop (~519) which isinstance-filters + quality-scores
+  `AccessResult` candidates.
+- Callers of `fetch_with_bypass`: `src/polaris_graph/retrieval/live_retriever.py:864`
+  (`await`ed in the retrieval coroutine), `agents/analyzer.py:1575`,
+  `agents/searcher.py:1445`, `agents/evidence_deepener.py:926`,
+  `retrieval/frame_fetcher.py:694`, `orchestration/graph.py:717` — all
+  receive an `AccessResult`; a timed-out backend simply yields no winning
+  candidate. No caller change needed.
+
+## Acceptance criteria for the resulting PR
+
+1. `src/tools/access_bypass.py` — every backend in `fetch_with_bypass`'s
+   concurrent fan-out is wrapped by `_bounded_backend`, which returns within
+   `PG_BACKEND_FETCH_TIMEOUT + PG_BACKEND_CLEANUP_GRACE` (defaults 60s+10s)
+   **regardless of backend state** (uses `asyncio.wait`, never `wait_for`,
+   on a backend); a timed-out backend logs a warning and yields a failure
+   `AccessResult`; a detached task is ref-kept and exception-drained.
+2. A regression test proves a backend that hangs *during cancellation
+   cleanup* is bounded within `timeout + grace`, and `fetch_with_bypass`
+   still returns a fast backend's result.
+3. `pytest` for the access_bypass test module passes; no regression.
+
+Return the YAML verdict block only.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class AccessResult|def fetch_with_bypass|_try_crawl4ai|concurrent_tasks|asyncio.gather" src/tools/access_bypass.py tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path tests -Recurse -Filter '*access*' | Select-Object -ExpandProperty FullName" in C:\POLARIS
+ succeeded in 853ms:
+C:\POLARIS\tests\polaris_graph\test_fetch_access_bypass_wiring.py
+C:\POLARIS\tests\polaris_graph\test_m23_access_bypass_fixes.py
+C:\POLARIS\tests\polaris_graph\__pycache__\test_fetch_access_bypass_wiring.cpython-313-pytest-8.4.1.pyc
+C:\POLARIS\tests\polaris_graph\__pycache__\test_m23_access_bypass_fixes.cpython-313-pytest-8.4.1.pyc
+
+ succeeded in 922ms:
+src/tools/access_bypass.py:143:class AccessResult:
+src/tools/access_bypass.py:236:    branches in _try_crawl4ai.
+src/tools/access_bypass.py:377:    async def fetch_with_bypass(
+src/tools/access_bypass.py:465:        concurrent_tasks: list = []
+src/tools/access_bypass.py:469:            concurrent_tasks.append(self._try_crawl4ai(url))
+src/tools/access_bypass.py:471:        concurrent_tasks.append(self._try_jina_reader(url))
+src/tools/access_bypass.py:476:            concurrent_tasks.append(self._try_firecrawl(url))
+src/tools/access_bypass.py:480:            concurrent_tasks.append(self._try_trafilatura(url))
+src/tools/access_bypass.py:484:        # asyncio.gather(return_exceptions=True) captures Exception subclasses
+src/tools/access_bypass.py:488:            concurrent_results = await asyncio.gather(
+src/tools/access_bypass.py:489:                *concurrent_tasks, return_exceptions=True
+src/tools/access_bypass.py:629:    async def _try_crawl4ai(self, url: str) -> AccessResult:
+tests\integration\test_concurrency_cap.py:108:        await asyncio.gather(*[worker() for _ in range(5)])
+tests\integration\test_concurrency_cap.py:133:        await asyncio.gather(*[worker() for _ in range(4)])
+tests\integration\test_campaign_persistence.py:228:    # 7. Concurrent save (asyncio.gather, no lock error)
+tests\integration\test_campaign_persistence.py:243:        await asyncio.gather(
+tests\integration\test_memory_integration.py:76:        results = await asyncio.gather(*tasks)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:38:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:43:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:48:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:156:        async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_m56_frame_fetcher.py:711:            async def fetch_with_bypass(
+tests\polaris_graph\test_pass2_remediation.py:5:                   stomped under asyncio.gather. Fix: ContextVar.
+tests\polaris_graph\test_pass2_remediation.py:20:# B-201: concurrent asyncio.gather isolation via ContextVar
+tests\polaris_graph\test_pass2_remediation.py:46:        return await asyncio.gather(task_a(), task_b())
+tests\polaris_graph\test_pass2_remediation.py:81:        return await asyncio.gather(task_a(), task_b())
+tests\polaris_graph\test_pass2_remediation.py:112:        await asyncio.gather(task_a(), task_b())
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/tools/access_bypass.py -TotalCount 560 | Select-Object -Skip 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_m23_access_bypass_fixes.py' in C:\POLARIS
+ succeeded in 828ms:
+"""M-23 unit tests: Unpaywall + strip-before-paywall + quality-scored winner.
+
+Covers iteration 6 access_bypass.py changes:
+  M-23a: Unpaywall step 0 (DOI -> OA URL swap before concurrent fetch)
+  M-23b: Strip navigation boilerplate BEFORE paywall detection
+         (previously nav chrome with "sign in" triggered false positives
+         on 45K-char NEJM/Lancet full-article bodies)
+  M-23c: Quality-scored winner selection (length + structural markers +
+         numeric density) replaces first-success-wins — fixes the
+         "Jina 422-char stub beat Crawl4AI 45K NEJM fetch" bug from V7.
+
+These tests are pure unit tests — no network, no real backends. They
+exercise the scoring function, the strip-vs-paywall ordering, and the
+winner-selection loop with synthetic AccessResult inputs.
 """
-Access Bypass Mechanisms (Research Access)
-===========================================
-Provides research access through multiple channels.
 
-ETHICAL GUIDELINES:
-- Only use for legitimate research purposes
-- Respect rate limits and fair use policies
-- Prefer legal open access when available
-- Document all access methods used
+from __future__ import annotations
 
-Supports:
-- Crawl4AI (free, local Playwright-based markdown extraction)
-- Jina Reader (primary markdown extraction)
-- Firecrawl (secondary markdown extraction)
-- robots.txt bypass (for research indexing)
-- Paywall detection and alternatives
-- Archive.org fallback
-- Institutional proxy support
-"""
-
-import asyncio
-import logging
-import os
 import re
-import sys
-import time as _time_module
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass
-from urllib.parse import urlparse
 
-logger = logging.getLogger(__name__)
+import pytest
 
-
-def _safe_log_str(text: str, max_len: int = 200) -> str:
-    """Sanitize text for Windows console logging (cp1252 safe).
-
-    Unicode chars like arrows, Greek letters, and math symbols cause
-    UnicodeEncodeError on Windows cp1252 console handler. This replaces
-    non-encodable chars with '?' before logging.
-    """
-    truncated = text[:max_len]
-    try:
-        truncated.encode("cp1252")
-        return truncated
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return truncated.encode("ascii", errors="replace").decode("ascii")
-
-# FIX-BR: Suppress Brotli Accept-Encoding to prevent decompression failures.
-# aiohttp advertises `br` (Brotli) by default but cannot decode it without the
-# `brotli` package installed, causing 100% failure rate on servers that honour it.
-# Explicitly request only gzip/deflate across ALL aiohttp sessions.
-_NO_BROTLI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
-
-# FIX-JINA: Jina concurrency semaphore (initialized lazily in _try_jina_reader)
-_jina_semaphore: "asyncio.Semaphore | None" = None
-
-# RC-9: Circuit breaker for fetch providers.
-# After N consecutive failures, skip the provider for a cooldown period.
-_jina_consecutive_failures: int = 0
-_jina_circuit_open_until: float = 0.0
-_firecrawl_consecutive_failures: int = 0
-_firecrawl_circuit_open_until: float = 0.0
-# FIX-G: Raised defaults — threshold 5→8, cooldown 60→120s for transient tolerance
-_CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("PG_CIRCUIT_BREAKER_THRESHOLD", "8"))
-_CIRCUIT_BREAKER_COOLDOWN = float(os.getenv("PG_CIRCUIT_BREAKER_COOLDOWN", "120.0"))
-
-# ---------------------------------------------------------------------------
-# Crawl4AI availability flag (set on first import attempt)
-# ---------------------------------------------------------------------------
-_crawl4ai_available: "bool | None" = None
-
-# ---------------------------------------------------------------------------
-# FIX-EPIPE: Crawl4AI circuit breaker for subprocess crashes.
-# After consecutive subprocess crashes (EPIPE, BrokenPipeError, OSError),
-# skip crawl4ai entirely for a cooldown period to avoid cascading failures
-# from a broken Playwright installation or dead browser process.
-# ---------------------------------------------------------------------------
-_crawl4ai_consecutive_failures: int = 0
-_crawl4ai_circuit_open_until: float = 0.0
-_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD = int(
-    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD", "3")
-)
-_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
-    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN", "120.0")
+from src.tools.access_bypass import (
+    AccessBypass,
+    AccessResult,
+    _score_content_quality,
+    _strip_navigation_boilerplate,
 )
 
+
 # ---------------------------------------------------------------------------
-# Firecrawl free-plan hardening: rate limiter + credit tracker
+# M-23c: quality scoring
 # ---------------------------------------------------------------------------
 
-_firecrawl_last_request_time: float = 0.0
-_firecrawl_credits_used: int = 0
 
-# Load config from env (imported at module level for speed)
-_FIRECRAWL_MIN_INTERVAL = float(os.getenv("FIRECRAWL_MIN_INTERVAL_SECONDS", "6.0"))
-_FIRECRAWL_MONTHLY_QUOTA = int(os.getenv("FIRECRAWL_MONTHLY_QUOTA", "500"))
-_FIRECRAWL_WARN_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
+def test_score_empty_content_is_zero() -> None:
+    assert _score_content_quality("") == 0.0
 
 
-async def _firecrawl_rate_limit() -> None:
-    """Enforce minimum interval between Firecrawl requests (free plan: 10 RPM)."""
-    global _firecrawl_last_request_time
-    now = _time_module.monotonic()
-    elapsed = now - _firecrawl_last_request_time
-    if elapsed < _FIRECRAWL_MIN_INTERVAL and _firecrawl_last_request_time > 0:
-        wait = _FIRECRAWL_MIN_INTERVAL - elapsed
-        logger.info(
-            "[ACCESS] Firecrawl rate limit: waiting %.1fs (10 RPM free plan)",
-            wait,
+def test_score_paywall_stub_is_near_zero() -> None:
+    stub = "Please sign in to continue reading. Subscribe now."
+    assert _score_content_quality(stub) < 0.05
+
+
+def test_score_long_stub_stays_low_without_structural_markers() -> None:
+    """Length alone must not win — a 10K-char paywall shell with no
+    Abstract/Methods/Results has near-zero structural score."""
+    stub = "Please subscribe to continue. " * 400
+    score = _score_content_quality(stub)
+    assert score < 0.3, (
+        f"Long stub scored {score:.3f} — length alone should not dominate"
+    )
+
+
+def test_score_full_article_beats_stub_by_large_margin() -> None:
+    """A real article body with structural sections and numeric data
+    should easily beat any paywall stub at comparable length."""
+    article = (
+        "Abstract: In this phase 3 trial, 524 participants received "
+        "tirzepatide 15 mg. Methods: randomized double-blind. Results: "
+        "8.5% HbA1c reduction, 95% CI 7.9-9.1, p<0.001. Discussion: "
+        "superior to semaglutide. Conclusion: tirzepatide is effective. "
+        "Introduction. Background. References. Statistical analysis."
+    ) * 80
+    stub = "Please sign in. Subscribe to read." * 300
+    a_score = _score_content_quality(article)
+    s_score = _score_content_quality(stub)
+    assert a_score > s_score + 0.3, (
+        f"article={a_score:.3f} stub={s_score:.3f} — margin too small"
+    )
+
+
+def test_score_rewards_numeric_density() -> None:
+    """Two articles of the same length, same structural markers: the
+    one with p-values and percentages should win — that is the evidence
+    the generator needs for quantitative claims."""
+    with_numbers = (
+        "Abstract Methods Results Discussion Conclusion. "
+        "8.5% p<0.001 95% CI 524 participants 15 mg N=2,539 " * 20
+    )
+    without_numbers = (
+        "Abstract Methods Results Discussion Conclusion. "
+        "The study found benefits and risks were discussed. " * 20
+    )
+    assert (
+        _score_content_quality(with_numbers)
+        > _score_content_quality(without_numbers)
+    )
+
+
+# ---------------------------------------------------------------------------
+# M-23b: strip-before-paywall ordering
+# ---------------------------------------------------------------------------
+
+
+def test_nav_chrome_sign_in_stripped_before_paywall_check() -> None:
+    """A real NEJM-style article body often contains a footer-nav line
+    'Sign In' / 'Subscribe' as a literal bullet. Under the OLD order,
+    these fired paywall patterns and the full 45K article body was
+    thrown away. After stripping boilerplate, the standalone 'Sign In'
+    line is gone, and the real article text has no such patterns."""
+    bypass = AccessBypass()
+    raw = (
+        "Sign In\n"
+        "Subscribe\n"
+        "# Tirzepatide once weekly in type 2 diabetes\n\n"
+        "Abstract. In this phase 3 randomized trial of 524 patients, "
+        "tirzepatide reduced HbA1c by 8.5 percent compared with placebo "
+        "(95% CI 7.9 to 9.1, p<0.001). Methods described standard "
+        "randomization. Results and Discussion follow.\n"
+    )
+    stripped = _strip_navigation_boilerplate(raw)
+    # The standalone nav lines are gone; the real article text is intact.
+    assert "# Tirzepatide once weekly" in stripped
+    assert "HbA1c by 8.5 percent" in stripped
+    # After stripping, no paywall signal fires.
+    assert not bypass._detect_paywall(stripped), (
+        "Stripped full-article text falsely flagged as paywall"
+    )
+
+
+def test_short_stub_still_detected_as_paywall_after_strip() -> None:
+    """Stripping must NOT break the short-stub detection — a 500-char
+    paywall shell with auth prompts is still correctly rejected."""
+    bypass = AccessBypass()
+    stub = (
+        "# Article Title\n"
+        "To continue reading, please sign in or create an account. "
+        "Subscribers have full access to our content."
+    )
+    stripped = _strip_navigation_boilerplate(stub)
+    assert bypass._detect_paywall(stripped), (
+        "Short stub with auth prompt should still be flagged as paywall"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M-23d: HTTP error stub detection
+# ---------------------------------------------------------------------------
+
+
+def test_jina_403_forbidden_stub_rejected() -> None:
+    """Jina proxies 403 Forbidden pages with success=True. Without
+    M-23d these slipped past _detect_paywall and won as the only
+    candidate. Exposed by live test on figshare OA landing page."""
+    bypass = AccessBypass()
+    jina_403 = (
+        "Title: 403 Forbidden\n\n"
+        "URL Source: https://figshare.com/articles/foo\n\n"
+        "Warning: Target URL returned error 403: Forbidden\n\n"
+        "Markdown Content:\n# 403 Forbidden\n\n# 403 Forbidden\n"
+    )
+    assert bypass._detect_paywall(jina_403), (
+        "Jina 403-Forbidden stub must be treated as failed fetch"
+    )
+
+
+def test_404_not_found_stub_rejected() -> None:
+    bypass = AccessBypass()
+    not_found = (
+        "Title: 404 Not Found\n\nThe requested page could not be found.\n"
+    )
+    assert bypass._detect_paywall(not_found)
+
+
+def test_access_denied_short_page_rejected() -> None:
+    bypass = AccessBypass()
+    denied = "Access Denied\n\nYour IP has been blocked by Cloudflare."
+    assert bypass._detect_paywall(denied)
+
+
+def test_server_error_stub_rejected() -> None:
+    bypass = AccessBypass()
+    err_503 = "503 Service Unavailable\n\nThe server is temporarily unable."
+    assert bypass._detect_paywall(err_503)
+
+
+def test_long_article_with_incidental_403_not_rejected() -> None:
+    """A 30K-char medical paper that *mentions* 'returned error 403'
+    in one sentence (e.g., in a Methods section discussing HTTP
+    robustness) must NOT be treated as a paywall stub — the length
+    floor of 2K chars prevents over-triggering."""
+    bypass = AccessBypass()
+    long_article = (
+        "Abstract. Randomized trial. Methods: we retried failed fetches "
+        "(those that returned error 403 were excluded). Results: 8.5% "
+        "HbA1c reduction (p<0.001). Discussion. Conclusion. "
+    ) * 400
+    assert not bypass._detect_paywall(long_article), (
+        "Long article with incidental HTTP-error phrase should NOT fire M-23d"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M-23f: paywall-regex false-positive regression (live test finding)
+# ---------------------------------------------------------------------------
+
+
+def test_m23f_long_article_with_sign_and_access_not_flagged() -> None:
+    """REGRESSION: live test on NEJM SURPASS-2 revealed the old greedy
+    regex `sign.*in.*to.*access` matched a 50K-char article body saying
+    '...the investigators worked under confidentiality agreements with
+    the sponsor, and all the authors had full access to the trial
+    data...' because `.*` spans arbitrary text. Fixed by requiring
+    tight whitespace-adjacent tokens and length-gating the loose
+    patterns."""
+    bypass = AccessBypass()
+    nejm_methods_excerpt = (
+        "Abstract. Methods. In an open-label 40-week trial 1879 "
+        "participants with type 2 diabetes were randomly assigned to "
+        "once-weekly subcutaneous tirzepatide or semaglutide. "
+        "The investigators worked under confidentiality agreements "
+        "with the sponsor, and all the authors had full access to "
+        "the trial data. The manuscript was signed off by all authors. "
+        "Results: tirzepatide reduced HbA1c by 8.5 percent at 40 weeks "
+        "(95 percent CI 7.9 to 9.1, p<0.001). Conclusion: superior. "
+    ) * 60  # ~30K chars
+    assert not bypass._detect_paywall(nejm_methods_excerpt), (
+        "Long article with 'sign(ed)' and 'access' as separate tokens "
+        "in normal body prose must NOT match the paywall regex"
+    )
+
+
+def test_m23f_long_article_with_subscribe_read_words_separated() -> None:
+    """A paper mentioning 'subscribers to a newsletter' and 'read by'
+    should not be falsely flagged — the old `subscribe.*to.*read`
+    regex matched any text with those words anywhere."""
+    bypass = AccessBypass()
+    long_body = (
+        "Abstract. Background: subscribers to diabetes-care newsletters "
+        "often read recent trial updates, but primary peer-reviewed "
+        "evidence remains essential. Methods. Results: 8.5% reduction. "
+    ) * 200
+    assert not bypass._detect_paywall(long_body)
+
+
+def test_m23f_short_paywall_stub_still_rejected() -> None:
+    """Confirm that genuine short paywall stubs STILL fire the
+    detection after the tightening — M-23f must not regress real
+    paywall rejection."""
+    bypass = AccessBypass()
+    for stub in [
+        "Please subscribe to read the full article",
+        "Sign in to access this content",
+        "Members only. Log in required.",
+        "Purchase this article to continue",
+    ]:
+        assert bypass._detect_paywall(stub), (
+            f"Genuine paywall stub not detected: {stub!r}"
         )
-        await asyncio.sleep(wait)
-    _firecrawl_last_request_time = _time_module.monotonic()
 
 
-def _firecrawl_has_credits() -> bool:
-    """Check if monthly Firecrawl credit quota has remaining credits."""
-    if _firecrawl_credits_used >= _FIRECRAWL_MONTHLY_QUOTA:
-        logger.error(
-            "[ACCESS] Firecrawl monthly quota exhausted: %d/%d credits used",
+# ---------------------------------------------------------------------------
+# M-23c: winner selection logic (synthetic)
+# ---------------------------------------------------------------------------
+
+
+def test_winner_selection_prefers_quality_over_first_arrival() -> None:
+    """Simulate the concurrent-fetch bug from V7: Jina returns a tiny
+    paywall stub first, Crawl4AI returns a real 20K-char article
+    second. The high-quality result must win regardless of order."""
+    jina_stub = AccessResult(
+        url="https://nejm.org/doi/full/10.1056/NEJMoa2416394",
+        content="# Article\nAccess this article. Subscribe to NEJM.",
+        access_method="jina",
+        legal_alternative=None,
+        success=True,
+        metadata={},
+    )
+    article_body = (
+        "Abstract. In this phase 3 trial, 524 patients received "
+        "tirzepatide 15 mg weekly. Methods: randomized double-blind. "
+        "Results: HbA1c fell 8.5% (95% CI 7.9-9.1, p<0.001). "
+        "Discussion: superior to semaglutide. Conclusion: effective. "
+        "Introduction. Background. References."
+    ) * 50
+    crawl4ai_full = AccessResult(
+        url="https://nejm.org/doi/full/10.1056/NEJMoa2416394",
+        content=article_body,
+        access_method="crawl4ai",
+        legal_alternative=None,
+        success=True,
+        metadata={},
+    )
+
+    # In the V7 ordering bug, jina arrived first — list order matters.
+    candidates = [jina_stub, crawl4ai_full]
+    # Simulate M-23c selection
+    scored = [(c, _score_content_quality(c.content)) for c in candidates]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    winner, winner_score = scored[0]
+
+    assert winner.access_method == "crawl4ai", (
+        f"Wrong winner: {winner.access_method} (scores: "
+        f"{[(c.access_method, round(s, 3)) for c, s in scored]})"
+    )
+    assert winner_score > _score_content_quality(jina_stub.content) + 0.3
+
+
+def test_winner_selection_handles_single_candidate() -> None:
+    """When only one backend returns successfully, it wins uncontested."""
+    only = AccessResult(
+        url="https://example.org/paper",
+        content=(
+            "Abstract. Methods. Results. Discussion. Conclusion. "
+            "8.5% p<0.001 524 patients."
+        ) * 20,
+        access_method="trafilatura",
+        legal_alternative=None,
+        success=True,
+        metadata={},
+    )
+    scored = [(only, _score_content_quality(only.content))]
+    winner, _ = scored[0]
+    assert winner is only
+
+
+# ---------------------------------------------------------------------------
+# M-23a: Unpaywall shape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_try_unpaywall_returns_none_when_no_email(monkeypatch) -> None:
+    """Without UNPAYWALL_EMAIL set, the method must bail early with
+    None rather than making a malformed API call."""
+    monkeypatch.delenv("UNPAYWALL_EMAIL", raising=False)
+    bypass = AccessBypass()
+    result = await bypass._try_unpaywall("10.1056/NEJMoa2416394")
+    assert result is None
+
+
+def test_extract_doi_finds_nejm_doi() -> None:
+    """Sanity-check the DOI extraction the Unpaywall step depends on."""
+    bypass = AccessBypass()
+    doi = bypass._extract_doi(
+        "https://www.nejm.org/doi/full/10.1056/NEJMoa2416394"
+    )
+    assert doi == "10.1056/NEJMoa2416394"
+
+
+def test_extract_doi_finds_lancet_doi() -> None:
+    bypass = AccessBypass()
+    doi = bypass._extract_doi(
+        "https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(21)01324-6"
+    )
+    # Lancet PII URLs may not contain a canonical DOI; this just asserts
+    # no crash. The resolver handles PII->DOI via _resolve_academic_url.
+    assert doi is None or re.match(r"10\.\d{4,9}/.+", doi)
+
+ succeeded in 943ms:
             _firecrawl_credits_used,
             _FIRECRAWL_MONTHLY_QUOTA,
         )
@@ -324,104 +812,6 @@ async def _safe_close_crawler(crawler: Any, url: str) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# I-bug-114 (#551): per-backend hard wall-clock bound for the concurrent fetch
-# fan-out. A single backend wedged in a Playwright op must not freeze the whole
-# `asyncio.gather`. `_bounded_backend` returns within PG_BACKEND_FETCH_TIMEOUT
-# + PG_BACKEND_CLEANUP_GRACE regardless of backend state — it uses
-# `asyncio.wait` (which returns after its timeout unconditionally) and never
-# `asyncio.wait_for` (which would await the cancelled coroutine's cleanup).
-# The post-artifacts asyncio.run-teardown residual is tracked in #552.
-# ---------------------------------------------------------------------------
-
-# Strong refs to backend tasks abandoned after the cancel-grace window — kept
-# so they are not GC-warned; the done-callback also retrieves any exception.
-_DETACHED_BACKEND_TASKS: "set[asyncio.Task]" = set()
-
-
-def _backend_fetch_timeout() -> float:
-    """Per-backend in-flight wall-clock ceiling (seconds)."""
-    try:
-        return float(os.getenv("PG_BACKEND_FETCH_TIMEOUT", "60.0"))
-    except ValueError:
-        return 60.0
-
-
-def _backend_cleanup_grace() -> float:
-    """Bounded grace window for a cancelled backend's cleanup (seconds)."""
-    try:
-        return float(os.getenv("PG_BACKEND_CLEANUP_GRACE", "10.0"))
-    except ValueError:
-        return 10.0
-
-
-def _drain_detached(task: "asyncio.Task") -> None:
-    """Done-callback for a detached backend task: drop the strong ref and
-    retrieve any exception so asyncio does not log 'exception never retrieved'.
-    """
-    _DETACHED_BACKEND_TASKS.discard(task)
-    if not task.cancelled():
-        try:
-            task.exception()
-        except Exception:  # noqa: BLE001 — exception retrieval is best-effort
-            pass
-
-
-def _backend_failure(label: str, url: str, error: str) -> AccessResult:
-    """A failure AccessResult for a backend that timed out or errored."""
-    return AccessResult(
-        url=url,
-        content="",
-        access_method=label,
-        legal_alternative=None,
-        success=False,
-        metadata={"error": error},
-    )
-
-
-async def _bounded_backend(label: str, coro: Any, url: str) -> AccessResult:
-    """Run one fetch-backend coroutine under a hard wall-clock bound.
-
-    Returns within PG_BACKEND_FETCH_TIMEOUT + PG_BACKEND_CLEANUP_GRACE
-    regardless of whether `coro` ever finishes — `asyncio.wait` returns after
-    its timeout unconditionally (unlike `asyncio.wait_for`, which awaits the
-    cancelled coroutine's cleanup). A backend whose cancellation cleanup itself
-    exceeds the grace window is detached (post-artifacts teardown — see #552).
-    """
-    timeout = _backend_fetch_timeout()
-    grace = _backend_cleanup_grace()
-    task = asyncio.ensure_future(coro)
-    done, _pending = await asyncio.wait({task}, timeout=timeout)
-    if task in done:
-        exc = task.exception()
-        if exc is not None:
-            return _backend_failure(label, url, f"{type(exc).__name__}: {exc}")
-        return task.result()
-    # Timed out — cancel, then allow a BOUNDED grace window for cleanup.
-    task.cancel()
-    done, _pending = await asyncio.wait({task}, timeout=grace)
-    if task in done:
-        if not task.cancelled():
-            try:
-                task.exception()  # retrieve, discard
-            except Exception:  # noqa: BLE001
-                pass
-        logger.warning(
-            "[ACCESS] backend %s exceeded %.0fs wall-clock for %s — cancelled",
-            label, timeout, _safe_log_str(url, 60),
-        )
-    else:
-        # Cleanup itself exceeded the grace window: detach (ref-kept,
-        # exception-drained). Residual asyncio.run-teardown case: #552.
-        _DETACHED_BACKEND_TASKS.add(task)
-        task.add_done_callback(_drain_detached)
-        logger.warning(
-            "[ACCESS] backend %s exceeded %.0fs + %.0fs grace for %s — "
-            "detached (see #552)", label, timeout, grace, _safe_log_str(url, 60),
-        )
-    return _backend_failure(label, url, f"backend_timeout_{timeout:.0f}s")
-
-
 class AccessBypass:
     """
     Research access manager.
@@ -562,28 +952,20 @@ class AccessBypass:
         # Build concurrent task list: Crawl4AI first (free/local), then Jina, then Firecrawl
         concurrent_tasks: list = []
 
-        # I-bug-114 (#551): every concurrent backend is wrapped in
-        # `_bounded_backend` so a single wedged backend (e.g. a Playwright op
-        # stuck on an anti-bot interstitial) cannot freeze the gather. Each
-        # wrapper returns an AccessResult within the per-backend wall-clock.
         crawl4ai_enabled = os.getenv("PG_CRAWL4AI_ENABLED", "1") == "1"
         if crawl4ai_enabled:
-            concurrent_tasks.append(
-                _bounded_backend("crawl4ai", self._try_crawl4ai(url), url))
+            concurrent_tasks.append(self._try_crawl4ai(url))
 
-        concurrent_tasks.append(
-            _bounded_backend("jina_reader", self._try_jina_reader(url), url))
+        concurrent_tasks.append(self._try_jina_reader(url))
 
         firecrawl_enabled = os.getenv("PG_FIRECRAWL_ENABLED", "1") == "1"
         firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
         if firecrawl_enabled and firecrawl_api_key and _firecrawl_has_credits():
-            concurrent_tasks.append(
-                _bounded_backend("firecrawl", self._try_firecrawl(url), url))
+            concurrent_tasks.append(self._try_firecrawl(url))
 
         # FIX-039/B.3: Add trafilatura to concurrent group (was dead-code fallback)
         if os.getenv("PG_TRAFILATURA_ENABLED", "0") == "1":
-            concurrent_tasks.append(
-                _bounded_backend("trafilatura", self._try_trafilatura(url), url))
+            concurrent_tasks.append(self._try_trafilatura(url))
 
         # FIX-EPIPE: Wrap gather in try/except to catch CancelledError and
         # any BaseException that escapes from subprocess crashes in crawl4ai.
@@ -664,66 +1046,12 @@ class AccessBypass:
         # FIX-039/B.3: Trafilatura now runs in concurrent group above (no standalone fallback)
 
         # Direct HTTP fetch with markdown Accept header (FIX-D6/A3)
-        logger.info("[ACCESS] Trying direct fetch for %s", url[:60])
-        timeout_occurred = False
-        direct_result = await self._direct_fetch(url)
 
-        if direct_result.success:
-            # M-23b: strip BEFORE paywall detection
-            direct_result.content = _strip_navigation_boilerplate(direct_result.content)
-            if not self._detect_paywall(direct_result.content):
-                return direct_result
-
-        # Track if direct fetch failed due to timeout for retry logic (FIX-D5)
-        if not direct_result.success and "timeout" in str(direct_result.metadata.get("error", "")).lower():
-            timeout_occurred = True
-
-        logger.info("[ACCESS] Direct access blocked for %s, trying alternatives", url[:80])
-
-        # Try Archive.org
-        if self.use_archive_org:
-            logger.info("[ACCESS] Trying Archive.org for %s", url[:60])
-            archive_result = await self._try_archive_org(url)
-            if archive_result.success:
-                # FIX-045B: Strip navigation boilerplate
-                archive_result.content = _strip_navigation_boilerplate(archive_result.content)
-                return archive_result
-
-        # Try institutional proxy
-        if self.proxy:
-            logger.info("[ACCESS] Trying proxy for %s", url[:60])
-            proxy_result = await self._try_proxy(url)
-            if proxy_result.success:
-                # FIX-045B: Strip navigation boilerplate
-                proxy_result.content = _strip_navigation_boilerplate(proxy_result.content)
-                return proxy_result
-
-        # FIX-D5: Retry once on timeout errors before giving up
-        if timeout_occurred:
-            logger.info("[ACCESS] Retrying direct fetch after timeout for %s", url[:60])
-            await asyncio.sleep(3)
-            retry_result = await self._direct_fetch(url)
-            if retry_result.success:
-                # M-23b: strip BEFORE paywall detection
-                retry_result.content = _strip_navigation_boilerplate(retry_result.content)
-                if not self._detect_paywall(retry_result.content):
-                    return retry_result
-
-        # PL: Sci-Hub fallback for paywalled academic papers (last resort)
-        # Use resolved DOI if available (more reliable than URL-based DOI extraction)
-        if os.getenv("PG_SCIHUB_ENABLED", "1") == "1":
-            scihub_url = url
-            if resolved_doi:
-                scihub_url = f"https://doi.org/{resolved_doi}"
-            scihub_result = await self._try_scihub(scihub_url)
-            if scihub_result.success:
-                logger.info("[ACCESS] Sci-Hub succeeded for %s (%d chars)", url[:60], len(scihub_result.content))
-                scihub_result.content = _strip_navigation_boilerplate(scihub_result.content)
-                return scihub_result
-
-        # SF-40: Log total failure at WARNING (was completely silent)
-        logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
-        return AccessResult(
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/tools/access_bypass.py | Select-Object -Skip 620 -First 360' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"async def _try_(jina|firecrawl|trafilatura)|requests\\.|httpx|aiohttp|to_thread|ClientSession|AsyncWebCrawler|sleep\\(\" src/tools/access_bypass.py -S" in C:\POLARIS
+ succeeded in 867ms:
             url=url,
             content="",
             access_method="failed",
@@ -1084,6 +1412,199 @@ class AccessBypass:
                 type(e).__name__,
                 _safe_log_str(str(e)),
             )
+
+ succeeded in 886ms:
+50:# aiohttp advertises `br` (Brotli) by default but cannot decode it without the
+52:# Explicitly request only gzip/deflate across ALL aiohttp sessions.
+112:        await asyncio.sleep(wait)
+267:    """FIX-EPIPE: Safely close a crawl4ai AsyncWebCrawler instance.
+275:        crawler: The AsyncWebCrawler instance to close.
+598:            await asyncio.sleep(3)
+637:        error propagates through AsyncWebCrawler.__aenter__/__aexit__.
+682:            from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+725:        # Instead of `async with AsyncWebCrawler(...) as crawler:` which
+764:                crawler = AsyncWebCrawler(config=browser_config)
+1019:        import aiohttp
+1022:        timeout = aiohttp.ClientTimeout(total=30)
+1023:        async with aiohttp.ClientSession(timeout=timeout) as session:
+1120:    async def _try_trafilatura(self, url: str) -> Optional[AccessResult]:
+1179:    async def _try_jina_reader(self, url: str) -> AccessResult:
+1190:        import aiohttp
+1219:                    timeout = aiohttp.ClientTimeout(total=30)
+1230:                    async with aiohttp.ClientSession(timeout=timeout) as session:
+1243:                                    await asyncio.sleep(wait)
+1316:                        await asyncio.sleep(wait)
+1347:    async def _try_firecrawl(self, url: str) -> AccessResult:
+1365:        import aiohttp
+1418:            timeout = aiohttp.ClientTimeout(total=30)
+1429:            async with aiohttp.ClientSession(timeout=timeout) as session:
+1609:        import aiohttp
+1617:            timeout = aiohttp.ClientTimeout(total=10)
+1618:            async with aiohttp.ClientSession(timeout=timeout) as session:
+1695:        import aiohttp
+1698:            timeout = aiohttp.ClientTimeout(total=15)
+1699:            async with aiohttp.ClientSession(timeout=timeout) as session:
+1722:                        await asyncio.sleep(3)
+1773:        import aiohttp
+1776:            timeout = aiohttp.ClientTimeout(total=20)
+1777:            async with aiohttp.ClientSession(timeout=timeout) as session:
+1842:        import aiohttp
+1860:                timeout = aiohttp.ClientTimeout(total=10)
+1861:                async with aiohttp.ClientSession(timeout=timeout) as session:
+1892:                    timeout = aiohttp.ClientTimeout(total=10)
+1893:                    async with aiohttp.ClientSession(timeout=timeout) as session:
+1930:        import aiohttp
+1945:        timeout = aiohttp.ClientTimeout(total=20)
+1949:                async with aiohttp.ClientSession(timeout=timeout) as session:
+2028:        import aiohttp
+2040:            timeout = aiohttp.ClientTimeout(total=20)
+2041:            async with aiohttp.ClientSession(timeout=timeout) as session:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/tools/access_bypass.py | Select-Object -Skip 1080 -First 380' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/tools/access_bypass.py | Select-Object -Skip 840 -First 250' in C:\POLARIS
+ succeeded in 830ms:
+                        output_format="txt",
+                    )
+                    if clean and len(clean) > 500:
+                        markdown_content = clean
+                        logger.info(
+                            "[ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: %d chars",
+                            len(clean),
+                        )
+                except Exception:
+                    pass
+
+            # Fallback: fit_markdown or raw markdown from Crawl4AI
+            if not markdown_content:
+                if hasattr(result, "markdown") and result.markdown:
+                    md_obj = result.markdown
+                    if hasattr(md_obj, "fit_markdown") and md_obj.fit_markdown:
+                        markdown_content = md_obj.fit_markdown
+                    elif isinstance(md_obj, str):
+                        markdown_content = md_obj
+                    else:
+                        markdown_content = str(md_obj)
+
+            if not markdown_content or len(markdown_content.strip()) <= 100:
+                logger.warning(
+                    "[polaris graph] CRAWL4AI: Insufficient content for %s (%d chars)",
+                    _safe_log_str(url, 60),
+                    len(markdown_content),
+                )
+                return AccessResult(
+                    url=url,
+                    content="",
+                    access_method="crawl4ai",
+                    legal_alternative=None,
+                    success=False,
+                    metadata={
+                        "error": "Insufficient content",
+                        "content_length": len(markdown_content),
+                        "status_code": result.status_code,
+                    },
+                )
+
+            logger.info(
+                "[polaris graph] CRAWL4AI: Succeeded for %s (%d chars, status %s)",
+                _safe_log_str(url, 60),
+                len(markdown_content),
+                result.status_code,
+            )
+            return AccessResult(
+                url=url,
+                content=markdown_content,
+                access_method="crawl4ai",
+                legal_alternative=None,
+                success=True,
+                metadata={
+                    "content_length": len(markdown_content),
+                    "format": "markdown",
+                    "status_code": result.status_code,
+                    "redirected_url": result.redirected_url,
+                },
+            )
+
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[polaris graph] CRAWL4AI: Timeout after %ds for %s",
+                timeout_seconds,
+                _safe_log_str(url, 80),
+            )
+            return _crawl4ai_failure_result(
+                url, f"Timeout after {timeout_seconds}s"
+            )
+
+        except asyncio.CancelledError:
+            # FIX-EPIPE: CancelledError is BaseException in Python 3.9+.
+            # NOT caught by `except Exception`. Happens when asyncio.wait_for
+            # cancels the inner task, parent task is cancelled, or event loop
+            # shuts down during a crawl.
+            logger.warning(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE task cancelled for %s "
+                "(CancelledError -- subprocess crash or shutdown)",
+                _safe_log_str(url, 80),
+            )
+            _crawl4ai_track_failure()
+            return _crawl4ai_failure_result(
+                url, "Task cancelled (CancelledError)"
+            )
+
+        except (BrokenPipeError, ConnectionError) as pipe_err:
+            # FIX-EPIPE: PRIMARY CRASH VECTOR. Playwright browser subprocess
+            # dies, Node.js sends EPIPE on the websocket. Propagates as
+            # BrokenPipeError or ConnectionError through asyncio transport.
+            logger.warning(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE broken pipe for %s: "
+                "%s: %s -- subprocess likely crashed, server protected",
+                _safe_log_str(url, 60),
+                type(pipe_err).__name__,
+                _safe_log_str(str(pipe_err)),
+            )
+            _crawl4ai_track_failure()
+            return _crawl4ai_failure_result(
+                url,
+                f"Subprocess pipe error: {type(pipe_err).__name__}: "
+                f"{str(pipe_err)}",
+            )
+
+        except OSError as os_err:
+            # FIX-EPIPE: Parent of BrokenPipeError/ConnectionError. Also
+            # covers "Invalid argument" (errno 22), "Bad file descriptor"
+            # (errno 9), and other OS-level subprocess handle failures.
+            logger.warning(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE OS error for %s: "
+                "%s (errno=%s) -- subprocess likely crashed",
+                _safe_log_str(url, 60),
+                _safe_log_str(str(os_err)),
+                getattr(os_err, "errno", "unknown"),
+            )
+            _crawl4ai_track_failure()
+            return _crawl4ai_failure_result(
+                url, f"OS error (errno={getattr(os_err, 'errno', '?')}): {str(os_err)}"
+            )
+
+        except RuntimeError as rt_err:
+            # FIX-EPIPE: Playwright/asyncio internal errors after subprocess
+            # death ("Event loop is closed", "Cannot write to closing
+            # transport", etc.).
+            logger.warning(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE RuntimeError for %s: %s",
+                _safe_log_str(url, 80),
+                _safe_log_str(str(rt_err)),
+            )
+            return _crawl4ai_failure_result(
+                url, f"RuntimeError: {str(rt_err)}"
+            )
+
+        except Exception as e:
+            logger.warning(
+                "[polaris graph] CRAWL4AI: Failed for %s: %s: %s",
+                _safe_log_str(url, 80),
+                type(e).__name__,
+                _safe_log_str(str(e)),
+            )
             return _crawl4ai_failure_result(
                 url, f"{type(e).__name__}: {str(e)}"
             )
@@ -1184,6 +1705,18 @@ class AccessBypass:
         if _skip_docling_reason:
             logger.warning(
                 "[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (%s), using PyMuPDF: %s",
+                _skip_docling_reason, url[:50],
+            )
+        else:
+            # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback
+            try:
+                import asyncio as _aio
+                loop = _aio.get_event_loop()
+                docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
+                if docling_text and len(docling_text) > 500:
+                    logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
+
+ succeeded in 958ms:
                 _skip_docling_reason, url[:50],
             )
         else:
@@ -1564,6 +2097,140 @@ class AccessBypass:
                         logger.error(
                             "[ACCESS] Firecrawl 401 unauthorized — "
                             "check FIRECRAWL_API_KEY"
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/tools/access_bypass.py | Select-Object -Skip 1330 -First 180' in C:\POLARIS
+ succeeded in 747ms:
+                        access_method="jina_reader",
+                        legal_alternative=None,
+                        success=False,
+                        metadata={"error": str(e)},
+                    )
+
+        # Should not reach here, but safety fallback
+        return AccessResult(
+            url=url,
+            content="",
+            access_method="jina_reader",
+            legal_alternative=None,
+            success=False,
+            metadata={"error": "Unexpected loop exit"},
+        )
+
+    async def _try_firecrawl(self, url: str) -> AccessResult:
+        """
+        FIX-D2 Hardened: Firecrawl with rate limiting, credit tracking,
+        and differentiated error handling.
+
+        Free plan limits: 500 credits/month, 10 req/min.
+        """
+        # FIX-044/Issue3: Respect PG_FIRECRAWL_ENABLED kill switch
+        if os.getenv("PG_FIRECRAWL_ENABLED", "1") != "1":
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="firecrawl",
+                legal_alternative=None,
+                success=False,
+                metadata={"error": "Firecrawl disabled via PG_FIRECRAWL_ENABLED=0"},
+            )
+
+        import aiohttp
+
+        # RC-10: Circuit breaker check for Firecrawl (mirrors Jina pattern)
+        global _firecrawl_consecutive_failures, _firecrawl_circuit_open_until
+        now = _time_module.time()
+        if _firecrawl_circuit_open_until > now:
+            remaining = _firecrawl_circuit_open_until - now
+            logger.debug(
+                "[ACCESS] Firecrawl circuit breaker OPEN for %s (%.0fs remaining)",
+                url[:60], remaining,
+            )
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="firecrawl",
+                legal_alternative=None,
+                success=False,
+                metadata={"error": "circuit_breaker_open", "cooldown_remaining": remaining},
+            )
+
+        firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
+        if not firecrawl_api_key:
+            logger.warning("[ACCESS] Firecrawl skipped — FIRECRAWL_API_KEY not set")
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="firecrawl",
+                legal_alternative=None,
+                success=False,
+                metadata={"error": "FIRECRAWL_API_KEY not set"},
+            )
+
+        # Credit gate: check before making request
+        if not _firecrawl_has_credits():
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="firecrawl",
+                legal_alternative=None,
+                success=False,
+                metadata={
+                    "error": "Monthly credit quota exhausted",
+                    "credits_used": _firecrawl_credits_used,
+                    "credits_quota": _FIRECRAWL_MONTHLY_QUOTA,
+                },
+            )
+
+        # Rate limit: enforce minimum interval
+        await _firecrawl_rate_limit()
+
+        firecrawl_endpoint = "https://api.firecrawl.dev/v1/scrape"
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            headers = {
+                **_NO_BROTLI_HEADERS,
+                "Authorization": f"Bearer {firecrawl_api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "url": url,
+                "formats": ["markdown"],
+            }
+
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    firecrawl_endpoint, headers=headers, json=payload
+                ) as response:
+                    status_code = response.status
+
+                    # Differentiated error handling
+                    if status_code == 429:
+                        retry_after = response.headers.get("Retry-After", "10")
+                        logger.warning(
+                            "[ACCESS] Firecrawl 429 rate limited for %s — "
+                            "Retry-After: %s",
+                            url[:60],
+                            retry_after,
+                        )
+                        return AccessResult(
+                            url=url,
+                            content="",
+                            access_method="firecrawl",
+                            legal_alternative=None,
+                            success=False,
+                            metadata={
+                                "status": 429,
+                                "retry_after": retry_after,
+                                "error": "Rate limited",
+                            },
+                        )
+
+                    if status_code == 401:
+                        logger.error(
+                            "[ACCESS] Firecrawl 401 unauthorized — "
+                            "check FIRECRAWL_API_KEY"
                         )
                         return AccessResult(
                             url=url,
@@ -1615,655 +2282,20 @@ class AccessBypass:
                                 },
                             )
 
-                        # Extract markdown content
-                        markdown_content = ""
-                        resp_metadata: dict = {}
-                        if isinstance(data, dict):
-                            resp_data = data.get("data", {})
-                            if isinstance(resp_data, dict):
-                                markdown_content = resp_data.get("markdown", "")
-                                resp_metadata = {
-                                    "status_code": resp_data.get("statusCode"),
-                                    "credits_used": _firecrawl_credits_used,
-                                    "credits_quota": _FIRECRAWL_MONTHLY_QUOTA,
-                                }
-
-                        if markdown_content and len(markdown_content.strip()) > 100:
-                            # RC-10: Reset circuit breaker on success
-                            _firecrawl_consecutive_failures = 0
-                            logger.info(
-                                "[ACCESS] Firecrawl succeeded for %s "
-                                "(%d chars, credit %d/%d)",
-                                url[:60],
-                                len(markdown_content),
-                                _firecrawl_credits_used,
-                                _FIRECRAWL_MONTHLY_QUOTA,
-                            )
-                            return AccessResult(
-                                url=url,
-                                content=markdown_content,
-                                access_method="firecrawl",
-                                legal_alternative=None,
-                                success=True,
-                                metadata={
-                                    "content_length": len(markdown_content),
-                                    "format": "markdown",
-                                    **resp_metadata,
-                                },
-                            )
-
-                    # RC-10: Track failure for circuit breaker
-                    _firecrawl_consecutive_failures += 1
-                    if _firecrawl_consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD:
-                        _firecrawl_circuit_open_until = _time_module.time() + _CIRCUIT_BREAKER_COOLDOWN
-                        logger.warning(
-                            "[ACCESS] Firecrawl circuit breaker OPENED after %d consecutive failures "
-                            "(cooldown %.0fs)",
-                            _firecrawl_consecutive_failures, _CIRCUIT_BREAKER_COOLDOWN,
-                        )
-                    logger.warning(
-                        "[ACCESS] Firecrawl returned status %d for %s",
-                        status_code,
-                        url[:60],
-                    )
-                    return AccessResult(
-                        url=url,
-                        content="",
-                        access_method="firecrawl",
-                        legal_alternative=None,
-                        success=False,
-                        metadata={"status": status_code},
-                    )
-
-        except Exception as e:
-            # RC-10: Track failure for circuit breaker
-            _firecrawl_consecutive_failures += 1
-            if _firecrawl_consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD:
-                _firecrawl_circuit_open_until = _time_module.time() + _CIRCUIT_BREAKER_COOLDOWN
-                logger.warning(
-                    "[ACCESS] Firecrawl circuit breaker OPENED after %d consecutive failures "
-                    "(cooldown %.0fs)",
-                    _firecrawl_consecutive_failures, _CIRCUIT_BREAKER_COOLDOWN,
-                )
-            logger.warning(
-                "[ACCESS] Firecrawl failed for %s: %s",
-                url[:80],
-                str(e)[:150],
-            )
-            return AccessResult(
-                url=url,
-                content="",
-                access_method="firecrawl",
-                legal_alternative=None,
-                success=False,
-                metadata={"error": str(e)},
-            )
-
-    async def _try_unpaywall(self, doi: str) -> Optional[str]:
-        """M-23a: Query Unpaywall for best legal open-access URL for a DOI.
-
-        Unpaywall indexes 30M+ OA articles from repositories (arXiv,
-        PMC, institutional) and publisher DOIs. Returns the best OA URL
-        (PDF preferred) if available, else None. Free, ethical, and the
-        first thing to try for paywalled journals like NEJM/Lancet/JAMA
-        whose authors frequently post preprints or PMC copies.
-
-        Reference: https://unpaywall.org/products/api
-        Endpoint: https://api.unpaywall.org/v2/{doi}?email={email}
-        Rate limit: 100K/day with free email-tagged access.
-        """
-        import aiohttp
-
-        email = os.getenv("UNPAYWALL_EMAIL")
-        if not email:
-            return None
-
-        api_url = f"https://api.unpaywall.org/v2/{doi}?email={email}"
-        try:
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(
-                    api_url, headers=_NO_BROTLI_HEADERS
-                ) as response:
-                    if response.status == 404:
-                        # Unknown DOI — normal, don't log noisily
-                        return None
-                    if response.status != 200:
-                        logger.info(
-                            "[ACCESS] M-23a: Unpaywall HTTP %d for DOI %s",
-                            response.status, doi,
-                        )
-                        return None
-                    data = await response.json()
-                    if not data.get("is_oa"):
-                        return None
-                    # M-23e: Prefer a direct PDF URL across ALL oa_locations.
-                    # Live testing exposed: Unpaywall's best_oa_location may
-                    # be a repository landing page (figshare, discovery.ucl)
-                    # whose bare URL 403s on headless fetch. A PDF URL from
-                    # any location gets clean extraction via _extract_pdf_text.
-                    # Only fall back to best.url when NO location has a PDF.
-                    oa_locations = data.get("oa_locations") or []
-                    pdf_urls = [
-                        loc.get("url_for_pdf")
-                        for loc in oa_locations
-                        if loc.get("url_for_pdf")
-                    ]
-                    if pdf_urls:
-                        oa_url = pdf_urls[0]
-                        host_type = next(
-                            (loc.get("host_type", "unknown")
-                             for loc in oa_locations
-                             if loc.get("url_for_pdf") == oa_url),
-                            "unknown",
-                        )
-                        logger.info(
-                            "[ACCESS] M-23a: Unpaywall PDF OA for %s: %s (%s)",
-                            doi, oa_url[:80], host_type,
-                        )
-                        return oa_url
-                    # No PDF — fall back to best.url, but ONLY if it's not
-                    # a known-403 repository pattern. Repository landing
-                    # pages that aren't PDFs tend to fail; better to let
-                    # the main cascade attempt the original publisher URL.
-                    best = data.get("best_oa_location") or {}
-                    landing = best.get("url")
-                    host_type = best.get("host_type", "unknown")
-                    if landing and host_type != "repository":
-                        # Publisher OA landing is usually fetchable
-                        logger.info(
-                            "[ACCESS] M-23a: Unpaywall %s OA landing for %s: %s",
-                            host_type, doi, landing[:80],
-                        )
-                        return landing
-                    # Repository landing without PDF — don't swap, let the
-                    # cascade try the original URL (which may have Crawl4AI
-                    # render the publisher full-text page).
-                    if landing:
-                        logger.info(
-                            "[ACCESS] M-23a: Unpaywall found repo landing "
-                            "without PDF for %s — keeping original URL",
-                            doi,
-                        )
-                    return None
-        except asyncio.TimeoutError:
-            logger.info("[ACCESS] M-23a: Unpaywall timeout for DOI %s", doi)
-            return None
-        except Exception as e:
-            logger.warning(
-                "[ACCESS] M-23a: Unpaywall failed for DOI %s: %s",
-                doi, str(e)[:120],
-            )
-            return None
-
-    async def _direct_fetch(self, url: str) -> AccessResult:
-        """Direct HTTP fetch with markdown Accept header (FIX-D6/A3) and 5xx retry (FIX-D5)."""
-        import aiohttp
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                # FIX-D6/A3: Add markdown Accept header to prefer markdown responses
-                headers = {
-                    **_NO_BROTLI_HEADERS,
-                    "User-Agent": self.user_agent,
-                    "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8",
-                }
-
-                async with session.get(url, headers=headers) as response:
-                    # FIX-D6/A3: Log if server returned markdown content type
-                    content_type = response.headers.get("Content-Type", "")
-                    if "text/markdown" in content_type.lower():
-                        logger.info(
-                            "[ACCESS] Server returned markdown content for %s",
-                            url[:60],
-                        )
-
-                    # FIX-D5: Retry once with 3s delay for 5xx status codes
-                    if response.status >= 500:
-                        logger.info(
-                            "[ACCESS] Direct fetch got %d for %s, retrying in 3s",
-                            response.status, url[:60],
-                        )
-                        await asyncio.sleep(3)
-                        async with session.get(url, headers=headers) as retry_response:
-                            retry_content_type = retry_response.headers.get("Content-Type", "")
-                            if "text/markdown" in retry_content_type.lower():
-                                logger.info(
-                                    "[ACCESS] Server returned markdown content on retry for %s",
-                                    url[:60],
-                                )
-                            content = await retry_response.text()
-                            return AccessResult(
-                                url=url,
-                                content=content,
-                                access_method="direct",
-                                legal_alternative=None,
-                                success=retry_response.status == 200,
-                                metadata={
-                                    "status": retry_response.status,
-                                    "retried": True,
-                                    "original_status": response.status,
-                                    "content_type": retry_content_type,
-                                },
-                            )
-
-                    content = await response.text()
-
-                    return AccessResult(
-                        url=url,
-                        content=content,
-                        access_method="direct",
-                        legal_alternative=None,
-                        success=response.status == 200,
-                        metadata={
-                            "status": response.status,
-                            "content_type": content_type,
-                        },
-                    )
-
-        except Exception as e:
-            # SF-35: Log direct fetch failures (was completely silent)
-            logger.warning("[ACCESS] direct fetch failed for %s: %s", url[:80], str(e)[:150])
-            return AccessResult(
-                url=url,
-                content="",
-                access_method="direct",
-                legal_alternative=None,
-                success=False,
-                metadata={"error": str(e)}
-            )
-
-    async def _try_archive_org(self, url: str) -> AccessResult:
-        """Try Archive.org Wayback Machine."""
-        import aiohttp
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                # Check availability
-                api_url = f"https://archive.org/wayback/available?url={url}"
-
-                async with session.get(api_url, headers=_NO_BROTLI_HEADERS) as response:
-                    data = await response.json()
-
-                    snapshots = data.get("archived_snapshots", {})
-                    closest = snapshots.get("closest", {})
-
-                    if closest.get("available"):
-                        archive_url = closest["url"]
-
-                        async with session.get(archive_url, headers=_NO_BROTLI_HEADERS) as archive_response:
-                            content = await archive_response.text()
-
-                            return AccessResult(
-                                url=url,
-                                content=content,
-                                access_method="archive.org",
-                                legal_alternative=archive_url,
-                                success=True,
-                                metadata={"archive_url": archive_url, "timestamp": closest.get("timestamp")}
-                            )
-
-                    return AccessResult(url=url, content="", access_method="archive.org",
-                                      legal_alternative=None, success=False,
-                                      metadata={"error": "No archive available"})
-
-        except Exception as e:
-            # SF-37: Log Archive.org failures (was completely silent)
-            logger.warning("[ACCESS] Archive.org failed for %s: %s", url[:80], str(e)[:150])
-            return AccessResult(url=url, content="", access_method="archive.org",
-                              legal_alternative=None, success=False,
-                              metadata={"error": str(e)})
-
-    @staticmethod
-    def _docling_extract(pdf_bytes: bytes) -> str:
-        """PL: Extract markdown from PDF using IBM Docling (97.9% table accuracy)."""
-        import tempfile
-        import os as _os
-
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(pdf_bytes)
-            tmp_path = tmp.name
-
-        try:
-            from docling.document_converter import DocumentConverter
-            converter = DocumentConverter()
-            result = converter.convert(tmp_path)
-            md_text = result.document.export_to_markdown()
-            return md_text.strip()
-        finally:
-            _os.unlink(tmp_path)
-
-    async def _resolve_academic_url(self, url: str) -> tuple[str, str]:
-        """PL: Resolve academic metadata URLs to actual paper URLs + DOIs.
-
-        Handles three cases:
-        1. S2 landing pages (semanticscholar.org/paper/xxx) -> OA PDF URL or DOI
-        2. ScienceDirect PIIs -> CrossRef -> DOI
-        3. doi.org URLs -> follow redirect to publisher
-
-        Returns (resolved_url, doi). Both may be empty if resolution fails.
-        """
-        import aiohttp
-        import re
-
-        resolved_url = ""
-        doi = ""
-
-        # Case 1: Semantic Scholar landing pages
-        if "semanticscholar.org/paper/" in url:
-            paper_id = url.rstrip("/").split("/")[-1]
-            # Strip any title slug (e.g., "Title-of-Paper/abc123" -> "abc123")
-            if len(paper_id) < 10:
-                parts = url.rstrip("/").split("/")
-                paper_id = parts[-1] if len(parts[-1]) >= 10 else parts[-2] if len(parts) > 1 else paper_id
-
-            s2_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
-            headers = {"x-api-key": s2_key} if s2_key else {}
-
-            try:
-                timeout = aiohttp.ClientTimeout(total=10)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    api_url = (
-                        f"https://api.semanticscholar.org/graph/v1/paper/{paper_id}"
-                        f"?fields=doi,openAccessPdf,url"
-                    )
-                    async with session.get(api_url, headers=headers) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            doi = data.get("doi", "") or ""
-                            oa_pdf = data.get("openAccessPdf")
-                            if oa_pdf and oa_pdf.get("url"):
-                                resolved_url = oa_pdf["url"]
-                                logger.info(
-                                    "[ACCESS] PL: S2 %s -> OA PDF: %s",
-                                    paper_id[:12], resolved_url[:60],
-                                )
-                            elif doi:
-                                resolved_url = f"https://doi.org/{doi}"
-                                logger.info(
-                                    "[ACCESS] PL: S2 %s -> DOI: %s",
-                                    paper_id[:12], doi,
-                                )
-            except Exception as exc:
-                logger.debug("[ACCESS] PL: S2 resolve failed for %s: %s", paper_id[:12], str(exc)[:60])
-
-        # Case 2: ScienceDirect PIIs
-        elif "sciencedirect.com" in url and "pii/" in url:
-            pii_match = re.search(r"pii/([A-Z0-9]+)", url)
-            if pii_match:
-                pii = pii_match.group(1)
-                try:
-                    timeout = aiohttp.ClientTimeout(total=10)
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        cr_url = f"https://api.crossref.org/works?filter=alternative-id:{pii}&rows=1"
-                        async with session.get(cr_url) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                items = data.get("message", {}).get("items", [])
-                                if items:
-                                    doi = items[0].get("DOI", "")
-                                    if doi:
-                                        resolved_url = f"https://doi.org/{doi}"
-                                        logger.info(
-                                            "[ACCESS] PL: ScienceDirect PII %s -> DOI: %s",
-                                            pii[:12], doi,
-                                        )
-                except Exception as exc:
-                    logger.debug("[ACCESS] PL: CrossRef resolve failed for %s: %s", pii[:12], str(exc)[:60])
-
-        # Case 3: Extract DOI from URL for Nature, JAMA, tandfonline, etc.
-        if not doi:
-            doi_match = re.search(r"(10\.\d{4,9}/[^\s\"<>',;]+)", url)
-            if doi_match:
-                doi = doi_match.group(1).rstrip(".")
-            # Nature: /articles/s41574-022-00638-x -> 10.1038/s41574-022-00638-x
-            elif "nature.com/articles/" in url:
-                art_match = re.search(r"articles/(s\d+-\d+-\d+-\w+)", url)
-                if art_match:
-                    doi = f"10.1038/{art_match.group(1)}"
-
-        return resolved_url or url, doi
-
-    async def _try_scihub(self, url: str) -> AccessResult:
-        """PL: Try Sci-Hub for paywalled academic papers.
-
-        Extracts DOI from URL, queries Sci-Hub mirrors, downloads PDF,
-        and converts to text via PyMuPDF. Last resort after all legal
-        methods exhausted.
-        """
-        import aiohttp
-        import re
-
-        # Extract DOI from URL
-        doi = None
-        doi_match = re.search(r"(10\.\d{4,9}/[^\s\])<>\"',;]+)", url)
-        if doi_match:
-            doi = doi_match.group(1).rstrip(".")
-
-        if not doi:
-            return AccessResult(url=url, content="", access_method="scihub",
-                                legal_alternative=None, success=False,
-                                metadata={"error": "No DOI found in URL"})
-
-        mirrors = ["https://sci-hub.st", "https://sci-hub.ru"]
-        timeout = aiohttp.ClientTimeout(total=20)
-
-        for mirror in mirrors:
-            try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    scihub_url = f"{mirror}/{doi}"
-                    async with session.get(scihub_url) as resp:
-                        if resp.status != 200:
-                            continue
-                        html = await resp.text()
-
-                        # Check if paper is available
-                        if "not available" in html.lower()[:500]:
-                            continue
-
-                        # Extract PDF URL from embed/iframe
-                        pdf_match = re.search(
-                            r'(?:embed|iframe)[^>]+src=["\']([^"\']+\.pdf[^"\']*)',
-                            html,
-                        )
-                        if not pdf_match:
-                            # Try direct PDF link pattern
-                            pdf_match = re.search(r'(//[^\s"<>]+\.pdf)', html)
-
-                        if not pdf_match:
-                            # No PDF found but page loaded — try extracting
-                            # text content from the HTML itself
-                            if len(html) > 5000:
-                                return AccessResult(
-                                    url=url, content=html[:30000],
-                                    access_method="scihub_html",
-                                    legal_alternative=scihub_url,
-                                    success=True,
-                                    metadata={"doi": doi, "mirror": mirror},
-                                )
-                            continue
-
-                        pdf_url = pdf_match.group(1)
-                        if pdf_url.startswith("//"):
-                            pdf_url = "https:" + pdf_url
-
-                        # Download PDF
-                        async with session.get(pdf_url) as pdf_resp:
-                            if pdf_resp.status != 200:
-                                continue
-                            pdf_bytes = await pdf_resp.read()
-
-                        # Extract text from PDF
-                        try:
-                            import fitz  # PyMuPDF
-                            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                            text_parts = []
-                            for page in doc:
-                                text_parts.append(page.get_text())
-                            doc.close()
-                            full_text = "\n\n".join(text_parts)
-
-                            if len(full_text) > 500:
-                                logger.info(
-                                    "[ACCESS] Sci-Hub PDF extracted for %s: %d chars from %d pages",
-                                    doi, len(full_text), len(text_parts),
-                                )
-                                return AccessResult(
-                                    url=url, content=full_text[:50000],
-                                    access_method="scihub_pdf",
-                                    legal_alternative=scihub_url,
-                                    success=True,
-                                    metadata={"doi": doi, "mirror": mirror, "pages": len(text_parts)},
-                                )
-                        except ImportError:
-                            logger.warning("[ACCESS] PyMuPDF not installed — cannot extract Sci-Hub PDF")
-                        except Exception as pdf_exc:
-                            logger.warning("[ACCESS] Sci-Hub PDF extraction failed: %s", str(pdf_exc)[:100])
-
-            except Exception as exc:
-                logger.debug("[ACCESS] Sci-Hub mirror %s failed: %s", mirror, str(exc)[:80])
-
-        return AccessResult(url=url, content="", access_method="scihub",
-                            legal_alternative=None, success=False,
-                            metadata={"error": "All Sci-Hub mirrors failed", "doi": doi})
-
-    async def _try_proxy(self, url: str) -> AccessResult:
-        """Try institutional proxy."""
-        import aiohttp
-
-        if not self.proxy:
-            return AccessResult(url=url, content="", access_method="proxy",
-                              legal_alternative=None, success=False,
-                              metadata={"error": "No proxy configured"})
-
-        try:
-            # Rewrite URL through proxy
-            parsed = urlparse(url)
-            proxied_url = url.replace(parsed.netloc, f"{parsed.netloc}.{self.proxy}")
-
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(proxied_url, headers={**_NO_BROTLI_HEADERS, "User-Agent": self.user_agent}) as response:
-                    content = await response.text()
-
-                    return AccessResult(
-                        url=url,
-                        content=content,
-                        access_method="proxy",
-                        legal_alternative=proxied_url,
-                        success=response.status == 200,
-                        metadata={"proxied_url": proxied_url}
-                    )
-
-        except Exception as e:
-            # SF-38: Log proxy failures (was completely silent)
-            logger.warning("[ACCESS] Proxy failed for %s: %s", url[:80], str(e)[:150])
-            return AccessResult(url=url, content="", access_method="proxy",
-                              legal_alternative=None, success=False,
-                              metadata={"error": str(e)})
-
-    def _detect_paywall(self, content: str) -> bool:
-        """Detect if content is behind paywall OR an HTTP-error stub.
-
-        M-23d: Extended to detect HTTP error stubs (403/404/5xx proxied
-        through Jina Reader or similar). Jina returns success=True with
-        a 200-500 char "403 Forbidden" / "Access Denied" page when the
-        upstream server rejected its request. Without this detection,
-        those stubs wait through all paywall patterns (which don't
-        match "403 Forbidden" text) and get picked as fetch winners.
-
-        M-23f: Paywall patterns are split into strict (fire on any
-        length) and short-only (fire only on <2K char content). This
-        prevents greedy-regex false positives like `sign.*in.*to.*
-        access` matching "signed...had full access" in a 50K-char
-        NEJM article body.
-        """
-        content_lower = content.lower()
-        is_short = len(content) < 2000
-
-        # Strict patterns: always apply
-        for pattern in self.paywall_patterns_strict:
-            if re.search(pattern, content_lower):
-                return True
-
-        # Loose patterns: only apply to short content
-        if is_short:
-            for pattern in self.paywall_patterns_short_only:
-                if re.search(pattern, content_lower):
-                    return True
-
-        # SF-42: Short content with paywall indicators is likely paywalled
-        # (removed dead `pass` code — either implement or remove)
-        if len(content) < 2000 and any(
-            re.search(p, content_lower) for p in [
-                r"sign\s*in", r"log\s*in", r"create.*account",
-            ]
-        ):
-            logger.info("[ACCESS] Short content (%d chars) with auth prompt — likely paywalled", len(content))
-            return True
-
-        # M-23d: HTTP error stubs. Short pages (<2K chars) containing
-        # error status text are almost always failed fetches, not real
-        # content. "403 Forbidden" / "404 Not Found" / "Error 5xx" /
-        # "Access Denied" / "Target URL returned error" (Jina's phrasing).
-        if len(content) < 2000:
-            http_error_signals = [
-                r"\b403\s+forbidden\b",
-                r"\b404\s+not\s+found\b",
-                r"\b5\d{2}\s+(internal\s+server\s+error|bad\s+gateway|service\s+unavailable|gateway\s+timeout)\b",
-                r"access\s+denied",
-                r"returned\s+error\s+\d{3}",
-                r"target\s+url\s+returned\s+error",
-                r"\bcloudflare\b.*\bblocked\b",
-                r"\brate\s+limit(ed)?\b",
-            ]
-            for pattern in http_error_signals:
-                if re.search(pattern, content_lower):
-                    logger.info(
-                        "[ACCESS] M-23d: Short content (%d chars) with "
-                        "HTTP-error signal (%s) — treating as failed fetch",
-                        len(content), pattern,
-                    )
-                    return True
-
-        return False
-
-    def _extract_doi(self, url: str) -> Optional[str]:
-        """Extract DOI from URL."""
-        # DOI patterns
-        patterns = [
-            r'10\.\d{4,9}/[-._;()/:A-Z0-9]+',
-            r'doi\.org/(10\.\d{4,9}/[-._;()/:A-Z0-9]+)',
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, url, re.IGNORECASE)
-            if match:
-                return match.group(1) if len(match.groups()) > 0 else match.group(0)
-
-        return None
-
-    def _is_academic_url(self, url: str) -> bool:
-        """Check if URL is likely academic."""
-        academic_domains = [
-            "springer", "wiley", "elsevier", "sciencedirect",
-            "nature", "science", "jstor", "ieee", "acm",
-            "arxiv", "pubmed", "ncbi", "nih.gov",
-            "semanticscholar.org",
-        ]
-
-        url_lower = url.lower()
-        return any(domain in url_lower for domain in academic_domains) or bool(self._extract_doi(url))
-
-    def get_access_stats(self) -> Dict[str, Any]:
-        """Get statistics about access methods used."""
-        return {
-            "archive_org_enabled": self.use_archive_org,
-            "proxy_configured": bool(self.proxy),
-            "respect_robots_txt": self.respect_robots,
-            "crawl4ai_enabled": os.getenv("PG_CRAWL4AI_ENABLED", "1") == "1",
-            "jina_reader_enabled": True,
-            "firecrawl_enabled": bool(os.getenv("FIRECRAWL_API_KEY")),
-        }
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+39,725
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

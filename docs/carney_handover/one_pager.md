@@ -60,11 +60,23 @@ Every claim in every report ships with a **provenance token** that points to the
 
 ---
 
-## Three documents in this package
+## Verifying a signed audit bundle
+
+Every POLARIS audit bundle is GPG-signed. To confirm one is authentic and unmodified on a clean machine — no POLARIS source code or cluster access required — follow `bundle_verification.md`. The signing key's fingerprint, for the out-of-band cross-check that step requires:
+
+```
+POLARIS Carney Demo signing key
+FB22 1FA8 ED18 5F8E 3F76  F7E6 F6F3 1CED FF49 0C02
+```
+
+---
+
+## Four documents in this package
 
 1. This one-pager (you are here).
 2. `5min_video_script.md` — 5-minute walkthrough script + recording.
 3. `bundle_export_sample.json` — a real EvidenceContract v1.0 audit bundle from the POLARIS golden-fixture suite (`golden_clinical_001`; same fixture used by all 9 Inspector Playwright e2e tests), so your team can inspect the canonical artifact format without standing up the cluster.
+4. `bundle_verification.md` — how to confirm a signed audit bundle is authentic on a clean machine; ships with `polaris_demo_pubkey.asc` (the signing public key) and `sample_signed_bundle.tar.gz` (a worked example to verify against).
 
 ---
 
