@@ -1,0 +1,29 @@
+# I-rdy-018 (#514) — fixed non-confidential rehearsal prompt set.
+#
+# One entry per canonical v6 template (TEMPLATE_TO_SCOPE_DOMAIN in
+# src/polaris_v6/queue/actors.py). scripts/v6/run_rehearsal.py runs these
+# through the real v6 actor path against OpenRouter V4 Pro + Gemma.
+#
+# NON-CONFIDENTIALITY IS MANDATORY. During the non-sovereign rehearsal these
+# prompts travel to OpenRouter (a US gateway). Every question below is a
+# public-policy / public-clinical query answerable from public sources —
+# zero confidential, client, or personal content. Do not add a prompt here
+# without confirming it is safe to send to a US-jurisdiction LLM gateway.
+
+prompts:
+  - template: clinical
+    question: "Is high-dose aspirin effective for acute migraine in adults?"
+  - template: policy
+    question: "What does the published evidence say about the effect of carbon pricing on household energy costs in Canada?"
+  - template: tech
+    question: "What are the documented reliability trade-offs of small modular nuclear reactors versus conventional reactors?"
+  - template: due_diligence
+    question: "What public-record factors are commonly assessed when evaluating the financial stability of a publicly traded utility company?"
+  - template: ai_sovereignty
+    question: "What approaches have national governments published for keeping AI inference workloads within their own jurisdiction?"
+  - template: canada_us
+    question: "How has the Canada-United States-Mexico Agreement affected published cross-border dairy trade volumes?"
+  - template: workforce
+    question: "What does the published labour-market evidence say about the effect of paid sick-leave mandates on employee turnover?"
+  - template: custom
+    question: "What does the peer-reviewed evidence say about the effect of urban tree canopy on summer surface temperatures?"

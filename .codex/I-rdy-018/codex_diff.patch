@@ -1,0 +1,534 @@
+diff --git a/docs/carney_handover/rehearsal_evidence.md b/docs/carney_handover/rehearsal_evidence.md
+new file mode 100644
+index 00000000..f369edeb
+--- /dev/null
++++ b/docs/carney_handover/rehearsal_evidence.md
+@@ -0,0 +1,82 @@
++# I-rdy-018 — OpenRouter V4 Pro rehearsal evidence (#514)
++
++**Run UTC:** 2026-05-17 ~05:47Z–07:35Z
++**Pipeline:** pipeline-A honest rebuild, OpenRouter (non-sovereign) topology
++**Generator / verifier:** `deepseek/deepseek-v4-pro` + `google/gemma-4-31b-it`
++**Branch under test:** `bot/I-rdy-018-openrouter-rehearsal` (carries the #551
++retrieval fan-out timeout fix + the #554 post-retrieval candidate-loop
++wall-clock bound, both merged from `polaris`).
++
++## Phase 0 — model availability (`run_rehearsal.py check-models`)
++
++```
++OpenRouter /models — 356 models in catalogue
++  [OK ] generator: deepseek/deepseek-v4-pro
++  [OK ] evaluator: google/gemma-4-31b-it
++check-models: PASS — generator + evaluator both available
++```
++
++## Phase 4 — 8-prompt billed rehearsal
++
++**Command** (operator-authorized billed run, per-run cost cap $5.00):
++
++```
++PYTHONPATH=src python -c "import sys,runpy; from dotenv import load_dotenv; \
++  load_dotenv(); sys.argv=['x','run','--max-cost','5.00', \
++  '--out-root','outputs/rehearsal_runs']; \
++  runpy.run_path('scripts/v6/run_rehearsal.py',run_name='__main__')"
++```
++
++### Per-prompt results
++
++| # | template | run_id | pipeline_status | cost_usd |
++|---|---|---|---|---|
++| 1 | clinical | `rehearsal_clinical_77f75e1c` | `abort_corpus_inadequate` | 0.0000 |
++| 2 | policy | `rehearsal_policy_8c16a863` | `partial_qwen_advisory` | 0.0558 |
++| 3 | tech | `rehearsal_tech_95c5ece4` | `abort_corpus_inadequate` | 0.0000 |
++| 4 | due_diligence | `rehearsal_due_diligence_93ea5821` | `abort_corpus_inadequate` | 0.0000 |
++| 5 | ai_sovereignty | `rehearsal_ai_sovereignty_f2333fca` | `partial_qwen_advisory` | 0.0424 |
++| 6 | canada_us | `rehearsal_canada_us_74624a9e` | `success` | 0.0500 |
++| 7 | workforce | `rehearsal_workforce_367bbdd3` | `partial_thin_corpus` | 0.0376 |
++| 8 | custom | `rehearsal_custom_296a7728` | `partial_thin_corpus` | 0.0550 |
++
++**Total cost:** $0.2408 (cap $5.00/run — never approached).
++
++## RESULT: PASS
++
++All 8 prompts reached a **terminal verdict** — the rehearsal harness emitted
++`RESULT: PASS — the full non-sovereign rehearsal path passed start-to-finish`.
++
++Terminal verdicts are `success`, `abort_*`, and `partial_*` — each is a clean,
++honest pipeline outcome (the pipeline either produced verified prose, declined
++on an inadequate corpus, or produced a partial under an explicit advisory).
++The only non-passing outcomes would be `error_*` or an unbounded hang; neither
++occurred.
++
++## Robustness fixes validated by this run
++
++This rehearsal is the re-run after the prior attempt (`_live_run2.log`) hung
++~31 minutes. Two retrieval-robustness fixes were merged into the branch and are
++empirically confirmed here:
++
++- **#551** (retrieval fan-out per-backend wall-clock bound) — no fetch-backend
++  hang recurred across 8 prompts of live retrieval.
++- **#554** (post-`parallel_fetch` candidate-loop wall-clock bound) — the
++  `policy` prompt, which hung 31 min at this exact stage in the prior run,
++  this time ran fully through retrieval → corpus assembly → generation →
++  evaluation to a `partial_qwen_advisory` terminal verdict.
++
++## Observations (non-blocking)
++
++- **OpenRouter 429 rate-limiting:** under sustained load the Gemma entailment
++  judge and some generator calls were throttled (HTTP 429). Handled
++  gracefully — warn-mode + bounded retry; it slowed the run (≈1h45m wall for 8
++  prompts) but produced no failures. For the sovereign cluster (vLLM-served,
++  no shared rate limit) this throttling will not apply.
++- **`run_events` Redis emit** logged `ConnectionError` to `localhost:6379` —
++  expected and non-fatal: the rehearsal harness runs pipeline-A directly, with
++  no Redis; event emit is best-effort.
++- Three prompts (`clinical`, `tech`, `due_diligence`) aborted at
++  `abort_corpus_inadequate` — the corpus-adequacy gate correctly declined
++  rather than generate on a thin corpus. One prompt (`canada_us`) produced a
++  full `success`.
+diff --git a/docs/carney_handover/rehearsal_procedure.md b/docs/carney_handover/rehearsal_procedure.md
+new file mode 100644
+index 00000000..901cad44
+--- /dev/null
++++ b/docs/carney_handover/rehearsal_procedure.md
+@@ -0,0 +1,108 @@
++# Phase-4 non-sovereign rehearsal procedure
++
++The Phase-4 rehearsal exercises the full POLARIS v6 journey against
++**OpenRouter** (V4 Pro generator + Gemma evaluator) before the sovereign
++vLLM cutover. It is the *non-sovereign* path: prompts travel to OpenRouter,
++a US gateway, so the rehearsal prompt set is **public / non-confidential
++only**.
++
++Runner: `scripts/v6/run_rehearsal.py`. Prompt set:
++`tests/v6/fixtures/rehearsal_prompts.yaml` (one public question per
++canonical template). A captured live run is in `rehearsal_evidence.md`.
++
++---
++
++## 1. Env wiring — the OpenRouter rehearsal config
++
++| Env var | Rehearsal value | Purpose |
++|---|---|---|
++| `POLARIS_LLM_BACKEND` | `openrouter` | route generation through the OpenRouter gateway |
++| `OPENROUTER_API_KEY` | `sk-or-v1-…` | gateway credential (required) |
++| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | gateway endpoint |
++| `PG_GENERATOR_MODEL` | `deepseek/deepseek-v4-pro` | V4 Pro generator |
++| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | Gemma evaluator (different lineage) |
++| `PG_MAX_COST_PER_RUN` | `5.00` | hard per-run budget cap (`BudgetExceededError` past it) |
++
++`run_rehearsal.py run` sets `PG_GENERATOR_MODEL` / `PG_EVALUATOR_MODEL` /
++`PG_MAX_COST_PER_RUN` itself from its flags; `OPENROUTER_API_KEY` must
++already be present in the process environment.
++
++## 2. Model-availability check
++
++```
++python scripts/v6/run_rehearsal.py check-models
++```
++
++Authenticated GET to OpenRouter `/models` (no token spend). Confirms the
++configured generator and evaluator model ids are present in the catalogue.
++Fails loud if `OPENROUTER_API_KEY` is unset, the request fails, or a model
++is absent. Expected tail: `check-models: PASS`.
++
++## 3. The rehearsal run
++
++Validate the wiring first — no LLM call, no spend:
++
++```
++python scripts/v6/run_rehearsal.py run --dry-run
++```
++
++Then the live billed run (all 8 templates, `$5`/run cap):
++
++```
++python scripts/v6/run_rehearsal.py run --max-cost 5.00
++```
++
++Each prompt is one full v6 journey, executed through the real actor path
++(`enqueue_research_run.fn` — the same q-dict, unique artifact dir, and
++`v30_contract_patch` synthesis the production actor uses).
++
++**Start-to-finish pass criteria.** A prompt *passes* when the pipeline
++reaches a terminal verdict — `success`, any `abort_*`, or any `partial_*`
++(per CLAUDE.md §9.3, `abort_*` are pipeline verdicts, not errors). A prompt
++*fails* only on `error_*` or an unhandled exception (the pipeline crashed
++before producing a verdict). The rehearsal passes when every prompt passes;
++`run_rehearsal.py` prints `RESULT: PASS` and exits 0.
++
++## 4. Key-removal proof procedure
++
++Before the sovereign cutover, prove the OpenRouter credential is gone. The
++commands below are **non-disclosing** — they never print the key value.
++
++```
++# 1. Unset the credential.
++unset OPENROUTER_API_KEY
++
++# 2. The availability check must now fail loud (proves the rehearsal path
++#    is dead without the key):
++python scripts/v6/run_rehearsal.py check-models   # expect non-zero exit,
++                                                  # "OPENROUTER_API_KEY is unset"
++
++# 3. Confirm no OpenRouter key shape survives anywhere in the process env
++#    or the deploy .env — COUNT ONLY, never echo the value:
++env | grep -c 'sk-or-v1-' || echo "0 OpenRouter keys in env"
++grep -c 'sk-or-v1-' /opt/polaris/.env || echo "0 OpenRouter keys in .env"
++```
++
++A non-zero count from step 3 means the key is still present — rotate and
++re-scrub before the cutover. (See `secret_inventory` / G13 for the full
++rotation + teardown sheet.)
++
++## 5. Env-diff — rehearsal config vs sovereign config
++
++The cutover from the OpenRouter rehearsal config to the sovereign vLLM
++config (#199 / `I-sov-001`, gated on the OVH H200) is exactly this diff:
++
++| Env var | Rehearsal (OpenRouter) | Sovereign (vLLM) |
++|---|---|---|
++| `POLARIS_LLM_BACKEND` | `openrouter` | `vllm` |
++| `OPENROUTER_API_KEY` | set (`sk-or-v1-…`) | **removed** |
++| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | unused |
++| `POLARIS_VLLM_BASE_URL` | unused | set (in-cluster vLLM endpoint, e.g. `http://10.0.0.42:8000/v1`) |
++| `PG_GENERATOR_MODEL` | `deepseek/deepseek-v4-pro` | `deepseek/deepseek-v4-pro` (served by sovereign vLLM) |
++| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | `google/gemma-4-31b-it` (served by sovereign vLLM) |
++
++The generator/evaluator **pair is unchanged** — only the serving backend
++moves from the US gateway to the in-jurisdiction vLLM cluster. The
++two-family invariant (`openrouter_client.check_family_segregation`,
++CLAUDE.md §9.1) holds across both configs: DeepSeek and Gemma are different
++lineages.
+diff --git a/scripts/v6/run_rehearsal.py b/scripts/v6/run_rehearsal.py
+new file mode 100644
+index 00000000..17c8ce4e
+--- /dev/null
++++ b/scripts/v6/run_rehearsal.py
+@@ -0,0 +1,208 @@
++#!/usr/bin/env python3
++"""I-rdy-018 (#514) — OpenRouter V4 Pro non-sovereign rehearsal runner.
++
++Phase-4 rehearsal: point the LLM endpoint at OpenRouter V4 Pro + Gemma
++(test-only, non-confidential prompts) and exercise the full v6 journey.
++
++Subcommands:
++  check-models   GET OpenRouter /models; confirm the generator (V4 Pro) and
++                 evaluator (Gemma) model ids are available. No token spend.
++  run            Run the fixed non-confidential prompt set
++                 (tests/v6/fixtures/rehearsal_prompts.yaml) through the real
++                 v6 actor path. `--dry-run` validates wiring with no spend.
++
++The live `run` path calls `enqueue_research_run.fn(...)` — the undecorated
++v6 actor function — so the rehearsal exercises the genuine actor q-dict
++(unique artifact dir + synthesized v30_contract_patch), not a shortcut.
++
++Usage:
++    python scripts/v6/run_rehearsal.py check-models [--generator ID] [--evaluator ID]
++    python scripts/v6/run_rehearsal.py run [--dry-run] [--only TEMPLATE]
++        [--max-cost N] [--out-root DIR] [--generator ID] [--evaluator ID]
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import urllib.error
++import urllib.request
++import uuid
++from pathlib import Path
++
++# The actor module decorates @dramatiq.actor at import; force the StubBroker
++# so importing it never needs a live Redis. The runner uses `.fn()`, never
++# the broker, so this is inert beyond import-time.
++os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
++
++import yaml  # noqa: E402  (third-party; project dependency)
++
++DEFAULT_GENERATOR = "deepseek/deepseek-v4-pro"
++DEFAULT_EVALUATOR = "google/gemma-4-31b-it"
++DEFAULT_MAX_COST = "5.00"
++PROMPTS_PATH = Path(__file__).resolve().parents[2] / "tests" / "v6" / "fixtures" / "rehearsal_prompts.yaml"
++
++
++def _fail(msg: str) -> None:
++    """Fail loud: stderr + non-zero exit (CLAUDE.md LAW II)."""
++    raise SystemExit(f"[run_rehearsal] ERROR: {msg}")
++
++
++def _openrouter_base() -> str:
++    return os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
++
++
++def _load_prompts() -> list[dict]:
++    if not PROMPTS_PATH.is_file():
++        _fail(f"prompt set not found: {PROMPTS_PATH}")
++    data = yaml.safe_load(PROMPTS_PATH.read_text(encoding="utf-8"))
++    prompts = data.get("prompts") if isinstance(data, dict) else None
++    if not prompts:
++        _fail(f"{PROMPTS_PATH.name} has no `prompts` list")
++    for entry in prompts:
++        if "template" not in entry or "question" not in entry:
++            _fail(f"prompt entry missing template/question: {entry!r}")
++    return prompts
++
++
++def cmd_check_models(args: argparse.Namespace) -> None:
++    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++    if not key:
++        _fail("OPENROUTER_API_KEY is unset — the rehearsal cannot run without it")
++
++    url = f"{_openrouter_base()}/models"
++    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"})
++    try:
++        with urllib.request.urlopen(req, timeout=30) as resp:
++            catalogue = json.loads(resp.read().decode("utf-8"))
++    except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
++        _fail(f"OpenRouter /models request failed: {exc}")
++
++    available = {m.get("id") for m in catalogue.get("data", []) if isinstance(m, dict)}
++    wanted = {"generator": args.generator, "evaluator": args.evaluator}
++    print(f"OpenRouter /models — {len(available)} models in catalogue")
++    missing = []
++    for role, model_id in wanted.items():
++        present = model_id in available
++        print(f"  [{'OK ' if present else 'MISSING'}] {role}: {model_id}")
++        if not present:
++            missing.append(model_id)
++    if missing:
++        _fail(f"configured model(s) not available on OpenRouter: {', '.join(missing)}")
++    print("check-models: PASS — generator + evaluator both available")
++
++
++def cmd_run(args: argparse.Namespace) -> None:
++    from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
++
++    prompts = _load_prompts()
++    if args.only:
++        prompts = [p for p in prompts if p["template"] == args.only]
++        if not prompts:
++            _fail(f"--only {args.only!r} matched no prompt in the set")
++    for entry in prompts:
++        if entry["template"] not in TEMPLATE_TO_SCOPE_DOMAIN:
++            _fail(
++                f"prompt template {entry['template']!r} is not one of the "
++                f"canonical templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}"
++            )
++
++    key_present = bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
++    print("=" * 64)
++    print("POLARIS v6 non-sovereign rehearsal" + ("  [DRY RUN]" if args.dry_run else ""))
++    print("=" * 64)
++    print(f"  generator        : {args.generator}")
++    print(f"  evaluator        : {args.evaluator}")
++    print(f"  backend          : openrouter ({_openrouter_base()})")
++    print(f"  OPENROUTER_API_KEY: {'present' if key_present else 'ABSENT'}")
++    print(f"  PG_MAX_COST_PER_RUN: {args.max_cost}")
++    print(f"  prompts          : {len(prompts)}")
++    for entry in prompts:
++        print(f"    - {entry['template']}: {entry['question']}")
++    print("-" * 64)
++
++    if args.dry_run:
++        print("DRY RUN: wiring validated — no LLM call, no run-store write, "
++              "no spend. Re-run without --dry-run to execute the billed rehearsal.")
++        return
++
++    if not key_present:
++        _fail("OPENROUTER_API_KEY is unset — cannot execute a live rehearsal run")
++
++    # Wire the LLM endpoint as env vars (Phase-4: point at V4 Pro + Gemma).
++    os.environ["PG_GENERATOR_MODEL"] = args.generator
++    os.environ["PG_EVALUATOR_MODEL"] = args.evaluator
++    os.environ["PG_MAX_COST_PER_RUN"] = str(args.max_cost)
++    if args.out_root:
++        os.environ["POLARIS_V6_OUTPUT_ROOT"] = str(args.out_root)
++
++    from polaris_v6.queue import run_store
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    results: list[dict] = []
++    for entry in prompts:
++        template, question = entry["template"], entry["question"]
++        run_id = f"rehearsal_{template}_{uuid.uuid4().hex[:8]}"
++        run_store.insert_run(run_id, template, question)
++        print(f"[run] {template} ({run_id}) ...")
++        status = {"template": template, "run_id": run_id}
++        try:
++            enqueue_research_run.fn(run_id, {"template": template, "question": question})
++        except Exception as exc:  # noqa: BLE001 — record any pipeline crash, continue
++            print(f"  EXCEPTION: {type(exc).__name__}: {exc}")
++        row = run_store.get_run(run_id, path=None)
++        status["pipeline_status"] = getattr(row, "pipeline_status", None)
++        status["cost_usd"] = getattr(row, "cost_usd", None)
++        results.append(status)
++        print(f"  pipeline_status={status['pipeline_status']} cost_usd={status['cost_usd']}")
++
++    # A run "passes start-to-finish" if the pipeline reached a terminal
++    # verdict — success / abort_* / partial_* all count (CLAUDE.md §9.3:
++    # abort_* are pipeline verdicts, not errors). Only error_* / a missing
++    # status (crash before any verdict) fails the rehearsal.
++    failed = [
++        r for r in results
++        if not r["pipeline_status"] or str(r["pipeline_status"]).startswith("error_")
++    ]
++    total_cost = sum(r["cost_usd"] or 0.0 for r in results)
++    print("-" * 64)
++    print(f"rehearsal: {len(results) - len(failed)}/{len(results)} prompts "
++          f"reached a terminal verdict; total cost_usd={total_cost:.4f}")
++    if failed:
++        print(f"RESULT: FAIL — {len(failed)} prompt(s) did not pass: "
++              f"{[r['template'] for r in failed]}")
++        raise SystemExit(1)
++    print("RESULT: PASS — the full non-sovereign rehearsal path passed start-to-finish")
++
++
++def _build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(description="POLARIS v6 OpenRouter rehearsal runner")
++    sub = parser.add_subparsers(dest="cmd", required=True)
++
++    check = sub.add_parser("check-models", help="confirm V4 Pro + Gemma are available on OpenRouter")
++    check.add_argument("--generator", default=DEFAULT_GENERATOR)
++    check.add_argument("--evaluator", default=DEFAULT_EVALUATOR)
++    check.set_defaults(func=cmd_check_models)
++
++    run = sub.add_parser("run", help="run the fixed non-confidential prompt set")
++    run.add_argument("--dry-run", action="store_true",
++                     help="validate wiring only — no LLM call, no spend")
++    run.add_argument("--only", default=None, help="run a single template")
++    run.add_argument("--max-cost", default=DEFAULT_MAX_COST,
++                     help="PG_MAX_COST_PER_RUN per run (default 5.00)")
++    run.add_argument("--out-root", default=None, help="override POLARIS_V6_OUTPUT_ROOT")
++    run.add_argument("--generator", default=DEFAULT_GENERATOR)
++    run.add_argument("--evaluator", default=DEFAULT_EVALUATOR)
++    run.set_defaults(func=cmd_run)
++    return parser
++
++
++def main(argv: list[str] | None = None) -> None:
++    args = _build_parser().parse_args(argv)
++    args.func(args)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/v6/fixtures/rehearsal_prompts.yaml b/tests/v6/fixtures/rehearsal_prompts.yaml
+new file mode 100644
+index 00000000..f44237e8
+--- /dev/null
++++ b/tests/v6/fixtures/rehearsal_prompts.yaml
+@@ -0,0 +1,29 @@
++# I-rdy-018 (#514) — fixed non-confidential rehearsal prompt set.
++#
++# One entry per canonical v6 template (TEMPLATE_TO_SCOPE_DOMAIN in
++# src/polaris_v6/queue/actors.py). scripts/v6/run_rehearsal.py runs these
++# through the real v6 actor path against OpenRouter V4 Pro + Gemma.
++#
++# NON-CONFIDENTIALITY IS MANDATORY. During the non-sovereign rehearsal these
++# prompts travel to OpenRouter (a US gateway). Every question below is a
++# public-policy / public-clinical query answerable from public sources —
++# zero confidential, client, or personal content. Do not add a prompt here
++# without confirming it is safe to send to a US-jurisdiction LLM gateway.
++
++prompts:
++  - template: clinical
++    question: "Is high-dose aspirin effective for acute migraine in adults?"
++  - template: policy
++    question: "What does the published evidence say about the effect of carbon pricing on household energy costs in Canada?"
++  - template: tech
++    question: "What are the documented reliability trade-offs of small modular nuclear reactors versus conventional reactors?"
++  - template: due_diligence
++    question: "What public-record factors are commonly assessed when evaluating the financial stability of a publicly traded utility company?"
++  - template: ai_sovereignty
++    question: "What approaches have national governments published for keeping AI inference workloads within their own jurisdiction?"
++  - template: canada_us
++    question: "How has the Canada-United States-Mexico Agreement affected published cross-border dairy trade volumes?"
++  - template: workforce
++    question: "What does the published labour-market evidence say about the effect of paid sick-leave mandates on employee turnover?"
++  - template: custom
++    question: "What does the peer-reviewed evidence say about the effect of urban tree canopy on summer surface temperatures?"
+diff --git a/tests/v6/test_run_rehearsal.py b/tests/v6/test_run_rehearsal.py
+new file mode 100644
+index 00000000..1bc78884
+--- /dev/null
++++ b/tests/v6/test_run_rehearsal.py
+@@ -0,0 +1,75 @@
++"""I-rdy-018 (#514) — wiring tests for the OpenRouter rehearsal runner.
++
++Subprocess-drives scripts/v6/run_rehearsal.py (harness style of
++test_scripts_v6_handover.py) exercising `check-models` and `run --dry-run`
++**without any LLM call or spend**: every subprocess runs with a clean `env`
++that explicitly omits OPENROUTER_API_KEY, and with cwd set to a tmp dir so
++no repo-root `.env` can be implicitly loaded.
++"""
++
++from __future__ import annotations
++
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++import yaml
++
++from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++SCRIPT = REPO_ROOT / "scripts" / "v6" / "run_rehearsal.py"
++PROMPTS = REPO_ROOT / "tests" / "v6" / "fixtures" / "rehearsal_prompts.yaml"
++
++
++def _run(*args: str, cwd: Path, run_db: Path | None = None) -> subprocess.CompletedProcess[str]:
++    """Run the rehearsal CLI with OPENROUTER_API_KEY stripped from the env."""
++    env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
++    env["PYTHONPATH"] = str(REPO_ROOT / "src")
++    if run_db is not None:
++        env["POLARIS_V6_RUN_DB"] = str(run_db)
++    return subprocess.run(
++        [sys.executable, str(SCRIPT), *args],
++        cwd=cwd,
++        env=env,
++        capture_output=True,
++        text=True,
++        check=False,
++    )
++
++
++def test_check_models_fails_loud_without_key(tmp_path):
++    result = _run("check-models", cwd=tmp_path)
++    assert result.returncode != 0
++    assert "OPENROUTER_API_KEY" in result.stderr
++
++
++def test_run_dry_run_validates_wiring(tmp_path):
++    result = _run("run", "--dry-run", cwd=tmp_path)
++    assert result.returncode == 0, result.stderr
++    # Every canonical template is planned.
++    for template in TEMPLATE_TO_SCOPE_DOMAIN:
++        assert f"- {template}:" in result.stdout, f"{template} missing from dry-run plan"
++    assert "OPENROUTER_API_KEY: ABSENT" in result.stdout
++    assert "DRY RUN" in result.stdout
++
++
++def test_dry_run_makes_no_billed_call(tmp_path):
++    # Point the run store at a path that does not exist; a dry run must not
++    # create it (no insert_run, no LLM call, no spend).
++    run_db = tmp_path / "state" / "v6_runs.sqlite"
++    result = _run("run", "--dry-run", cwd=tmp_path, run_db=run_db)
++    assert result.returncode == 0, result.stderr
++    assert not run_db.exists(), "dry run wrote to the run store — it must not"
++
++
++def test_rehearsal_prompts_cover_all_templates():
++    data = yaml.safe_load(PROMPTS.read_text(encoding="utf-8"))
++    templates = sorted(p["template"] for p in data["prompts"])
++    assert templates == sorted(TEMPLATE_TO_SCOPE_DOMAIN), (
++        "rehearsal_prompts.yaml must cover exactly the 8 canonical templates"
++    )
++    # Each question is non-empty.
++    for entry in data["prompts"]:
++        assert entry["question"].strip(), f"empty question for {entry['template']}"
+
+# canonical-diff-sha256: a72bddf25833fda3f139e93db1d37bfd76a1578ab7cfc31533e3c881b77d7f8c

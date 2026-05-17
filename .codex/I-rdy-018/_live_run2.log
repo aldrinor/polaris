@@ -1,0 +1,1056 @@
+================================================================
+POLARIS v6 non-sovereign rehearsal
+================================================================
+  generator        : deepseek/deepseek-v4-pro
+  evaluator        : google/gemma-4-31b-it
+  backend          : openrouter (https://openrouter.ai/api/v1)
+  OPENROUTER_API_KEY: present
+  PG_MAX_COST_PER_RUN: 5.00
+  prompts          : 8
+    - clinical: Is high-dose aspirin effective for acute migraine in adults?
+    - policy: What does the published evidence say about the effect of carbon pricing on household energy costs in Canada?
+    - tech: What are the documented reliability trade-offs of small modular nuclear reactors versus conventional reactors?
+    - due_diligence: What public-record factors are commonly assessed when evaluating the financial stability of a publicly traded utility company?
+    - ai_sovereignty: What approaches have national governments published for keeping AI inference workloads within their own jurisdiction?
+    - canada_us: How has the Canada-United States-Mexico Agreement affected published cross-border dairy trade volumes?
+    - workforce: What does the published labour-market evidence say about the effect of paid sick-leave mandates on employee turnover?
+    - custom: What does the peer-reviewed evidence say about the effect of urban tree canopy on summer surface temperatures?
+----------------------------------------------------------------
+[run] clinical (rehearsal_clinical_7d25f2eb) ...
+========================================================================
+SWEEP domain=clinical slug=clinical_is_high_dose_aspirin_effective_for_acute_migraine_in_adults
+Question: Is high-dose aspirin effective for acute migraine in adults?
+Budget cap: $5.0000
+========================================================================
+21:32:57 polaris_graph.scope_gate INFO [scope_gate] protocol written run_id=SWEEP_clinical_clinical_is_high_dose_aspirin_effective_for_acute_migraine_in_adults_1778992377 domain=clinical path=outputs\rehearsal_runs\rehearsal_clinical_7d25f2eb\protocol.json sha256=3273d6be5974c241
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 389, in connect_check_health
+    sock = self.retry.call_with_retry(
+        lambda: self._connect(), lambda error: self.disconnect(error)
+    )
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\retry.py", line 105, in call_with_retry
+    return do()
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 390, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+            ~~~~~~~~~~~~~^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 803, in _connect
+    raise err
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 787, in _connect
+    sock.connect(socket_address)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+ConnectionRefusedError: [WinError 10061] \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\POLARIS\src\polaris_v6\queue\run_events.py", line 66, in emit_event
+    client.xadd(
+    ~~~~~~~~~~~^
+        EVENT_STREAM_KEY.format(run_id=external_run_id),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+        approximate=True,
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\commands\core.py", line 3570, in xadd
+    return self.execute_command("XADD", name, *pieces)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\client.py", line 621, in execute_command
+    return self._execute_command(*args, **options)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\client.py", line 627, in _execute_command
+    conn = self.connection or pool.get_connection()
+                              ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\utils.py", line 195, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 1533, in get_connection
+    connection.connect()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 380, in connect
+    self.connect_check_health(check_health=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\redis\connection.py", line 397, in connect_check_health
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 10061 connecting to localhost:6379. \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Python313\Lib\logging\__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 184-199: character maps to <undefined>
+Call stack:
+  File "<string>", line 6, in <module>
+    runpy.run_path('scripts/v6/run_rehearsal.py', run_name='__main__')
+  File "<frozen runpy>", line 287, in run_path
+  File "<frozen runpy>", line 98, in _run_module_code
+  File "<frozen runpy>", line 88, in _run_code
+  File "scripts/v6/run_rehearsal.py", line 208, in <module>
+    main()
+  File "scripts/v6/run_rehearsal.py", line 204, in main
+    args.func(args)
+  File "scripts/v6/run_rehearsal.py", line 152, in cmd_run
+    enqueue_research_run.fn(run_id, {"template": template, "question": question})
+  File "C:\POLARIS\src\polaris_v6\queue\actors.py", line 163, in enqueue_research_run
+    summary = asyncio.run(run_one_query(q, artifact_dir_root))
+  File "C:\Python313\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+  File "C:\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Python313\Lib\asyncio\base_events.py", line 712, in run_until_complete
+    self.run_forever()
+  File "C:\Python313\Lib\asyncio\base_events.py", line 683, in run_forever
+    self._run_once()
+  File "C:\Python313\Lib\asyncio\base_events.py", line 2061, in _run_once
+    handle._run()
+  File "C:\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\POLARIS\scripts\run_honest_sweep_r3.py", line 1183, in run_one_query
+    emit_event(
+  File "C:\POLARIS\src\polaris_v6\queue\run_events.py", line 80, in emit_event
+    logger.warning(
+Message: '[run_events] emit failed run_id=%s event_type=%s: %s'
+Arguments: ('rehearsal_clinical_7d25f2eb', 'scope_gate.completed', ConnectionError('Error 10061 connecting to localhost:6379. \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002.'))
+[scope]       sha256=3273d6be5974c241... decision=review needs_review=True
+21:33:01 polaris_graph.regulatory_expander INFO [regulatory_expander] emitted 11 anchor queries for base='Is high-dose aspirin effective for acute migraine in adults?'
+[M-28]        regulatory_anchors: +11 queries (domain=clinical)
+21:33:01 polaris_graph.scope_query_validator INFO [scope_validator] floor=0.15 kept=12 dropped=0 (anchor_tokens=6)
+21:33:01 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults?'
+21:33:02 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults?'
+21:33:03 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:accessdata.fda'
+21:33:04 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:accessdata.fda'
+21:33:04 polaris_graph.live_retriever WARNING [live_retriever] S2 returned 429 for 'Is high-dose aspirin effective for acute migraine in adults?'
+21:33:04 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:ema.europa.eu'
+21:33:05 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:ema.europa.eu'
+21:33:05 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:fda.gov'
+21:33:07 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:fda.gov'
+21:33:07 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:hres.ca'
+21:33:08 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:hres.ca'
+21:33:09 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:pdf.hres.ca'
+21:33:10 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:pdf.hres.ca'
+21:33:10 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:canada.ca'
+21:33:11 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:canada.ca'
+21:33:12 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:recalls-rappel'
+21:33:13 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:recalls-rappel'
+21:33:13 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:health-product'
+21:33:14 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:health-product'
+21:33:15 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:hpfb-dgpsa.ca'
+21:33:16 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:hpfb-dgpsa.ca'
+21:33:16 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:who.int'
+21:33:17 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:who.int'
+21:33:18 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Is high-dose aspirin effective for acute migraine in adults? site:nice.org.uk'
+21:33:19 polaris_graph.live_retriever INFO [live_retriever] S2 q='Is high-dose aspirin effective for acute migraine in adults? site:nice.org.uk'
+21:33:19 polaris_graph.live_retriever INFO [live_retriever] 65 unique candidates from search
+21:33:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.neurologyadvisor.com/features/exploring-aspirin-
+21:33:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.brainandlife.org/articles/high-dose-aspirin-cure
+21:33:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/31712099/
+21:33:20 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.healthline.com/health/aspirin-for-migraine
+21:33:20 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.healthline.com/health/aspirin-for-migraine (timeout=30s)
+21:33:20 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.neurologyadvisor.com/features/exploring-aspirin-for-the-treatment-an (timeout=30s)
+21:33:20 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.brainandlife.org/articles/high-dose-aspirin-cure-for-migraine (timeout=30s)
+21:33:20 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/31712099/ (timeout=30s)
+21:33:22 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://pubmed.ncbi.nlm.nih.gov/31712099/ (2034 chars)
+21:33:22 trafilatura.xml WARNING missing link attribute: headache {}'
+21:33:22 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.brainandlife.org/articles/high-dose-aspirin-cure (4284 chars)
+21:33:22 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.healthline.com/health/aspirin-for-migraine (10739 chars)
+21:33:22 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.neurologyadvisor.com/features/exploring-aspirin- (11013 chars)
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/31712099/                         
+| ✓ | ⏱: 0.94s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/31712099/                         
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/31712099/                         
+| ✓ | ⏱: 0.96s 
+[FETCH]... ↓ 21:33:23 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/31712099/ (107 chars, status 200)
+
+https://www.brainandlife.org/articles/high-dose-aspirin-cure-for-migraine      
+| ✓ | ⏱: 1.39s 
+[SCRAPE].. ◆ 
+https://www.brainandlife.org/articles/high-dose-aspirin-cure-for-migraine      
+| ✓ | ⏱: 0.05s 
+[COMPLETE] ● 
+https://www.brainandlife.org/articles/high-dose-aspirin-cure-for-migraine      
+| ✓ | ⏱: 1.45s 
+[FETCH]... ↓ https://www.healthline.com/health/aspirin-for-migraine            
+| ✓ | ⏱: 1.89s 
+21:33:23 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 4083 chars
+21:33:23 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.brainandlife.org/articles/high-dose-aspirin-cure (4083 chars, status 200)
+[SCRAPE].. ◆ https://www.healthline.com/health/aspirin-for-migraine            
+| ✓ | ⏱: 0.24s 
+[COMPLETE] ● https://www.healthline.com/health/aspirin-for-migraine            
+| ✓21:33:24 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://pubmed.ncbi.nlm.nih.gov/31712099/ (23110 chars)
+ | ⏱: 2.21:33:24 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/31712099/ (23082 chars, score=0.685, 3 candidates, scores={'jina_reader': 0.685, 'trafilatura': 0.284, 'crawl4ai': 0.042})
+24s 
+21:33:24 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:24 trafilatura.core ERROR empty HTML tree: None
+21:33:24 trafilatura.core WARNING discarding data: None
+21:33:24 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/31712099/ (method=jina_reader chars=22289)
+21:33:24 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.brainandlife.org/articles/high-dose-aspirin-cure (5469 chars)
+21:33:24 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.brainandlife.org/articles/high-dose-aspirin-cure (5468 chars, score=0.229, 3 candidates, scores={'jina_reader': 0.229, 'trafilatura': 0.149, 'crawl4ai': 0.147})
+21:33:24 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+21:33:24 trafilatura.core ERROR empty HTML tree: None
+21:33:24 trafilatura.core WARNING discarding data: None
+21:33:24 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.brainandlife.org/articles/high-dose-aspirin-cure-for-migraine (method=jina_reader chars=5354)
+[FETCH]... ↓ 
+https://www.neurologyadvisor.com/features/explor...n-for-the-treatment-and-prev
+ention-of-migraines/  | ✓ | ⏱: 2.62s 
+21:33:24 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 8177 chars
+21:33:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.healthline.com/health/aspirin-for-migraine (8177 chars, status 200)
+21:33:24 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://doi.org/10.2165/00003495-199753010-00012
+21:33:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://doi.org/10.2165/00003495-199753010-00012 (timeout=30s)
+21:33:24 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://doi.org/10.1136/jnnp-2012-302487
+21:33:24 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://doi.org/10.1136/jnnp-2012-302487 (timeout=30s)
+[SCRAPE].. ◆ 
+https://www.neurologyadvisor.com/features/explor...n-for-the-treatment-and-prev
+ention-of-migraines/  | ✓ | ⏱: 0.34s 
+[COMPLETE] ● 
+https://www.neurologyadvisor.com/features/explor...n-for-the-treatment-and-prev
+ention-of-migraines/  | ✓ | ⏱: 3.16s 
+21:33:25 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 9763 chars
+21:33:25 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.neurologyadvisor.com/features/exploring-aspirin- (9763 chars, status 200)
+21:33:25 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.neurologyadvisor.com/features/exploring-aspirin- (11013 chars, score=0.484, 2 candidates, scores={'trafilatura': 0.484, 'crawl4ai': 0.463})
+21:33:25 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:25 trafilatura.core ERROR empty HTML tree: None
+21:33:25 trafilatura.core WARNING discarding data: None
+21:33:25 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.neurologyadvisor.com/features/exploring-aspirin-for-the-treatment-an (method=trafilatura chars=11013)
+21:33:25 urllib3.poolmanager INFO Redirecting https://doi.org/10.2165/00003495-199753010-00012 -> http://link.springer.com/10.2165/00003495-199753010-00012
+21:33:25 urllib3.poolmanager INFO Redirecting https://doi.org/10.1136/jnnp-2012-302487 -> https://jnnp.bmj.com/lookup/doi/10.1136/jnnp-2012-302487
+21:33:25 urllib3.connectionpool WARNING Connection pool is full, discarding connection: doi.org. Connection pool size: 1
+21:33:26 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://doi.org/10.31525/ct1-nct04210752
+21:33:26 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://doi.org/10.31525/ct1-nct04210752 (timeout=30s)
+21:33:26 urllib3.poolmanager INFO Redirecting http://link.springer.com/10.2165/00003495-199753010-00012 -> https://link.springer.com/article/10.2165/00003495-199753010-00012
+21:33:26 urllib3.poolmanager INFO Redirecting https://doi.org/10.31525/ct1-nct04210752 -> http://alpha.casemedicalresearch.com/api/v2/doi/10.31525/ct1-nct04210752
+21:33:26 trafilatura.core WARNING discarding data: None
+21:33:26 trafilatura.downloads ERROR not a 200 response: 403 for URL https://doi.org/10.1136/jnnp-2012-302487
+[FETCH]... ↓ https://doi.org/10.1136/jnnp-2012-302487                          
+| ✓ | ⏱: 0.85s 
+[SCRAPE].. ◆ https://doi.org/10.1136/jnnp-2012-302487                          
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://doi.org/10.1136/jnnp-2012-302487                          
+| ✓ | ⏱: 0.87s 
+21:33:27 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://doi.org/10.1136/jnnp-2012-302487 (284 chars, status 302)
+21:33:27 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://doi.org/10.1136/jnnp-2012-302487 (283 chars, score=0.005, 1 candidates, scores={'crawl4ai': 0.005})
+21:33:27 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:27 trafilatura.core ERROR empty HTML tree: None
+21:33:27 trafilatura.core WARNING discarding data: None
+21:33:27 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.1136/jnnp-2012-302487 (method=crawl4ai chars=283)
+21:33:27 trafilatura.downloads ERROR download error: https://doi.org/10.2165/00003495-199753010-00012 HTTPSConnectionPool(host='link.springer.com', port=443): Max retries exceeded with url: https://link.springer.com/article/10.2165/00003495-199753010-00012 (Caused by ResponseError('too many redirects'))
+21:33:28 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.healthline.com/health/aspirin-for-migraine (43533 chars)
+21:33:28 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.healthline.com/health/aspirin-for-migraine (43512 chars, score=0.746, 3 candidates, scores={'jina_reader': 0.746, 'trafilatura': 0.3, 'crawl4ai': 0.225})
+21:33:28 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:28 trafilatura.core ERROR empty HTML tree: None
+21:33:28 trafilatura.core WARNING discarding data: None
+21:33:28 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.healthline.com/health/aspirin-for-migraine (method=jina_reader chars=25000)
+21:33:29 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/2131
+21:33:29 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf (timeout=30s)
+21:33:29 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121
+21:33:29 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf (timeout=30s)
+[FETCH]... ↓ https://doi.org/10.2165/00003495-199753010-00012                  
+| ✓ | ⏱: 3.77s 
+21:33:29 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:30 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf
+21:33:30 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:30 urllib3.connectionpool WARNING Connection pool is full, discarding connection: www.accessdata.fda.gov. Connection pool size: 1
+21:33:30 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf
+[21:33:31 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/2131 (206 chars)
+SCRAPE].. ◆ https://doi.org/10.2165/00003495-199753010-00012                  
+| ✓ | ⏱: 1.27s 
+[COMPLETE] ● https://doi.org/10.2165/00003495-199753010-00012                  
+| ✓ | ⏱: 5.08s 
+[FETCH]... ↓ https://doi.org/10.31525/ct1-nct04210752                          
+| ✓ | ⏱: 3.82s 
+[SCRAPE].. ◆ https://doi.org/10.31525/ct1-nct04210752                          
+| ✓ | ⏱: 0.03s 
+[COMPLETE] ● https://doi.org/10.31525/ct1-nct04210752                          
+| ✓ | ⏱: 3.86s 
+21:33:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://doi.org/10.31525/ct1-nct04210752 (3281 chars, status 302)
+21:33:31 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://doi.org/10.31525/ct1-nct04210752 (3280 chars, score=0.067, 1 candidates, scores={'crawl4ai': 0.067})
+21:33:31 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:31 trafilatura.core ERROR empty HTML tree: None
+21:33:31 trafilatura.core WARNING discarding data: None
+21:33:31 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.31525/ct1-nct04210752 (method=crawl4ai chars=3280)
+21:33:31 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 66325 chars
+21:33:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://doi.org/10.2165/00003495-199753010-00012 (66325 chars, status 302)
+21:33:31 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21
+21:33:31 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf (timeout=30s)
+21:33:32 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf   
+| ✓ | ⏱: 1.80s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf   
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf   
+| ✓ | ⏱: 1.81s 
+21:33:32 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf
+21:33:32 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://doi.org/10.2165/00003495-199753010-00012 (194372 chars)
+21:33:32 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://doi.org/10.2165/00003495-199753010-00012 (66325 chars, score=0.850, 2 candidates, scores={'crawl4ai': 0.85, 'jina_reader': 0.8})
+21:33:32 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:32 trafilatura.core ERROR empty HTML tree: None
+21:33:32 trafilatura.core WARNING discarding data: None
+21:33:32 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.2165/00003495-199753010-00012 (method=crawl4ai chars=25000)
+21:33:32 trafilatura.core WARNING discarding data: None
+21:33:32 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/2131 (1 chars)
+21:33:32 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/2131 (204 chars, score=0.163, 1 candidates, scores={'jina_reader': 0.163})
+21:33:32 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:32 trafilatura.core ERROR empty HTML tree: None
+21:33:32 trafilatura.core WARNING discarding data: None
+21:33:32 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.accessdata.fda.gov/drugsatfda_docs/nda/2001/21317_Bayer_medr.pdf (method=jina_reader chars=200)
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf 
+| ✓ | ⏱: 2.05s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf 
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf 
+| ✓ | ⏱: 2.09s 
+21:33:32 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/02
+21:33:32 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf (timeout=30s)
+21:33:32 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/2117
+21:33:32 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf (timeout=30s)
+21:33:32 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:32 trafilatura.core WARNING discarding data: None
+21:33:32 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121 (1 chars)
+21:33:32 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121
+21:33:32 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+21:33:32 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf, trying alternatives
+21:33:32 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121
+21:33:32 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf
+21:33:33 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf: 429, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://archive.org/wayback/available?url=https://www.a
+21:33:33 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf
+21:33:33 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000lbl.pdf (method=failed reason=no_content)
+21:33:33 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/2036
+21:33:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf (timeout=30s)
+21:33:33 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:33 urllib3.connectionpool WARNING Connection pool is full, discarding connection: www.accessdata.fda.gov. Connection pool size: 1
+21:33:33 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf
+21:33:33 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (45901 chars)
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf    
+| ✓ | ⏱: 0.63s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf    
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf    
+| ✓ | ⏱: 0.69s 
+21:33:34 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:34 urllib3.connectionpool WARNING Connection pool is full, discarding connection: www.accessdata.fda.gov. Connection pool size: 1
+21:33:34 trafilatura.core WARNING discarding data: None
+21:33:34 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (1 chars)
+21:33:34 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (45900 chars, score=0.800, 1 candidates, scores={'jina_reader': 0.8})
+21:33:34 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:34 trafilatura.core ERROR empty HTML tree: None
+21:33:34 trafilatura.core WARNING discarding data: None
+21:33:34 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/212728s026lbl.pdf (method=jina_reader chars=25000)
+21:33:34 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf
+21:33:34 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121
+21:33:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf (timeout=30s)
+21:33:34 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:34 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf    
+| ✓ | ⏱: 0.97s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf    
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf    
+| ✓ | ⏱: 1.00s 
+21:33:34 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/02 (115338 chars)
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf
+| ✓ | ⏱: 1.02s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf
+| ✓ | ⏱: 1.04s 
+21:33:34 trafilatura.core WARNING discarding data: None
+21:33:34 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/02 (1 chars)
+21:33:34 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/02 (115337 chars, score=0.840, 1 candidates, scores={'jina_reader': 0.84})
+21:33:35 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:35 trafilatura.core ERROR empty HTML tree: None
+21:33:35 trafilatura.core WARNING discarding data: None
+21:33:35 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/021926s019lbl.pdf (method=jina_reader chars=25000)
+21:33:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21
+21:33:35 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf (timeout=30s)
+21:33:35 trafilatura.core WARNING discarding data: None
+21:33:35 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/2117 (1 chars)
+21:33:35 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/2117
+21:33:35 urllib3.poolmanager INFO Redirecting https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf -> https://www.accessdata.fda.gov/apology_objects/abuse-detection-apology.html
+21:33:35 trafilatura.downloads ERROR not a 200 response: 404 for URL https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf
+| ✓ | ⏱: 0.90s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf
+| ✓ | ⏱: 0.94s 
+21:33:35 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+21:33:35 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf, trying alternatives
+21:33:35 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/2117
+21:33:35 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121 (39990 chars)
+21:33:35 trafilatura.core WARNING discarding data: None
+21:33:35 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/2036 (1 chars)
+21:33:35 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/2036
+21:33:35 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf: 429, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://archive.org/wayback/available?url=https://www.a
+21:33:35 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf
+21:33:35 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://www.accessdata.fda.gov/drugsatfda_docs/nda/2019/211765Orig1s000MedR.pdf (method=failed reason=no_content)
+21:33:36 src.tools.access_bypass WARNING [ACCESS] direct fetch failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+21:33:36 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf, trying alternatives
+21:33:36 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/2036
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf
+| ✓ | ⏱: 0.82s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf
+| ✓ | ⏱: 0.84s 
+21:33:36 trafilatura.core WARNING discarding data: None
+21:33:36 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121 (1 chars)
+21:33:36 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/2121 (39989 chars, score=0.950, 1 candidates, scores={'jina_reader': 0.95})
+21:33:36 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:36 trafilatura.core ERROR empty HTML tree: None
+21:33:36 trafilatura.core WARNING discarding data: None
+21:33:36 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.accessdata.fda.gov/drugsatfda_docs/nda/2020/212157Orig1s000SumR.pdf (method=jina_reader chars=25000)
+21:33:36 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://pubmed.ncbi.nlm.nih.gov/15836564/
+21:33:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://pubmed.ncbi.nlm.nih.gov/15836564/ (timeout=30s)
+21:33:36 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf: 429, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://archive.org/wayback/available?url=https://www.a
+21:33:36 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf
+21:33:36 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://www.accessdata.fda.gov/drugsatfda_docs/nda/2013/203697Orig1s000MedR.pdf (method=failed reason=no_content)
+21:33:36 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.pharmacytimes.com/view/resourcecentermigraine
+21:33:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.pharmacytimes.com/view/resourcecentermigraine (timeout=30s)
+21:33:37 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://pubmed.ncbi.nlm.nih.gov/15836564/ (2849 chars)
+21:33:37 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (117472 chars)
+[FETCH]... ↓ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf    
+| ✓ | ⏱: 0.91s 
+[SCRAPE].. ◆ 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf    
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf    
+| ✓ | ⏱: 0.92s 
+21:33:37 trafilatura.core WARNING discarding data: None
+21:33:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (1 chars)
+21:33:37 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/21 (117471 chars, score=0.840, 1 candidates, scores={'jina_reader': 0.84})
+21:33:37 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:37 trafilatura.core ERROR empty HTML tree: None
+21:33:37 trafilatura.core WARNING discarding data: None
+21:33:37 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215431s000lbl.pdf (method=jina_reader chars=25000)
+21:33:37 src.tools.access_bypass WARNING [ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (bytes=5406419>5242880), using PyMuPDF: https://www.ema.europa.eu/en/documents/assessment-
+21:33:38 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://www.ema.europa.eu/en/documents/assessment-report/ajo (282383 chars)
+21:33:38 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:38 trafilatura.core ERROR empty HTML tree: None
+21:33:38 trafilatura.core WARNING discarding data: None
+21:33:38 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.ema.europa.eu/en/documents/assessment-report/ajovy-epar-public-asses (method=pdf_extract chars=25000)
+21:33:38 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.medicalnewstoday.com/articles/aspirin-for-a-migr
+21:33:38 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.medicalnewstoday.com/articles/aspirin-for-a-migraine (timeout=30s)
+21:33:38 src.tools.access_bypass INFO [ACCESS] PL: ScienceDirect PII S00029343193 -> DOI: 10.1016/j.amjmed.2019.10.023
+21:33:38 src.tools.access_bypass INFO [ACCESS] PL: Resolved https://www.sciencedirect.com/science/article/abs/ -> https://doi.org/10.1016/j.amjmed.2019.10.023
+21:33:39 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://doi.org/10.1016/j.amjmed.2019.10.023
+21:33:39 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://doi.org/10.1016/j.amjmed.2019.10.023 (timeout=30s)
+21:33:39 urllib3.poolmanager INFO Redirecting https://doi.org/10.1016/j.amjmed.2019.10.023 -> https://linkinghub.elsevier.com/retrieve/pii/S0002934319309660
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/15836564/                         
+| ✓ | ⏱: 1.27s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/15836564/                         
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/15836564/                         
+| ✓ | ⏱: 1.34s 
+21:33:39 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://pubmed.ncbi.nlm.nih.gov/15836564/ (24520 chars)
+21:33:39 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://pubmed.ncbi.nlm.nih.gov/15836564/ (107 chars, status 200)
+21:33:39 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://pubmed.ncbi.nlm.nih.gov/15836564/ (24492 chars, score=0.858, 3 candidates, scores={'jina_reader': 0.858, 'trafilatura': 0.497, 'crawl4ai': 0.042})
+21:33:39 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:39 trafilatura.core ERROR empty HTML tree: None
+21:33:39 trafilatura.core WARNING discarding data: None
+21:33:39 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pubmed.ncbi.nlm.nih.gov/15836564/ (method=jina_reader chars=23606)
+21:33:39 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.medicalnewstoday.com/articles/aspirin-for-a-migr (9373 chars)
+21:33:40 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.pharmacytimes.com/view/resourcecentermigraine (4429 chars)
+[FETCH]... ↓ https://www.pharmacytimes.com/view/resourcecentermigraine         
+| ✓ | ⏱: 2.25s 
+21:33:40 trafilatura.core WARNING discarding data: None
+[SCRAPE].. ◆ https://www.pharmacytimes.com/view/resourcecentermigraine         
+| ✓ | ⏱: 0.97s 
+[COMPLETE] ● https://www.pharmacytimes.com/view/resourcecentermigraine         
+| ✓ | ⏱: 3.24s 
+[FETCH]... ↓ https://www.medicalnewstoday.com/articles/aspirin-for-a-migraine  
+| ✓ | ⏱: 2.02s 
+[SCRAPE].. ◆ https://www.medicalnewstoday.com/articles/aspirin-for-a-migraine  
+| ✓ | ⏱: 0.30s 
+[COMPLETE] ● https://www.medicalnewstoday.com/articles/aspirin-for-a-migraine  
+| ✓ | ⏱: 2.41s 
+21:33:42 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 3721 chars
+21:33:42 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.pharmacytimes.com/view/resourcecentermigraine (3721 chars, status 200)
+21:33:42 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.pharmacytimes.com/view/resourcecentermigraine (3721 chars, score=0.220, 2 candidates, scores={'crawl4ai': 0.22, 'trafilatura': 0.214})
+21:33:42 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:42 trafilatura.core ERROR empty HTML tree: None
+21:33:42 trafilatura.core WARNING discarding data: None
+21:33:42 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.pharmacytimes.com/view/resourcecentermigraine (method=crawl4ai chars=3721)
+21:33:42 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 7187 chars
+21:33:42 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.medicalnewstoday.com/articles/aspirin-for-a-migr (7187 chars, status 200)
+21:33:45 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.medicalnewstoday.com/articles/aspirin-for-a-migr (45276 chars)
+21:33:45 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.medicalnewstoday.com/articles/aspirin-for-a-migr (45264 chars, score=0.710, 3 candidates, scores={'jina_reader': 0.71, 'trafilatura': 0.356, 'crawl4ai': 0.187})
+21:33:45 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:45 trafilatura.core ERROR empty HTML tree: None
+21:33:45 trafilatura.core WARNING discarding data: None
+21:33:45 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.medicalnewstoday.com/articles/aspirin-for-a-migraine (method=jina_reader chars=25000)
+[FETCH]... ↓ https://doi.org/10.1016/j.amjmed.2019.10.023                      
+| ✓ | ⏱: 5.51s 
+[SCRAPE].. ◆ https://doi.org/10.1016/j.amjmed.2019.10.023                      
+| ✓ | ⏱: 0.38s 
+[COMPLETE] ● https://doi.org/10.1016/j.amjmed.2019.10.023                      
+| ✓ | ⏱: 5.90s 
+21:33:46 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 7044 chars
+21:33:46 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://doi.org/10.1016/j.amjmed.2019.10.023 (7044 chars, status 302)
+21:33:46 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://doi.org/10.1016/j.amjmed.2019.10.023 (7044 chars, score=0.367, 1 candidates, scores={'crawl4ai': 0.367})
+21:33:46 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:33:46 trafilatura.core ERROR empty HTML tree: None
+21:33:46 trafilatura.core WARNING discarding data: None
+21:33:46 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.sciencedirect.com/science/article/abs/pii/S0002934319309660 (method=crawl4ai chars=7044)
+21:33:46 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 parallel_fetch: 20 success, 0 errored, 0 timeout (max_workers=8, per_task_timeout=120s)
+[retrieval]   pre_filter=65, fetched=17, failed=3, elapsed=62.7s  api_calls={'serper': 12, 's2': 12, 'openalex': 14, 'fetch': 20, 'parallel_fetch_success_count': 20, 'parallel_fetch_errored_count': 0, 'parallel_fetch_timeout_count': 0}
+[corpus]      total=20  T2=5%, T3=40%, T4=30%, T6=15%, T7=10%  material_deviation=True
+[adequacy]    decision=abort  applicable_checks=8  critical=2  warn=0
+                CRITICAL t1_count: 0 vs threshold 3
+                CRITICAL t1_plus_t2: 1 vs threshold 5
+[completeness] 6/6 topics covered  uncovered=[]
+[ABORT]       Corpus inadequate for confident synthesis. Refusing to ship a misleading short report.
+21:34:08 src.polaris_v6.queue.run_events WARNING [run_events] emit failed run_id=rehearsal_clinical_7d25f2eb event_type=run.completed: Error 10061 connecting to localhost:6379. 無法連線，因為目標電腦拒絕連線。.
+  pipeline_status=abort_corpus_inadequate cost_usd=0.0
+[run] policy (rehearsal_policy_117dd77e) ...
+21:34:08 polaris_v6.queue.actors INFO [actor] v30_contract_patch synthesized run_id=rehearsal_policy_117dd77e template_id=policy slug=policy_what_does_the_published_evidence_say_about_the_effect_of_car entities=5
+========================================================================
+SWEEP domain=policy slug=policy_what_does_the_published_evidence_say_about_the_effect_of_car
+Question: What does the published evidence say about the effect of carbon pricing on household energy costs in Canada?
+Budget cap: $5.0000
+========================================================================
+21:34:08 polaris_graph.scope_gate INFO [scope_gate] protocol written run_id=SWEEP_policy_policy_what_does_the_published_evidence_say_about_the_effect_of_car_1778992448 domain=policy path=outputs\rehearsal_runs\rehearsal_policy_117dd77e\protocol.json sha256=17157c2e3bf989f7
+[scope]       sha256=17157c2e3bf989f7... decision=proceed needs_review=False
+21:34:12 src.polaris_v6.queue.run_events WARNING [run_events] emit failed run_id=rehearsal_policy_117dd77e event_type=scope_gate.completed: Error 10061 connecting to localhost:6379. 無法連線，因為目標電腦拒絕連線。.
+21:34:12 polaris_graph.regulatory_expander INFO [regulatory_expander] emitted 8 anchor queries for base='What does the published evidence say about the effect of car'
+[M-28]        regulatory_anchors: +8 queries (domain=policy)
+21:34:12 polaris_graph.scope_query_validator INFO [scope_validator] floor=0.15 kept=9 dropped=0 (anchor_tokens=10)
+21:34:12 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:13 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:14 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:15 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:16 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:17 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:17 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:18 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:19 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:20 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:21 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:22 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:22 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:23 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:24 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:25 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:26 polaris_graph.live_retriever INFO [live_retriever] SERPER q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:27 polaris_graph.live_retriever INFO [live_retriever] S2 q='What does the published evidence say about the effect of carbon pricing on house'
+21:34:30 polaris_graph.live_retriever INFO [live_retriever] 81 unique candidates from search
+21:34:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://cleanenergycanada.org/carbon-pricing-and-its-impact-
+21:34:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.canada.ca/en/services/environment/weather/climat
+21:34:30 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-
+21:34:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households/ (timeout=30s)
+21:34:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/ (timeout=30s)
+21:34:30 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.canada.ca/en/services/environment/weather/climatechange/climate-acti (timeout=30s)
+21:34:31 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://cleanenergycanada.org/carbon-pricing-and-its-impact- (5005 chars)
+21:34:32 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.canada.ca/en/services/environment/weather/climat (34228 chars)
+[FETCH]... ↓ 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 1.33s 
+[SCRAPE].. ◆ 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 0.28s 
+[COMPLETE] ● 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 1.63s 
+21:34:33 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 27925 chars
+21:34:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.canada.ca/en/services/environment/weather/climat (27925 chars, status 200)
+[FETCH]... ↓ 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 1.90s 
+[SCRAPE].. ◆ 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 1.98s 
+21:34:33 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 3407 chars
+21:34:33 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://cleanenergycanada.org/carbon-pricing-and-its-impact- (3407 chars, status 200)
+21:34:33 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://cleanenergycanada.org/carbon-pricing-and-its-impact- (5005 chars, score=0.275, 2 candidates, scores={'trafilatura': 0.275, 'crawl4ai': 0.209})
+21:34:33 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:33 trafilatura.core ERROR empty HTML tree: None
+21:34:33 trafilatura.core WARNING discarding data: None
+21:34:33 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/ (method=trafilatura chars=5005)
+21:34:33 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2025/06/17/2025-10
+21:34:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2025/06/17/2025-10991/repeal-of-greenh (timeout=30s)
+21:34:34 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.canada.ca/en/services/environment/weather/climat (28373 chars)
+21:34:34 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.canada.ca/en/services/environment/weather/climat (34227 chars, score=0.800, 3 candidates, scores={'jina_reader': 0.8, 'trafilatura': 0.786, 'crawl4ai': 0.78})
+21:34:34 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:34 trafilatura.core ERROR empty HTML tree: None
+21:34:34 trafilatura.core WARNING discarding data: None
+21:34:34 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.canada.ca/en/services/environment/weather/climatechange/climate-acti (method=jina_reader chars=25000)
+21:34:34 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2026/02/18/2026-03
+21:34:34 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2026/02/18/2026-03157/rescission-of-th (timeout=30s)
+21:34:34 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2025/06/17/2025-10991/repeal-of-greenhouse-gas-emissions-standards-for-fossil-fuel-fired-electric-generating-units -> https://unblock.federalregister.gov
+21:34:35 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2026/02/18/2026-03157/rescission-of-the-greenhouse-gas-endangerment-finding-and-motor-vehicle-greenhouse-gas-emission -> https://unblock.federalregister.gov
+21:34:35 urllib3.connectionpool WARNING Connection pool is full, discarding connection: www.federalregister.gov. Connection pool size: 1
+21:34:35 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2025/06/17/2025-10 (927 chars)
+21:34:36 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on- (7853 chars)
+21:34:36 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.federalregister.gov/documents/2025/06/17/2025-10 (294 chars)
+21:34:36 urllib3.connectionpool WARNING Connection pool is full, discarding connection: unblock.federalregister.gov. Connection pool size: 1
+21:34:36 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2026/02/18/2026-03 (927 chars)
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2025/0...-for-fossil-fuel-fired-elect
+ric-generating-units  | ✓ | ⏱: 1.47s 
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2026/0...inding-and-motor-vehicle-gre
+enhouse-gas-emission  | ✓ | ⏱: 1.19s 
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2026/0...inding-and-motor-vehicle-gre
+enhouse-gas-emission  | ✓ | ⏱: 0.13s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2026/0...inding-and-motor-vehicle-gre
+enhouse-gas-emission  | ✓ | ⏱: 1.34s 
+21:34:37 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 1560 chars
+21:34:37 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2026/02/18/2026-03 (1560 chars, status 500)
+21:34:37 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.federalregister.gov/documents/2026/02/18/2026-03 (1560 chars, score=0.102, 2 candidates, scores={'crawl4ai': 0.102, 'trafilatura': 0.015})
+21:34:37 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:37 trafilatura.core ERROR empty HTML tree: None
+21:34:37 trafilatura.core WARNING discarding data: None
+21:34:37 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2026/02/18/2026-03157/rescission-of-th (method=crawl4ai chars=1560)
+21:34:37 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2023/02/01/2023-00
+21:34:37 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2023/02/01/2023-00610/energy-conservat (timeout=30s)
+21:34:37 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2023/02/01/2023-00610/energy-conservation-program-energy-conservation-standards-for-consumer-conventional-cooking-products?email=467cb6399cb7df64551775e431052b43a775c749&emaila=12a6d4d069cd56cfddaa391c24eb7042&emailb=054528e7403871c79f668e49dd3c44b1ec00c7f611bf9388f76bb2324d6ca5f3&utm_source=Sailthru&utm_medium=email&utm_campaign=01.29.24%20Energy%20%26%20Environment%20JB -> https://unblock.federalregister.gov
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2025/0...-for-fossil-fuel-fired-elect
+ric-generating-units  | ✓ | ⏱: 1.47s 
+21:34:37 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2023/02/01/2023-00 (927 chars)
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2025/0...-for-fossil-fuel-fired-elect
+ric-generating-units  | ✓ | ⏱: 2.96s 
+[FETCH]... ↓ 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 6.58s 
+[SCRAPE].. ◆ 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 0.23s 
+[COMPLETE] ● 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 6.87s 
+21:34:38 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 211179 chars
+21:34:38 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2025/06/17/2025-10 (211179 chars, status 200)
+21:34:38 src.tools.access_bypass INFO [ACCESS] M-23d: Short content (293 chars) with HTTP-error signal (\b403\s+forbidden\b) — treating as failed fetch
+21:34:38 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.federalregister.gov/documents/2025/06/17/2025-10 (211179 chars, score=0.978, 2 candidates, scores={'crawl4ai': 0.978, 'trafilatura': 0.015})
+21:34:38 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:38 trafilatura.core ERROR empty HTML tree: None
+21:34:38 trafilatura.core WARNING discarding data: None
+21:34:38 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2025/06/17/2025-10991/repeal-of-greenh (method=crawl4ai chars=25000)
+21:34:38 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2015/10/23/2015-22
+21:34:38 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2015/10/23/2015-22842/carbon-pollution (timeout=30s)
+21:34:38 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 7284 chars
+21:34:38 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on- (7284 chars, status 200)
+21:34:38 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2015/10/23/2015-22842/carbon-pollution-emission-guidelines-for-existing-stationary-sources-electric-utility-generating -> https://unblock.federalregister.gov
+21:34:39 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2015/10/23/2015-22 (927 chars)
+21:34:40 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.federalregister.gov/documents/2023/02/01/2023-00 (744056 chars)
+21:34:40 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on- (8160 chars)
+21:34:40 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on- (8159 chars, score=0.269, 3 candidates, scores={'jina_reader': 0.269, 'trafilatura': 0.262, 'crawl4ai': 0.226})
+21:34:40 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:40 trafilatura.core ERROR empty HTML tree: None
+21:34:40 trafilatura.core WARNING discarding data: None
+21:34:40 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households/ (method=jina_reader chars=8136)
+21:34:40 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2024/05/09/2024-09
+21:34:41 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2024/05/09/2024-09233/new-source-perfo (timeout=30s)
+21:34:41 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2024/05/09/2024-09233/new-source-performance-standards-for-greenhouse-gas-emissions-from-new-modified-and-reconstructed -> https://unblock.federalregister.gov
+21:34:41 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2024/05/09/2024-09 (927 chars)
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2023/0...il&utm_campaign=01.29.24 
+Energy & Environment JB  | ✓ | ⏱: 2.88s 
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2023/0...il&utm_campaign=01.29.24 
+Energy & Environment JB  | ✓ | ⏱: 2.74s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2023/0...il&utm_campaign=01.29.24 
+Energy & Environment JB  | ✓ | ⏱: 5.64s 
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2024/0...as-emissions-from-new-modifi
+ed-and-reconstructed  | ✓ | ⏱: 2.14s 
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2024/0...as-emissions-from-new-modifi
+ed-and-reconstructed  | ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2024/0...as-emissions-from-new-modifi
+ed-and-reconstructed  | ✓ | ⏱: 2.23s 
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2015/1...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 4.48s 
+21:34:44 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 1560 chars
+21:34:44 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2024/05/09/2024-09 (1560 chars, status 500)
+21:34:46 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 510827 chars
+21:34:46 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2023/02/01/2023-00 (510827 chars, status 200)
+21:34:46 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.federalregister.gov/documents/2023/02/01/2023-00 (510827 chars, score=1.000, 3 candidates, scores={'crawl4ai': 1.0, 'jina_reader': 1.0, 'trafilatura': 0.015})
+21:34:46 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:46 trafilatura.core ERROR empty HTML tree: None
+21:34:46 trafilatura.core WARNING discarding data: None
+21:34:46 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2023/02/01/2023-00610/energy-conservat (method=crawl4ai chars=25000)
+21:34:46 src.tools.access_bypass WARNING [ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=313>40), using PyMuPDF: https://public-inspection.federalregister.gov/2026
+21:34:46 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://public-inspection.federalregister.gov/2026-06275.pdf (667334 chars)
+21:34:47 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:47 trafilatura.core ERROR empty HTML tree: None
+21:34:47 trafilatura.core WARNING discarding data: None
+21:34:47 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://public-inspection.federalregister.gov/2026-06275.pdf (method=pdf_extract chars=25000)
+21:34:47 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2014/06/18/2014-13
+21:34:47 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2014/06/18/2014-13726/carbon-pollution (timeout=30s)
+21:34:47 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2014/06/18/2014-13726/carbon-pollution-emission-guidelines-for-existing-stationary-sources-electric-utility-generating -> https://unblock.federalregister.gov
+21:34:47 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2014/06/18/2014-13 (927 chars)
+21:34:48 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.federalregister.gov/documents/2014/06/18/2014-13 (10570 chars)
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2014/0...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 1.85s 
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2015/1...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 8.38s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2015/1...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 12.21:34:52 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.federalregister.gov/documents/2024/05/09/2024-09 (2648997 chars)
+92s 
+21:34:53 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.federalregister.gov/documents/2024/05/09/2024-09 (2648979 chars, score=1.000, 3 candidates, scores={'jina_reader': 1.0, 'crawl4ai': 0.102, 'trafilatura': 0.015})
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2014/0...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 3.20s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2014/0...g-stationary-sources-electri
+c-utility-generating  | ✓ | ⏱: 5.36s 
+21:34:53 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:53 trafilatura.core ERROR empty HTML tree: None
+21:34:53 trafilatura.core WARNING discarding data: None
+21:34:53 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2024/05/09/2024-09233/new-source-perfo (method=jina_reader chars=25000)
+21:34:53 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.federalregister.gov/documents/2014/01/08/2013-28
+21:34:53 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.federalregister.gov/documents/2014/01/08/2013-28668/standards-of-per (timeout=30s)
+21:34:53 urllib3.poolmanager INFO Redirecting https://www.federalregister.gov/documents/2014/01/08/2013-28668/standards-of-performance-for-greenhouse-gas-emissions-from-new-stationary-sources-electric-utility -> https://unblock.federalregister.gov
+21:34:53 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.federalregister.gov/documents/2014/01/08/2013-28 (927 chars)
+21:34:53 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 1560 chars
+21:34:53 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2014/06/18/2014-13 (1560 chars, status 500)
+21:34:53 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.federalregister.gov/documents/2014/06/18/2014-13 (10552 chars, score=0.431, 3 candidates, scores={'jina_reader': 0.431, 'crawl4ai': 0.102, 'trafilatura': 0.015})
+21:34:53 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:53 trafilatura.core ERROR empty HTML tree: None
+21:34:53 trafilatura.core WARNING discarding data: None
+21:34:53 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2014/06/18/2014-13726/carbon-pollution (method=jina_reader chars=10100)
+21:34:54 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/
+21:34:54 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/content.pdf (timeout=30s)
+21:34:54 trafilatura.downloads ERROR not a 200 response: 403 for URL https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/content.pdf
+[ERROR]... × https://downloads.regul...8-0794-6943/content.pdf  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/content.pdf", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+21:34:55 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+21:34:56 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/ (77249 chars)
+21:34:56 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/ (77248 chars, score=0.950, 1 candidates, scores={'jina_reader': 0.95})
+[FETCH]... ↓ 
+https://www.federalregister.gov/documents/2014/0...ons-from-new-stationary-sour
+ces-electric-utility  | ✓ | ⏱: 2.79s 
+21:34:57 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:57 trafilatura.core ERROR empty HTML tree: None
+21:34:57 trafilatura.core WARNING discarding data: None
+21:34:57 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://downloads.regulations.gov/EPA-HQ-OAR-2018-0794-6943/content.pdf (method=jina_reader chars=25000)
+21:34:57 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951
+21:34:57 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951/attachment_3.pdf (timeout=30s)
+21:34:57 trafilatura.downloads ERROR not a 200 response: 403 for URL https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951/attachment_3.pdf
+21:34:57 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2214842 chars
+21:34:57 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2015/10/23/2015-22 (2214842 chars, status 200)
+21:34:58 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://www.federalregister.gov/documents/2015/10/23/2015-22 (2214842 chars, score=0.979, 2 candidates, scores={'crawl4ai': 0.979, 'trafilatura': 0.015})
+21:34:58 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:34:58 trafilatura.core ERROR empty HTML tree: None
+21:34:58 trafilatura.core WARNING discarding data: None
+21:34:58 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2015/10/23/2015-22842/carbon-pollution (method=crawl4ai chars=25000)
+21:34:58 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-00
+21:34:58 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001 (timeout=30s)
+[ERROR]... × https://downloads.regul...-10951/attachment_3.pdf  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951/attachment_3.pdf"
+, waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+21:34:59 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001
+2026-05-16 21:34:59.639439: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+21:34:59 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+[SCRAPE].. ◆ 
+https://www.federalregister.gov/documents/2014/0...ons-from-new-stationary-sour
+ces-electric-utility  | ✓ | ⏱: 3.26s 
+[COMPLETE] ● 
+https://www.federalregister.gov/documents/2014/0...ons-from-new-stationary-sour
+ces-electric-utility  | ✓ | ⏱: 6.08s 
+21:35:01 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951 (388299 chars)
+21:35:01 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951 (388298 chars, score=1.000, 1 candidates, scores={'jina_reader': 1.0})
+21:35:01 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:01 trafilatura.core ERROR empty HTML tree: None
+21:35:01 trafilatura.core WARNING discarding data: None
+21:35:01 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://downloads.regulations.gov/EPA-HQ-OAR-2013-0495-10951/attachment_3.pdf (method=jina_reader chars=25000)
+21:35:01 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/
+21:35:01 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/content.pdf (timeout=30s)
+21:35:01 trafilatura.downloads ERROR not a 200 response: 403 for URL https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/content.pdf
+21:35:02 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 633011 chars
+21:35:02 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://www.federalregister.gov/documents/2014/01/08/2013-28 (633011 chars, status 200)
+[FETCH]... ↓ https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001    
+| ✓ | ⏱: 2.62s 
+21:35:02 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.federalregister.gov/documents/2014/01/08/2013-28 (859800 chars)
+21:35:03 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.federalregister.gov/documents/2014/01/08/2013-28 (859782 chars, score=1.000, 3 candidates, scores={'jina_reader': 1.0, 'crawl4ai': 0.942, 'trafilatura': 0.015})
+[SCRAPE].. ◆ https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001    
+| ✓ | ⏱: 0.36s 
+[COMPLETE] ● https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001    
+| ✓ | ⏱: 3.05s 
+21:35:03 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:03 trafilatura.core ERROR empty HTML tree: None
+21:35:03 trafilatura.core WARNING discarding data: None
+21:35:03 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.federalregister.gov/documents/2014/01/08/2013-28668/standards-of-per (method=jina_reader chars=25000)
+21:35:03 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://irpp.org/research-studies/does-emissions-pricing-hur
+21:35:03 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/ (timeout=30s)
+[ERROR]... × https://downloads.regul...3-0434-0038/content.pdf  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/content.pdf", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+21:35:03 trafilatura.core WARNING discarding data: None
+21:35:03 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Insufficient content for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-00 (16 chars)
+21:35:03 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-00
+21:35:03 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+21:35:03 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001, trying alternatives
+21:35:03 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-00
+21:35:03 src.tools.access_bypass WARNING [ACCESS] Archive.org failed for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001: 429, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://archive.org/wayback/available?url=https://www.r
+21:35:03 src.tools.access_bypass WARNING [ACCESS] ALL access methods exhausted for https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001
+21:35:03 polaris_graph.live_retriever INFO [live_retriever] fetch_miss https://www.regulations.gov/document/EPA-HQ-OAR-2025-0124-0001 (method=failed reason=no_content)
+21:35:04 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall PDF OA for 10.1080/15435075.2024.2350564: https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a19663e (repository)
+21:35:04 src.tools.access_bypass INFO [ACCESS] M-23a: Swapping https://www.tandfonline.com/doi/full/10.1080/15435075.2024.2 -> OA https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a19663e
+21:35:04 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4a
+21:35:04 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a19663e (timeout=30s)
+21:35:04 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/ (100345 chars)
+21:35:04 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/ (100344 chars, score=0.900, 1 candidates, scores={'jina_reader': 0.9})
+21:35:04 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:04 trafilatura.core ERROR empty HTML tree: None
+21:35:04 trafilatura.core WARNING discarding data: None
+21:35:04 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://downloads.regulations.gov/EPA-HQ-OAR-2023-0434-0038/content.pdf (method=jina_reader chars=25000)
+21:35:04 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://institute.smartprosperity.ca/library/research-academ
+21:35:04 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://irpp.org/research-studies/does-emissions-pricing-hur (89341 chars)
+21:35:04 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://institute.smartprosperity.ca/library/research-academic/likely-effect-car (timeout=30s)
+21:35:04 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://irpp.org/research-studies/does-emissions-pricing-hur (85844 chars)
+21:35:05 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://institute.smartprosperity.ca/library/research-academ (2721 chars)
+[FETCH]... ↓ 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 1.68s 
+[SCRAPE].. ◆ 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 0.21s 
+[COMPLETE] ● 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 1.91s 
+21:35:06 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 85665 chars
+21:35:06 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://irpp.org/research-studies/does-emissions-pricing-hur (85665 chars, status 200)
+21:35:06 src.tools.access_bypass INFO [ACCESS] M-23c: crawl4ai won quality-scored fetch for https://irpp.org/research-studies/does-emissions-pricing-hur (85665 chars, score=1.000, 3 candidates, scores={'crawl4ai': 1.0, 'jina_reader': 1.0, 'trafilatura': 1.0})
+21:35:06 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:06 trafilatura.core ERROR empty HTML tree: None
+21:35:06 trafilatura.core WARNING discarding data: None
+21:35:06 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/ (method=crawl4ai chars=25000)
+21:35:06 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for https://440megatonnes.ca/insight/industrial-carbon-pricing-n
+21:35:06 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-ho (timeout=30s)
+21:35:06 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://institute.smartprosperity.ca/library/research-academ (2970 chars)
+[21:35:06 urllib3.poolmanager INFO Redirecting https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a19663e/download -> https://api.repository.cam.ac.uk/server/api/core/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a19663e/content
+FETCH]... ↓ 
+https://institute.smartprosperity.ca/library/res...-effect-carbon-pricing-energ
+y-consumption-canada  | ✓ | ⏱: 1.39s 
+[SCRAPE].. ◆ 
+https://institute.smartprosperity.ca/library/res...-effect-carbon-pricing-energ
+y-consumption-canada  | ✓ | ⏱: 0.03s 
+[COMPLETE] ● 
+https://institute.smartprosperity.ca/library/res...-effect-carbon-pricing-energ
+y-consumption-canada  | ✓ | ⏱: 1.43s 
+21:35:06 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 2721 chars
+21:35:06 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://institute.smartprosperity.ca/library/research-academ (2721 chars, status 200)
+21:35:06 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://institute.smartprosperity.ca/library/research-academ (2969 chars, score=0.099, 3 candidates, scores={'jina_reader': 0.099, 'crawl4ai': 0.095, 'trafilatura': 0.095})
+21:35:06 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:06 trafilatura.core ERROR empty HTML tree: None
+21:35:06 trafilatura.core WARNING discarding data: None
+21:35:06 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://institute.smartprosperity.ca/library/research-academic/likely-effect-car (method=jina_reader chars=2948)
+[ERROR]... × https://www.repository....d-fb292a19663e/download  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a1966
+3e/download", waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+21:35:07 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: Failed for https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4a: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+21:35:09 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4a (21359 chars)
+21:35:09 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4a (21359 chars, score=0.656, 1 candidates, scores={'trafilatura': 0.656})
+21:35:09 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:09 trafilatura.core ERROR empty HTML tree: None
+21:35:09 trafilatura.core WARNING discarding data: None
+21:35:09 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.tandfonline.com/doi/full/10.1080/15435075.2024.2350564 (method=trafilatura chars=2727)
+21:35:10 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://440megatonnes.ca/insight/industrial-carbon-pricing-n (5912 chars)
+21:35:10 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://440megatonnes.ca/insight/industrial-carbon-pricing-n (6183 chars)
+[FETCH]... ↓ 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 3.60s 
+[SCRAPE].. ◆ 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 0.03s 
+[COMPLETE] ● 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 3.65s 
+21:35:11 src.tools.access_bypass INFO [ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: 4711 chars
+21:35:11 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Succeeded for https://440megatonnes.ca/insight/industrial-carbon-pricing-n (4711 chars, status 200)
+21:35:11 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://440megatonnes.ca/insight/industrial-carbon-pricing-n (6182 chars, score=0.207, 3 candidates, scores={'jina_reader': 0.207, 'trafilatura': 0.2, 'crawl4ai': 0.104})
+21:35:11 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:35:11 trafilatura.core ERROR empty HTML tree: None
+21:35:11 trafilatura.core WARNING discarding data: None
+21:35:11 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-ho (method=jina_reader chars=6163)
+21:35:18 docling.datamodel.document INFO detected formats: [<InputFormat.PDF: 'pdf'>]
+21:35:19 docling.document_converter INFO Going to convert document batch...
+21:35:19 docling.document_converter INFO Initializing pipeline for StandardPdfPipeline with options hash 80a8a1322ca5ef46817c7adbf875fff6
+21:35:19 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+21:35:19 docling.models.factories INFO Registered picture descriptions: ['picture_description_vlm_engine', 'vlm', 'api']
+21:35:19 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+21:35:19 docling.models.factories INFO Registered ocr engines: ['auto', 'easyocr', 'kserve_v2_ocr', 'ocrmac', 'rapidocr', 'tesserocr', 'tesseract']
+21:35:22 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+[32m[INFO] 2026-05-16 21:35:22,050 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 21:35:22,062 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 21:35:22,063 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 21:35:22,160 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 21:35:22,163 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 21:35:22,163 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 21:35:22,197 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 21:35:22,209 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-16 21:35:22,209 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+21:35:22 docling.models.stages.ocr.auto_ocr_model INFO Auto OCR model selected rapidocr with onnxruntime.
+21:35:22 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+21:35:22 docling.models.factories INFO Registered layout engines: ['layout_object_detection', 'docling_layout_default', 'docling_experimental_table_crops_layout']
+21:35:22 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+21:35:23 docling.models.factories.base_factory INFO Loading plugin 'docling_defaults'
+21:35:23 docling.models.factories INFO Registered table structure engines: ['docling_tableformer', 'docling_tableformer_v2']
+21:35:23 docling.utils.accelerator_utils INFO Accelerator device: 'cpu'
+21:35:24 docling.pipeline.base_pipeline INFO Processing document tmpb29rmf_z.pdf
+21:36:00 polaris_graph.live_retriever WARNING [live_retriever] AccessBypass timed out after 90s for https://www.mun.ca/economics/media/production/memorial/academic/faculty-of-human — falling back to naive httpx (thread will continue as daemon)
+21:36:01 trafilatura.utils ERROR parsed tree length: 1, wrong data type or not valid HTML
+21:36:01 trafilatura.core ERROR empty HTML tree: None
+21:36:01 trafilatura.core WARNING discarding data: None
+21:36:01 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 parallel_fetch: 20 success, 0 errored, 0 timeout (max_workers=8, per_task_timeout=120s)
+21:36:02 docling.document_converter INFO Finished converting document tmpb29rmf_z.pdf in 43.22 sec.
+21:36:02 src.tools.access_bypass INFO [ACCESS] PL: Docling extracted 31863 chars from PDF https://www.mun.ca/economics/media/production/memo
+21:36:02 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://www.mun.ca/economics/media/production/memorial/acade (31863 chars)
+21:36:04 polaris_graph.live_retriever INFO [live_retriever] skipping content-starved evidence for 'https://www.mun.ca/economics/media/production/memorial/academic/faculty-of-humanities-and-social-sciences/economics/economics-new-site/research/working-paper-series/WP202502.pdf' (len=25000)
+21:36:07 polaris_graph.live_retriever INFO [live_retriever] skipping content-starved evidence for 'https://www.tandfonline.com/doi/full/10.1080/15435075.2024.2350564' (len=2727)
