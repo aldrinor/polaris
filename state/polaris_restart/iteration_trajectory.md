@@ -257,4 +257,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (non-blocking wording notes: 20 `from` + 1 bare import not "21 from"; PowerShell PYTHONPATH syntax). convergence accept_remaining. Pure file + import-path rename — git mv 2 files + substring v30_sweep_integration→honest_sweep_integration over 3 files; V30 identifiers / manifest keys / PG_V30_ENABLED env / report heading left intact (schema/config/output — Codex confirmed scope).
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 3/3, import resolves, test_honest_sweep_integration 20/20. P1 trajectory 0.
