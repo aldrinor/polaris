@@ -2981,7 +2981,7 @@ async def synthesize_report(
     # FIX-E2E-2: Cap evidence pool before MoST analyses.
     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
-    # covalent_binder, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
+    # claim_evidence_binding, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
     _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
@@ -3013,7 +3013,7 @@ async def synthesize_report(
     # MoST Bond Analysis (M-08 through M-11): Zero-cost structural analysis
     if most_enabled:
         try:
-            from src.polaris_graph.synthesis.covalent_binder import (
+            from src.polaris_graph.synthesis.claim_evidence_binding import (
                 analyze_covalent_bonds,
                 apply_auto_fixes as covalent_auto_fix,
             )
