@@ -587,6 +587,76 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
         return {}
 
 
+def _env_float(name: str, default: float) -> float:
+    """Positive-float env knob with a safe fallback (LAW VI — no hardcode)."""
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Positive-int env knob with a safe fallback (LAW VI — no hardcode)."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _bounded_openalex_enrich(
+    url: str, title: str, stats: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
+    """Wall-clock-bounded wrapper around `_openalex_enrich` (GH #554).
+
+    `_openalex_enrich` issues `httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT)`
+    requests. `httpx`'s timeout bounds each request *phase*
+    (connect/read/write/pool) but NOT total request time, so a wedged or
+    byte-trickling OpenAlex response (slowloris pattern) is never
+    hard-bounded. The post-`parallel_fetch` candidate loop in
+    `run_live_retrieval` is synchronous, so one wedged enrich call hangs the
+    whole run before it reaches any terminal verdict (#554 — demo-fatal).
+
+    Run the call in a daemon thread and abandon it past
+    `PG_OPENALEX_ENRICH_DEADLINE` (default 45 s = 2x the 20 s httpx phase
+    timeout, covering the DOI-lookup + title-search-fallback double request,
+    + margin). Enrichment is optional — the tier classifier degrades
+    gracefully to title/content signals without it. `stats["enrich_timeouts"]`
+    is incremented on timeout so the caller can fail-fast.
+    """
+    deadline = _env_float("PG_OPENALEX_ENRICH_DEADLINE", 45.0)
+    holder: dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            holder["value"] = _openalex_enrich(url, title)
+        except Exception as exc:  # noqa: BLE001
+            holder["error"] = exc
+
+    worker = threading.Thread(
+        target=_worker, name="openalex-enrich", daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=deadline)
+    if worker.is_alive():
+        if stats is not None:
+            stats["enrich_timeouts"] = stats.get("enrich_timeouts", 0) + 1
+        logger.warning(
+            "[live_retriever] OpenAlex enrich exceeded %.0fs for %s — "
+            "skipping enrichment (daemon thread abandoned)",
+            deadline, url[:80],
+        )
+        return {}
+    if "error" in holder:
+        logger.debug(
+            "[live_retriever] OpenAlex enrich raised for %r: %s",
+            url, holder["error"],
+        )
+        return {}
+    return holder.get("value", {})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Content fetching (very basic — just enough to get tier + evidence)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1306,7 +1376,30 @@ def run_live_retrieval(
             max_workers, per_task_timeout,
         )
 
+    # #554 (I-bug-115): bound the synchronous post-fetch candidate loop so a
+    # wedged per-candidate operation can never hang the run with no terminal
+    # verdict. Layer 1 = per-candidate enrich bound (_bounded_openalex_enrich);
+    # Layer 2 = this overall wall-clock budget; Layer 3 = per-candidate
+    # progress logging below so any future loop stall is diagnosable.
+    _loop_deadline = time.monotonic() + _env_float(
+        "PG_POST_FETCH_LOOP_BUDGET", 900.0,
+    )
+    _enrich_failfast = _env_int("PG_OPENALEX_ENRICH_FAILFAST", 3)
+    _enrich_stats: dict[str, int] = {}
+    _enrich_disabled = False
+
     for i, cand in enumerate(candidates):
+        if time.monotonic() > _loop_deadline:
+            logger.warning(
+                "[live_retriever] post-fetch loop budget exceeded — stopping "
+                "at candidate %d/%d (%d already classified)",
+                i, len(candidates), len(classified_sources),
+            )
+            break
+        logger.info(
+            "[live_retriever] post-fetch candidate %d/%d %s",
+            i + 1, len(candidates), cand.url[:60],
+        )
         if use_parallel:
             content, ok, content_title_from_fetch, body_article_type = (
                 fetched_side.get(cand.url, ("", False, "", ""))
@@ -1326,12 +1419,22 @@ def run_live_retrieval(
         else:
             fetched += 1
 
-        # Optional OpenAlex enrichment
+        # Optional OpenAlex enrichment — wall-clock-bounded (#554). After
+        # PG_OPENALEX_ENRICH_FAILFAST timeouts in this run, stop attempting
+        # enrichment: it prevents abandoned daemon threads from accumulating
+        # when OpenAlex is degraded for the whole run.
         oa = {}
-        if enable_openalex_enrich:
-            oa = _openalex_enrich(cand.url, cand.title)
+        if enable_openalex_enrich and not _enrich_disabled:
+            oa = _bounded_openalex_enrich(cand.url, cand.title, _enrich_stats)
             if oa:
                 api_calls["openalex"] += 1
+            if _enrich_stats.get("enrich_timeouts", 0) >= _enrich_failfast:
+                _enrich_disabled = True
+                logger.warning(
+                    "[live_retriever] OpenAlex enrich timed out %dx — "
+                    "disabling enrichment for the rest of this run",
+                    _enrich_stats["enrich_timeouts"],
+                )
 
         # Classify via tier_classifier
         domain_ = _domain_of(cand.url)
