@@ -57,7 +57,7 @@ index 2ba30bd2..abe23dfb 100644
  DESIGN
  ------
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 61305b4b..294b2815 100644
+index 61305b4b..d7bab342 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -209,3 +209,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -71,5 +71,5 @@ index 61305b4b..294b2815 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (live_judge.py:10-11 NON-SAME-FAMILY line still model-specific — folded into the same docstring edit; docs/runbook.md:274 still has `Qwen3-8B` — generator-cost prose, classified #502-adjacent as Codex itself noted). convergence accept_remaining. tokens ~142262 raw. Brief §3 expanded post-APPROVE with the exhaustive-grep residual classification + P2-1 fold-in (responsive-to-review, not new scope).
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: 2cb3580d4a4038c01b4ed8bc7d8e9a1c00e49f3b7ca6d60893e2a1cb4e60fbb0
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata, not a behaviour risk). convergence accept_remaining. Doc-only 3-site judge-prose edit; ast.parse clean. P1 trajectory 0.
+# canonical-diff-sha256: 6bca889c10234f0bff1cb2ebc3b8152873decd274b4cb848d1896819e09cbb10
