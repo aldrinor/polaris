@@ -225,4 +225,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. Added a §0.1 "review stage" note clarifying this is the pre-implementation brief review; the plan itself drew zero objections. P1 trajectory 1 -> 0.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata). convergence accept_remaining. 2-file fix (math.isfinite guard + 24-case regression test); 24/24 pass. P1 trajectory 0.
