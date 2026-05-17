@@ -322,3 +322,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit ddc4655e is the 2 web files only). convergence accept_remaining. Prettier-only reflow, +7/-3; web smoke lint/typecheck/build all exit 0; the 2 files prettier --check clean. P1 trajectory 0.
+
+## I-rdy-549 (#549) — test the audit-bundle per-file hash-chain
+
+### Brief review
+- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Test-only — new tests/polaris_graph/audit_bundle/test_bundle_hash_chain.py (3 tests: all-files hash match, size_bytes match, tamper-caught). Zero production change. Fixtures replicated from sibling test_bundle_builder.py. Branch re-cut I-rdy-017-followup→I-rdy-549 (collision-avoidance).
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit f6a03ddf is the 1 new test file only). convergence accept_remaining. Test-only; ast.parse OK; pytest 15 passed (3 new + 12 sibling). P1 trajectory 0.
