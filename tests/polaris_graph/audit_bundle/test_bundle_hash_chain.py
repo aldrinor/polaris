@@ -1,0 +1,222 @@
+"""Tests for the audit-bundle per-file hash-chain (GH #549, I-rdy-017-followup).
+
+`test_gpg_signer.py` proves the signer produces `gpg --verify`-compatible
+output. This module covers the complementary integrity property the
+clean-machine reviewer procedure relies on: that `build_manifest_and_files`
+records a correct sha256 for every content file, and that re-hashing the
+files extracted from the `.tar.gz` reproduces those digests — and that a
+tampered content file is caught by the hash compare.
+
+Test-only; no production code is exercised beyond `build_audit_bundle` /
+`extract_manifest_from_bundle`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import tarfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+from polaris_graph.audit_bundle.bundle_builder import (
+    build_audit_bundle,
+    extract_manifest_from_bundle,
+)
+from polaris_graph.clinical_generator.verified_report import (
+    Section,
+    VerifiedReport,
+    VerifiedSentence,
+)
+from polaris_graph.clinical_retrieval.evidence_pool import (
+    AdequacyVerdict,
+    EvidencePool,
+    Source,
+    SourceTier,
+)
+from polaris_graph.scope.scope_decision import (
+    AmbiguityAxis,
+    ScopeDecision,
+)
+
+
+# ---------- Fixtures (replicated from test_bundle_builder.py — kept
+# self-contained; test modules importing each other is fragile) ----------
+
+def _src(source_id: str = "src-A", full_text: str = "trial of aspirin") -> Source:
+    return Source(
+        url="https://www.cochrane.org/CD001",
+        domain="cochrane.org",
+        tier=SourceTier.T1,
+        title="Source",
+        snippet="snippet",
+        full_text=full_text,
+        full_text_available=True,
+        source_id=source_id,
+        provenance={"legal_cleared": True},
+    )
+
+
+def _pool() -> EvidencePool:
+    return EvidencePool(
+        pool_id="pool-fixed-1",
+        decision_id="dec-fixed-1",
+        sources=[_src()],
+        adequacy=AdequacyVerdict(
+            is_adequate=True,
+            sources_per_tier={SourceTier.T1: 1, SourceTier.T2: 0, SourceTier.T3: 0},
+            min_required_per_tier={SourceTier.T1: 0, SourceTier.T2: 0, SourceTier.T3: 0},
+        ),
+        retrieval_started_at_utc=datetime.now(timezone.utc),
+        retrieval_finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _decision() -> ScopeDecision:
+    return ScopeDecision(
+        decision_id="dec-fixed-1",
+        status="in_scope",
+        scope_class="clinical_efficacy",
+        ambiguity_axes=[
+            AmbiguityAxis(
+                axis="population",
+                plausible_interpretations=["adults"],
+                needs_clarification=False,
+            )
+        ],
+    )
+
+
+def _report(
+    pool_id: str = "pool-fixed-1", decision_id: str = "dec-fixed-1"
+) -> VerifiedReport:
+    section = Section(
+        section_id="sec_x",
+        section_title="X",
+        verified_sentences=[
+            VerifiedSentence(
+                section_id="sec_x",
+                sentence_text="claim [#ev:src-A:0-3].",
+                provenance_tokens=["[#ev:src-A:0-3]"],
+                verifier_pass=True,
+            )
+        ],
+        section_verify_pass_rate=1.0,
+        section_status="verified",
+    )
+    return VerifiedReport(
+        pool_id=pool_id,
+        decision_id=decision_id,
+        sections=[section],
+        overall_verify_pass_rate=1.0,
+        pipeline_verdict="success",
+        generator_model="test/model",
+        evaluator_model="strict_verify_v1",
+        verifier_pass_threshold=0.4,
+        started_at_utc=datetime.now(timezone.utc),
+        finished_at_utc=datetime.now(timezone.utc),
+        latency_ms=0,
+        cost_usd=0.0,
+    )
+
+
+def _stub_sign(payload: bytes) -> bytes:
+    """Test stub: synthesize a fake .asc that includes a hash anchor."""
+    digest = hashlib.sha256(payload).hexdigest()
+    return (
+        f"-----BEGIN PGP SIGNATURE-----\n"
+        f"# stub signature for tests; hash={digest}\n"
+        f"-----END PGP SIGNATURE-----\n"
+    ).encode("utf-8")
+
+
+# ---------- Helpers ----------
+
+def _build_and_extract(tmp_path: Path) -> tuple[object, Path]:
+    """Build a signed bundle and extract its tarball.
+
+    Returns (manifest, extracted_top_dir) where extracted_top_dir is the
+    `audit_<bundle_id>/` directory holding the content files.
+    """
+    bundle_path = build_audit_bundle(
+        _decision(), _pool(), _report(), output_dir=tmp_path, sign_fn=_stub_sign
+    )
+    manifest, _yaml, _sig = extract_manifest_from_bundle(bundle_path)
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        # filter="data" — the safe extraction filter (Python 3.12+); also
+        # silences the 3.14 default-filter DeprecationWarning.
+        tar.extractall(extract_dir, filter="data")  # noqa: S202 — test bundle
+    top_dir = extract_dir / f"audit_{manifest.bundle_id}"
+    assert top_dir.is_dir(), f"expected top-level dir {top_dir} in bundle"
+    return manifest, top_dir
+
+
+# ---------- Tests ----------
+
+def test_hash_chain_every_manifest_file_matches_extracted(tmp_path: Path):
+    """Every manifest.files[i].sha256 re-hashes the extracted file exactly."""
+    manifest, top_dir = _build_and_extract(tmp_path)
+
+    assert manifest.files, "manifest.files must record at least the core content files"
+
+    for entry in manifest.files:
+        extracted = top_dir / entry.path
+        assert extracted.is_file(), (
+            f"manifest file {entry.path!r} missing from extracted tarball"
+        )
+        rehashed = hashlib.sha256(extracted.read_bytes()).hexdigest()
+        assert rehashed == entry.sha256, (
+            f"hash-chain break for {entry.path!r}: manifest recorded "
+            f"{entry.sha256} but the extracted file re-hashes to {rehashed}"
+        )
+
+    # The core content files must all be in the chain.
+    recorded = {e.path for e in manifest.files}
+    for required in (
+        "scope_decision.json",
+        "evidence_pool.json",
+        "verified_report.json",
+        "metadata.json",
+        "REVIEWER_README.md",
+    ):
+        assert required in recorded, (
+            f"core content file {required!r} absent from manifest.files"
+        )
+
+
+def test_hash_chain_size_bytes_matches_extracted(tmp_path: Path):
+    """manifest.files[i].size_bytes equals the extracted file's byte length."""
+    manifest, top_dir = _build_and_extract(tmp_path)
+
+    for entry in manifest.files:
+        extracted = top_dir / entry.path
+        actual_size = extracted.stat().st_size
+        assert actual_size == entry.size_bytes, (
+            f"size mismatch for {entry.path!r}: manifest recorded "
+            f"{entry.size_bytes}B but the extracted file is {actual_size}B"
+        )
+
+
+def test_hash_chain_detects_tampered_content_file(tmp_path: Path):
+    """Mutating one extracted content file is caught by the hash compare."""
+    manifest, top_dir = _build_and_extract(tmp_path)
+    assert manifest.files, "need at least one content file to tamper with"
+
+    target = manifest.files[0]
+    tampered_path = top_dir / target.path
+
+    # Before tampering, the file is on-chain.
+    original = tampered_path.read_bytes()
+    assert hashlib.sha256(original).hexdigest() == target.sha256
+
+    # Tamper: append a byte (the smallest possible mutation).
+    tampered_path.write_bytes(original + b"!")
+
+    rehashed = hashlib.sha256(tampered_path.read_bytes()).hexdigest()
+    assert rehashed != target.sha256, (
+        f"tamper went undetected: {target.path!r} still re-hashes to the "
+        f"recorded digest {target.sha256} after a 1-byte mutation"
+    )
