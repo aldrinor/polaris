@@ -55,6 +55,47 @@ _KEY_RE = re.compile(
 _ITEM_RE = re.compile(r"^\s*-\s?(?P<item>.*)$")
 
 
+def _parse_inline_list(body: str) -> list[str]:
+    """Parse the body of a YAML/JSON flow list (the text inside ``[...]``).
+
+    Quote- and depth-aware comma split, so a non-empty inline list value such
+    as ``p1: ["P1: a, b", "P1: c"]`` is parsed rather than silently dropped.
+    """
+    body = body.strip()
+    if not body:
+        return []
+    items: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    quote: str | None = None
+    for ch in body:
+        if quote:
+            if ch == quote:
+                quote = None
+            else:
+                buf.append(ch)
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            continue
+        if ch in "[{(":
+            depth += 1
+            buf.append(ch)
+            continue
+        if ch in "]})":
+            depth -= 1
+            buf.append(ch)
+            continue
+        if ch == "," and depth == 0:
+            items.append("".join(buf).strip())
+            buf = []
+            continue
+        buf.append(ch)
+    if buf:
+        items.append("".join(buf).strip())
+    return [it for it in items if it]
+
+
 def parse_verdict_block(text: str) -> dict | None:
     """Find the LAST §8.3.9 verdict block in ``text`` and parse it to a dict.
 
@@ -88,10 +129,23 @@ def parse_verdict_block(text: str) -> dict | None:
                 parsed[key] = val
                 current_list = None
             else:
-                # list key: `[]` = inline-empty (no items follow);
-                # anything else = items follow on subsequent `  - ` lines.
-                parsed[key] = []
-                current_list = None if val == "[]" else key
+                # list key — three valid §8.3.9 forms:
+                #   `key:`        block items follow on `  - ` lines
+                #   `key: []`     empty list, nothing follows
+                #   `key: [a, b]` non-empty inline flow list
+                if val == "":
+                    parsed[key] = []
+                    current_list = key
+                elif val == "[]":
+                    parsed[key] = []
+                    current_list = None
+                elif val.startswith("[") and val.endswith("]"):
+                    parsed[key] = _parse_inline_list(val[1:-1])
+                    current_list = None
+                else:
+                    # malformed list-key value — reject loudly rather than
+                    # silently drop content (codex diff review iter-1 P1).
+                    return None
             continue
         im = _ITEM_RE.match(ln)
         if im is not None and current_list is not None:

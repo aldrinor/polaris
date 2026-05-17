@@ -90,6 +90,13 @@ def main() -> int:
     for status, path in changed:
         base = Path(path).name
         fpath = pr / path
+        # `.codex/<issue_id>/<file>` is a per-issue artifact dir (>= 3 path
+        # parts); `.codex/<file>` is a top-level protocol/checklist doc with
+        # arbitrary names. The denylist + secret scan apply everywhere; the
+        # slim-artifact allowlist applies ONLY inside issue dirs (codex diff
+        # review iter-1 P2 — else AUDIT_CYCLE_PROTOCOL.md etc. would fail).
+        parts = path.replace("\\", "/").split("/")
+        in_issue_dir = len(parts) >= 3
         if not FORCE_APPROVE_RE.match(base):
             if DENY_RE.search(base):
                 failures.append(
@@ -97,7 +104,7 @@ def main() -> int:
                     "— commit only the slim verdict (verdict-only policy, "
                     "I-sec-001 #535)")
                 continue
-            if base not in ALLOWED_BASENAMES:
+            if in_issue_dir and base not in ALLOWED_BASENAMES:
                 failures.append(
                     f"{path}: filename not on the .codex/<id>/ allowlist "
                     f"{sorted(ALLOWED_BASENAMES)} (+ *_iter5_force_approve.txt)")

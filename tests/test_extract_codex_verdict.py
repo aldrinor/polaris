@@ -98,6 +98,31 @@ def test_parse_returns_none_on_missing_keys():
         "verdict: APPROVE\nnovel_p0: []\n") is None  # 5 keys missing
 
 
+def test_parse_inline_nonempty_list_not_dropped():
+    """Codex diff-review iter-1 P1: a non-empty inline flow list must be
+    parsed, not silently dropped."""
+    block = (
+        'verdict: REQUEST_CHANGES\nnovel_p0: []\ncontinuing_p0: []\n'
+        'p1: ["P1: first finding", "P1: second finding"]\np2: []\n'
+        'convergence_call: continue\nremaining_blockers_for_execution: []\n')
+    parsed = ecv.parse_verdict_block(block)
+    assert parsed is not None
+    assert parsed["p1"] == ["P1: first finding", "P1: second finding"]
+    slim = ecv.serialize_verdict(parsed)
+    assert "P1: first finding" in slim and "P1: second finding" in slim
+
+
+def test_parse_inline_list_with_comma_inside_quotes():
+    block = (
+        'verdict: APPROVE\nnovel_p0: []\ncontinuing_p0: []\n'
+        'p1: []\np2: ["P2: a, b, c is one item"]\n'
+        'convergence_call: accept_remaining\n'
+        'remaining_blockers_for_execution: []\n')
+    parsed = ecv.parse_verdict_block(block)
+    assert parsed is not None
+    assert parsed["p2"] == ["P2: a, b, c is one item"]
+
+
 def test_serialize_roundtrip_is_idempotent():
     parsed = ecv.parse_verdict_block(_GOOD_RAW)
     assert parsed is not None
