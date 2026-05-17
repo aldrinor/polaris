@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Canonical diff includes non-runtime process metadata in state/polaris_restart/iteration_trajectory.md beyond the stated 3-file rename; no execution impact."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
