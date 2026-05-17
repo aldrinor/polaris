@@ -216,4 +216,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (live_judge.py:10-11 NON-SAME-FAMILY line still model-specific — folded into the same docstring edit; docs/runbook.md:274 still has `Qwen3-8B` — generator-cost prose, classified #502-adjacent as Codex itself noted). convergence accept_remaining. tokens ~142262 raw. Brief §3 expanded post-APPROVE with the exhaustive-grep residual classification + P2-1 fold-in (responsive-to-review, not new scope).
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata, not a behaviour risk). convergence accept_remaining. Doc-only 3-site judge-prose edit; ast.parse clean. P1 trajectory 0.
