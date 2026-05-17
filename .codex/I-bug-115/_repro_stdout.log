@@ -1,0 +1,122 @@
+[repro] 22:16:40 starting run_live_retrieval(policy)
+[FETCH]... ↓ 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 1.37s 
+[FETCH]... ↓ 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 1.49s 
+[SCRAPE].. ◆ 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 0.31s 
+[COMPLETE] ● 
+https://www.canada.ca/en/services/environment/we...-pollution/estimated-impacts
+-federal-system.html  | ✓ | ⏱: 1.73s 
+[SCRAPE].. ◆ 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://cleanenergycanada.org/carbon-pricing-and-its-impact-on-canadians/      
+| ✓ | ⏱: 1.67s 
+[FETCH]... ↓ https://www.mdpi.com/1996-1073/17/2/385?                          
+| ✓ | ⏱: 1.39s 
+[SCRAPE].. ◆ https://www.mdpi.com/1996-1073/17/2/385?                          
+| ✓ | ⏱: 0.72s 
+[COMPLETE] ● https://www.mdpi.com/1996-1073/17/2/385?                          
+| ✓ | ⏱: 2.12s 
+[FETCH]... ↓ 
+https://cdhowe.org/publication/canadian-carbon-p...equires-attention-to-detail-
+and-sound-economics/  | ✓ | ⏱: 3.00s 
+[SCRAPE].. ◆ 
+https://cdhowe.org/publication/canadian-carbon-p...equires-attention-to-detail-
+and-sound-economics/  | ✓ | ⏱: 0.03s 
+[COMPLETE] ● 
+https://cdhowe.org/publication/canadian-carbon-p...equires-attention-to-detail-
+and-sound-economics/  | ✓ | ⏱: 3.05s 
+[ERROR]... × https://www.mdpi.com/1996-1073/17/22/5802          | Error: 
+Unexpected error in _crawl_web at line 558 in wrap_api_call 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\playwright\_impl\_
+connection.py):
+Error: Page.content: Unable to retrieve content because the page is navigating 
+and changing the content.
+
+Code context:
+ 553           parsed_st = _extract_stack_trace_information_from_stack(st, 
+is_internal, title)
+ 554           self._api_zone.set(parsed_st)
+ 555           try:
+ 556               return await cb()
+ 557           except Exception as error:
+ 558 →             raise rewrite_error(error, f"{parsed_st['apiName']}: 
+{error}") from None
+ 559           finally:
+ 560               self._api_zone.set(None)
+ 561   
+ 562       def wrap_api_call_sync(
+ 563           self, cb: Callable[[], Any], is_internal: bool = False, title: 
+str = None 
+[FETCH]... ↓ 
+https://irpp.org/wp-content/uploads/2024/12/Does...rt-Affordability-IRPP-Study-
+Tombe-and-Winter.pdf  | ✓ | ⏱: 1.31s 
+[SCRAPE].. ◆ 
+https://irpp.org/wp-content/uploads/2024/12/Does...rt-Affordability-IRPP-Study-
+Tombe-and-Winter.pdf  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://irpp.org/wp-content/uploads/2024/12/Does...rt-Affordability-IRPP-Study-
+Tombe-and-Winter.pdf  | ✓ | ⏱: 1.33s 
+[ERROR]... × https://www.repository....d-fb292a19663e/download  | Error: 
+Unexpected error in _crawl_web at line 718 in _crawl_web 
+(..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_cra
+wler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4af2-8d6d-fb292a1966
+3e/download", waiting until "domcontentloaded"
+
+
+Code context:
+ 713                                   tag="GOTO",
+ 714                                   params={"url": url},
+ 715                               )
+ 716                               response = None
+ 717                           else:
+ 718 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 719   
+ 720                       # 
+──────────────────────────────────────────────────────────────
+ 721                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 722                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 723                       # first response that differs from the final one and
+surface its 
+[FETCH]... ↓ 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 2.29s 
+[FETCH]... ↓ 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 6.38s 
+[SCRAPE].. ◆ 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 0.35s 
+[COMPLETE] ● 
+https://irpp.org/research-studies/does-emissions-pricing-hurt-affordability/   
+| ✓ | ⏱: 2.66s 
+[SCRAPE].. ◆ 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 0.40s 
+[COMPLETE] ● 
+https://greenfiscalpolicy.org/is-carbon-pricing-a-burden-on-canadian-households
+/                     | ✓ | ⏱: 6.83s 
+[FETCH]... ↓ 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 0.98s 
+[SCRAPE].. ◆ 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 0.04s 
+[COMPLETE] ● 
+https://440megatonnes.ca/insight/industrial-carbon-pricing-negligible-impacts-h
+ousehold-costs/       | ✓ | ⏱: 1.04s 
+[repro] 22:18:09 RETURNED in 89.0s — 12 classified_sources, 12 evidence_rows
