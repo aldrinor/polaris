@@ -78,9 +78,13 @@ Per the issue ("not harness pages") and `feedback_plan_from_running_system`.
   `/charts_test/click_through`, `/charts_test/comparison_table`,
   `/charts_test/forest_plot`, `/charts_test/timeline` (5).
 - `/sentence_hover_test` + 10 subroutes — `/sentence_hover_test`,
-  `/coverage`, `/evaluator_edge`, `/evidence_tooltip`,
-  `/evidence_tooltip_edges`, `/follow_up_append`, `/memory_cite`, `/perf`,
-  `/split_screen`, `/stress`, `/two_run_picker` (11).
+  `/sentence_hover_test/coverage`, `/sentence_hover_test/evaluator_edge`,
+  `/sentence_hover_test/evidence_tooltip`,
+  `/sentence_hover_test/evidence_tooltip_edges`,
+  `/sentence_hover_test/follow_up_append`,
+  `/sentence_hover_test/memory_cite`, `/sentence_hover_test/perf`,
+  `/sentence_hover_test/split_screen`, `/sentence_hover_test/stress`,
+  `/sentence_hover_test/two_run_picker` (11).
 
 ## 3. The 24 test types × journey
 
@@ -173,7 +177,11 @@ dropzone (J9).
 ### 9 — Multi-tab safety
 **Tool:** Playwright (parallel contexts). **Pass criteria:** no state pollution; cancel in one cancels for both.
 **Applies to:**
-- J6 — same run open in 2 tabs → both update independently; cancel in one cancels for both.
+- J6 — same run open in 2 tabs → both update independently. The "cancel
+  in one cancels for both" half depends on cancellation, which is
+  unimplemented (row 12 — `/runs/<runId>` Cancel is `disabled`, no cancel
+  endpoint); #516 records that half as expected-fail until I-rdy-011
+  (#507) / #539 land.
 - J3 — different queries in 3 tabs → no cross-tab state pollution.
 - J7/J8 — same run inspected in parallel tabs → no shared mutable state.
 **N/A:** J1, J2, J4, J5, J9, J10, J11 — no long-lived per-tab mutable run
@@ -246,7 +254,11 @@ template-selection shell; J6 streams a run already created elsewhere).
   denied subscription to Org A's `/stream/<runId>` — a concrete cross-org
   stream-access denial check.
 - J7/J8 — Org A cannot open Org B's `/runs/<runId>` or `/inspector/<runId>`.
-- J9 — uploaded docs are org-scoped; deletion removes file + chunks + embeddings.
+- J9 — uploaded docs are org-scoped. The "deletion removes file + chunks
+  + embeddings" check is a target, not yet runnable — `src/polaris_v6/api/
+  upload.py` exposes POST + GET only, no DELETE endpoint; #516 records the
+  deletion half as a known gap (expected-fail) until an upload-deletion
+  endpoint lands.
 - J10 — `/dashboard` `createRun` is org-scoped; a user creates runs only in their own org.
 - J11 — `/memory` recall is org-scoped; `/contracts` likewise.
 **N/A:** J1, J2 — pre-org-context (sign-in establishes the org; `/` is
@@ -284,8 +296,10 @@ file storage is blob-not-schema; auth uses static_accounts, not a migrated DB).
 **Tool:** eval set per template (15 questions). **Pass criteria:** citation precision/recall ≥ baseline.
 **Applies to:**
 - J5 — generation: per-template eval set; citation precision/recall ≥ baseline.
-- J6 — the completed run's report meets the quality gate end-to-end.
-**N/A:** J1, J2, J3, J4, J7, J8, J9, J10, J11 — no generated-prose quality
+- J6/J7 — the completed run's report meets the quality gate end-to-end
+  (J6 is the run producing it; J7 is the completed-run view where the
+  finished report's quality is verified).
+**N/A:** J1, J2, J3, J4, J8, J9, J10, J11 — no generated-prose quality
 surface (J4 retrieval quality is corpus adequacy, a separate gate; J3 is
 scope classification).
 
@@ -301,8 +315,10 @@ harness exercises chart components but is excluded, §2).
 **Tool:** paired-prompt CI per ELEPHANT methodology. **Pass criteria:** stance delta <5% on 20 paired prompts; nightly full eval.
 **Applies to:**
 - J5 — generation: paired prompts (leading vs neutral framing of the same question) → stance delta <5%.
-- J6 — the run's report shows no sycophantic drift toward the question's implied stance.
-**N/A:** J1, J2, J3, J4, J7, J8, J9, J10, J11 — no model-stance output
+- J6/J7 — the run's report shows no sycophantic drift toward the
+  question's implied stance (J6 is the run producing it; J7 is the
+  completed-run view where the finished report is checked).
+**N/A:** J1, J2, J3, J4, J8, J9, J10, J11 — no model-stance output
 surface.
 
 ### 22 — Codex code review
@@ -352,9 +368,9 @@ the second of the two rows excludable for a strict count of 22.
 | 16 | Privacy / log redaction | — | — | — | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
 | 17 | Sovereignty routing | — | — | — | ✓ | ✓ | — | — | — | ✓ | — | — |
 | 18 | Migration | — | — | — | — | — | ✓ | ✓ | — | — | — | ✓ |
-| 19 | LLM quality gates | — | — | — | — | ✓ | ✓ | — | — | — | — | — |
+| 19 | LLM quality gates | — | — | — | — | ✓ | ✓ | ✓ | — | — | — | — |
 | 20 | Semantic chart correctness | — | — | — | — | — | — | ✓ | ✓ | — | — | — |
-| 21 | Anti-sycophancy | — | — | — | — | ✓ | ✓ | — | — | — | — | — |
+| 21 | Anti-sycophancy | — | — | — | — | ✓ | ✓ | ✓ | — | — | — | — |
 | 22 | Codex code review | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ |
 | 23 | Layer-3 walkthrough | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 24 | Fixture governance | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ |
