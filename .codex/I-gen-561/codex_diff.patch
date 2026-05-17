@@ -148,7 +148,7 @@ index cf1b4d55..13a6834a 100644
                  if not result.content.strip() and result.reasoning:
                      extracted = _extract_answer_from_reasoning(result.reasoning)
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 1f42c3ae..d40d9f31 100644
+index 1f42c3ae..b13a1d9f 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -234,3 +234,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -162,7 +162,7 @@ index 1f42c3ae..d40d9f31 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 0 P2. convergence continue. 5 P2 fixes (P2-1 generate() wrapper-delegate clears call-context in finally; P2-2 flush empty reasoning_trace.jsonl on construct; P2-3 5 abort sites clear set_reasoning_sink(None); P2-4 retry record parent_call_id+attempt_n=2; P2-5 manifest_builder rejects reserved tar members). Branch re-cut to canonical id I-gen-561.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. 5-file +152/-1 code+test diff; reasoning-trace 9/9, manifest-builder 17/17, audit-bundle 88 pass/4 skip. P1 trajectory 0.
 diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
 index 458fdb44..b2bbfff9 100644
 --- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
@@ -265,4 +265,4 @@ index 47c59f0f..59895cb9 100644
 +        )
 +    finally:
 +        await client.close()
-# canonical-diff-sha256: 31439cd3a09659627f8f10f53bf3cafd98751e353c3912ef5d75e9c1c3b858bf
+# canonical-diff-sha256: b7ada8389f83ae5d51c8cb22f654e7cf191ce3bea583c54fe06a3728e8bb851c
