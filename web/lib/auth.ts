@@ -72,7 +72,11 @@ export async function login(
       body: JSON.stringify({ username, password }),
     });
   } catch {
-    return { ok: false, status: 0, error: "Could not reach POLARIS. Check the connection." };
+    return {
+      ok: false,
+      status: 0,
+      error: "Could not reach POLARIS. Check the connection.",
+    };
   }
   if (response.status === 200) {
     const body = (await response.json()) as {

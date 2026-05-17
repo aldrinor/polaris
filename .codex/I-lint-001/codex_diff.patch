@@ -1,0 +1,49 @@
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 53417c7c..867d198d 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -314,3 +314,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted 4-pattern rename; ast.parse 4/4, build_and_run_v4+4 helpers import, 16 passed (incl. coupled live_server source-assertion). polaris_graph_v4_runs output-path landmine intact. P1 trajectory 0. Completes the #437-444 naming series.
++
++## I-lint-001 (#520) — fix the red web format_check CI step
++
++### Brief review
++- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. CI-log ground truth (PR #576 run 26003953421): the red `lint + format + typecheck + build` job = the `format_check` step failing on 2 files (app/generation/page.tsx + lib/auth.ts); `lint` passes (3 warnings/0 errors), `typecheck` passes. Issue body misattributed the failure (named 3 eslint "errors" — actually tolerated warnings in 3 other files). Fix = `prettier --write` the 2 CI-flagged files (formatting only). Windows-CRLF confound: local format:check flags ~190 files; CI on LF sees only 2 — per-file check used for local verify.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit ddc4655e is the 2 web files only). convergence accept_remaining. Prettier-only reflow, +7/-3; web smoke lint/typecheck/build all exit 0; the 2 files prettier --check clean. P1 trajectory 0.
+diff --git a/web/app/generation/page.tsx b/web/app/generation/page.tsx
+index 8b07d069..0f0663f5 100644
+--- a/web/app/generation/page.tsx
++++ b/web/app/generation/page.tsx
+@@ -58,8 +58,8 @@ export default function GenerationPage() {
+             Verified clinical research, end-to-end
+           </h1>
+           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-            POLARIS chains the full research pipeline: scope discovery (slice 001),
+-            retrieval against verified clinical sources (slice 002), and
++            POLARIS chains the full research pipeline: scope discovery (slice
++            001), retrieval against verified clinical sources (slice 002), and
+             generation with strict-verify (slice 003). Every shipped sentence
+             carries a provenance token of the form{" "}
+             <code className="bg-muted rounded px-1 py-0.5 text-xs">
+diff --git a/web/lib/auth.ts b/web/lib/auth.ts
+index 8be2cb8c..c1ec013d 100644
+--- a/web/lib/auth.ts
++++ b/web/lib/auth.ts
+@@ -72,7 +72,11 @@ export async function login(
+       body: JSON.stringify({ username, password }),
+     });
+   } catch {
+-    return { ok: false, status: 0, error: "Could not reach POLARIS. Check the connection." };
++    return {
++      ok: false,
++      status: 0,
++      error: "Could not reach POLARIS. Check the connection.",
++    };
+   }
+   if (response.status === 200) {
+     const body = (await response.json()) as {
+# canonical-diff-sha256: 4e8e6ce3fd61e6a58bfbfae859247d827a45cf72fb5f5e0d48c14981e8472398
