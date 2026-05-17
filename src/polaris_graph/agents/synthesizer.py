@@ -2980,7 +2980,7 @@ async def synthesize_report(
 
     # FIX-E2E-2: Cap evidence pool before MoST analyses.
     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
-    # Previous E2E run: 1000+ evidence → 80+ min CPU burn in peptide_flow,
+    # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
     # covalent_binder, ionic_rebalancer, disulfide_bridge (all vecs @ vecs.T).
     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
@@ -3086,7 +3086,7 @@ async def synthesize_report(
             logger.warning("[polaris graph] MoST Disulfide failed (non-blocking): %s", str(exc)[:200])
 
         try:
-            from src.polaris_graph.synthesis.peptide_flow import (
+            from src.polaris_graph.synthesis.narrative_flow_analyzer import (
                 analyze_peptide_flow,
                 apply_auto_fixes as peptide_auto_fix,
             )
