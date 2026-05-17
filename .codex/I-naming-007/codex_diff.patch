@@ -38,7 +38,7 @@ similarity index 100%
 rename from src/polaris_graph/synthesis/disulfide_bridge.py
 rename to src/polaris_graph/synthesis/cross_section_source_consistency.py
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 404af839..bcf74ac2 100644
+index 404af839..2a29774b 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -282,3 +282,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -52,5 +52,5 @@ index 404af839..bcf74ac2 100644
 +- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Sibling of #440; same targeted-rename pattern — `disulfide_bridge` embedded in fn name `analyze_disulfide_bridges`, so targeted replace of the dotted path `synthesis.disulfide_bridge` only (3 files, +3/-3, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["disulfide"]` cross-module key left intact.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: d0370d60d3c7b95284ec3cb18a9e15c7d669347adf9a1b1aad29e00ebe1228a8
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata, #440 precedent). convergence accept_remaining. Targeted rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_disulfide_bridges intact. P1 trajectory 0.
+# canonical-diff-sha256: 4033ede73e68a974589be6994a32ffda0b4ff6db7966053d2337f28aae979093
