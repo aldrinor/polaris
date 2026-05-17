@@ -1,0 +1,78 @@
+================================================================
+POLARIS audit-bundle — clean-machine verification DRY-RUN
+================================================================
+captured_utc : 2026-05-16T22:16:09Z
+environment  : fresh empty GnuPG keyring (no POLARIS code, no prior
+               keys, no Python); tools: gpg, tar, grep, awk, paste,
+               sha256sum, sort, diff.
+procedure    : the literal §2 commands of bundle_verification.md,
+               run verbatim against the committed sample bundle.
+
+---- Step 0 — set shell variables -----------------------------------
+$ BUNDLE=sample_signed_bundle.tar.gz
+$ DIR=$(tar -tzf "$BUNDLE" | head -1 | cut -d/ -f1)
+  (BUNDLE=sample_signed_bundle.tar.gz  DIR=audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033)
+
+---- Step 1 — import the public key, confirm the fingerprint --------
+$ gpg --import polaris_demo_pubkey.asc
+gpg: keybox '/tmp/tmp.AmEwOHgm2A/fresh-keyring/pubring.kbx' created
+gpg: /tmp/tmp.AmEwOHgm2A/fresh-keyring/trustdb.gpg: trustdb created
+gpg: key F6F31CEDFF490C02: public key "POLARIS Carney Demo (Carney demo bundle signing) <signing@polaris.local>" imported
+gpg: Total number processed: 1
+gpg:               imported: 1
+$ gpg --list-keys --fingerprint
+/tmp/tmp.AmEwOHgm2A/fresh-keyring/pubring.kbx
+---------------------------------------------
+pub   ed25519 2026-05-14 [SC] [expires: 2027-05-14]
+      FB22 1FA8 ED18 5F8E 3F76  F7E6 F6F3 1CED FF49 0C02
+uid           [ unknown] POLARIS Carney Demo (Carney demo bundle signing) <signing@polaris.local>
+
+
+---- Step 2 — list and extract the archive --------------------------
+$ tar -tzf "$BUNDLE"
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/manifest.yaml
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/manifest.yaml.asc
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/scope_decision.json
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/evidence_pool.json
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/verified_report.json
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/sources/src-A.txt
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/REVIEWER_README.md
+audit_2b7cb9e3-44fa-4a9b-a3c9-5be72eb6a033/metadata.json
+$ tar -xzf "$BUNDLE"
+
+---- Step 3 — archive member-set check ------------------------------
+$ tar -tzf "$BUNDLE" | sed 's#^[^/]*/##' | sort > got.txt
+$ { echo manifest.yaml; echo manifest.yaml.asc; \
+    grep '^  path:' "$DIR/manifest.yaml" | awk '{print $2}'; } | sort > expected.txt
+$ diff got.txt expected.txt && echo "member-set OK"
+member-set OK
+
+---- Step 4 — verify the GPG signature over manifest.yaml -----------
+$ gpg --verify "$DIR/manifest.yaml.asc" "$DIR/manifest.yaml"
+gpg: Signature made Sat May 16 15:01:47 2026 PDT
+gpg:                using EDDSA key FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02
+gpg: Good signature from "POLARIS Carney Demo (Carney demo bundle signing) <signing@polaris.local>" [unknown]
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+Primary key fingerprint: FB22 1FA8 ED18 5F8E 3F76  F7E6 F6F3 1CED FF49 0C02
+  (gpg exit code: 0)
+
+---- Step 5 — re-hash every manifest-listed file --------------------
+$ paste <(grep '^  path:'   "$DIR/manifest.yaml" | awk '{print $2}') \
+        <(grep '^  sha256:' "$DIR/manifest.yaml" | awk '{print $2}') \
+  | while read -r path recorded; do
+        actual=$(sha256sum "$DIR/$path" | awk '{print $1}')
+        [ "$actual" = "$recorded" ] && echo "OK  $path" || echo "BAD $path"
+    done
+OK  REVIEWER_README.md
+OK  evidence_pool.json
+OK  metadata.json
+OK  scope_decision.json
+OK  sources/src-A.txt
+OK  verified_report.json
+
+================================================================
+RESULT: OK
+Member set exact, GPG signature good, every file hash matches.
+The bundle is authentic (signed by the POLARIS demo key) and unmodified.
+================================================================
