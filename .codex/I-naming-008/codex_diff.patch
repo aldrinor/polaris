@@ -25,7 +25,7 @@ similarity index 100%
 rename from src/polaris_graph/synthesis/covalent_binder.py
 rename to src/polaris_graph/synthesis/claim_evidence_binding.py
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 2a29774b..1841c673 100644
+index 2a29774b..bd17388b 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -290,3 +290,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -39,5 +39,5 @@ index 2a29774b..1841c673 100644
 +- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence continue. Sibling of #440/#441; simplest of the synthesis renames — `covalent_binder` is path-only (NOT embedded in any identifier; the fn is `analyze_covalent_bonds`), sole importer synthesizer.py. git mv + plain replace covalent_binder→claim_evidence_binding (2 files, +2/-2, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["covalent"]` cross-module key left intact.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: a61f36a1a3ba838374cbcbad26bca0cc571763e1817928b728e26d4ebf8fb7dd
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 2/2, 2 public fns import, 44 passed. analyze_covalent_bonds intact. P1 trajectory 0.
+# canonical-diff-sha256: 52b2be900a3a79202c5d6189ab404326280e7947d437af10ceaf64691443aad5
