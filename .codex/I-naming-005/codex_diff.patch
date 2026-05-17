@@ -350,7 +350,7 @@ index 34bdff21..d1db365a 100644
      EvidencePool,
      Source,
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 9a002b77..263bde26 100644
+index 9a002b77..2643ce80 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -266,3 +266,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -364,7 +364,7 @@ index 9a002b77..263bde26 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (predicted stale `(note the `2`)` docstring in evidence_pool.py — fixed inline in commit 1, not deferred). convergence continue. Package rename — git mv 13 files (7 src + 6 test) + substring retrieval2→clinical_retrieval over 50 .py + README (63 occurrences). Token path-only. Target name harmonizes with existing slice-ID string "slice_002_clinical_retrieval" (different namespace, no collision). 54 files +63/-63 = 126 LOC, under 200.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 52/52, import resolves all 6 submodules, 197 passed 0 failed. P1 trajectory 0.
 diff --git a/tests/crown_jewels/test_cj_003_strict_verify.py b/tests/crown_jewels/test_cj_003_strict_verify.py
 index e28b160b..7f1fd67c 100644
 --- a/tests/crown_jewels/test_cj_003_strict_verify.py
@@ -796,4 +796,4 @@ index 0484e05a..d847fb6f 100644
      in addition to legacy {evidence_id + direct_quote}.
      """
      from scripts.run_line_by_line_audit import _normalize_pool
-# canonical-diff-sha256: 1e0be40805568507e2a123c5a05254296fb2aa5fbfb78dae73389256024baf80
+# canonical-diff-sha256: 4a11b566c64950c7ae223cbd37fd3922c4a65c5ff87084fb987c7a12c853ff15
