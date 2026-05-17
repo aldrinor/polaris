@@ -1152,7 +1152,12 @@ async def run_one_query(
         ReasoningTraceCollector,
     )
     from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
-    set_reasoning_sink(ReasoningTraceCollector(out_dir=run_dir))
+    _reasoning_collector = ReasoningTraceCollector(out_dir=run_dir)
+    # I-gen-561 (#561) P2-2: materialize the (possibly empty)
+    # reasoning_trace.jsonl now, so a run that aborts before any generator
+    # LLM call still produces the file augment_v6_manifest() references.
+    _reasoning_collector.flush(run_dir)
+    set_reasoning_sink(_reasoning_collector)
 
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
@@ -1382,6 +1387,7 @@ async def run_one_query(
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)
+            set_reasoning_sink(None)
             log_f.close()
             return summary
 
@@ -1524,6 +1530,7 @@ async def run_one_query(
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)
+            set_reasoning_sink(None)
             log_f.close()
             return summary
 
@@ -1750,6 +1757,7 @@ async def run_one_query(
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)
+            set_reasoning_sink(None)
             log_f.close()
             return summary
 
@@ -1841,6 +1849,7 @@ async def run_one_query(
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)
+            set_reasoning_sink(None)
             log_f.close()
             return summary
 
@@ -2410,6 +2419,7 @@ async def run_one_query(
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)
+            set_reasoning_sink(None)
             log_f.close()
             return summary
 

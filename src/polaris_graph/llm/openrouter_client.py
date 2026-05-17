@@ -1996,6 +1996,41 @@ class OpenRouterClient:
         reasoning_max_tokens: Optional[int] = None,
         reasoning_exclude: Optional[bool] = None,
     ) -> LLMResponse:
+        """Prose/output call — see :meth:`_generate_impl` for the full body.
+
+        I-gen-561 (#561) P2-1: a thin wrapper that clears the per-call
+        reasoning-trace generator context in a ``finally``, so each
+        ``generate()`` invocation's call-context is scoped to exactly that
+        call. Without this, a later non-generator ``generate()`` in the same
+        task (e.g. ``live_judge.judge_report()``) would be captured under a
+        stale generator context and mislabeled.
+        """
+        try:
+            return await self._generate_impl(
+                prompt,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=timeout,
+                reasoning_max_tokens=reasoning_max_tokens,
+                reasoning_exclude=reasoning_exclude,
+            )
+        finally:
+            # Clear the per-call generator context (no kwargs -> None). The
+            # internal COT-2 retry leg runs inside _generate_impl, so it still
+            # sees the context; this clears only after the whole call.
+            set_reasoning_call_context()
+
+    async def _generate_impl(
+        self,
+        prompt: str,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
+    ) -> LLMResponse:
         """
         Prose/output call — reasoning OFF, clean output only.
 
@@ -2198,6 +2233,14 @@ class OpenRouterClient:
                     timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
                 )
                 _retry_trace_id = result.trace_call_id
+                # I-gen-561 (#561) P2-4: the retry's captured record inherits
+                # the caller's attempt-1 call-context — link it to the primary
+                # attempt and mark it attempt 2. No-op if no sink/context.
+                _finalize_reasoning_trace(
+                    _retry_trace_id,
+                    parent_call_id=_primary_trace_id,
+                    attempt_n=2,
+                )
                 # Try extraction on retry result too
                 if not result.content.strip() and result.reasoning:
                     extracted = _extract_answer_from_reasoning(result.reasoning)
