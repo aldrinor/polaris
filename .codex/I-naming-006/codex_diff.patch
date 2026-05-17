@@ -38,7 +38,7 @@ similarity index 100%
 rename from src/polaris_graph/synthesis/peptide_flow.py
 rename to src/polaris_graph/synthesis/narrative_flow_analyzer.py
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 2643ce80..aaa7eb1c 100644
+index 2643ce80..404af839 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -274,3 +274,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -52,5 +52,5 @@ index 2643ce80..aaa7eb1c 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (cosmetic PowerShell-vs-POSIX pytest syntax note; tests run via Bash tool). convergence continue. NOT a clean substring rename — `peptide_flow` is embedded in the function name `analyze_peptide_flow`, so the rename is a targeted replace of the dotted path `synthesis.peptide_flow` only (3 files, +3/-3, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["peptide"]` cross-module key left intact — Codex confirmed.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: c4b22de426ffb99b047eea67824305867fc8c9309e1836393da69d478d418eab
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted rename; ast.parse 3/3, 3 public fns import, 44 passed. analyze_peptide_flow function name intact (not corrupted by the dotted-path replace). P1 trajectory 0.
+# canonical-diff-sha256: 38f96e66b74195ab56ef38821fdf58623713f6641d799b2058fbfea36f00be26
