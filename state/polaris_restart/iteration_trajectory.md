@@ -290,3 +290,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata, #440 precedent). convergence accept_remaining. Targeted rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_disulfide_bridges intact. P1 trajectory 0.
+
+## I-naming-008 (#442) — rename synthesis/covalent_binder.py -> claim_evidence_binding.py
+
+### Brief review
+- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence continue. Sibling of #440/#441; simplest of the synthesis renames — `covalent_binder` is path-only (NOT embedded in any identifier; the fn is `analyze_covalent_bonds`), sole importer synthesizer.py. git mv + plain replace covalent_binder→claim_evidence_binding (2 files, +2/-2, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["covalent"]` cross-module key left intact.
+
+### Diff review
+- (pending — Codex diff review iter 1)
