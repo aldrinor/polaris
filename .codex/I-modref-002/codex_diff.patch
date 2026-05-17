@@ -1,0 +1,56 @@
+diff --git a/config/settings/models.yaml b/config/settings/models.yaml
+index 784685bb..5ddec2f5 100644
+--- a/config/settings/models.yaml
++++ b/config/settings/models.yaml
+@@ -1,5 +1,23 @@
+ # POLARIS Model Configurations
+ # LLM, embedding, and NLI model settings
++#
++# -----------------------------------------------------------------------------
++# I-modref-002 (#528) — SCOPE: this file configures the LEGACY GEMINI agent
++# stack ONLY. Consumers: src/config/core.py (load_models()),
++# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
++# fallback), config/settings/extraction.yaml.
++#
++# It is INTENTIONALLY DISTINCT from POLARIS pipeline A (the honest-rebuild
++# sweep). Pipeline A's generator (DeepSeek V4 Pro) and evaluator (Gemma 4 31B)
++# are configured in src/polaris_graph/llm/openrouter_client.py (module
++# constants + environment), NOT this file. No code under src/polaris_graph/
++# or scripts/ imports src.config.core or src.llm.gemini_client.
++#
++# The `llm:` Gemini entries below are therefore NOT pipeline-A defaults and
++# are NOT stale relative to the operator-locked V4 Pro / Gemma topology — they
++# are the correct, separate config for the legacy Gemini stack. Editing them
++# does not change pipeline-A behavior.
++# -----------------------------------------------------------------------------
+ 
+ # =============================================================================
+ # PRIMARY LLM (Gemini - Tiered by Task Complexity)
+@@ -8,6 +26,8 @@
+ # Note: gemini-2.0-flash deprecated March 31, 2026
+ # =============================================================================
+ llm:
++  # I-modref-002 (#528): legacy Gemini agent-stack config — see the SCOPE
++  # note in this file's header. NOT pipeline-A's generator/evaluator.
+   provider: gemini
+ 
+   # Tiered model selection for agents
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index d82a90e3..2d0ef49f 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -177,4 +177,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ - iter 3: APPROVE — 0 P0, 0 P1, 5 P2 (impl guidance: content_source for </think> extraction; record finalization; collector flush on early-return; bundle call-site enumeration; no-truncation test). convergence_call accept_remaining. tokens 163256.
+ 
+ ### Diff review
+-- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 5 P2 (sticky reasoning call-context can mislabel a later non-generator generate(); zero-record abort runs skip reasoning_trace.jsonl while the manifest references it; abort paths don't clear set_reasoning_sink(None); generate_retry record doesn't finalize parent_call_id/attempt_n=2; extra_files collision check doesn't reject manifest.yaml/.asc). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 133960. Shipped on iter-1 APPROVE; 5 P2 captured as a follow-up Issue.
++- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 5 P2 (sticky reasoning call-context can mislabel a later non-generator generate(); zero-record abort runs skip reasoning_trace.jsonl while the manifest references it; abort paths don't clear set_reasoning_sink(None); generate_retry record doesn't finalize parent_call_id/attempt_n=2; extra_files collision check doesn't reject manifest.yaml/.asc). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 133960. Shipped on iter-1 APPROVE; 5 P2 captured as follow-up Issue #561.
++
++## I-modref-002 (#528) — align stale model default in config/settings/models.yaml
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (consumer inventory should also list src/utils/atomic_decomposer.py GeminiClient fallback — folded into the impl). convergence_call continue. remaining_blockers none. tokens 60266.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (SCOPE consumer list omits src/agents/base_agent.py:129 transitive reader of global_config.models.llm; codex_diff.patch generated post-commit-2 so absent at review time — both non-blocking, comment-only diff). convergence_call accept_remaining. remaining_blockers none. tokens 74690. Shipped on iter-1 APPROVE.
+# canonical-diff-sha256: 7c0712009f6912dd2f6f4aef73a0dc9d965c8ca455bacb06bb55cad16a021a2c

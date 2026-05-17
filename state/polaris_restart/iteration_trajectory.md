@@ -177,4 +177,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 3: APPROVE — 0 P0, 0 P1, 5 P2 (impl guidance: content_source for </think> extraction; record finalization; collector flush on early-return; bundle call-site enumeration; no-truncation test). convergence_call accept_remaining. tokens 163256.
 
 ### Diff review
-- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 5 P2 (sticky reasoning call-context can mislabel a later non-generator generate(); zero-record abort runs skip reasoning_trace.jsonl while the manifest references it; abort paths don't clear set_reasoning_sink(None); generate_retry record doesn't finalize parent_call_id/attempt_n=2; extra_files collision check doesn't reject manifest.yaml/.asc). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 133960. Shipped on iter-1 APPROVE; 5 P2 captured as a follow-up Issue.
+- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 5 P2 (sticky reasoning call-context can mislabel a later non-generator generate(); zero-record abort runs skip reasoning_trace.jsonl while the manifest references it; abort paths don't clear set_reasoning_sink(None); generate_retry record doesn't finalize parent_call_id/attempt_n=2; extra_files collision check doesn't reject manifest.yaml/.asc). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 133960. Shipped on iter-1 APPROVE; 5 P2 captured as follow-up Issue #561.
+
+## I-modref-002 (#528) — align stale model default in config/settings/models.yaml
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (consumer inventory should also list src/utils/atomic_decomposer.py GeminiClient fallback — folded into the impl). convergence_call continue. remaining_blockers none. tokens 60266.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (SCOPE consumer list omits src/agents/base_agent.py:129 transitive reader of global_config.models.llm; codex_diff.patch generated post-commit-2 so absent at review time — both non-blocking, comment-only diff). convergence_call accept_remaining. remaining_blockers none. tokens 74690. Shipped on iter-1 APPROVE.

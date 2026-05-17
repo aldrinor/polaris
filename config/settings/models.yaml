@@ -1,5 +1,23 @@
 # POLARIS Model Configurations
 # LLM, embedding, and NLI model settings
+#
+# -----------------------------------------------------------------------------
+# I-modref-002 (#528) — SCOPE: this file configures the LEGACY GEMINI agent
+# stack ONLY. Consumers: src/config/core.py (load_models()),
+# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+# fallback), config/settings/extraction.yaml.
+#
+# It is INTENTIONALLY DISTINCT from POLARIS pipeline A (the honest-rebuild
+# sweep). Pipeline A's generator (DeepSeek V4 Pro) and evaluator (Gemma 4 31B)
+# are configured in src/polaris_graph/llm/openrouter_client.py (module
+# constants + environment), NOT this file. No code under src/polaris_graph/
+# or scripts/ imports src.config.core or src.llm.gemini_client.
+#
+# The `llm:` Gemini entries below are therefore NOT pipeline-A defaults and
+# are NOT stale relative to the operator-locked V4 Pro / Gemma topology — they
+# are the correct, separate config for the legacy Gemini stack. Editing them
+# does not change pipeline-A behavior.
+# -----------------------------------------------------------------------------
 
 # =============================================================================
 # PRIMARY LLM (Gemini - Tiered by Task Complexity)
@@ -8,6 +26,8 @@
 # Note: gemini-2.0-flash deprecated March 31, 2026
 # =============================================================================
 llm:
+  # I-modref-002 (#528): legacy Gemini agent-stack config — see the SCOPE
+  # note in this file's header. NOT pipeline-A's generator/evaluator.
   provider: gemini
 
   # Tiered model selection for agents
