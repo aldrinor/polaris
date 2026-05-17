@@ -451,7 +451,7 @@ def _build_bond_context(
     peptide = bond_analysis.get("peptide", {})
     if peptide:
         try:
-            from src.polaris_graph.synthesis.peptide_flow import (
+            from src.polaris_graph.synthesis.narrative_flow_analyzer import (
                 format_peptide_findings_for_phase_r,
             )
             peptide_text = format_peptide_findings_for_phase_r(peptide, section_id)

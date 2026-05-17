@@ -274,3 +274,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 52/52, import resolves all 6 submodules, 197 passed 0 failed. P1 trajectory 0.
+
+## I-naming-006 (#440) — rename synthesis/peptide_flow.py -> narrative_flow_analyzer.py
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (cosmetic PowerShell-vs-POSIX pytest syntax note; tests run via Bash tool). convergence continue. NOT a clean substring rename — `peptide_flow` is embedded in the function name `analyze_peptide_flow`, so the rename is a targeted replace of the dotted path `synthesis.peptide_flow` only (3 files, +3/-3, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["peptide"]` cross-module key left intact — Codex confirmed.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted rename; ast.parse 3/3, 3 public fns import, 44 passed. analyze_peptide_flow function name intact (not corrupted by the dotted-path replace). P1 trajectory 0.

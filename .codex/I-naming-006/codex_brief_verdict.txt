@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking: §5's `PYTHONPATH='src;.' python -m pytest ...` is POSIX syntax; in this PowerShell workspace use `$env:PYTHONPATH='src;.'; python -m pytest ...` if running exactly here."
+convergence_call: continue
+remaining_blockers_for_execution: []
