@@ -1,0 +1,297 @@
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index b7f3e39d..5c9b9f59 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -587,6 +587,76 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
+         return {}
+ 
+ 
++def _env_float(name: str, default: float) -> float:
++    """Positive-float env knob with a safe fallback (LAW VI — no hardcode)."""
++    try:
++        value = float(os.getenv(name, str(default)))
++    except (TypeError, ValueError):
++        return default
++    return value if value > 0 else default
++
++
++def _env_int(name: str, default: int) -> int:
++    """Positive-int env knob with a safe fallback (LAW VI — no hardcode)."""
++    try:
++        value = int(os.getenv(name, str(default)))
++    except (TypeError, ValueError):
++        return default
++    return value if value > 0 else default
++
++
++def _bounded_openalex_enrich(
++    url: str, title: str, stats: Optional[dict[str, int]] = None,
++) -> dict[str, Any]:
++    """Wall-clock-bounded wrapper around `_openalex_enrich` (GH #554).
++
++    `_openalex_enrich` issues `httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT)`
++    requests. `httpx`'s timeout bounds each request *phase*
++    (connect/read/write/pool) but NOT total request time, so a wedged or
++    byte-trickling OpenAlex response (slowloris pattern) is never
++    hard-bounded. The post-`parallel_fetch` candidate loop in
++    `run_live_retrieval` is synchronous, so one wedged enrich call hangs the
++    whole run before it reaches any terminal verdict (#554 — demo-fatal).
++
++    Run the call in a daemon thread and abandon it past
++    `PG_OPENALEX_ENRICH_DEADLINE` (default 45 s = 2x the 20 s httpx phase
++    timeout, covering the DOI-lookup + title-search-fallback double request,
++    + margin). Enrichment is optional — the tier classifier degrades
++    gracefully to title/content signals without it. `stats["enrich_timeouts"]`
++    is incremented on timeout so the caller can fail-fast.
++    """
++    deadline = _env_float("PG_OPENALEX_ENRICH_DEADLINE", 45.0)
++    holder: dict[str, Any] = {}
++
++    def _worker() -> None:
++        try:
++            holder["value"] = _openalex_enrich(url, title)
++        except Exception as exc:  # noqa: BLE001
++            holder["error"] = exc
++
++    worker = threading.Thread(
++        target=_worker, name="openalex-enrich", daemon=True,
++    )
++    worker.start()
++    worker.join(timeout=deadline)
++    if worker.is_alive():
++        if stats is not None:
++            stats["enrich_timeouts"] = stats.get("enrich_timeouts", 0) + 1
++        logger.warning(
++            "[live_retriever] OpenAlex enrich exceeded %.0fs for %s — "
++            "skipping enrichment (daemon thread abandoned)",
++            deadline, url[:80],
++        )
++        return {}
++    if "error" in holder:
++        logger.debug(
++            "[live_retriever] OpenAlex enrich raised for %r: %s",
++            url, holder["error"],
++        )
++        return {}
++    return holder.get("value", {})
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # Content fetching (very basic — just enough to get tier + evidence)
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -1306,7 +1376,30 @@ def run_live_retrieval(
+             max_workers, per_task_timeout,
+         )
+ 
++    # #554 (I-bug-115): bound the synchronous post-fetch candidate loop so a
++    # wedged per-candidate operation can never hang the run with no terminal
++    # verdict. Layer 1 = per-candidate enrich bound (_bounded_openalex_enrich);
++    # Layer 2 = this overall wall-clock budget; Layer 3 = per-candidate
++    # progress logging below so any future loop stall is diagnosable.
++    _loop_deadline = time.monotonic() + _env_float(
++        "PG_POST_FETCH_LOOP_BUDGET", 900.0,
++    )
++    _enrich_failfast = _env_int("PG_OPENALEX_ENRICH_FAILFAST", 3)
++    _enrich_stats: dict[str, int] = {}
++    _enrich_disabled = False
++
+     for i, cand in enumerate(candidates):
++        if time.monotonic() > _loop_deadline:
++            logger.warning(
++                "[live_retriever] post-fetch loop budget exceeded — stopping "
++                "at candidate %d/%d (%d already classified)",
++                i, len(candidates), len(classified_sources),
++            )
++            break
++        logger.info(
++            "[live_retriever] post-fetch candidate %d/%d %s",
++            i + 1, len(candidates), cand.url[:60],
++        )
+         if use_parallel:
+             content, ok, content_title_from_fetch, body_article_type = (
+                 fetched_side.get(cand.url, ("", False, "", ""))
+@@ -1326,12 +1419,22 @@ def run_live_retrieval(
+         else:
+             fetched += 1
+ 
+-        # Optional OpenAlex enrichment
++        # Optional OpenAlex enrichment — wall-clock-bounded (#554). After
++        # PG_OPENALEX_ENRICH_FAILFAST timeouts in this run, stop attempting
++        # enrichment: it prevents abandoned daemon threads from accumulating
++        # when OpenAlex is degraded for the whole run.
+         oa = {}
+-        if enable_openalex_enrich:
+-            oa = _openalex_enrich(cand.url, cand.title)
++        if enable_openalex_enrich and not _enrich_disabled:
++            oa = _bounded_openalex_enrich(cand.url, cand.title, _enrich_stats)
+             if oa:
+                 api_calls["openalex"] += 1
++            if _enrich_stats.get("enrich_timeouts", 0) >= _enrich_failfast:
++                _enrich_disabled = True
++                logger.warning(
++                    "[live_retriever] OpenAlex enrich timed out %dx — "
++                    "disabling enrichment for the rest of this run",
++                    _enrich_stats["enrich_timeouts"],
++                )
+ 
+         # Classify via tier_classifier
+         domain_ = _domain_of(cand.url)
+diff --git a/tests/polaris_graph/test_post_fetch_loop_timeout.py b/tests/polaris_graph/test_post_fetch_loop_timeout.py
+new file mode 100644
+index 00000000..a271ce59
+--- /dev/null
++++ b/tests/polaris_graph/test_post_fetch_loop_timeout.py
+@@ -0,0 +1,151 @@
++"""I-bug-115 (#554) — the post-retrieval candidate loop is wall-clock-bounded.
++
++`run_live_retrieval`'s post-`parallel_fetch` candidate loop is synchronous.
++Its only indefinite-block operation is `_openalex_enrich`, whose
++`httpx.Client(timeout=...)` bounds each request *phase* but NOT total request
++time — a byte-trickling / wedged OpenAlex response is never hard-bounded, so
++one wedged enrich call hangs the whole run with no terminal verdict (#554,
++demo-fatal).
++
++Layer 1: `_bounded_openalex_enrich` runs the call in a daemon thread and
++abandons it past `PG_OPENALEX_ENRICH_DEADLINE`. Layer 2: an overall
++`PG_POST_FETCH_LOOP_BUDGET` wall-clock budget breaks the loop. Layer 3 (not
++asserted here): per-candidate progress logging.
++
++No network — the hang is modelled with `time.sleep`; all of
++`run_live_retrieval`'s network deps are monkeypatched.
++"""
++
++from __future__ import annotations
++
++import sys
++import time
++import types
++from pathlib import Path
++
++_REPO = Path(__file__).resolve().parents[2]
++if str(_REPO) not in sys.path:
++    sys.path.insert(0, str(_REPO))
++
++from src.polaris_graph.retrieval import live_retriever as lr
++
++
++# ── Layer 1 — _bounded_openalex_enrich unit tests ──────────────────────────
++
++
++def test_bounded_openalex_enrich_returns_within_deadline(monkeypatch):
++    """A wedged _openalex_enrich is abandoned at PG_OPENALEX_ENRICH_DEADLINE;
++    the wrapper returns {} within the bound and records the timeout."""
++    monkeypatch.setenv("PG_OPENALEX_ENRICH_DEADLINE", "1")
++    monkeypatch.setattr(lr, "_openalex_enrich",
++                        lambda url, title: time.sleep(3600))
++
++    stats: dict[str, int] = {}
++    start = time.monotonic()
++    result = lr._bounded_openalex_enrich("https://x.test/a", "title", stats)
++    elapsed = time.monotonic() - start
++
++    assert elapsed < 2.5, f"_bounded_openalex_enrich took {elapsed:.1f}s — not bounded"
++    assert result == {}
++    assert stats.get("enrich_timeouts") == 1
++
++
++def test_bounded_openalex_enrich_passes_through_success(monkeypatch):
++    """A fast _openalex_enrich result passes through untouched."""
++    monkeypatch.setenv("PG_OPENALEX_ENRICH_DEADLINE", "30")
++    payload = {"openalex_pub_type": "article", "openalex_full_title": "X"}
++    monkeypatch.setattr(lr, "_openalex_enrich",
++                        lambda url, title: dict(payload))
++
++    result = lr._bounded_openalex_enrich("https://x.test/a", "title")
++    assert result == payload
++
++
++def test_bounded_openalex_enrich_converts_raise_to_empty(monkeypatch):
++    """A raising _openalex_enrich is converted to {} — never propagated."""
++    monkeypatch.setenv("PG_OPENALEX_ENRICH_DEADLINE", "30")
++
++    def _raises(url, title):
++        raise RuntimeError("openalex blew up")
++
++    monkeypatch.setattr(lr, "_openalex_enrich", _raises)
++    result = lr._bounded_openalex_enrich("https://x.test/a", "title")
++    assert result == {}
++
++
++# ── helper — stub run_live_retrieval's network deps ────────────────────────
++
++
++def _stub_pipeline(monkeypatch, n, openalex_impl):
++    """Stub serper / s2 / filter / fetch so run_live_retrieval's post-fetch
++    loop runs over `n` synthetic candidates with zero network."""
++    monkeypatch.setenv("PG_USE_PARALLEL_FETCH", "0")  # serial path
++    hits = [
++        {"url": f"https://example.test/doc-{i}",
++         "title": f"Carbon pricing household energy costs study {i}",
++         "snippet": "carbon pricing household energy costs"}
++        for i in range(n)
++    ]
++    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10: list(hits))
++    monkeypatch.setattr(lr, "_s2_bulk_search", lambda q, limit=20: [])
++    monkeypatch.setattr(
++        lr, "filter_search_results",
++        lambda candidates, question: types.SimpleNamespace(
++            kept=list(candidates), total_kept=len(candidates),
++            total_dropped=0,
++        ),
++    )
++    monkeypatch.setattr(
++        lr, "_fetch_content",
++        lambda url, n_chars: (
++            "Carbon pricing raised household energy costs across several "
++            "Canadian provinces during the study period; the effect was "
++            "partly offset by federal rebates and varied by region and by "
++            "household income decile in the published evidence reviewed.",
++            True, "Study title", "article",
++        ),
++    )
++    monkeypatch.setattr(lr, "_openalex_enrich", openalex_impl)
++
++
++# ── Layer 1 integration + Layer 2 ──────────────────────────────────────────
++
++
++def test_run_live_retrieval_bounded_when_openalex_wedges(monkeypatch):
++    """run_live_retrieval reaches a terminal verdict (returns) even when
++    every _openalex_enrich call wedges — candidates are still classified."""
++    monkeypatch.setenv("PG_OPENALEX_ENRICH_DEADLINE", "1")
++    _stub_pipeline(monkeypatch, n=4,
++                   openalex_impl=lambda url, title: time.sleep(3600))
++
++    start = time.monotonic()
++    result = lr.run_live_retrieval(
++        research_question="carbon pricing household energy costs Canada",
++        protocol=None, domain=None,
++    )
++    elapsed = time.monotonic() - start
++
++    # 4 candidates x 1s enrich bound, fail-fast after 3 timeouts → well
++    # under 15s. Without the bound this run would hang indefinitely.
++    assert elapsed < 15.0, f"run_live_retrieval took {elapsed:.1f}s — not bounded"
++    assert len(result.classified_sources) == 4
++
++
++def test_post_fetch_loop_budget_breaks_the_loop(monkeypatch):
++    """The overall PG_POST_FETCH_LOOP_BUDGET stops the loop early. Made
++    deterministic with a real 0.3s per-candidate enrich delay so the budget
++    is reliably crossed regardless of host speed (Codex brief P2-1)."""
++    monkeypatch.setenv("PG_POST_FETCH_LOOP_BUDGET", "0.5")
++    _stub_pipeline(
++        monkeypatch, n=8,
++        openalex_impl=lambda url, title: (time.sleep(0.3) or {}),
++    )
++
++    result = lr.run_live_retrieval(
++        research_question="carbon pricing household energy costs Canada",
++        protocol=None, domain=None,
++    )
++
++    # 8 candidates x 0.3s = 2.4s >> 0.5s budget → loop breaks early; the run
++    # still returns (terminal verdict) with the candidates processed so far.
++    assert 1 <= len(result.classified_sources) < 8
+
+# canonical-diff-sha256: fe3d1803cfd775f80bc48d98bcf0e505d9dee7e561fe9e3e52348fdc851e9b81

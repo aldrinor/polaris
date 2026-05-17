@@ -1,0 +1,224 @@
+2026-05-16 22:16:56.955097: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+[polaris graph] CRAWL4AI: Failed for https://www.mdpi.com/1996-1073/17/22/5802: Unexpected error in _crawl_web at line 558 in wrap_api_call (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\playwright\_impl\_connection.py):
+Error: Page.content: Unable to retrieve conte
+[polaris graph] CRAWL4AI: Insufficient content for https://irpp.org/wp-content/uploads/2024/12/Does-Emissions-P (1 chars)
+[32m[INFO] 2026-05-16 22:17:11,684 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:11,692 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:11,692 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:11,760 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:11,761 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:11,761 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:11,801 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:11,811 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:11,811 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,560 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:13,565 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,565 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_det_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,624 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:13,626 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,626 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,663 [RapidOCR] base.py:22: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-05-16 22:17:13,673 [RapidOCR] download_file.py:60: File exists and is valid: C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[32m[INFO] 2026-05-16 22:17:13,673 [RapidOCR] main.py:57: Using C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\models\ch_PP-OCRv4_rec_mobile.onnx[0m
+[polaris graph] CRAWL4AI: Failed for https://www.repository.cam.ac.uk/bitstreams/72e6f98f-eb03-4a: Unexpected error in _crawl_web at line 718 in _crawl_web (..\Users\msn\AppData\Roaming\Python\Python313\site-packages\crawl4ai\async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.go
+Timeout (0:01:00)!
+Thread 0x0000be80 (most recent call first):
+  <no Python frame>
+
+Thread 0x000049b4 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 245 in _run
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000da74 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 245 in _run
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00008570 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 245 in _run
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000d8d0 (most recent call first):
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 273 in run
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\inference_engine\onnxruntime\main.py", line 92 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\ch_ppocr_rec\main.py", line 122 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\main.py", line 323 in recognize_txt
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\main.py", line 148 in run_ocr_steps
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\rapidocr\main.py", line 120 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\models\stages\ocr\rapid_ocr_model.py", line 272 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\models\stages\ocr\auto_ocr_model.py", line 128 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 296 in _process_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 248 in _run
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000d538 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 245 in _run
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000c380 (most recent call first):
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\torch\nn\modules\linear.py", line 125 in forward
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\torch\nn\modules\module.py", line 1762 in _call_impl
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\torch\nn\modules\module.py", line 1751 in _wrapped_call_impl
+  <invalid frame>
+
+Thread 0x0000af14 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Python313\Lib\threading.py", line 660 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\tqdm\_monitor.py", line 60 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000afd0 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 705 in _build_document
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\base_pipeline.py", line 78 in execute
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 634 in _execute_pipeline
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 611 in _process_document
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 564 in _convert
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 447 in convert_all
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 388 in convert
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_validate_call.py", line 136 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_validate_call.py", line 39 in wrapper_function
+  File "C:\POLARIS\src\tools\access_bypass.py", line 1932 in _docling_extract
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 59 in run
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 93 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000b814 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 162 in get_batch
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\standard_pdf_pipeline.py", line 705 in _build_document
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\pipeline\base_pipeline.py", line 78 in execute
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 634 in _execute_pipeline
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 611 in _process_document
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 564 in _convert
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 447 in convert_all
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\docling\document_converter.py", line 388 in convert
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_validate_call.py", line 136 in __call__
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_validate_call.py", line 39 in wrapper_function
+  File "C:\POLARIS\src\tools\access_bypass.py", line 1932 in _docling_extract
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 59 in run
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 93 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000b1a4 (most recent call first):
+  File "C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pycares\__init__.py", line 348 in _run_safe_shutdown_loop
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000c3a8 (most recent call first):
+  File "C:\Python313\Lib\asyncio\windows_events.py", line 775 in _poll
+  File "C:\Python313\Lib\asyncio\windows_events.py", line 446 in select
+  File "C:\Python313\Lib\asyncio\base_events.py", line 2023 in _run_once
+  File "C:\Python313\Lib\asyncio\base_events.py", line 683 in run_forever
+  File "C:\Python313\Lib\asyncio\base_events.py", line 712 in run_until_complete
+  File "C:\Python313\Lib\asyncio\runners.py", line 118 in run
+  File "C:\Python313\Lib\asyncio\runners.py", line 195 in run
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 863 in _bypass_worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00002ee4 (most recent call first):
+  File "C:\Python313\Lib\asyncio\windows_events.py", line 775 in _poll
+  File "C:\Python313\Lib\asyncio\windows_events.py", line 446 in select
+  File "C:\Python313\Lib\asyncio\base_events.py", line 2023 in _run_once
+  File "C:\Python313\Lib\asyncio\base_events.py", line 683 in run_forever
+  File "C:\Python313\Lib\asyncio\base_events.py", line 712 in run_until_complete
+  File "C:\Python313\Lib\asyncio\runners.py", line 118 in run
+  File "C:\Python313\Lib\asyncio\runners.py", line 195 in run
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 863 in _bypass_worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x000009e8 (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000dabc (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00005090 (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00003cb4 (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00009d20 (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x0000851c (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 1095 in join
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 881 in _fetch_content
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 1251 in fetch
+  File "C:\POLARIS\src\polaris_graph\audit_ir\parallel_fetch.py", line 358 in _run_task
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 59 in run
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 93 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00009a6c (most recent call first):
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 90 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x00007bb4 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 1095 in join
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 881 in _fetch_content
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 1251 in fetch
+  File "C:\POLARIS\src\polaris_graph\audit_ir\parallel_fetch.py", line 358 in _run_task
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 59 in run
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 93 in _worker
+  File "C:\Python313\Lib\threading.py", line 995 in run
+  File "C:\Python313\Lib\threading.py", line 1044 in _bootstrap_inner
+  File "C:\Python313\Lib\threading.py", line 1015 in _bootstrap
+
+Thread 0x000059b4 (most recent call first):
+  File "C:\Python313\Lib\threading.py", line 363 in wait
+  File "C:\Python313\Lib\threading.py", line 660 in wait
+  File "C:\Python313\Lib\concurrent\futures\_base.py", line 305 in wait
+  File "C:\POLARIS\src\polaris_graph\audit_ir\parallel_fetch.py", line 437 in parallel_fetch
+  File "C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py", line 1283 in run_live_retrieval
+  File "C:\POLARIS\scripts\_repro_554.py", line 33 in <module>
