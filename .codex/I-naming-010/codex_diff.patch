@@ -35,7 +35,7 @@ index d23e8a71..630d971d 100644
  The Docker default `serve` path (scripts/live_server.py → FastAPI) has
  three legacy graph variants (v1/v2/v3) that do NOT enforce any of the
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 60f4891f..d8fd28c1 100644
+index 60f4891f..53417c7c 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -306,3 +306,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -49,7 +49,7 @@ index 60f4891f..d8fd28c1 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (config/scope_templates/custom.yaml:3 prose mention — left intact, accounted-for, consistent with all conceptual prose). convergence continue. Widest-blast-radius rename of the series — 39 graph_v4 occurrences. Two landmines: (a) `outputs/polaris_graph_v4_runs` output-dir default contains the token — LEFT (behaviour); (b) test_b102_graph_v4.py:197 asserts live_server source text — coupled, updated in lockstep. 4 targeted substring patterns (NOT blind replace) + git mv. Scope file+import-machinery only; test filenames/function names + build_and_run_v4 API + v4 version token + prose left intact. 4 files +15/-15.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted 4-pattern rename; ast.parse 4/4, build_and_run_v4+4 helpers import, 16 passed (incl. coupled live_server source-assertion). polaris_graph_v4_runs output-path landmine intact. P1 trajectory 0. Completes the #437-444 naming series.
 diff --git a/tests/polaris_graph/test_b102_graph_v4.py b/tests/polaris_graph/test_b102_graph_v4.py
 index 58346281..b37724a2 100644
 --- a/tests/polaris_graph/test_b102_graph_v4.py
@@ -166,4 +166,4 @@ index bde0c56f..e38a7f8a 100644
          vector_id="test", query="Q", document_ids=["a" * 16, "b" * 16],
          enable_dashboard=False,
      )
-# canonical-diff-sha256: 66cfd4b33d0ea17db5ed17f115dd8d65274b0ffc77be156e79471617960add04
+# canonical-diff-sha256: ddb188c68f3580c1b4e754a7268880d6010b1c02864c134e7b46f759be4f8529
