@@ -58,7 +58,7 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # extra section calls. Under the stale $0.10 cap a normal V4 Pro run
 # trips BudgetExceededError before it can finish — i.e. the guard
 # false-fires on the new generator's NORMAL cost profile. $10.00
-# matches the v30_runner.py default and still catches a genuine
+# matches the honest_sweep_job_runner.py default and still catches a genuine
 # infinite loop / recursive-outline runaway. Override per-run via the
 # PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
 PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))

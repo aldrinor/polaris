@@ -1,4 +1,4 @@
-"""Tests for src/polaris_graph/audit_ir/v30_runner.py.
+"""Tests for src/polaris_graph/audit_ir/honest_sweep_job_runner.py.
 
 The V30 sweep is real-world expensive (~2h25m, $0.0074, 472 fetches).
 We test the runner using a tiny stub script that simulates the V30
@@ -23,12 +23,12 @@ from src.polaris_graph.audit_ir import (
     JobWorker,
     register_runner,
 )
-from src.polaris_graph.audit_ir.v30_runner import (
+from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
     V30_PHASES,
-    V30JobRunner,
-    V30RunnerConfig,
+    HonestSweepJobRunner,
+    HonestSweepJobRunnerConfig,
     _PHASE_PCT,
-    make_default_v30_runner,
+    make_default_honest_sweep_job_runner,
 )
 from src.polaris_graph.audit_ir.job_runner import _reset_runners_for_tests
 
@@ -69,7 +69,7 @@ def test_classify_phase_recognizes_canonical_lines() -> None:
         ("Random unrelated line", None),
     ]
     for line, expected in cases:
-        assert V30JobRunner._classify_phase(line) == expected, line
+        assert HonestSweepJobRunner._classify_phase(line) == expected, line
 
 
 def test_classify_phase_real_run14_log() -> None:
@@ -82,7 +82,7 @@ def test_classify_phase_real_run14_log() -> None:
         pytest.skip("run-14 log not available")
     detected: set[str] = set()
     for line in run_log.read_text(encoding="utf-8").splitlines():
-        phase = V30JobRunner._classify_phase(line)
+        phase = HonestSweepJobRunner._classify_phase(line)
         if phase:
             detected.add(phase)
     # All canonical milestones must be detected in run-14.
@@ -156,8 +156,8 @@ def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float
     return script
 
 
-def _make_runner(tmp_path: Path, sweep_script: Path) -> V30JobRunner:
-    return V30JobRunner(V30RunnerConfig(
+def _make_runner(tmp_path: Path, sweep_script: Path) -> HonestSweepJobRunner:
+    return HonestSweepJobRunner(HonestSweepJobRunnerConfig(
         repo_root=tmp_path,
         sweep_script=sweep_script,
         out_root=tmp_path / "out",
@@ -330,14 +330,14 @@ def test_cancel_terminates_subprocess(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_make_default_v30_runner_resolves_canonical_paths() -> None:
-    runner = make_default_v30_runner()
+def test_make_default_honest_sweep_job_runner_resolves_canonical_paths() -> None:
+    runner = make_default_honest_sweep_job_runner()
     assert runner.template_id == "v30_clinical"
     assert runner._config.sweep_script.name == "run_full_scale_v30_phase2.py"
     assert runner._config.out_root.name == "polaris_v30_jobs"
 
 
-def test_v30_runner_registers_in_inspector_router_listing() -> None:
+def test_honest_sweep_job_runner_registers_in_inspector_router_listing() -> None:
     """When the inspector router boots, 'v30_clinical' must appear in
     available_templates so the UI can offer it."""
     from src.polaris_graph.audit_ir.inspector_router import _ensure_runners_registered
@@ -386,7 +386,7 @@ def test_scope_phase_does_not_emit_preflight_surface() -> None:
     'scope' to PREFLIGHT — that mapping caused the v1 overwrite
     bug. The runner's explicit emission at t=0 is the canonical
     PREFLIGHT source."""
-    from src.polaris_graph.audit_ir.v30_runner import _PHASE_TO_SURFACE
+    from src.polaris_graph.audit_ir.honest_sweep_job_runner import _PHASE_TO_SURFACE
     from src.polaris_graph.audit_ir.progress_surfaces import SurfaceKind
     assert _PHASE_TO_SURFACE.get("scope") is not SurfaceKind.PREFLIGHT
 

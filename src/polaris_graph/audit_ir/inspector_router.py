@@ -403,7 +403,7 @@ def _ensure_runners_registered() -> None:
     independently of get_job_queue() so cold-start enqueues with no
     prior route hit still validate template_id correctly.
 
-    M-9: also registers V30JobRunner under template_id 'v30_clinical'
+    M-9: also registers HonestSweepJobRunner under template_id 'v30_clinical'
     so the sweep can be launched as an asynchronous job.
     """
     global _runners_registered
@@ -414,15 +414,15 @@ def _ensure_runners_registered() -> None:
     # V30 sweep runner — wraps scripts/run_full_scale_v30_phase2.py
     # as a subprocess and emits cooperative checkpoints per phase.
     try:
-        from src.polaris_graph.audit_ir.v30_runner import make_default_v30_runner
-        register_runner(make_default_v30_runner())
+        from src.polaris_graph.audit_ir.honest_sweep_job_runner import make_default_honest_sweep_job_runner
+        register_runner(make_default_honest_sweep_job_runner())
     except Exception:
         # If the V30 runner can't be constructed (missing script,
         # bad repo layout, etc.), don't crash the queue — just skip.
         # Operators see "v30_clinical not in available_templates" and
         # know to investigate.
         import logging
-        logging.getLogger(__name__).warning("V30JobRunner registration failed", exc_info=True)
+        logging.getLogger(__name__).warning("HonestSweepJobRunner registration failed", exc_info=True)
     _runners_registered = True
 
 
