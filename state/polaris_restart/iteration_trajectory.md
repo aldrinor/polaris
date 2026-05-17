@@ -289,4 +289,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Sibling of #440; same targeted-rename pattern — `disulfide_bridge` embedded in fn name `analyze_disulfide_bridges`, so targeted replace of the dotted path `synthesis.disulfide_bridge` only (3 files, +3/-3, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["disulfide"]` cross-module key left intact.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata, #440 precedent). convergence accept_remaining. Targeted rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_disulfide_bridges intact. P1 trajectory 0.
