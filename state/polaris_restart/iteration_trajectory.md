@@ -217,3 +217,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata, not a behaviour risk). convergence accept_remaining. Doc-only 3-site judge-prose edit; ast.parse clean. P1 trajectory 0.
+
+## I-bug-116 (#556) — live_retriever._env_float accepts non-finite env values
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 1 P1 (Codex ran a workspace smoke and flagged "fix not present" — a brief-vs-diff stage misunderstanding: the brief is a pre-implementation plan, code is intentionally unapplied at brief-review time). convergence continue.
+- iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. Added a §0.1 "review stage" note clarifying this is the pre-implementation brief review; the plan itself drew zero objections. P1 trajectory 1 -> 0.
+
+### Diff review
+- (pending — Codex diff review iter 1)
