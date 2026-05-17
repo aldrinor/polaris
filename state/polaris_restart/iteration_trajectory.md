@@ -208,4 +208,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (`parse_verdict_block` silently dropped non-empty inline `[...]` list values — the §8.3.9 schema is shown to reviewers with `[...]` syntax, so a slim verdict could lose findings) + 2 P2 (gate's allowlist rejected top-level `.codex/AUDIT_CYCLE_PROTOCOL.md`; diff-brief file-count nit). convergence continue.
-- iter 2: (pending — fixes applied: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass.)
+- iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. iter-1 P1 (inline-list drop) + both P2 addressed: `_parse_inline_list` parses inline flow lists / rejects malformed loudly + 2 regression tests; gate allowlist scoped to `.codex/<id>/` issue dirs only; diff-brief §2 corrected. 13/13 offline tests pass. P1 trajectory 1 -> 0.
