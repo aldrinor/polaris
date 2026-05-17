@@ -92,14 +92,55 @@ Hard ceiling: `PG_MAX_COST_PER_RUN` (default $50/run; raise via env var with sig
 
 ---
 
-## 6. Backup + replay
+## 6. Backup + restore
 
-Pins are append-only and never deleted. Backed up daily to encrypted Canadian S3-compatible storage at `s3://polaris-pins-bhs/` (key custody with Carney's office IT).
+### Orchestrator state (run store + audit artifacts)
+
+The v6 orchestrator keeps two pieces of durable state: the SQLite run store
+(`state/v6_runs.sqlite`, on the `shared_state` volume) and the run artifact
+directories (`outputs/v6_runs/<run_id>/`, from which signed audit bundles
+are rebuilt on demand). `scripts/v6/backup_orchestrator_state.py` snapshots
+both into one portable, sha256-stamped `tar.gz`.
+
+Stop the stack first — the DB snapshot is online-safe, but the artifact
+tree is not atomic against running workers:
+
+```
+docker compose -f docker-compose.v6.yml stop
+
+docker compose -f docker-compose.v6.yml run --rm \
+  -v "$PWD/backups:/backups" --entrypoint python api \
+  scripts/v6/backup_orchestrator_state.py backup \
+  --db /app/state/v6_runs.sqlite --artifact-root /app/outputs/v6_runs --dest /backups
+
+docker compose -f docker-compose.v6.yml start
+```
+
+The archive lands in `./backups/polaris_v6_state_<utc>.tar.gz` on the host
+(plus a `.sha256` sidecar). **Off-box step (operator):** copy that archive
+to genuinely separate Canadian storage — a second VM, a mounted volume, or
+an offline disk. Run the backup at least daily; keep ≥ 7 days of archives.
+
+To restore (e.g. onto a fresh VM), with the stack stopped:
+
+```
+docker compose -f docker-compose.v6.yml run --rm \
+  -v "$PWD/backups:/backups" --entrypoint python api \
+  scripts/v6/backup_orchestrator_state.py restore \
+  --archive /backups/polaris_v6_state_<utc>.tar.gz \
+  --db /app/state/v6_runs.sqlite --force
+```
+
+Restore verifies the archive sha256 before extracting and fails loud on a
+mismatch. `--force` replaces an existing DB / artifact dir (it never
+merges); omit it on a fresh VM.
+
+### Replay-pin diff
 
 To diff a stored original pin against a freshly-replayed pin:
 ```
 python scripts/v6/replay_pin.py \
-    --original  s3/polaris-pins-bhs/<pin_id>.json \
+    --original  <original_pin>.json \
     --replay    outputs/replay/<pin_id>.json
 ```
 
