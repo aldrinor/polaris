@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     Source,
     SourceTier,

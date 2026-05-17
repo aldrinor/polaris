@@ -1,0 +1,799 @@
+diff --git a/README.md b/README.md
+index 386e15c9..3041c6b1 100644
+--- a/README.md
++++ b/README.md
+@@ -15,7 +15,7 @@ GPG-signed audit bundle → BEAT-BOTH benchmark vs ChatGPT-DR / Gemini-DR.
+ | Slice | Deliverable | Substrate |
+ |---|---|---|
+ | 1 | Scope discovery + ambiguity | `polaris_graph/scope/`, `/api/intake`, `/intake` page |
+-| 2 | Tiered retrieval (Serper + S2) | `polaris_graph/retrieval2/`, `/api/retrieval`, `/retrieval` page |
++| 2 | Tiered retrieval (Serper + S2) | `polaris_graph/clinical_retrieval/`, `/api/retrieval`, `/retrieval` page |
+ | 3 | Generator + strict-verify | `polaris_graph/clinical_generator/`, `/api/generation`, `/generation` page |
+ | 4 | Audit bundle GPG-signed | `polaris_graph/audit_bundle/`, `/api/audit-bundle`, download in `/generation` |
+ | 5 | BEAT-BOTH benchmark + demo polish | `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` |
+diff --git a/scripts/run_line_by_line_audit.py b/scripts/run_line_by_line_audit.py
+index 0989d8b8..1fb7ef1c 100644
+--- a/scripts/run_line_by_line_audit.py
++++ b/scripts/run_line_by_line_audit.py
+@@ -125,7 +125,7 @@ def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
+ 
+     Accepts:
+     - List of {evidence_id, direct_quote/full_text/snippet} (legacy clinical_generator schema).
+-    - List of {source_id, full_text/snippet} (canonical retrieval2.EvidencePool schema).
++    - List of {source_id, full_text/snippet} (canonical clinical_retrieval.EvidencePool schema).
+     - Object {<id>: <entry>} (already keyed).
+     - Object {sources: [<entry>, ...]} (EvidencePool serialized with sources field).
+     """
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index 0e6d64aa..1e7fb3ac 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -24,7 +24,7 @@ from polaris_graph.audit_bundle.bundle_builder import (
+ from polaris_graph.audit_bundle.bundle_schema import ContentType
+ from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ PREVIEW_CONTENT_TYPES: tuple[ContentType, ...] = (
+diff --git a/src/polaris_graph/api/generation_route.py b/src/polaris_graph/api/generation_route.py
+index 09bdb5dc..5aff4f43 100644
+--- a/src/polaris_graph/api/generation_route.py
++++ b/src/polaris_graph/api/generation_route.py
+@@ -33,7 +33,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+ router = APIRouter(tags=["generation"])
+ 
+diff --git a/src/polaris_graph/api/retrieval_route.py b/src/polaris_graph/api/retrieval_route.py
+index 98952ede..1cca8840 100644
+--- a/src/polaris_graph/api/retrieval_route.py
++++ b/src/polaris_graph/api/retrieval_route.py
+@@ -33,11 +33,11 @@ from typing import Any
+ from fastapi import APIRouter, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+-from polaris_graph.retrieval2.clinical_retriever import (
++from polaris_graph.clinical_retrieval.clinical_retriever import (
+     FetchHttpFn,
+     process_retrieval,
+ )
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, RetrievalError
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, RetrievalError
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ router = APIRouter(tags=["retrieval"])
+diff --git a/src/polaris_graph/audit_bundle/bundle_builder.py b/src/polaris_graph/audit_bundle/bundle_builder.py
+index 92516836..ddf6e2a7 100644
+--- a/src/polaris_graph/audit_bundle/bundle_builder.py
++++ b/src/polaris_graph/audit_bundle/bundle_builder.py
+@@ -45,7 +45,7 @@ from polaris_graph.audit_bundle.manifest_builder import (
+     serialize_manifest_yaml,
+ )
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ _LOG = logging.getLogger(__name__)
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index 701dc4f2..186c6394 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -37,7 +37,7 @@ from polaris_graph.audit_bundle.sovereignty_guard import (
+ )
+ from polaris_graph.clinical_generator.provenance import extract_tokens
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ 
+diff --git a/src/polaris_graph/audit_bundle/snapshot_sources.py b/src/polaris_graph/audit_bundle/snapshot_sources.py
+index 4d045d27..60ddee0f 100644
+--- a/src/polaris_graph/audit_bundle/snapshot_sources.py
++++ b/src/polaris_graph/audit_bundle/snapshot_sources.py
+@@ -19,7 +19,7 @@ from typing import NamedTuple
+ 
+ from polaris_graph.clinical_generator.provenance import extract_tokens
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
+ 
+ 
+ class SnapshotEntry(NamedTuple):
+diff --git a/src/polaris_graph/audit_bundle/sovereignty_guard.py b/src/polaris_graph/audit_bundle/sovereignty_guard.py
+index 221178fd..095c95e1 100644
+--- a/src/polaris_graph/audit_bundle/sovereignty_guard.py
++++ b/src/polaris_graph/audit_bundle/sovereignty_guard.py
+@@ -9,7 +9,7 @@ source in the pool — cited or not — must be cleared.
+ 
+ from __future__ import annotations
+ 
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+ LEGAL_CLEARED_KEY = "legal_cleared"
+ 
+diff --git a/src/polaris_graph/benchmark/beat_both_scorer.py b/src/polaris_graph/benchmark/beat_both_scorer.py
+index 7ba96622..eb11571a 100644
+--- a/src/polaris_graph/benchmark/beat_both_scorer.py
++++ b/src/polaris_graph/benchmark/beat_both_scorer.py
+@@ -92,7 +92,7 @@ def _polaris_dimension_scores(
+     """Run all 7 scorers in 'POLARIS-side only' mode (external_text=None)."""
+     pool = None
+     if polaris.evidence_pool is not None:
+-        from polaris_graph.retrieval2.evidence_pool import EvidencePool
++        from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+         pool = EvidencePool.model_validate(polaris.evidence_pool)
+     report = None
+diff --git a/src/polaris_graph/benchmark/dimension_scorers.py b/src/polaris_graph/benchmark/dimension_scorers.py
+index 707405c5..bb102484 100644
+--- a/src/polaris_graph/benchmark/dimension_scorers.py
++++ b/src/polaris_graph/benchmark/dimension_scorers.py
+@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
+ from polaris_graph.benchmark.benchmark_config import BenchmarkQuestion
+ from polaris_graph.clinical_generator.provenance import extract_tokens
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, SourceTier
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, SourceTier
+ 
+ 
+ DimensionName = Literal[
+diff --git a/src/polaris_graph/clinical_generator/generator.py b/src/polaris_graph/clinical_generator/generator.py
+index 4e2404dd..715ddb3b 100644
+--- a/src/polaris_graph/clinical_generator/generator.py
++++ b/src/polaris_graph/clinical_generator/generator.py
+@@ -50,7 +50,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+ 
+ DEFAULT_VERIFIER_PASS_THRESHOLD = 0.40
+diff --git a/src/polaris_graph/clinical_generator/provenance.py b/src/polaris_graph/clinical_generator/provenance.py
+index 0f80b787..6a41dbc2 100644
+--- a/src/polaris_graph/clinical_generator/provenance.py
++++ b/src/polaris_graph/clinical_generator/provenance.py
+@@ -6,7 +6,7 @@ CLAUDE.md §9.1 invariant 2 ('every generated sentence carries
+ 
+ Token format: `[#ev:<source_id>:<start>-<end>]` where:
+ - source_id is a UUID-shaped string (lowercase hex with optional dashes)
+-  matching the source_id field of `polaris_graph.retrieval2.evidence_pool.Source`
++  matching the source_id field of `polaris_graph.clinical_retrieval.evidence_pool.Source`
+ - start, end are non-negative integer character offsets into the source's
+   full_text (or snippet, when full_text is unavailable)
+ - start <= end is enforced; start == end is allowed for empty-span citations
+@@ -20,7 +20,7 @@ from __future__ import annotations
+ import re
+ from dataclasses import dataclass
+ 
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
+ 
+ 
+ # Source.source_id defaults to uuid.uuid4() (lowercase hex + dashes) but is
+diff --git a/src/polaris_graph/clinical_generator/real_completion.py b/src/polaris_graph/clinical_generator/real_completion.py
+index b4f69003..b799e280 100644
+--- a/src/polaris_graph/clinical_generator/real_completion.py
++++ b/src/polaris_graph/clinical_generator/real_completion.py
+@@ -33,7 +33,7 @@ from typing import Any
+ import httpx
+ 
+ from polaris_graph.clinical_generator.section_blueprint import SectionPlan
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+ _LOG = logging.getLogger(__name__)
+ 
+diff --git a/src/polaris_graph/clinical_generator/strict_verify.py b/src/polaris_graph/clinical_generator/strict_verify.py
+index 0ed9c56f..30bdad8c 100644
+--- a/src/polaris_graph/clinical_generator/strict_verify.py
++++ b/src/polaris_graph/clinical_generator/strict_verify.py
+@@ -57,7 +57,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     DropReason,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/src/polaris_graph/retrieval2/__init__.py b/src/polaris_graph/clinical_retrieval/__init__.py
+similarity index 100%
+rename from src/polaris_graph/retrieval2/__init__.py
+rename to src/polaris_graph/clinical_retrieval/__init__.py
+diff --git a/src/polaris_graph/retrieval2/clinical_retriever.py b/src/polaris_graph/clinical_retrieval/clinical_retriever.py
+similarity index 96%
+rename from src/polaris_graph/retrieval2/clinical_retriever.py
+rename to src/polaris_graph/clinical_retrieval/clinical_retriever.py
+index c86b4b19..f155d89c 100644
+--- a/src/polaris_graph/retrieval2/clinical_retriever.py
++++ b/src/polaris_graph/clinical_retrieval/clinical_retriever.py
+@@ -33,19 +33,19 @@ from dataclasses import dataclass
+ from datetime import datetime, timezone
+ from typing import Iterable, Protocol
+ 
+-from polaris_graph.retrieval2.clinical_source_registry import classify_url
+-from polaris_graph.retrieval2.corpus_adequacy_gate import (
++from polaris_graph.clinical_retrieval.clinical_source_registry import classify_url
++from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
+     ClinicalTemplate,
+     assess,
+     template_for_scope_class,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     EvidencePool,
+     RetrievalError,
+     Source,
+     SourceTier,
+ )
+-from polaris_graph.retrieval2.query_planner import plan_queries
++from polaris_graph.clinical_retrieval.query_planner import plan_queries
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ 
+diff --git a/src/polaris_graph/retrieval2/clinical_source_registry.py b/src/polaris_graph/clinical_retrieval/clinical_source_registry.py
+similarity index 99%
+rename from src/polaris_graph/retrieval2/clinical_source_registry.py
+rename to src/polaris_graph/clinical_retrieval/clinical_source_registry.py
+index 2b9f7d15..c338d355 100644
+--- a/src/polaris_graph/retrieval2/clinical_source_registry.py
++++ b/src/polaris_graph/clinical_retrieval/clinical_source_registry.py
+@@ -30,7 +30,7 @@ from dataclasses import dataclass
+ from typing import Iterable
+ from urllib.parse import urlparse
+ 
+-from polaris_graph.retrieval2.evidence_pool import SourceTier
++from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/src/polaris_graph/retrieval2/corpus_adequacy_gate.py b/src/polaris_graph/clinical_retrieval/corpus_adequacy_gate.py
+similarity index 98%
+rename from src/polaris_graph/retrieval2/corpus_adequacy_gate.py
+rename to src/polaris_graph/clinical_retrieval/corpus_adequacy_gate.py
+index 58ce103f..26f8c2b6 100644
+--- a/src/polaris_graph/retrieval2/corpus_adequacy_gate.py
++++ b/src/polaris_graph/clinical_retrieval/corpus_adequacy_gate.py
+@@ -24,7 +24,7 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ from typing import Iterable
+ 
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     Source,
+     SourceTier,
+diff --git a/src/polaris_graph/retrieval2/evidence_pool.py b/src/polaris_graph/clinical_retrieval/evidence_pool.py
+similarity index 98%
+rename from src/polaris_graph/retrieval2/evidence_pool.py
+rename to src/polaris_graph/clinical_retrieval/evidence_pool.py
+index c8ca8056..d37335a5 100644
+--- a/src/polaris_graph/retrieval2/evidence_pool.py
++++ b/src/polaris_graph/clinical_retrieval/evidence_pool.py
+@@ -14,7 +14,7 @@ retriever and consumed by future slice 003 generation:
+ 
+ Pure-types module: no I/O, no network, no LLM calls. Validation only.
+ 
+-Slice 002 lives in `polaris_graph.retrieval2` (note the `2`) to keep
++Slice 002 lives in `polaris_graph.clinical_retrieval` to keep
+ clear separation from the heritage `polaris_graph.retrieval` substrate
+ (live_retriever, source_registry, etc.) which serves the legacy honest-
+ rebuild pipeline. The two coexist by design per PLAN.md §4.
+diff --git a/src/polaris_graph/retrieval2/query_planner.py b/src/polaris_graph/clinical_retrieval/query_planner.py
+similarity index 100%
+rename from src/polaris_graph/retrieval2/query_planner.py
+rename to src/polaris_graph/clinical_retrieval/query_planner.py
+diff --git a/src/polaris_graph/retrieval2/real_fetcher.py b/src/polaris_graph/clinical_retrieval/real_fetcher.py
+similarity index 99%
+rename from src/polaris_graph/retrieval2/real_fetcher.py
+rename to src/polaris_graph/clinical_retrieval/real_fetcher.py
+index a17047e1..bf6b0282 100644
+--- a/src/polaris_graph/retrieval2/real_fetcher.py
++++ b/src/polaris_graph/clinical_retrieval/real_fetcher.py
+@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
+ 
+ import httpx
+ 
+-from polaris_graph.retrieval2.clinical_retriever import FetchResult
++from polaris_graph.clinical_retrieval.clinical_retriever import FetchResult
+ 
+ _LOG = logging.getLogger(__name__)
+ 
+diff --git a/src/polaris_graph/evidence_contract/gate.py b/src/polaris_graph/evidence_contract/gate.py
+index ba8c0f40..0553a892 100644
+--- a/src/polaris_graph/evidence_contract/gate.py
++++ b/src/polaris_graph/evidence_contract/gate.py
+@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
+ from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+ from polaris_graph.clinical_generator.provenance import extract_tokens
+ from polaris_graph.clinical_generator.verified_report import VerifiedReport
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source, SourceTier
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source, SourceTier
+ 
+ JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
+     Jurisdiction.CA: frozenset({"canada.ca", "gc.ca", "cochrane.org", "hc-sc.gc.ca"}),
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index 12320b88..1f5c33aa 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -111,7 +111,7 @@ def create_app() -> FastAPI:
+     # present; otherwise leave the dependency at the sentinel default
+     # (returns 400 fetch_backend_unavailable, never silently degrades).
+     if os.environ.get("SERPER_API_KEY", "").strip():
+-        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
++        from polaris_graph.clinical_retrieval.real_fetcher import build_real_fetcher
+ 
+         # Build once at startup; fetcher reuses httpx connections per call.
+         _real_fetcher = build_real_fetcher()
+diff --git a/src/polaris_v6/api/artifact_to_slice_chain.py b/src/polaris_v6/api/artifact_to_slice_chain.py
+index 34bdff21..d1db365a 100644
+--- a/src/polaris_v6/api/artifact_to_slice_chain.py
++++ b/src/polaris_v6/api/artifact_to_slice_chain.py
+@@ -39,7 +39,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport as SliceChainVerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 9a002b77..2643ce80 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -266,3 +266,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (P2-001 verified_report.py:9 stale "note the `2`" docstring — FIXED in follow-up commit, direct rename fallout Codex itself identified; P2-002 trajectory file in canonical diff — expected process metadata). convergence accept_remaining. ast.parse 44/44, import resolves, 259 passed; 4 pre-existing failures verified identical on clean polaris HEAD. P1 trajectory 0.
++
++## I-naming-005 (#439) — rename src/polaris_graph/retrieval2/ -> clinical_retrieval/
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (predicted stale `(note the `2`)` docstring in evidence_pool.py — fixed inline in commit 1, not deferred). convergence continue. Package rename — git mv 13 files (7 src + 6 test) + substring retrieval2→clinical_retrieval over 50 .py + README (63 occurrences). Token path-only. Target name harmonizes with existing slice-ID string "slice_002_clinical_retrieval" (different namespace, no collision). 54 files +63/-63 = 126 LOC, under 200.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 52/52, import resolves all 6 submodules, 197 passed 0 failed. P1 trajectory 0.
+diff --git a/tests/crown_jewels/test_cj_003_strict_verify.py b/tests/crown_jewels/test_cj_003_strict_verify.py
+index e28b160b..7f1fd67c 100644
+--- a/tests/crown_jewels/test_cj_003_strict_verify.py
++++ b/tests/crown_jewels/test_cj_003_strict_verify.py
+@@ -16,7 +16,7 @@ from __future__ import annotations
+ from datetime import datetime, timezone
+ 
+ from src.polaris_graph.clinical_generator.strict_verify import verify_sentence
+-from src.polaris_graph.retrieval2.evidence_pool import (
++from src.polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/crown_jewels/test_cj_008_entailment_correctness.py b/tests/crown_jewels/test_cj_008_entailment_correctness.py
+index 941f9570..fee36c2b 100644
+--- a/tests/crown_jewels/test_cj_008_entailment_correctness.py
++++ b/tests/crown_jewels/test_cj_008_entailment_correctness.py
+@@ -45,7 +45,7 @@ from src.polaris_graph.clinical_generator.strict_verify import (
+     verify_sentence,
+     verify_sentence_to_record,
+ )
+-from src.polaris_graph.retrieval2.evidence_pool import (
++from src.polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/api/test_retrieval_route.py b/tests/polaris_graph/api/test_retrieval_route.py
+index b7c553b0..eeca790b 100644
+--- a/tests/polaris_graph/api/test_retrieval_route.py
++++ b/tests/polaris_graph/api/test_retrieval_route.py
+@@ -11,7 +11,7 @@ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+ from polaris_graph.api.retrieval_route import get_fetch_fn, router
+-from polaris_graph.retrieval2.clinical_retriever import FetchResult
++from polaris_graph.clinical_retrieval.clinical_retriever import FetchResult
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/tests/polaris_graph/audit_bundle/test_bundle_builder.py b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+index e7331ffe..f9631507 100644
+--- a/tests/polaris_graph/audit_bundle/test_bundle_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+@@ -18,7 +18,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+index d344673a..4b0f9455 100644
+--- a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
++++ b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+@@ -13,7 +13,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+index 3c1a9339..f44d2b45 100644
+--- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+@@ -26,7 +26,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+index e471d883..400faf83 100644
+--- a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
++++ b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+@@ -26,7 +26,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/audit_bundle/test_snapshot_sources.py b/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
+index 7d5076b3..f8a492d7 100644
+--- a/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
++++ b/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
+@@ -14,7 +14,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+index 4b154168..8c53c066 100644
+--- a/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
++++ b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+@@ -16,7 +16,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/benchmark/test_dimension_scorers.py b/tests/polaris_graph/benchmark/test_dimension_scorers.py
+index 66520a47..39b08ccb 100644
+--- a/tests/polaris_graph/benchmark/test_dimension_scorers.py
++++ b/tests/polaris_graph/benchmark/test_dimension_scorers.py
+@@ -25,7 +25,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_generator.py b/tests/polaris_graph/clinical_generator/test_generator.py
+index cf6e2c6f..441d2971 100644
+--- a/tests/polaris_graph/clinical_generator/test_generator.py
++++ b/tests/polaris_graph/clinical_generator/test_generator.py
+@@ -19,7 +19,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_provenance.py b/tests/polaris_graph/clinical_generator/test_provenance.py
+index dded942d..086c086e 100644
+--- a/tests/polaris_graph/clinical_generator/test_provenance.py
++++ b/tests/polaris_graph/clinical_generator/test_provenance.py
+@@ -16,7 +16,7 @@ from polaris_graph.clinical_generator.provenance import (
+     strip_tokens,
+     validate_token_against_pool,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_real_completion.py b/tests/polaris_graph/clinical_generator/test_real_completion.py
+index dfcb2774..0afd41b9 100644
+--- a/tests/polaris_graph/clinical_generator/test_real_completion.py
++++ b/tests/polaris_graph/clinical_generator/test_real_completion.py
+@@ -21,7 +21,7 @@ from polaris_graph.clinical_generator.real_completion import (
+ from polaris_graph.clinical_generator.section_blueprint import (
+     CLINICAL_EFFICACY,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_strict_verify.py b/tests/polaris_graph/clinical_generator/test_strict_verify.py
+index ffe9e08b..5c30431e 100644
+--- a/tests/polaris_graph/clinical_generator/test_strict_verify.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify.py
+@@ -13,7 +13,7 @@ from polaris_graph.clinical_generator.strict_verify import (
+     verify_sentence_to_record,
+ )
+ from polaris_graph.clinical_generator.verified_report import VerifiedSentence
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+index 77261290..72340f13 100644
+--- a/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+@@ -25,7 +25,7 @@ from polaris_graph.clinical_generator.strict_verify import (
+     verify_sentence,
+     verify_sentence_to_record,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py b/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
+index bbe9a12e..ee2c59b2 100644
+--- a/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
+@@ -23,7 +23,7 @@ from polaris_graph.clinical_generator.strict_verify import (
+     reset_judge_telemetry,
+     verify_sentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/retrieval2/__init__.py b/tests/polaris_graph/clinical_retrieval/__init__.py
+similarity index 100%
+rename from tests/polaris_graph/retrieval2/__init__.py
+rename to tests/polaris_graph/clinical_retrieval/__init__.py
+diff --git a/tests/polaris_graph/retrieval2/test_clinical_retriever.py b/tests/polaris_graph/clinical_retrieval/test_clinical_retriever.py
+similarity index 98%
+rename from tests/polaris_graph/retrieval2/test_clinical_retriever.py
+rename to tests/polaris_graph/clinical_retrieval/test_clinical_retriever.py
+index d75b5006..c7f8fc34 100644
+--- a/tests/polaris_graph/retrieval2/test_clinical_retriever.py
++++ b/tests/polaris_graph/clinical_retrieval/test_clinical_retriever.py
+@@ -6,15 +6,15 @@ from typing import Callable
+ 
+ import pytest
+ 
+-from polaris_graph.retrieval2.clinical_retriever import (
++from polaris_graph.clinical_retrieval.clinical_retriever import (
+     FetchResult,
+     process_retrieval,
+ )
+-from polaris_graph.retrieval2.corpus_adequacy_gate import (
++from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
+     CLINICAL_DEFAULT,
+     ClinicalTemplate,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     EvidencePool,
+     RetrievalError,
+     SourceTier,
+diff --git a/tests/polaris_graph/retrieval2/test_clinical_source_registry.py b/tests/polaris_graph/clinical_retrieval/test_clinical_source_registry.py
+similarity index 98%
+rename from tests/polaris_graph/retrieval2/test_clinical_source_registry.py
+rename to tests/polaris_graph/clinical_retrieval/test_clinical_source_registry.py
+index e4f72996..0af47361 100644
+--- a/tests/polaris_graph/retrieval2/test_clinical_source_registry.py
++++ b/tests/polaris_graph/clinical_retrieval/test_clinical_source_registry.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ 
+ import pytest
+ 
+-from polaris_graph.retrieval2.clinical_source_registry import (
++from polaris_graph.clinical_retrieval.clinical_source_registry import (
+     classify_url,
+     deny_domains,
+     filter_allowed,
+@@ -13,7 +13,7 @@ from polaris_graph.retrieval2.clinical_source_registry import (
+     known_t2_domains,
+     known_t3_domains,
+ )
+-from polaris_graph.retrieval2.evidence_pool import SourceTier
++from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
+ 
+ 
+ # ---------- T1 (regulatory + systematic reviews) ----------
+diff --git a/tests/polaris_graph/retrieval2/test_corpus_adequacy_gate.py b/tests/polaris_graph/clinical_retrieval/test_corpus_adequacy_gate.py
+similarity index 98%
+rename from tests/polaris_graph/retrieval2/test_corpus_adequacy_gate.py
+rename to tests/polaris_graph/clinical_retrieval/test_corpus_adequacy_gate.py
+index e5b8cc31..b6b7b57d 100644
+--- a/tests/polaris_graph/retrieval2/test_corpus_adequacy_gate.py
++++ b/tests/polaris_graph/clinical_retrieval/test_corpus_adequacy_gate.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ 
+ import pytest
+ 
+-from polaris_graph.retrieval2.corpus_adequacy_gate import (
++from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
+     CLINICAL_DEFAULT,
+     CLINICAL_DIAGNOSIS,
+     CLINICAL_EFFICACY,
+@@ -16,7 +16,7 @@ from polaris_graph.retrieval2.corpus_adequacy_gate import (
+     register_template,
+     template_for_scope_class,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     Source,
+     SourceTier,
+ )
+diff --git a/tests/polaris_graph/retrieval2/test_evidence_pool.py b/tests/polaris_graph/clinical_retrieval/test_evidence_pool.py
+similarity index 98%
+rename from tests/polaris_graph/retrieval2/test_evidence_pool.py
+rename to tests/polaris_graph/clinical_retrieval/test_evidence_pool.py
+index a9e7547e..b7ec7b3d 100644
+--- a/tests/polaris_graph/retrieval2/test_evidence_pool.py
++++ b/tests/polaris_graph/clinical_retrieval/test_evidence_pool.py
+@@ -1,4 +1,4 @@
+-"""Tests for polaris_graph.retrieval2.evidence_pool schemas."""
++"""Tests for polaris_graph.clinical_retrieval.evidence_pool schemas."""
+ 
+ from __future__ import annotations
+ 
+@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
+ import pytest
+ from pydantic import ValidationError
+ 
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     RetrievalError,
+diff --git a/tests/polaris_graph/retrieval2/test_query_planner.py b/tests/polaris_graph/clinical_retrieval/test_query_planner.py
+similarity index 98%
+rename from tests/polaris_graph/retrieval2/test_query_planner.py
+rename to tests/polaris_graph/clinical_retrieval/test_query_planner.py
+index 2b47cdc3..320a5b55 100644
+--- a/tests/polaris_graph/retrieval2/test_query_planner.py
++++ b/tests/polaris_graph/clinical_retrieval/test_query_planner.py
+@@ -1,4 +1,4 @@
+-"""Tests for polaris_graph.retrieval2.query_planner.
++"""Tests for polaris_graph.clinical_retrieval.query_planner.
+ 
+ Exercises Boolean-expansion, scope-class augmentation, dedup, and the
+ QUERY_CAP. All inputs are constructed ScopeDecision instances; no LLM
+@@ -7,7 +7,7 @@ or network involved (the planner is a pure function).
+ 
+ from __future__ import annotations
+ 
+-from polaris_graph.retrieval2.query_planner import (
++from polaris_graph.clinical_retrieval.query_planner import (
+     JACCARD_THRESHOLD,
+     QUERY_CAP,
+     plan_queries,
+diff --git a/tests/polaris_graph/retrieval2/test_real_fetcher.py b/tests/polaris_graph/clinical_retrieval/test_real_fetcher.py
+similarity index 99%
+rename from tests/polaris_graph/retrieval2/test_real_fetcher.py
+rename to tests/polaris_graph/clinical_retrieval/test_real_fetcher.py
+index 4edbe919..cdcc111f 100644
+--- a/tests/polaris_graph/retrieval2/test_real_fetcher.py
++++ b/tests/polaris_graph/clinical_retrieval/test_real_fetcher.py
+@@ -11,7 +11,7 @@ import json
+ import httpx
+ import pytest
+ 
+-from polaris_graph.retrieval2.real_fetcher import (
++from polaris_graph.clinical_retrieval.real_fetcher import (
+     RealFetcher,
+     RealFetcherConfig,
+     SERPER_ENDPOINT,
+diff --git a/tests/polaris_graph/evidence_contract/test_gate.py b/tests/polaris_graph/evidence_contract/test_gate.py
+index a30b7e35..979bd8af 100644
+--- a/tests/polaris_graph/evidence_contract/test_gate.py
++++ b/tests/polaris_graph/evidence_contract/test_gate.py
+@@ -21,7 +21,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/golden/test_slice_002_goldens.py b/tests/polaris_graph/golden/test_slice_002_goldens.py
+index 3dec134d..eff48b64 100644
+--- a/tests/polaris_graph/golden/test_slice_002_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_002_goldens.py
+@@ -26,11 +26,11 @@ from pathlib import Path
+ 
+ import pytest
+ 
+-from polaris_graph.retrieval2.clinical_retriever import (
++from polaris_graph.clinical_retrieval.clinical_retriever import (
+     FetchResult,
+     process_retrieval,
+ )
+-from polaris_graph.retrieval2.evidence_pool import EvidencePool, RetrievalError
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, RetrievalError
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+ 
+diff --git a/tests/polaris_graph/golden/test_slice_003_goldens.py b/tests/polaris_graph/golden/test_slice_003_goldens.py
+index 0eb582e4..24770e81 100644
+--- a/tests/polaris_graph/golden/test_slice_003_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_003_goldens.py
+@@ -26,7 +26,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_graph/golden/test_slice_004_goldens.py b/tests/polaris_graph/golden/test_slice_004_goldens.py
+index d4a0cfb3..8ca14cfd 100644
+--- a/tests/polaris_graph/golden/test_slice_004_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_004_goldens.py
+@@ -35,7 +35,7 @@ from polaris_graph.clinical_generator.verified_report import (
+     VerifiedReport,
+     VerifiedSentence,
+ )
+-from polaris_graph.retrieval2.evidence_pool import (
++from polaris_graph.clinical_retrieval.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+     Source,
+diff --git a/tests/polaris_v6/api/test_artifact_to_slice_chain.py b/tests/polaris_v6/api/test_artifact_to_slice_chain.py
+index 8e65c259..c251d6f5 100644
+--- a/tests/polaris_v6/api/test_artifact_to_slice_chain.py
++++ b/tests/polaris_v6/api/test_artifact_to_slice_chain.py
+@@ -18,7 +18,7 @@ from polaris_v6.api.artifact_to_slice_chain import (
+     _normalize_tier,
+     build_slice_chain,
+ )
+-from polaris_graph.retrieval2.evidence_pool import SourceTier
++from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/tests/scripts/test_run_line_by_line_audit.py b/tests/scripts/test_run_line_by_line_audit.py
+index 0484e05a..d847fb6f 100644
+--- a/tests/scripts/test_run_line_by_line_audit.py
++++ b/tests/scripts/test_run_line_by_line_audit.py
+@@ -170,7 +170,7 @@ def test_audit_md_recommends_accept_on_high_verified():
+ 
+ def test_canonical_evidencepool_source_id_schema():
+     """I-bakeoff-A-001 iter-1 diff P1 fix: pool loader normalizes
+-    canonical retrieval2.EvidencePool schema (source_id + full_text)
++    canonical clinical_retrieval.EvidencePool schema (source_id + full_text)
+     in addition to legacy {evidence_id + direct_quote}.
+     """
+     from scripts.run_line_by_line_audit import _normalize_pool
+# canonical-diff-sha256: 4a11b566c64950c7ae223cbd37fd3922c4a65c5ff87084fb987c7a12c853ff15

@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from polaris_graph.api.retrieval_route import get_fetch_fn, router
-from polaris_graph.retrieval2.clinical_retriever import FetchResult
+from polaris_graph.clinical_retrieval.clinical_retriever import FetchResult
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ from polaris_graph.clinical_generator.strict_verify import (
     reset_judge_telemetry,
     verify_sentence,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

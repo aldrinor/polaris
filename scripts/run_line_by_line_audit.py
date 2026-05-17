@@ -125,7 +125,7 @@ def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
 
     Accepts:
     - List of {evidence_id, direct_quote/full_text/snippet} (legacy clinical_generator schema).
-    - List of {source_id, full_text/snippet} (canonical retrieval2.EvidencePool schema).
+    - List of {source_id, full_text/snippet} (canonical clinical_retrieval.EvidencePool schema).
     - Object {<id>: <entry>} (already keyed).
     - Object {sources: [<entry>, ...]} (EvidencePool serialized with sources field).
     """

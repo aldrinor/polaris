@@ -15,7 +15,7 @@ GPG-signed audit bundle → BEAT-BOTH benchmark vs ChatGPT-DR / Gemini-DR.
 | Slice | Deliverable | Substrate |
 |---|---|---|
 | 1 | Scope discovery + ambiguity | `polaris_graph/scope/`, `/api/intake`, `/intake` page |
-| 2 | Tiered retrieval (Serper + S2) | `polaris_graph/retrieval2/`, `/api/retrieval`, `/retrieval` page |
+| 2 | Tiered retrieval (Serper + S2) | `polaris_graph/clinical_retrieval/`, `/api/retrieval`, `/retrieval` page |
 | 3 | Generator + strict-verify | `polaris_graph/clinical_generator/`, `/api/generation`, `/generation` page |
 | 4 | Audit bundle GPG-signed | `polaris_graph/audit_bundle/`, `/api/audit-bundle`, download in `/generation` |
 | 5 | BEAT-BOTH benchmark + demo polish | `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` |

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlparse
 
-from polaris_graph.retrieval2.evidence_pool import SourceTier
+from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
 
 
 @dataclass(frozen=True)

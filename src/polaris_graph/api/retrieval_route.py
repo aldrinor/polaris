@@ -33,11 +33,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from polaris_graph.retrieval2.clinical_retriever import (
+from polaris_graph.clinical_retrieval.clinical_retriever import (
     FetchHttpFn,
     process_retrieval,
 )
-from polaris_graph.retrieval2.evidence_pool import EvidencePool, RetrievalError
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, RetrievalError
 from polaris_graph.scope.scope_decision import ScopeDecision
 
 router = APIRouter(tags=["retrieval"])

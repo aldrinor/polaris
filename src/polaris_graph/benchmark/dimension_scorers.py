@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from polaris_graph.benchmark.benchmark_config import BenchmarkQuestion
 from polaris_graph.clinical_generator.provenance import extract_tokens
 from polaris_graph.clinical_generator.verified_report import VerifiedReport
-from polaris_graph.retrieval2.evidence_pool import EvidencePool, SourceTier
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, SourceTier
 
 
 DimensionName = Literal[

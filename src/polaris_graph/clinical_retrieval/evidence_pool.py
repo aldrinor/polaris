@@ -14,7 +14,7 @@ retriever and consumed by future slice 003 generation:
 
 Pure-types module: no I/O, no network, no LLM calls. Validation only.
 
-Slice 002 lives in `polaris_graph.retrieval2` (note the `2`) to keep
+Slice 002 lives in `polaris_graph.clinical_retrieval` to keep
 clear separation from the heritage `polaris_graph.retrieval` substrate
 (live_retriever, source_registry, etc.) which serves the legacy honest-
 rebuild pipeline. The two coexist by design per PLAN.md §4.

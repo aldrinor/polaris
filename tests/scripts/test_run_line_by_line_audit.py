@@ -170,7 +170,7 @@ def test_audit_md_recommends_accept_on_high_verified():
 
 def test_canonical_evidencepool_source_id_schema():
     """I-bakeoff-A-001 iter-1 diff P1 fix: pool loader normalizes
-    canonical retrieval2.EvidencePool schema (source_id + full_text)
+    canonical clinical_retrieval.EvidencePool schema (source_id + full_text)
     in addition to legacy {evidence_id + direct_quote}.
     """
     from scripts.run_line_by_line_audit import _normalize_pool

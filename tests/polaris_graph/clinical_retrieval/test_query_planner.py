@@ -1,4 +1,4 @@
-"""Tests for polaris_graph.retrieval2.query_planner.
+"""Tests for polaris_graph.clinical_retrieval.query_planner.
 
 Exercises Boolean-expansion, scope-class augmentation, dedup, and the
 QUERY_CAP. All inputs are constructed ScopeDecision instances; no LLM
@@ -7,7 +7,7 @@ or network involved (the planner is a pure function).
 
 from __future__ import annotations
 
-from polaris_graph.retrieval2.query_planner import (
+from polaris_graph.clinical_retrieval.query_planner import (
     JACCARD_THRESHOLD,
     QUERY_CAP,
     plan_queries,

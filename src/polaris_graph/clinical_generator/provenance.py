@@ -6,7 +6,7 @@ CLAUDE.md §9.1 invariant 2 ('every generated sentence carries
 
 Token format: `[#ev:<source_id>:<start>-<end>]` where:
 - source_id is a UUID-shaped string (lowercase hex with optional dashes)
-  matching the source_id field of `polaris_graph.retrieval2.evidence_pool.Source`
+  matching the source_id field of `polaris_graph.clinical_retrieval.evidence_pool.Source`
 - start, end are non-negative integer character offsets into the source's
   full_text (or snippet, when full_text is unavailable)
 - start <= end is enforced; start == end is allowed for empty-span citations
@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
 
 
 # Source.source_id defaults to uuid.uuid4() (lowercase hex + dashes) but is

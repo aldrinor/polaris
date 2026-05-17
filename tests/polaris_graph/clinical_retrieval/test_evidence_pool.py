@@ -1,4 +1,4 @@
-"""Tests for polaris_graph.retrieval2.evidence_pool schemas."""
+"""Tests for polaris_graph.clinical_retrieval.evidence_pool schemas."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     RetrievalError,

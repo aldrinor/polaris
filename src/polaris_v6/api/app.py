@@ -111,7 +111,7 @@ def create_app() -> FastAPI:
     # present; otherwise leave the dependency at the sentinel default
     # (returns 400 fetch_backend_unavailable, never silently degrades).
     if os.environ.get("SERPER_API_KEY", "").strip():
-        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+        from polaris_graph.clinical_retrieval.real_fetcher import build_real_fetcher
 
         # Build once at startup; fetcher reuses httpx connections per call.
         _real_fetcher = build_real_fetcher()

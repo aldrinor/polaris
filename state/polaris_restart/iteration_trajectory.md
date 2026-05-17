@@ -266,3 +266,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (P2-001 verified_report.py:9 stale "note the `2`" docstring — FIXED in follow-up commit, direct rename fallout Codex itself identified; P2-002 trajectory file in canonical diff — expected process metadata). convergence accept_remaining. ast.parse 44/44, import resolves, 259 passed; 4 pre-existing failures verified identical on clean polaris HEAD. P1 trajectory 0.
+
+## I-naming-005 (#439) — rename src/polaris_graph/retrieval2/ -> clinical_retrieval/
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (predicted stale `(note the `2`)` docstring in evidence_pool.py — fixed inline in commit 1, not deferred). convergence continue. Package rename — git mv 13 files (7 src + 6 test) + substring retrieval2→clinical_retrieval over 50 .py + README (63 occurrences). Token path-only. Target name harmonizes with existing slice-ID string "slice_002_clinical_retrieval" (different namespace, no collision). 54 files +63/-63 = 126 LOC, under 200.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 52/52, import resolves all 6 submodules, 197 passed 0 failed. P1 trajectory 0.

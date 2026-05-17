@@ -13,7 +13,7 @@ from polaris_graph.clinical_generator.strict_verify import (
     verify_sentence_to_record,
 )
 from polaris_graph.clinical_generator.verified_report import VerifiedSentence
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

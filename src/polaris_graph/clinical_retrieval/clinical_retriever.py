@@ -33,19 +33,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Protocol
 
-from polaris_graph.retrieval2.clinical_source_registry import classify_url
-from polaris_graph.retrieval2.corpus_adequacy_gate import (
+from polaris_graph.clinical_retrieval.clinical_source_registry import classify_url
+from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
     ClinicalTemplate,
     assess,
     template_for_scope_class,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     EvidencePool,
     RetrievalError,
     Source,
     SourceTier,
 )
-from polaris_graph.retrieval2.query_planner import plan_queries
+from polaris_graph.clinical_retrieval.query_planner import plan_queries
 from polaris_graph.scope.scope_decision import ScopeDecision
 
 
