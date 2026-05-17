@@ -248,7 +248,7 @@ diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph
 similarity index 99%
 rename from src/polaris_graph/generator2/verified_report.py
 rename to src/polaris_graph/clinical_generator/verified_report.py
-index b9069674..5ed1c50c 100644
+index b9069674..3ed6fc38 100644
 --- a/src/polaris_graph/generator2/verified_report.py
 +++ b/src/polaris_graph/clinical_generator/verified_report.py
 @@ -7,7 +7,7 @@ process_generation() consumes an EvidencePool (slice 002 output) and
@@ -256,7 +256,7 @@ index b9069674..5ed1c50c 100644
  bundle.
  
 -Lives in `polaris_graph.generator2` (note the `2`) to keep separation
-+Lives in `polaris_graph.clinical_generator` (note the `2`) to keep separation
++Lives in `polaris_graph.clinical_generator` to keep separation
  from heritage `polaris_graph.generator` (multi_section, live_deepseek)
  which serves the legacy honest-rebuild pipeline. Coexistence by design
  per PLAN.md §4 Heritage Import.
@@ -378,7 +378,7 @@ index d3338628..34bdff21 100644
      _PROV_TOKEN_RE = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
  
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 96dbf75b..5197d282 100644
+index 96dbf75b..9a002b77 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -258,3 +258,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -392,7 +392,7 @@ index 96dbf75b..5197d282 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (`create_followup_issues.sh:26-27` mentions generator2 — classified historical: it's the frozen body text of already-filed issue #356, like outputs/audits/** audit-trail records). convergence accept_remaining. Package rename — git mv 18 files (7 src + 11 test) + substring generator2→clinical_generator over 44 .py + README + crown_jewels (86 occurrences). Token path-only — no identifier named generator2. 50 files +86/-86 = 172 LOC, under 200 cap.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (P2-001 verified_report.py:9 stale "note the `2`" docstring — FIXED in follow-up commit, direct rename fallout Codex itself identified; P2-002 trajectory file in canonical diff — expected process metadata). convergence accept_remaining. ast.parse 44/44, import resolves, 259 passed; 4 pre-existing failures verified identical on clean polaris HEAD. P1 trajectory 0.
 diff --git a/tests/crown_jewels/test_cj_002_provenance_tokens.py b/tests/crown_jewels/test_cj_002_provenance_tokens.py
 index c5550dfe..bdd925d3 100644
 --- a/tests/crown_jewels/test_cj_002_provenance_tokens.py
@@ -886,4 +886,4 @@ index 8c036502..1234270e 100644
      invokes the judge. A single get_judge_telemetry() snapshot must
      cover both code paths (per Codex iter-1 brief acceptance proof).
      """
-# canonical-diff-sha256: 1ca5d02408ef600b46bb27ae7f8db916a7e6937529a9061590b13e78a34d486a
+# canonical-diff-sha256: 3687ecbc65769e9bc97a33d3c0dfc2abfca51e130e6c85eb59df849efb64be7b
