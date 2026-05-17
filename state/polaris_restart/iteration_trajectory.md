@@ -186,3 +186,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (SCOPE consumer list omits src/agents/base_agent.py:129 transitive reader of global_config.models.llm; codex_diff.patch generated post-commit-2 so absent at review time — both non-blocking, comment-only diff). convergence_call accept_remaining. remaining_blockers none. tokens 74690. Shipped on iter-1 APPROVE.
+
+## I-modref-004 (#530) — Class B rename: qwen_* identifiers + live_qwen_judge module + qwen_judge_output artifact
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 3 P1 (missed serialized fields qwen_verdicts/qwen_judge; dual-read missed 2 reader scripts; false "gitignored" premise — 206 tracked outputs/honest_* files).
+- iter 2: REQUEST_CHANGES — 1 NOVEL P1 (ok_qwen_advisory — a second qwen-tainted serialized status) + P2s (_QwenShim class; 7 stale doc/config sites; presence-based field fallback).
+- iter 3: APPROVE — 0 P0, 0 P1, 3 P2 (P2-doc-sweep README/architecture refs — addressed in impl; P2-historical-exclusion outputs/sweep_r3_final etc; P2-operator-prose runner logs — addressed in impl). convergence_call accept_remaining. tokens 206241. P1 trajectory 3 -> 1 -> 0.
+
+### Diff review
+- (pending — Codex diff review iter 1)
