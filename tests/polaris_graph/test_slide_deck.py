@@ -101,7 +101,7 @@ def _make_ir(
     )
     eg = EvaluatorGate(
         gate_class="pass", release_allowed=True, reasons=(),
-        rule_blockers=(), qwen_critical_axes=(), qwen_parse_ok=True,
+        rule_blockers=(), judge_critical_axes=(), judge_parse_ok=True,
     )
     manifest = RunManifest(
         run_id="run_test_1", slug="x_drug_y", status="success",

@@ -112,7 +112,7 @@ def get_run_bundle_targz(
 
     # I-arch-001d Codex diff iter-2 P1-002 fix: release_allowed gate.
     # The slice-chain pipeline_verdict collapses partial_* into "success",
-    # but a release-blocked partial (e.g. partial_qwen_advisory with
+    # but a release-blocked partial (e.g. partial_evaluator_advisory with
     # release_allowed=false) MUST NOT ship as a clean bundle. Read the raw
     # manifest.release_allowed flag and refuse with 422 when False.
     try:

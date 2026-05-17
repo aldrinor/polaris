@@ -8,9 +8,10 @@ report.md, recomputes the gate, and rewrites `manifest.json`,
 `evaluator_rule_checks.json`, and the matching entry in
 `sweep_summary.json`/`sweep_summary.md`.
 
-This is evaluator-only. It does NOT re-run Qwen (already ran during
-original sweep; the Qwen verdicts stored in `qwen_judge_output.json`
-are reused verbatim).
+This is evaluator-only. It does NOT re-run the judge (already ran
+during the original sweep; the judge verdicts stored in
+`judge_output.json` (or legacy `qwen_judge_output.json`) are reused
+verbatim).
 
 Usage:
     python scripts/regate_v23.py \\
@@ -46,7 +47,7 @@ class _EvOutShim:
 
 
 @dataclass
-class _QwenShim:
+class _JudgeShim:
     """Minimal shim of JudgeResult for compute_evaluator_gate."""
     parse_ok: bool
     verdicts: dict[str, Any]
@@ -68,8 +69,8 @@ def _status_from_gate(gate) -> str:
     evaluator-gated path. See run_honest_sweep_r3.py:1326-1344."""
     if gate.gate_class == "abort":
         return "abort_evaluator_critical"
-    if gate.gate_class == "partial" and gate.qwen_critical_axes:
-        return "partial_qwen_advisory"
+    if gate.gate_class == "partial" and gate.judge_critical_axes:
+        return "partial_evaluator_advisory"
     return "success"
 
 
@@ -77,7 +78,10 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
     report_path = run_dir / "report.md"
     manifest_path = run_dir / "manifest.json"
     rule_checks_path = run_dir / "evaluator_rule_checks.json"
-    qwen_path = run_dir / "qwen_judge_output.json"
+    judge_path = run_dir / "judge_output.json"
+    if not judge_path.exists():
+        # I-modref-004 (#530): legacy V23 artifacts use the old filename.
+        judge_path = run_dir / "qwen_judge_output.json"
     protocol_path = run_dir / "protocol.json"
     contradictions_path = run_dir / "contradictions.json"
     bibliography_path = run_dir / "bibliography.json"
@@ -85,7 +89,7 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
     report_text = report_path.read_text(encoding="utf-8")
     manifest_prev = _load_json(manifest_path)
     rule_checks_prev = _load_json(rule_checks_path)
-    qwen_prev = _load_json(qwen_path) if qwen_path.exists() else {}
+    judge_prev = _load_json(judge_path) if judge_path.exists() else {}
     protocol = _load_json(protocol_path)
     contradictions = (
         _load_json(contradictions_path)
@@ -152,16 +156,16 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
         rule_checks=new_results,
         contradictions_missing=missing_contra,
     )
-    qwen_verdicts = qwen_prev.get("verdicts", {}) if isinstance(qwen_prev, dict) else {}
-    qwen_shim = _QwenShim(
-        parse_ok=bool(qwen_verdicts),
-        verdicts=qwen_verdicts,
+    judge_verdicts = judge_prev.get("verdicts", {}) if isinstance(judge_prev, dict) else {}
+    judge_shim = _JudgeShim(
+        parse_ok=bool(judge_verdicts),
+        verdicts=judge_verdicts,
     )
     adequacy = manifest_prev.get("adequacy")
     completeness = manifest_prev.get("completeness")
     new_gate = compute_evaluator_gate(
         ev_shim,
-        qwen_result=qwen_shim,
+        judge_result=judge_shim,
         adequacy=adequacy,
         completeness=completeness,
     )

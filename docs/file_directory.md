@@ -50,7 +50,7 @@ produced, see `docs/live_code_audit.json`.
 | `src/polaris_graph/nodes/` | Pre-generation gates | A | `scope_gate`, `corpus_approval_gate`, `corpus_adequacy_gate`, `completeness_checker` |
 | `src/polaris_graph/retrieval/` | Source retrieval + tiering | A | `live_retriever`, `tier_classifier`, `domain_backends`, `scope_query_validator`, `contradiction_detector`, `prefetch_offtopic_filter`, `fetch_limiter` |
 | `src/polaris_graph/generator/` | Prose generation + strict verify | A | `multi_section_generator`, `live_deepseek_generator`, `provenance_generator` |
-| `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_qwen_judge` |
+| `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_judge` |
 | `src/polaris_graph/llm/` | OpenRouter gateway | A, B | `openrouter_client` enforces two-family segregation, budget guard, cost imputation |
 | `src/polaris_graph/agents/` | Agent helpers | A | `nli_verifier` |
 | `src/polaris_graph/graph.py` | LangGraph v1 | B | UI pipeline variant |

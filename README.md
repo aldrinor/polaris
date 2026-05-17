@@ -124,7 +124,7 @@ provenance_generator.strict_verify   ──► drop sentences whose
     │                                    overlap. If zero verified →
     │                                    abort_no_verified_sections.
     ▼
-live_qwen_judge (Qwen3-8B, DIFFERENT FAMILY from generator)
+live_judge (judge model, DIFFERENT FAMILY from generator)
     │
     ▼
 external_evaluator.run_external_evaluation
@@ -169,7 +169,7 @@ POLARIS/
 │   │   ├── nodes/           — scope_gate, corpus_approval_gate, ...
 │   │   ├── retrieval/       — live_retriever, tier_classifier, ...
 │   │   ├── generator/       — multi_section, live_deepseek, provenance
-│   │   ├── evaluator/       — external_evaluator, live_qwen_judge
+│   │   ├── evaluator/       — external_evaluator, live_judge
 │   │   ├── llm/             — openrouter_client (with two-family check)
 │   │   ├── graph.py, graph_v2.py, graph_v3.py  — LangGraph variants (pipeline B)
 │   │   ├── memory/          — campaign/cross-vector stores (pipeline B)

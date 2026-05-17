@@ -3,7 +3,7 @@
 V27 = V26 code + M-43 (regulatory_anchors cap 10 → 12).
 
 V26 outcome (2026-04-22 03:44→05:38, 113.7 min):
-  - manifest.status=partial_qwen_advisory, release_allowed=False
+  - manifest.status=partial_evaluator_advisory, release_allowed=False
   - Biblio 48 (up from V25=40), contradictions 15 (same as V25)
   - HC=3 (M-42d target MET, up from V25=1)
   - Report 3527 words (up from V25=1455, +142%)

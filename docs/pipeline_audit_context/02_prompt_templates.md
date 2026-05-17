@@ -136,7 +136,7 @@ CRITICAL RULES:
 
 ---
 
-## 5. Evaluator — Qwen judge (`live_qwen_judge.py`)
+## 5. Evaluator — judge (`live_judge.py`)
 
 Extract prompt at audit time. Short summary from memory:
 - Given the final `report.md` + corpus tier distribution, asks

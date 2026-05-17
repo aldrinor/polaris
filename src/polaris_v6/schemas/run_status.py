@@ -22,7 +22,8 @@ LifecycleStatus = Literal[
 PipelineStatus = Literal[
     "success",
     "partial_outline_fallback",
-    "partial_qwen_advisory",
+    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+    "partial_evaluator_advisory",
     "partial_thin_corpus",
     "partial_incomplete_corpus",
     "partial_rule_check_warnings",

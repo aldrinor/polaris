@@ -665,7 +665,8 @@ async def get_audit_bundle(slug: str):
     optional_files = [
         "protocol.json",
         "evaluator_rule_checks.json",
-        "qwen_judge_output.json",
+        "judge_output.json",
+        "qwen_judge_output.json",  # I-modref-004 (#530): legacy name — historical runs still surface
         "completeness.json",
         "corpus_adequacy.json",
         "corpus_approval.json",

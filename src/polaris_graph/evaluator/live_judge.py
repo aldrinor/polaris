@@ -7,8 +7,8 @@ Phase 1c) to produce per-axis structured verdicts on a completed
 report. Module name retained for backward compat; the actual model is
 read from PG_EVALUATOR_MODEL at runtime.
 
-This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
-judge is Qwen3-8B. `check_family_segregation()` must succeed before
+This is the NON-SAME-FAMILY judge: generator is DeepSeek V4 Pro,
+judge is Gemma 4 31B. `check_family_segregation()` must succeed before
 this is called.
 
 DESIGN
@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
-logger = logging.getLogger("polaris_graph.live_qwen_judge")
+logger = logging.getLogger("polaris_graph.live_judge")
 
 
 SYSTEM_PROMPT = """You are a quality auditor for research summaries. You grade along distinct axes, you do NOT produce a single score.
@@ -123,7 +123,7 @@ async def judge_report(
     max_tokens: int = 800,
     temperature: float = 0.2,
 ) -> LiveJudgeResult:
-    """Call Qwen3-8B via OpenRouter for a structured per-axis verdict.
+    """Call the evaluator model via OpenRouter for a structured per-axis verdict.
 
     check_family_segregation() is run BEFORE the call. If the configured
     generator/evaluator pair is same-family, this raises RuntimeError.
@@ -145,7 +145,7 @@ async def judge_report(
         f"Return the JSON object as specified in the system prompt."
     )
 
-    logger.info("[live_qwen_judge] calling %s, report_chars=%d",
+    logger.info("[live_judge] calling %s, report_chars=%d",
                 eval_model, len(report_text))
 
     try:

@@ -212,9 +212,10 @@ all sections.
 Per-evidence detail used by the generator + verifier — evidence_id,
 source_url, tier, statement, direct_quote, timestamp, etc.
 
-## `qwen_judge_output.json`
+## `judge_output.json`
 
-Raw Qwen3-8B judge output (rationale + scores).
+Raw judge output (rationale + scores). Legacy runs wrote this as
+`qwen_judge_output.json`; readers fall back to that filename.
 
 ## `run_log.txt`
 

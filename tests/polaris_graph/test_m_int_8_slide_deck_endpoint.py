@@ -174,8 +174,8 @@ def _build_minimal_audit_ir():
         contradictions_found=0, completeness_percent=0.0,
         evaluator_gate=EvaluatorGate(
             gate_class="pass", release_allowed=True, reasons=(),
-            rule_blockers=(), qwen_critical_axes=(),
-            qwen_parse_ok=True,
+            rule_blockers=(), judge_critical_axes=(),
+            judge_parse_ok=True,
         ),
         release_allowed=True, v30_enabled=True, v30_warnings=(),
         retrieval_stats=None,

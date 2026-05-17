@@ -27,7 +27,7 @@ scripts/run_honest_sweep_r3.py
        ├── src/polaris_graph/generator/live_deepseek_generator.py
        └── src/polaris_graph/generator/provenance_generator.py
             └── strict_verify → abort_no_verified_sections?
-  └── src/polaris_graph/evaluator/live_qwen_judge.py
+  └── src/polaris_graph/evaluator/live_judge.py
   └── src/polaris_graph/evaluator/external_evaluator.py
   └── src/polaris_graph/llm/openrouter_client.py (everywhere)
   └── src/polaris_graph/agents/nli_verifier.py (optional, PG_NLI_ENABLED)
