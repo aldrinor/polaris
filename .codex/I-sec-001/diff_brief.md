@@ -1,6 +1,6 @@
 # Codex DIFF review — I-sec-001 / GH #535: verdict-only .codex artifacts + CI gate
 
-HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -18,7 +18,21 @@ The commit-1 diff for #535 — `git diff origin/polaris...HEAD` excluding
 Codex-APPROVE'd brief `.codex/I-sec-001/brief.md` (brief review APPROVE iter 5,
 P1 trajectory 2→2→2→1→0). Verify the diff faithfully executes that brief.
 
-## 2. The diff (7 files, +642, all additions)
+## 0.1 iter-1 findings — all addressed
+
+- iter-1 **P1** (`parse_verdict_block` silently dropped non-empty inline
+  `[...]` list values) → `_parse_inline_list` added; the list-key branch now
+  parses `key: [a, b]`, treats `key: []` as empty, `key:` as block-list, and
+  **rejects** any other malformed list value loudly (`return None`).
+  Regression tests added (`test_parse_inline_nonempty_list_not_dropped`,
+  `test_parse_inline_list_with_comma_inside_quotes`).
+- iter-1 **P2-1** (gate rejected top-level `.codex/AUDIT_CYCLE_PROTOCOL.md`) →
+  `codex_artifact_gate.py` now applies the slim-artifact allowlist ONLY to
+  `.codex/<issue_id>/` paths (≥3 path components); the denylist + secret scan
+  still apply to every changed `.codex/**` path including top-level docs.
+- iter-1 **P2-2** (file-count) → §2 corrected below.
+
+## 2. The diff (commit 1: 7 files +642; canonical diff = 8 files — also `state/polaris_restart/iteration_trajectory.md` from commit 2)
 
 - **`scripts/extract_codex_verdict.py`** (new, 254 LOC) — `extract` parses the
   LAST §8.3.9 verdict block from a raw transcript (`parse_verdict_block`),
