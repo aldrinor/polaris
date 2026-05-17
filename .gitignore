@@ -199,3 +199,12 @@ outputs/codex_findings/round_*/last_message.txt
 
 # --- Canonical pin (TRACKED) ---
 !docs/canonical_pin.txt
+
+# I-sec-001 (#535): raw codex-exec transcripts are NEVER committed — only the
+# slim extracted verdict (codex_brief_verdict.txt / codex_diff_audit.txt). The
+# CI codex-artifact-gate is the enforcement; this keeps local staging clean.
+.codex/**/codex_*review*.txt
+.codex/**/codex_diff_review*.txt
+.codex/**/codex_brief_review*.txt
+.codex/**/codex_brief_verdict_iter*.txt
+.codex/**/codex_diff_audit_iter*.txt

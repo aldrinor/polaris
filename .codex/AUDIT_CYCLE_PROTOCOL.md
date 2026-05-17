@@ -93,6 +93,35 @@ The author MUST run the dry-run and confirm clean resolution BEFORE committing t
 
 The discipline applies symmetrically: any pin change requires fresh-environment verification, not just "tests still pass on my box."
 
+## Codex artifact policy — verdict-only commits (I-sec-001 #535)
+
+`codex exec` review runs read the repo and routinely print file contents,
+including `.env`; a full transcript can therefore carry live credentials.
+Per #535, raw `codex exec` transcripts are **never committed** — only the
+slim §8.3.9 verdict block, as `.codex/<issue_id>/codex_brief_verdict.txt`
+and `codex_diff_audit.txt`.
+
+**Ship procedure:** after each `codex exec` run, extract the slim verdict —
+
+```
+python scripts/extract_codex_verdict.py extract <raw_transcript> --out <slim.txt>
+```
+
+`extract` parses + schema-validates the final verdict block (parse-then-emit,
+so no trailing transcript text survives), scans the result for secrets, and
+refuses to write on any hit. The raw `codex_*_review_iter*.txt` /
+`codex_*_audit_iter*.txt` transcripts are `.gitignore`d — they stay local and
+are never staged.
+
+**CI enforcement:** `.github/workflows/codex_artifact_gate.yml`
+(`pull_request_target`, base-sourced, runs on every PR, fast-passes when no
+`.codex/**` changed) rejects any PR that adds/modifies a `.codex/**`
+raw-transcript filename, commits a non-allowlisted `.codex/<id>/` filename,
+commits a `codex_brief_verdict.txt` / `codex_diff_audit.txt` that is not a
+schema-bounded slim block, or commits a `.codex/**` file that trips
+`scan_for_secrets.py`. Operator action: register `codex-artifact-gate` in the
+`polaris` branch-protection required-status-checks set so it blocks merge.
+
 ## Provenance
 
 This protocol was authored by Claude on 2026-05-01 in response to the user's "Pls think deeply" question. The honest self-assessment is captured in the conversation history; the design choices here are extracted from that. **Updated 2026-05-01 (post-cycle-5 P2.1 correction)** to honestly state the lock criterion is unchanged from v1. **Updated 2026-05-01 (post-cycle-6 P3.1)** to codify the audit-trail integrity model. **Updated 2026-05-01 (post-cycle-7 F-23)** to require pip-dry-run evidence on dep-change commits.

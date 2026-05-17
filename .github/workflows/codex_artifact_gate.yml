@@ -1,0 +1,61 @@
+name: codex-artifact-gate
+
+# I-sec-001 (#535): prevent .env credentials leaking via committed
+# .codex/** codex-exec transcript artifacts.
+#
+# Trigger is `pull_request_target` — GitHub runs the workflow DEFINITION and
+# run-block from the BASE ref (polaris), not the PR head, so a PR cannot edit
+# this gate to skip itself. PR content is checked out READ-ONLY as data
+# (persist-credentials:false) and is NEVER executed: only base-ref scripts
+# (scripts/ci/codex_artifact_gate.py, scripts/extract_codex_verdict.py,
+# scripts/autoloop/scan_for_secrets.py) run, treating PR files as input.
+#
+# No `paths:` filter — the gate runs on EVERY PR and fast-passes when the PR
+# changes no .codex/** path, so it can be a REQUIRED status check without the
+# skipped-required-check deadlock on non-.codex PRs.
+
+on:
+  pull_request_target:
+    branches: [polaris]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-artifact-gate-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  codex-artifact-gate:
+    name: codex-artifact-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout base ref (trusted gate scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+
+      - name: Checkout PR head (UNTRUSTED — inspected as data, never executed)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Gate — .codex/** allowlist + slim-verdict content + secret scan
+        run: |
+          python base/scripts/ci/codex_artifact_gate.py \
+            --pr-checkout pr \
+            --base-branch polaris \
+            --scanner   base/scripts/autoloop/scan_for_secrets.py \
+            --validator base/scripts/extract_codex_verdict.py
