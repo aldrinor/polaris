@@ -202,12 +202,13 @@ exercised in the in-progress phase (J6), not re-tested. (`/sse` and
 
 ### 12 — Cancellation / resume
 **Tool:** Playwright. **Pass criteria:** cancel in <5s; resume on refresh from checkpoint.
-**Applies to:** **J6** — `/runs/<runId>` exposes a Cancel button
-(`web/app/runs/[runId]/page.tsx`, "cancel a queued or in-progress run");
-cancel should complete in <5s. **Honest gap:** resume-from-checkpoint is
-NOT yet wired on `/runs/<runId>` — the hard-kill + resume implementation is
-forward-ref I-rdy-011 (#507) / #539. #516 records resume as a known gap,
-not a passing check, until those land.
+**Applies to:** **J6** — `/runs/<runId>` renders a Cancel button
+(`web/app/runs/[runId]/page.tsx`), but it is currently `disabled` and no
+cancel endpoint exists in `src/polaris_v6/api/runs.py`. **Honest gap:**
+BOTH cancellation AND resume-from-checkpoint are unimplemented — the
+hard-kill + resume work is forward-ref I-rdy-011 (#507) / #539. #516
+records this entire row as a known gap (expected-fail), not a passing
+check, until those issues land.
 **N/A:** J1–J5, J7–J11 — no cancellable long-running operation at these
 stages (retrieval/generation are sub-steps of the J6 run; J7 is the
 completed-run view).
@@ -240,13 +241,17 @@ template-selection shell; J6 streams a run already created elsewhere).
 ### 15 — Tenant isolation + data deletion
 **Tool:** pytest + Playwright. **Pass criteria:** Org A cannot see Org B; deletion is real (no log residue).
 **Applies to:**
+- J6 — `/stream/<runId>` (the in-progress SSE endpoint; query-token auth
+  via `streamUrl`, `web/lib/api.ts`) streams live run events. Org B must be
+  denied subscription to Org A's `/stream/<runId>` — a concrete cross-org
+  stream-access denial check.
 - J7/J8 — Org A cannot open Org B's `/runs/<runId>` or `/inspector/<runId>`.
 - J9 — uploaded docs are org-scoped; deletion removes file + chunks + embeddings.
 - J10 — `/dashboard` `createRun` is org-scoped; a user creates runs only in their own org.
 - J11 — `/memory` recall is org-scoped; `/contracts` likewise.
 **N/A:** J1, J2 — pre-org-context (sign-in establishes the org; `/` is
-org-agnostic). J3, J4, J5, J6 — covered transitively via the run they
-produce (the run is the org-scoped object, tested at J7/J8).
+org-agnostic). J3, J4, J5 — covered transitively via the run they produce
+(the run is the org-scoped object, tested at J6/J7/J8).
 
 ### 16 — Privacy / log redaction
 **Tool:** grep-based audit on log fixtures. **Pass criteria:** no PII / no source-content leakage in logs.
@@ -343,7 +348,7 @@ the second of the two rows excludable for a strict count of 22.
 | 12 | Cancellation/resume | — | — | — | — | — | ✓ | — | — | — | — | — |
 | 13 | Performance | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 14 | Security | ✓ | — | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 15 | Tenant isolation + deletion | — | — | — | — | — | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 15 | Tenant isolation + deletion | — | — | — | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 16 | Privacy / log redaction | — | — | — | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
 | 17 | Sovereignty routing | — | — | — | ✓ | ✓ | — | — | — | ✓ | — | — |
 | 18 | Migration | — | — | — | — | — | ✓ | ✓ | — | — | — | ✓ |
