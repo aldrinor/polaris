@@ -28,7 +28,7 @@ marker; #516 cannot concretely execute that row's schema-level checks until
 ## 1. The real product journey (J1–J11)
 
 Grounded in the actual deployed `web/app/**/page.tsx` route inventory: 33
-page routes — **15 real product routes**, **18 harness/diagnostic** (§2).
+page routes — **14 real product routes**, **19 harness/diagnostic** (§2).
 
 | Stage | Route | What the user does |
 |---|---|---|
@@ -37,8 +37,8 @@ page routes — **15 real product routes**, **18 harness/diagnostic** (§2).
 | **J3** Scope intake + disambiguation | `/intake` | Enter the research question; ambiguity detector may raise a disambiguation modal. |
 | **J4** Retrieval | `/retrieval` | Live evidence retrieval; corpus assembly + adequacy gate. |
 | **J5** Generation | `/generation` | V4 Pro generation of the verified report. |
-| **J6** Live audit run (SSE) | `/audit_live` | Watch the run stream — searched / rejected / contradiction / per-claim verify events. |
-| **J7** Run view + graph | `/runs/<runId>`, `/runs/<runId>/graph` | Inspect a completed run and its graph view. |
+| **J6** Live audit run (SSE) | `/runs/<runId>` (in progress) | While a run executes, `/runs/<runId>` streams events via `subscribeToRun` (searched / rejected / contradiction / per-claim verify) and shows a Cancel button. |
+| **J7** Run view + graph | `/runs/<runId>` (complete), `/runs/<runId>/graph` | The completed-run view — final report, bundle export, and graph. |
 | **J8** Report inspection (click-through) | `/inspector/<runId>` | Hover/click each claim → Inspector pane (source span, tier, evaluator agreement). |
 | **J9** Document upload + grounding | `/upload` | Drag-drop a document; it is parsed, classified, and used as evidence. |
 | **J10** Start a research run | `/dashboard` | Pick a template, enter a question, attach uploads → `createRun` → redirect to `/runs/<runId>`. |
@@ -51,15 +51,26 @@ forms (`data-testid="retrieval-form"` / `"generation-form"`). The matrix
 below describes each route by its **actual deployed content**, verified
 against `web/app/`; consolidating these entry points into one coherent
 journey is product work tracked separately (I-rdy-014 / #510), not #515.
+`/runs/<runId>` likewise appears as two journey stages — J6 (the in-progress
+live-streaming phase) and J7 (the completed-run view) — the same route at
+different run-lifecycle phases, split because the test concerns differ.
+`/audit_live` is NOT a product route (§2).
 
 ## 2. Excluded harness / diagnostic routes (NOT product — do not test as journey)
 
 Per the issue ("not harness pages") and `feedback_plan_from_running_system`.
-18 routes — #516 must not spend matrix coverage on these:
+19 routes — #516 must not spend matrix coverage on these:
 
 - `/sse` — implemented as a harness: `web/app/sse/page.tsx` exports
   `SSETestHarnessPage`; `web/app/sse/_harness.tsx` renders
   `data-testid="sse-harness"`.
+- `/audit_live` — SSE-consumer test surface, NOT production-wired:
+  `web/app/audit_live/_panels.tsx` defaults its stream URL to
+  `/api/audit/stream`, which `web/next.config.ts` does not rewrite to the
+  backend. The production live-run UI is `/runs/<runId>` (J6/J7 —
+  `subscribeToRun` → `/stream/<runId>`). Prior accepted F4 framing
+  (`.codex/I-f4-005/brief.md`): "`/audit_live` is a test-route surface, not
+  a production live-run UI."
 - `/disambiguation_modal_preview` — component preview (filesystem path
   `web/app/(test_harness)/disambiguation_modal_preview/`; `(test_harness)`
   is a Next.js route group, not a URL segment).
@@ -95,7 +106,7 @@ for stages the type does not apply to.
 ### 2 — Integration tests
 **Tool:** pytest + httpx. **Pass criteria:** every endpoint tested with mocked + real LLM.
 **Applies to:** every stage that calls a backend endpoint — J1 (auth), J3
-(intake/scope), J4 (`/api/retrieval`), J5 (generation), J6 (`/jobs/<id>/stream`
+(intake/scope), J4 (`/api/retrieval`), J5 (generation), J6 (`/stream/<runId>`
 SSE), J7/J8 (inspector run/report APIs), J9 (upload), J10 (`createRun`),
 J11 (contracts, memory, pins, benchmark APIs). Each: mocked
 LLM for determinism + a real-LLM smoke per the OpenRouter rehearsal path.
@@ -179,23 +190,27 @@ requirement (a clear error, no white screen) is covered generically.
 
 ### 11 — Streaming SSE ordering / backpressure
 **Tool:** Playwright EventSource consumer. **Pass criteria:** events arrive in order; backpressure handled.
-**Applies to:**
-- J6 — `/audit_live` consumes the `/jobs/<id>/stream` SSE; events (searched
-  / rejected / contradiction / verify) arrive in emit order; a slow consumer
-  does not drop events.
-- J7 — `/runs/<runId>` subscribes to the run EventSource (`subscribeToRun`
-  → `/stream/<runId>`, `web/app/runs/[runId]/page.tsx`); streamed events
-  arrive in order.
-**N/A:** J1–J5, J8–J11 — no SSE stream. (`/sse` exercises SSE but is an
-excluded harness, §2.)
+**Applies to:** **J6** — while a run executes, `/runs/<runId>` consumes the
+run SSE stream (`subscribeToRun` → `/stream/<runId>`,
+`web/app/runs/[runId]/page.tsx`); events (searched / rejected /
+contradiction / verify) arrive in emit order; a slow consumer does not drop
+events.
+**N/A:** J1–J5, J7–J11 — no live SSE stream. J7 is the completed-run-view
+phase of the same `/runs/<runId>` route; SSE ordering/backpressure is
+exercised in the in-progress phase (J6), not re-tested. (`/sse` and
+`/audit_live` exercise SSE but are excluded harness surfaces, §2.)
 
 ### 12 — Cancellation / resume
 **Tool:** Playwright. **Pass criteria:** cancel in <5s; resume on refresh from checkpoint.
-**Applies to:** **J6** — cancel a live run completes in <5s; refresh
-mid-run resumes from the last checkpoint. (Cross-ref I-rdy-011 / #507 +
-#539 for the underlying hard-kill/resume implementation.)
+**Applies to:** **J6** — `/runs/<runId>` exposes a Cancel button
+(`web/app/runs/[runId]/page.tsx`, "cancel a queued or in-progress run");
+cancel should complete in <5s. **Honest gap:** resume-from-checkpoint is
+NOT yet wired on `/runs/<runId>` — the hard-kill + resume implementation is
+forward-ref I-rdy-011 (#507) / #539. #516 records resume as a known gap,
+not a passing check, until those land.
 **N/A:** J1–J5, J7–J11 — no cancellable long-running operation at these
-stages (retrieval/generation are sub-steps of the J6 run).
+stages (retrieval/generation are sub-steps of the J6 run; J7 is the
+completed-run view).
 
 ### 13 — Performance
 **Tool:** Playwright + Lighthouse. **Pass criteria:** Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms.
@@ -324,7 +339,7 @@ the second of the two rows excludable for a strict count of 22.
 | 8 | Accessibility | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 9 | Multi-tab safety | — | — | ✓ | — | — | ✓ | ✓ | ✓ | — | — | — |
 | 10 | Network resilience | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 11 | SSE ordering/backpressure | — | — | — | — | — | ✓ | ✓ | — | — | — | — |
+| 11 | SSE ordering/backpressure | — | — | — | — | — | ✓ | — | — | — | — | — |
 | 12 | Cancellation/resume | — | — | — | — | — | ✓ | — | — | — | — | — |
 | 13 | Performance | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 14 | Security | ✓ | — | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -348,7 +363,7 @@ the second of the two rows excludable for a strict count of 22.
 2. Test type 3 (Artifact contract) stays at the contract level until
    I-rdy-007 / #503 lands the live-run artifact contract; #516 binds the
    field-level schema then.
-3. The 18 harness/diagnostic routes (§2) are out of scope for #516 — they
+3. The 19 harness/diagnostic routes (§2) are out of scope for #516 — they
    are component test beds, not the product.
 4. Rows 22 + 24 are process/infra gates; #516 records their status
    (Codex-required CI green; flake rate) rather than running per-route tests.
