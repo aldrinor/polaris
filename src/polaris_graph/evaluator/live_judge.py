@@ -1,15 +1,14 @@
 """
 Live judge — HONEST-REBUILD Phase 5 live wiring.
 
-Calls the REAL evaluator model via OpenRouter (default Gemma 4 31B as
-of 2026-05-08 per I-bug-087; previously Qwen3-8B per HONEST-REBUILD
-Phase 1c) to produce per-axis structured verdicts on a completed
-report. Module name retained for backward compat; the actual model is
-read from PG_EVALUATOR_MODEL at runtime.
+Calls the REAL evaluator model via OpenRouter (model read from
+PG_EVALUATOR_MODEL at runtime; default Gemma 4 31B as of 2026-05-08
+per I-bug-087, previously Qwen3-8B per HONEST-REBUILD Phase 1c) to
+produce per-axis structured verdicts on a completed report.
 
-This is the NON-SAME-FAMILY judge: generator is DeepSeek V4 Pro,
-judge is Gemma 4 31B. `check_family_segregation()` must succeed before
-this is called.
+This is the NON-SAME-FAMILY judge: the judge model must be from a
+different training family than the generator. `check_family_segregation()`
+must succeed before this is called.
 
 DESIGN
 ------
