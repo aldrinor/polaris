@@ -1,0 +1,889 @@
+diff --git a/README.md b/README.md
+index 445bacbc..386e15c9 100644
+--- a/README.md
++++ b/README.md
+@@ -16,7 +16,7 @@ GPG-signed audit bundle → BEAT-BOTH benchmark vs ChatGPT-DR / Gemini-DR.
+ |---|---|---|
+ | 1 | Scope discovery + ambiguity | `polaris_graph/scope/`, `/api/intake`, `/intake` page |
+ | 2 | Tiered retrieval (Serper + S2) | `polaris_graph/retrieval2/`, `/api/retrieval`, `/retrieval` page |
+-| 3 | Generator + strict-verify | `polaris_graph/generator2/`, `/api/generation`, `/generation` page |
++| 3 | Generator + strict-verify | `polaris_graph/clinical_generator/`, `/api/generation`, `/generation` page |
+ | 4 | Audit bundle GPG-signed | `polaris_graph/audit_bundle/`, `/api/audit-bundle`, download in `/generation` |
+ | 5 | BEAT-BOTH benchmark + demo polish | `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` |
+ 
+diff --git a/docs/crown_jewels.md b/docs/crown_jewels.md
+index c767c3b0..c986ff4d 100644
+--- a/docs/crown_jewels.md
++++ b/docs/crown_jewels.md
+@@ -5,9 +5,9 @@ Per `state/polaris_restart/issue_breakdown.md` §29, the Crown Jewel side-track
+ | Issue | Invariant (CLAUDE.md §9.1) | Test path | Bound source-of-truth |
+ |---|---|---|---|
+ | I-cj-001 | §9.1.1 Two-family evaluator | `tests/crown_jewels/test_cj_001_two_family_segregation.py` | `src/polaris_graph/llm/openrouter_client.py::check_family_segregation` |
+-| I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/generator2/provenance.py::extract_tokens` |
+-| I-cj-003 | §9.1.3 Strict verify | `tests/crown_jewels/test_cj_003_strict_verify.py` | `src/polaris_graph/generator2/strict_verify.py::verify_sentence` |
+-| I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/generator2/verified_report.py::VerifiedReport._verdict_consistency` |
++| I-cj-002 | §9.1.2 Provenance tokens | `tests/crown_jewels/test_cj_002_provenance_tokens.py` | `src/polaris_graph/clinical_generator/provenance.py::extract_tokens` |
++| I-cj-003 | §9.1.3 Strict verify | `tests/crown_jewels/test_cj_003_strict_verify.py` | `src/polaris_graph/clinical_generator/strict_verify.py::verify_sentence` |
++| I-cj-004 | §9.1.4 Zero-verified abort | `tests/crown_jewels/test_cj_004_zero_verified_abort.py` | `src/polaris_graph/clinical_generator/verified_report.py::VerifiedReport._verdict_consistency` |
+ | I-cj-005 | §9.1.5 Corpus approval enforcement | `tests/crown_jewels/test_cj_005_corpus_approval.py` | `src/polaris_graph/nodes/corpus_approval_gate.py::check_auto_approve_allowed` |
+ | I-cj-006 | §9.1.6 Budget cap holds without `usage.cost` | `tests/crown_jewels/test_cj_006_budget_imputation.py` | `src/polaris_graph/llm/openrouter_client.py::_impute_cost_from_tokens` |
+ | I-cj-007 | §9.1.7 Delimiter sanitization | `tests/crown_jewels/test_cj_007_delimiter_sanitization.py` | `src/polaris_graph/generator/provenance_generator.py::sanitize_evidence_text` |
+diff --git a/scripts/run_line_by_line_audit.py b/scripts/run_line_by_line_audit.py
+index 9dc21372..0989d8b8 100644
+--- a/scripts/run_line_by_line_audit.py
++++ b/scripts/run_line_by_line_audit.py
+@@ -8,7 +8,7 @@ Input shape: three accepted inputs.
+ 
+   --verified-sentences <jsonl>   Each line is {"sentence": "...with [#ev:...] tokens..."}.
+                                   This is the canonical PRE-RESOLUTION artifact
+-                                  emitted by generator2/strict_verify.
++                                  emitted by clinical_generator/strict_verify.
+ 
+   --report <md> --pool <json>    Legacy / direct text path — assumes report
+                                   contains [#ev:...] tokens (works for
+@@ -124,7 +124,7 @@ def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
+     """Normalize evidence pool JSON to {id: {evidence_id, direct_quote/full_text/snippet}}.
+ 
+     Accepts:
+-    - List of {evidence_id, direct_quote/full_text/snippet} (legacy generator2 schema).
++    - List of {evidence_id, direct_quote/full_text/snippet} (legacy clinical_generator schema).
+     - List of {source_id, full_text/snippet} (canonical retrieval2.EvidencePool schema).
+     - Object {<id>: <entry>} (already keyed).
+     - Object {sources: [<entry>, ...]} (EvidencePool serialized with sources field).
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index e129ca0a..0e6d64aa 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -23,7 +23,7 @@ from polaris_graph.audit_bundle.bundle_builder import (
+ )
+ from polaris_graph.audit_bundle.bundle_schema import ContentType
+ from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+diff --git a/src/polaris_graph/api/disambiguation_route.py b/src/polaris_graph/api/disambiguation_route.py
+index 4f98417a..67a0969f 100644
+--- a/src/polaris_graph/api/disambiguation_route.py
++++ b/src/polaris_graph/api/disambiguation_route.py
+@@ -11,7 +11,7 @@ import numpy as np
+ from fastapi import APIRouter, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+-from polaris_graph.generator2.real_completion import OPENROUTER_ENDPOINT, _extract_text
++from polaris_graph.clinical_generator.real_completion import OPENROUTER_ENDPOINT, _extract_text
+ from polaris_graph.intake.cluster_labeler import ClusterLabelClient, label_clusters
+ from polaris_graph.intake.disambiguation_clusterer import cluster_candidates
+ 
+diff --git a/src/polaris_graph/api/generation_route.py b/src/polaris_graph/api/generation_route.py
+index d544ecc7..09bdb5dc 100644
+--- a/src/polaris_graph/api/generation_route.py
++++ b/src/polaris_graph/api/generation_route.py
+@@ -25,11 +25,11 @@ from polaris_graph.evidence_contract import (
+     assert_generation_has_contract,
+     evaluate_contract,
+ )
+-from polaris_graph.generator2.generator import (
++from polaris_graph.clinical_generator.generator import (
+     GeneratorCompletionFn,
+     process_generation,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+diff --git a/src/polaris_graph/audit_bundle/bundle_builder.py b/src/polaris_graph/audit_bundle/bundle_builder.py
+index fa177340..92516836 100644
+--- a/src/polaris_graph/audit_bundle/bundle_builder.py
++++ b/src/polaris_graph/audit_bundle/bundle_builder.py
+@@ -44,7 +44,7 @@ from polaris_graph.audit_bundle.manifest_builder import (
+     build_manifest_and_files,
+     serialize_manifest_yaml,
+ )
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index a66073d4..701dc4f2 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -35,8 +35,8 @@ from polaris_graph.audit_bundle.snapshot_sources import (
+ from polaris_graph.audit_bundle.sovereignty_guard import (
+     assert_all_pool_sources_legal_cleared,
+ )
+-from polaris_graph.generator2.provenance import extract_tokens
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.provenance import extract_tokens
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ from polaris_graph.scope.scope_decision import ScopeDecision
+ 
+diff --git a/src/polaris_graph/audit_bundle/snapshot_sources.py b/src/polaris_graph/audit_bundle/snapshot_sources.py
+index d953fbdb..4d045d27 100644
+--- a/src/polaris_graph/audit_bundle/snapshot_sources.py
++++ b/src/polaris_graph/audit_bundle/snapshot_sources.py
+@@ -17,8 +17,8 @@ from __future__ import annotations
+ 
+ from typing import NamedTuple
+ 
+-from polaris_graph.generator2.provenance import extract_tokens
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.provenance import extract_tokens
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+ 
+ 
+diff --git a/src/polaris_graph/benchmark/beat_both_scorer.py b/src/polaris_graph/benchmark/beat_both_scorer.py
+index fef3a017..7ba96622 100644
+--- a/src/polaris_graph/benchmark/beat_both_scorer.py
++++ b/src/polaris_graph/benchmark/beat_both_scorer.py
+@@ -97,7 +97,7 @@ def _polaris_dimension_scores(
+         pool = EvidencePool.model_validate(polaris.evidence_pool)
+     report = None
+     if polaris.verified_report is not None:
+-        from polaris_graph.generator2.verified_report import VerifiedReport
++        from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ 
+         report = VerifiedReport.model_validate(polaris.verified_report)
+ 
+diff --git a/src/polaris_graph/benchmark/dimension_scorers.py b/src/polaris_graph/benchmark/dimension_scorers.py
+index 845fc3a8..707405c5 100644
+--- a/src/polaris_graph/benchmark/dimension_scorers.py
++++ b/src/polaris_graph/benchmark/dimension_scorers.py
+@@ -18,8 +18,8 @@ from typing import Any, Literal
+ from pydantic import BaseModel, Field
+ 
+ from polaris_graph.benchmark.benchmark_config import BenchmarkQuestion
+-from polaris_graph.generator2.provenance import extract_tokens
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.provenance import extract_tokens
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool, SourceTier
+ 
+ 
+diff --git a/src/polaris_graph/generator2/__init__.py b/src/polaris_graph/clinical_generator/__init__.py
+similarity index 100%
+rename from src/polaris_graph/generator2/__init__.py
+rename to src/polaris_graph/clinical_generator/__init__.py
+diff --git a/src/polaris_graph/generator2/generator.py b/src/polaris_graph/clinical_generator/generator.py
+similarity index 98%
+rename from src/polaris_graph/generator2/generator.py
+rename to src/polaris_graph/clinical_generator/generator.py
+index fba9916f..4e2404dd 100644
+--- a/src/polaris_graph/generator2/generator.py
++++ b/src/polaris_graph/clinical_generator/generator.py
+@@ -35,16 +35,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
+ from datetime import datetime, timezone
+ from typing import Protocol
+ 
+-from polaris_graph.generator2.section_blueprint import (
++from polaris_graph.clinical_generator.section_blueprint import (
+     Blueprint,
+     SectionPlan,
+     blueprint_for_scope_class,
+ )
+-from polaris_graph.generator2.strict_verify import (
++from polaris_graph.clinical_generator.strict_verify import (
+     section_pass_rate,
+     verify_sentence_to_record,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     Section,
+     VerifiedReport,
+diff --git a/src/polaris_graph/generator2/provenance.py b/src/polaris_graph/clinical_generator/provenance.py
+similarity index 100%
+rename from src/polaris_graph/generator2/provenance.py
+rename to src/polaris_graph/clinical_generator/provenance.py
+diff --git a/src/polaris_graph/generator2/real_completion.py b/src/polaris_graph/clinical_generator/real_completion.py
+similarity index 99%
+rename from src/polaris_graph/generator2/real_completion.py
+rename to src/polaris_graph/clinical_generator/real_completion.py
+index 95f9d9e6..b4f69003 100644
+--- a/src/polaris_graph/generator2/real_completion.py
++++ b/src/polaris_graph/clinical_generator/real_completion.py
+@@ -32,7 +32,7 @@ from typing import Any
+ 
+ import httpx
+ 
+-from polaris_graph.generator2.section_blueprint import SectionPlan
++from polaris_graph.clinical_generator.section_blueprint import SectionPlan
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool
+ 
+ _LOG = logging.getLogger(__name__)
+diff --git a/src/polaris_graph/generator2/section_blueprint.py b/src/polaris_graph/clinical_generator/section_blueprint.py
+similarity index 100%
+rename from src/polaris_graph/generator2/section_blueprint.py
+rename to src/polaris_graph/clinical_generator/section_blueprint.py
+diff --git a/src/polaris_graph/generator2/strict_verify.py b/src/polaris_graph/clinical_generator/strict_verify.py
+similarity index 99%
+rename from src/polaris_graph/generator2/strict_verify.py
+rename to src/polaris_graph/clinical_generator/strict_verify.py
+index f8e37de7..0ed9c56f 100644
+--- a/src/polaris_graph/generator2/strict_verify.py
++++ b/src/polaris_graph/clinical_generator/strict_verify.py
+@@ -46,14 +46,14 @@ import logging
+ import os
+ import re
+ 
+-from polaris_graph.generator2.provenance import (
++from polaris_graph.clinical_generator.provenance import (
+     ProvenanceToken,
+     extract_tokens,
+     get_span_text,
+     strip_tokens,
+     validate_token_against_pool,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     DropReason,
+     VerifiedSentence,
+ )
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/clinical_generator/verified_report.py
+similarity index 99%
+rename from src/polaris_graph/generator2/verified_report.py
+rename to src/polaris_graph/clinical_generator/verified_report.py
+index b9069674..5ed1c50c 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/clinical_generator/verified_report.py
+@@ -7,7 +7,7 @@ process_generation() consumes an EvidencePool (slice 002 output) and
+ produces a VerifiedReport, which slice 004 will export as an audit
+ bundle.
+ 
+-Lives in `polaris_graph.generator2` (note the `2`) to keep separation
++Lives in `polaris_graph.clinical_generator` (note the `2`) to keep separation
+ from heritage `polaris_graph.generator` (multi_section, live_deepseek)
+ which serves the legacy honest-rebuild pipeline. Coexistence by design
+ per PLAN.md §4 Heritage Import.
+diff --git a/src/polaris_graph/evidence_contract/gate.py b/src/polaris_graph/evidence_contract/gate.py
+index 027081c9..ba8c0f40 100644
+--- a/src/polaris_graph/evidence_contract/gate.py
++++ b/src/polaris_graph/evidence_contract/gate.py
+@@ -12,8 +12,8 @@ from __future__ import annotations
+ from pydantic import BaseModel, Field
+ 
+ from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+-from polaris_graph.generator2.provenance import extract_tokens
+-from polaris_graph.generator2.verified_report import VerifiedReport
++from polaris_graph.clinical_generator.provenance import extract_tokens
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
+ from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source, SourceTier
+ 
+ JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index fc3ca901..dce3d9c0 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -741,18 +741,18 @@ def verify_sentence_provenance(
+ 
+         # I-bug-098: entailment judge as the 6th check, runs LAST after
+         # all mechanical checks pass. Closes the production audit gap
+-        # the I-bug-092..097 generator2/ wiring did NOT close (the
++        # the I-bug-092..097 clinical_generator/ wiring did NOT close (the
+         # production sweep at scripts/run_honest_sweep_r3.py uses THIS
+-        # verifier, not generator2/strict_verify). Same env gate
++        # verifier, not clinical_generator/strict_verify). Same env gate
+         # PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce} (default
+         # enforce per I-bug-095). Reuses the judge + telemetry from
+-        # generator2.strict_verify so a single counter snapshot covers
++        # clinical_generator.strict_verify so a single counter snapshot covers
+         # both code paths. Lazy import keeps this module's cold-import
+         # cost zero in off-mode and avoids circular import (the
+-        # generator2.strict_verify module does NOT import from
++        # clinical_generator.strict_verify module does NOT import from
+         # polaris_graph.generator).
+         if not failures:
+-            from src.polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
++            from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+                 _entailment_mode,
+                 _get_judge,
+                 _record_judge_outcome,
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index acfa8adf..200719b3 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -1,6 +1,6 @@
+ """Entailment judge — LLM-as-judge for strict_verify check (f).
+ 
+-Originally inlined in `polaris_graph.generator2.strict_verify`. Extracted
++Originally inlined in `polaris_graph.clinical_generator.strict_verify`. Extracted
+ per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
+ I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
+ a single canonical location.
+@@ -30,7 +30,7 @@ matching the §9.1.1 invariant — different lineage from the generator
+ (DeepSeek). Calls go through OpenRouter using the existing project
+ auth substrate. Family segregation is enforced at construction.
+ 
+-Public surface (re-exported via `polaris_graph.generator2.strict_verify`
++Public surface (re-exported via `polaris_graph.clinical_generator.strict_verify`
+ for backwards compat with monkeypatch test pattern):
+   - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
+   - _get_judge(): lazy singleton accessor
+@@ -62,7 +62,7 @@ from datetime import datetime, timezone
+ # reloading the module.
+ #
+ # I-bug-102 NOTE: this top-level import IS evaluated even in off-mode.
+-# The "skip generator2 import" goal in I-bug-102 is interpreted as
++# The "skip clinical_generator import" goal in I-bug-102 is interpreted as
+ # "no JUDGE INSTANTIATION + no NETWORK CALL in off-mode" (verified by
+ # `test_off_mode_does_not_instantiate_judge`), NOT as eliminating the
+ # module-import side effect. Empirically the openrouter_client import
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index 4e14a3cf..12320b88 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
+     # completion_fn (PR 7); otherwise leave the sentinel default in place
+     # which returns 400 completion_backend_unavailable per LAW II.
+     if os.environ.get("OPENROUTER_API_KEY", "").strip():
+-        from polaris_graph.generator2.real_completion import build_real_completion
++        from polaris_graph.clinical_generator.real_completion import build_real_completion
+ 
+         _real_completion = build_real_completion()
+ 
+diff --git a/src/polaris_v6/api/artifact_to_slice_chain.py b/src/polaris_v6/api/artifact_to_slice_chain.py
+index d3338628..34bdff21 100644
+--- a/src/polaris_v6/api/artifact_to_slice_chain.py
++++ b/src/polaris_v6/api/artifact_to_slice_chain.py
+@@ -31,7 +31,7 @@ from polaris_graph.audit_ir.loader import (
+     ReportSentence as AuditIRSentence,
+     load_audit_ir,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     DropReason,
+     PipelineVerdict,
+     Section,
+@@ -52,14 +52,14 @@ from polaris_graph.scope.scope_decision import (
+ )
+ 
+ # I-arch-001d Codex iter-3 P2: import canonical regex if available; else local
+-# fallback that matches generator2.provenance shape.
++# fallback that matches clinical_generator.provenance shape.
+ try:
+-    from polaris_graph.generator2.provenance import (  # type: ignore[attr-defined]
++    from polaris_graph.clinical_generator.provenance import (  # type: ignore[attr-defined]
+         PROVENANCE_TOKEN_RE as _CANONICAL_TOKEN_RE,
+     )
+     _PROV_TOKEN_RE = _CANONICAL_TOKEN_RE
+ except ImportError:
+-    # NOTE: align with polaris_graph.generator2.provenance shape:
++    # NOTE: align with polaris_graph.clinical_generator.provenance shape:
+     # [#ev:<evidence_id>:<start>-<end>]
+     _PROV_TOKEN_RE = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
+ 
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 96dbf75b..5197d282 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -258,3 +258,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 3/3, import resolves, test_honest_sweep_integration 20/20. P1 trajectory 0.
++
++## I-naming-004 (#438) — rename src/polaris_graph/generator2/ -> clinical_generator/
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (`create_followup_issues.sh:26-27` mentions generator2 — classified historical: it's the frozen body text of already-filed issue #356, like outputs/audits/** audit-trail records). convergence accept_remaining. Package rename — git mv 18 files (7 src + 11 test) + substring generator2→clinical_generator over 44 .py + README + crown_jewels (86 occurrences). Token path-only — no identifier named generator2. 50 files +86/-86 = 172 LOC, under 200 cap.
++
++### Diff review
++- (pending — Codex diff review iter 1)
+diff --git a/tests/crown_jewels/test_cj_002_provenance_tokens.py b/tests/crown_jewels/test_cj_002_provenance_tokens.py
+index c5550dfe..bdd925d3 100644
+--- a/tests/crown_jewels/test_cj_002_provenance_tokens.py
++++ b/tests/crown_jewels/test_cj_002_provenance_tokens.py
+@@ -11,7 +11,7 @@ under a clearly named 'test_cj_002_*' identifier.
+ 
+ from __future__ import annotations
+ 
+-from src.polaris_graph.generator2.provenance import (
++from src.polaris_graph.clinical_generator.provenance import (
+     extract_tokens,
+     has_any_token,
+     strip_tokens,
+diff --git a/tests/crown_jewels/test_cj_003_strict_verify.py b/tests/crown_jewels/test_cj_003_strict_verify.py
+index c86f02e9..e28b160b 100644
+--- a/tests/crown_jewels/test_cj_003_strict_verify.py
++++ b/tests/crown_jewels/test_cj_003_strict_verify.py
+@@ -15,7 +15,7 @@ from __future__ import annotations
+ 
+ from datetime import datetime, timezone
+ 
+-from src.polaris_graph.generator2.strict_verify import verify_sentence
++from src.polaris_graph.clinical_generator.strict_verify import verify_sentence
+ from src.polaris_graph.retrieval2.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+diff --git a/tests/crown_jewels/test_cj_004_zero_verified_abort.py b/tests/crown_jewels/test_cj_004_zero_verified_abort.py
+index 6667d4ff..9bdf851d 100644
+--- a/tests/crown_jewels/test_cj_004_zero_verified_abort.py
++++ b/tests/crown_jewels/test_cj_004_zero_verified_abort.py
+@@ -15,7 +15,7 @@ from datetime import datetime, timezone
+ import pytest
+ from pydantic import ValidationError
+ 
+-from src.polaris_graph.generator2.verified_report import (
++from src.polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/crown_jewels/test_cj_008_entailment_correctness.py b/tests/crown_jewels/test_cj_008_entailment_correctness.py
+index baec7720..941f9570 100644
+--- a/tests/crown_jewels/test_cj_008_entailment_correctness.py
++++ b/tests/crown_jewels/test_cj_008_entailment_correctness.py
+@@ -32,7 +32,7 @@ Notes:
+   here per Codex's `extra_invariants_to_pin` guidance.
+ - Mechanical-check short-circuit (cheap gates before expensive judge)
+   is covered by regular regression in
+-  `tests/polaris_graph/generator2/test_strict_verify_entailment.py`;
++  `tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py`;
+   not promoted here per Codex's guidance.
+ """
+ 
+@@ -40,8 +40,8 @@ from __future__ import annotations
+ 
+ from datetime import datetime, timezone
+ 
+-from src.polaris_graph.generator2 import strict_verify
+-from src.polaris_graph.generator2.strict_verify import (
++from src.polaris_graph.clinical_generator import strict_verify
++from src.polaris_graph.clinical_generator.strict_verify import (
+     verify_sentence,
+     verify_sentence_to_record,
+ )
+diff --git a/tests/polaris_graph/audit_bundle/test_bundle_builder.py b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+index 2dcdfa40..e7331ffe 100644
+--- a/tests/polaris_graph/audit_bundle/test_bundle_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_bundle_builder.py
+@@ -13,7 +13,7 @@ from polaris_graph.audit_bundle.bundle_builder import (
+     build_audit_bundle,
+     extract_manifest_from_bundle,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+index 2c448f96..d344673a 100644
+--- a/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
++++ b/tests/polaris_graph/audit_bundle/test_f15_adversarial.py
+@@ -8,7 +8,7 @@ import pytest
+ 
+ from polaris_graph.audit_bundle.manifest_builder import build_manifest_and_files
+ from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+index b2bbfff9..3c1a9339 100644
+--- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+@@ -21,7 +21,7 @@ from polaris_graph.audit_bundle.manifest_builder import (
+     serialize_manifest_yaml,
+ )
+ from polaris_graph.audit_bundle.bundle_schema import BundleManifest
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+index 9c2d19ee..e471d883 100644
+--- a/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
++++ b/tests/polaris_graph/audit_bundle/test_reviewer_blind_walkthrough.py
+@@ -20,8 +20,8 @@ from polaris_graph.audit_bundle.manifest_builder import (
+     build_manifest_and_files,
+ )
+ from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
+-from polaris_graph.generator2.provenance import extract_tokens
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.provenance import extract_tokens
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/audit_bundle/test_snapshot_sources.py b/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
+index 44e40d38..7d5076b3 100644
+--- a/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
++++ b/tests/polaris_graph/audit_bundle/test_snapshot_sources.py
+@@ -9,7 +9,7 @@ from polaris_graph.audit_bundle.snapshot_sources import (
+     snapshot_size_bytes,
+     snapshot_sources,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+index ca34eb51..4b154168 100644
+--- a/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
++++ b/tests/polaris_graph/audit_bundle/test_sovereignty_ci.py
+@@ -11,7 +11,7 @@ from polaris_graph.audit_bundle.sovereignty_guard import (
+     LEGAL_CLEARED_KEY,
+     assert_all_pool_sources_legal_cleared,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/benchmark/test_dimension_scorers.py b/tests/polaris_graph/benchmark/test_dimension_scorers.py
+index c012d4e3..66520a47 100644
+--- a/tests/polaris_graph/benchmark/test_dimension_scorers.py
++++ b/tests/polaris_graph/benchmark/test_dimension_scorers.py
+@@ -20,7 +20,7 @@ from polaris_graph.benchmark.dimension_scorers import (
+     score_refusal_correctness,
+     score_sourcing_tier_mix,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/generator2/__init__.py b/tests/polaris_graph/clinical_generator/__init__.py
+similarity index 100%
+rename from tests/polaris_graph/generator2/__init__.py
+rename to tests/polaris_graph/clinical_generator/__init__.py
+diff --git a/tests/polaris_graph/generator2/test_generator.py b/tests/polaris_graph/clinical_generator/test_generator.py
+similarity index 98%
+rename from tests/polaris_graph/generator2/test_generator.py
+rename to tests/polaris_graph/clinical_generator/test_generator.py
+index 4bb02a67..cf6e2c6f 100644
+--- a/tests/polaris_graph/generator2/test_generator.py
++++ b/tests/polaris_graph/clinical_generator/test_generator.py
+@@ -7,15 +7,15 @@ from typing import Callable
+ 
+ import pytest
+ 
+-from polaris_graph.generator2.generator import (
++from polaris_graph.clinical_generator.generator import (
+     DEFAULT_VERIFIER_PASS_THRESHOLD,
+     process_generation,
+ )
+-from polaris_graph.generator2.section_blueprint import (
++from polaris_graph.clinical_generator.section_blueprint import (
+     Blueprint,
+     SectionPlan,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+diff --git a/tests/polaris_graph/generator2/test_provenance.py b/tests/polaris_graph/clinical_generator/test_provenance.py
+similarity index 99%
+rename from tests/polaris_graph/generator2/test_provenance.py
+rename to tests/polaris_graph/clinical_generator/test_provenance.py
+index 6ed747b9..dded942d 100644
+--- a/tests/polaris_graph/generator2/test_provenance.py
++++ b/tests/polaris_graph/clinical_generator/test_provenance.py
+@@ -6,7 +6,7 @@ from datetime import datetime, timezone
+ 
+ import pytest
+ 
+-from polaris_graph.generator2.provenance import (
++from polaris_graph.clinical_generator.provenance import (
+     PROVENANCE_TOKEN_RE,
+     ProvenanceToken,
+     TokenValidationError,
+diff --git a/tests/polaris_graph/generator2/test_real_completion.py b/tests/polaris_graph/clinical_generator/test_real_completion.py
+similarity index 97%
+rename from tests/polaris_graph/generator2/test_real_completion.py
+rename to tests/polaris_graph/clinical_generator/test_real_completion.py
+index db32b9f1..dfcb2774 100644
+--- a/tests/polaris_graph/generator2/test_real_completion.py
++++ b/tests/polaris_graph/clinical_generator/test_real_completion.py
+@@ -7,7 +7,7 @@ from datetime import datetime, timezone
+ import httpx
+ import pytest
+ 
+-from polaris_graph.generator2.real_completion import (
++from polaris_graph.clinical_generator.real_completion import (
+     OPENROUTER_ENDPOINT,
+     RealCompletion,
+     RealCompletionConfig,
+@@ -18,7 +18,7 @@ from polaris_graph.generator2.real_completion import (
+     build_real_completion,
+     load_config_from_env,
+ )
+-from polaris_graph.generator2.section_blueprint import (
++from polaris_graph.clinical_generator.section_blueprint import (
+     CLINICAL_EFFICACY,
+ )
+ from polaris_graph.retrieval2.evidence_pool import (
+@@ -245,7 +245,7 @@ def test_endpoint_defaults_to_openrouter(monkeypatch: pytest.MonkeyPatch):
+     import importlib
+ 
+     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+-    import polaris_graph.generator2.real_completion as rc_mod
++    import polaris_graph.clinical_generator.real_completion as rc_mod
+ 
+     importlib.reload(rc_mod)
+     assert rc_mod.OPENROUTER_ENDPOINT == "https://openrouter.ai/api/v1/chat/completions"
+@@ -259,7 +259,7 @@ def test_endpoint_respects_vllm_base_url(monkeypatch: pytest.MonkeyPatch):
+     import importlib
+ 
+     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
+-    import polaris_graph.generator2.real_completion as rc_mod
++    import polaris_graph.clinical_generator.real_completion as rc_mod
+ 
+     importlib.reload(rc_mod)
+     assert rc_mod.OPENROUTER_ENDPOINT == "http://10.0.0.42:8000/v1/chat/completions"
+diff --git a/tests/polaris_graph/generator2/test_section_blueprint.py b/tests/polaris_graph/clinical_generator/test_section_blueprint.py
+similarity index 98%
+rename from tests/polaris_graph/generator2/test_section_blueprint.py
+rename to tests/polaris_graph/clinical_generator/test_section_blueprint.py
+index 5ed02795..4a3f7c2d 100644
+--- a/tests/polaris_graph/generator2/test_section_blueprint.py
++++ b/tests/polaris_graph/clinical_generator/test_section_blueprint.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ 
+ import pytest
+ 
+-from polaris_graph.generator2.section_blueprint import (
++from polaris_graph.clinical_generator.section_blueprint import (
+     CLINICAL_DIAGNOSIS,
+     CLINICAL_EFFICACY,
+     CLINICAL_PROGNOSIS,
+diff --git a/tests/polaris_graph/generator2/test_strict_verify.py b/tests/polaris_graph/clinical_generator/test_strict_verify.py
+similarity index 98%
+rename from tests/polaris_graph/generator2/test_strict_verify.py
+rename to tests/polaris_graph/clinical_generator/test_strict_verify.py
+index 11d0c176..ffe9e08b 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify.py
+@@ -6,13 +6,13 @@ from datetime import datetime, timezone
+ 
+ import pytest
+ 
+-from polaris_graph.generator2.strict_verify import (
++from polaris_graph.clinical_generator.strict_verify import (
+     DEFAULT_MIN_CONTENT_OVERLAP,
+     section_pass_rate,
+     verify_sentence,
+     verify_sentence_to_record,
+ )
+-from polaris_graph.generator2.verified_report import VerifiedSentence
++from polaris_graph.clinical_generator.verified_report import VerifiedSentence
+ from polaris_graph.retrieval2.evidence_pool import (
+     AdequacyVerdict,
+     EvidencePool,
+diff --git a/tests/polaris_graph/generator2/test_strict_verify_entailment.py b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+similarity index 99%
+rename from tests/polaris_graph/generator2/test_strict_verify_entailment.py
+rename to tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+index f202d172..77261290 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify_entailment.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+@@ -20,8 +20,8 @@ from datetime import datetime, timezone
+ 
+ import pytest
+ 
+-from polaris_graph.generator2 import strict_verify
+-from polaris_graph.generator2.strict_verify import (
++from polaris_graph.clinical_generator import strict_verify
++from polaris_graph.clinical_generator.strict_verify import (
+     verify_sentence,
+     verify_sentence_to_record,
+ )
+diff --git a/tests/polaris_graph/generator2/test_strict_verify_entailment_live.py b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment_live.py
+similarity index 97%
+rename from tests/polaris_graph/generator2/test_strict_verify_entailment_live.py
+rename to tests/polaris_graph/clinical_generator/test_strict_verify_entailment_live.py
+index 087b0654..ab1be5c7 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify_entailment_live.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_entailment_live.py
+@@ -3,7 +3,7 @@
+ Skipped by default. Opt-in via:
+ 
+     PG_ENTAILMENT_LIVE=1 OPENROUTER_API_KEY=... \
+-    pytest tests/polaris_graph/generator2/test_strict_verify_entailment_live.py
++    pytest tests/polaris_graph/clinical_generator/test_strict_verify_entailment_live.py
+ 
+ Or, with the registered `live` marker:
+ 
+@@ -36,7 +36,7 @@ import os
+ 
+ import pytest
+ 
+-from polaris_graph.generator2 import strict_verify
++from polaris_graph.clinical_generator import strict_verify
+ 
+ pytestmark = [
+     pytest.mark.live,
+diff --git a/tests/polaris_graph/generator2/test_strict_verify_telemetry.py b/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
+similarity index 98%
+rename from tests/polaris_graph/generator2/test_strict_verify_telemetry.py
+rename to tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
+index fff27e99..bbe9a12e 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify_telemetry.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_telemetry.py
+@@ -17,8 +17,8 @@ from datetime import datetime, timezone
+ 
+ import pytest
+ 
+-from polaris_graph.generator2 import strict_verify
+-from polaris_graph.generator2.strict_verify import (
++from polaris_graph.clinical_generator import strict_verify
++from polaris_graph.clinical_generator.strict_verify import (
+     get_judge_telemetry,
+     reset_judge_telemetry,
+     verify_sentence,
+diff --git a/tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py b/tests/polaris_graph/clinical_generator/test_strict_verify_unknown_mode_warning.py
+similarity index 98%
+rename from tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py
+rename to tests/polaris_graph/clinical_generator/test_strict_verify_unknown_mode_warning.py
+index 14789a11..c2d0be4b 100644
+--- a/tests/polaris_graph/generator2/test_strict_verify_unknown_mode_warning.py
++++ b/tests/polaris_graph/clinical_generator/test_strict_verify_unknown_mode_warning.py
+@@ -12,7 +12,7 @@ import logging
+ 
+ import pytest
+ 
+-from polaris_graph.generator2 import strict_verify
++from polaris_graph.clinical_generator import strict_verify
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/clinical_generator/test_verified_report.py
+similarity index 99%
+rename from tests/polaris_graph/generator2/test_verified_report.py
+rename to tests/polaris_graph/clinical_generator/test_verified_report.py
+index 1eeb47fe..211a6107 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/clinical_generator/test_verified_report.py
+@@ -1,4 +1,4 @@
+-"""Tests for polaris_graph.generator2.verified_report schemas."""
++"""Tests for polaris_graph.clinical_generator.verified_report schemas."""
+ 
+ from __future__ import annotations
+ 
+@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
+ import pytest
+ from pydantic import ValidationError
+ 
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     ContradictionSide,
+     ContradictionSignal,
+     EvaluatorDisagreement,
+diff --git a/tests/polaris_graph/evidence_contract/test_gate.py b/tests/polaris_graph/evidence_contract/test_gate.py
+index 839cec3a..a30b7e35 100644
+--- a/tests/polaris_graph/evidence_contract/test_gate.py
++++ b/tests/polaris_graph/evidence_contract/test_gate.py
+@@ -16,7 +16,7 @@ from polaris_graph.evidence_contract import (
+     assert_generation_has_contract,
+     evaluate_contract,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/golden/test_slice_003_goldens.py b/tests/polaris_graph/golden/test_slice_003_goldens.py
+index 9cc23dbd..0eb582e4 100644
+--- a/tests/polaris_graph/golden/test_slice_003_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_003_goldens.py
+@@ -21,8 +21,8 @@ from pathlib import Path
+ 
+ import pytest
+ 
+-from polaris_graph.generator2.generator import process_generation
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.generator import process_generation
++from polaris_graph.clinical_generator.verified_report import (
+     GenerationError,
+     VerifiedReport,
+ )
+diff --git a/tests/polaris_graph/golden/test_slice_004_goldens.py b/tests/polaris_graph/golden/test_slice_004_goldens.py
+index ee06214f..d4a0cfb3 100644
+--- a/tests/polaris_graph/golden/test_slice_004_goldens.py
++++ b/tests/polaris_graph/golden/test_slice_004_goldens.py
+@@ -30,7 +30,7 @@ from polaris_graph.audit_bundle.bundle_builder import (
+     build_audit_bundle,
+     extract_manifest_from_bundle,
+ )
+-from polaris_graph.generator2.verified_report import (
++from polaris_graph.clinical_generator.verified_report import (
+     Section,
+     VerifiedReport,
+     VerifiedSentence,
+diff --git a/tests/polaris_graph/llm/test_off_mode_no_judge_instantiation.py b/tests/polaris_graph/llm/test_off_mode_no_judge_instantiation.py
+index 01d54526..58392e9f 100644
+--- a/tests/polaris_graph/llm/test_off_mode_no_judge_instantiation.py
++++ b/tests/polaris_graph/llm/test_off_mode_no_judge_instantiation.py
+@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
+ 
+ import pytest
+ 
+-from src.polaris_graph.generator2 import strict_verify
++from src.polaris_graph.clinical_generator import strict_verify
+ from src.polaris_graph.llm import entailment_judge
+ 
+ 
+diff --git a/tests/polaris_graph/test_provenance_generator_entailment.py b/tests/polaris_graph/test_provenance_generator_entailment.py
+index 8c036502..1234270e 100644
+--- a/tests/polaris_graph/test_provenance_generator_entailment.py
++++ b/tests/polaris_graph/test_provenance_generator_entailment.py
+@@ -1,14 +1,14 @@
+ """I-bug-098 — entailment judge wired into PRODUCTION verifier.
+ 
+-Mirrors tests/polaris_graph/generator2/test_strict_verify_entailment.py
++Mirrors tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
+ patterns but exercises the production verifier (generator/
+ provenance_generator.py:verify_sentence_provenance) directly. This is
+ the verifier the production sweep at scripts/run_honest_sweep_r3.py
+-actually uses; the I-bug-092..097 generator2/ tests cover the slice-003
++actually uses; the I-bug-092..097 clinical_generator/ tests cover the slice-003
+ demo path which is a different code branch.
+ 
+ Tests use a fake judge to keep CI network-free + deterministic. Live
+-canary lives at tests/polaris_graph/generator2/
++canary lives at tests/polaris_graph/clinical_generator/
+ test_strict_verify_entailment_live.py (env-gated).
+ """
+ 
+@@ -16,13 +16,13 @@ from __future__ import annotations
+ 
+ import pytest
+ 
+-from polaris_graph.generator2 import strict_verify as _gen2
++from polaris_graph.clinical_generator import strict_verify as _gen2
+ from src.polaris_graph.generator.provenance_generator import (
+     verify_sentence_provenance,
+ )
+ 
+ 
+-# ---------- Fake-judge fixture (shared with generator2 telemetry) ----------
++# ---------- Fake-judge fixture (shared with clinical_generator telemetry) ----------
+ 
+ class _FakeJudge:
+     def __init__(self, verdict: str, reason: str = "fake") -> None:
+@@ -72,7 +72,7 @@ _M2_SPAN = (
+ 
+ def test_enforce_drops_m2_fabrication(monkeypatch):
+     """The audit-revealed M2 fabrication MUST be dropped under enforce
+-    by the PRODUCTION verifier (not just generator2/).
++    by the PRODUCTION verifier (not just clinical_generator/).
+     """
+     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+     _install(monkeypatch, _FakeJudge("NEUTRAL"))
+@@ -201,7 +201,7 @@ def test_no_provenance_short_circuits_before_entailment(monkeypatch):
+ 
+ def test_telemetry_counters_tick_on_production_path(monkeypatch):
+     """Critical I-bug-098 invariant: judge_telemetry counters from
+-    generator2.strict_verify ALSO tick when the production verifier
++    clinical_generator.strict_verify ALSO tick when the production verifier
+     invokes the judge. A single get_judge_telemetry() snapshot must
+     cover both code paths (per Codex iter-1 brief acceptance proof).
+     """
+# canonical-diff-sha256: 1ca5d02408ef600b46bb27ae7f8db916a7e6937529a9061590b13e78a34d486a
