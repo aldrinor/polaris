@@ -41,8 +41,16 @@ page routes — **15 real product routes**, **18 harness/diagnostic** (§2).
 | **J7** Run view + graph | `/runs/<runId>`, `/runs/<runId>/graph` | Inspect a completed run and its graph view. |
 | **J8** Report inspection (click-through) | `/inspector/<runId>` | Hover/click each claim → Inspector pane (source span, tier, evaluator agreement). |
 | **J9** Document upload + grounding | `/upload` | Drag-drop a document; it is parsed, classified, and used as evidence. |
-| **J10** Operator dashboard | `/dashboard` | Aggregate operator view (Inspector aggregates panel). |
+| **J10** Start a research run | `/dashboard` | Pick a template, enter a question, attach uploads → `createRun` → redirect to `/runs/<runId>`. |
 | **J11** Supporting surfaces | `/contracts`, `/memory`, `/pin_replay`, `/benchmark` | Evidence Contract editor, workspace memory, pin replay, BEAT-BOTH benchmark. |
+
+**Note — multiple run-entry surfaces.** The current product exposes more
+than one input form that starts work: `/dashboard` (template + question +
+upload → `createRun`), and the standalone `/retrieval` and `/generation`
+forms (`data-testid="retrieval-form"` / `"generation-form"`). The matrix
+below describes each route by its **actual deployed content**, verified
+against `web/app/`; consolidating these entry points into one coherent
+journey is product work tracked separately (I-rdy-014 / #510), not #515.
 
 ## 2. Excluded harness / diagnostic routes (NOT product — do not test as journey)
 
@@ -73,13 +81,14 @@ for stages the type does not apply to.
 **Tool:** pytest. **Pass criteria:** 100% of new code covered.
 **Applies to (the code backing each stage):**
 - J1 — auth/static_accounts unit tests.
+- J2 — `/` template-catalog + template-selection component logic.
 - J3 — `ambiguity_detector` + scope-gate classifiers.
 - J4 — `live_retriever`, corpus-adequacy gate, tier classifier.
 - J5 — generator (`multi_section`, `live_deepseek`), `strict_verify`, provenance.
 - J6 — job runner, SSE event emitters, checkpoint manager.
 - J7/J8 — AuditIR loader, inspector API, verifier-span resolution.
 - J9 — DocumentIngester, classification taxonomy, sovereignty router.
-- J10 — dashboard aggregates.
+- J10 — `/dashboard` run-creation form + `createRun` client.
 - J11 — Evidence Contract schema, workspace memory, pin store, benchmark scorer.
 **N/A:** none — every stage has backing code requiring unit coverage.
 
@@ -87,22 +96,25 @@ for stages the type does not apply to.
 **Tool:** pytest + httpx. **Pass criteria:** every endpoint tested with mocked + real LLM.
 **Applies to:** every stage that calls a backend endpoint — J1 (auth), J3
 (intake/scope), J4 (`/api/retrieval`), J5 (generation), J6 (`/jobs/<id>/stream`
-SSE), J7/J8 (inspector run/report APIs), J9 (upload), J10 (dashboard
-aggregates API), J11 (contracts, memory, pins, benchmark APIs). Each: mocked
+SSE), J7/J8 (inspector run/report APIs), J9 (upload), J10 (`createRun`),
+J11 (contracts, memory, pins, benchmark APIs). Each: mocked
 LLM for determinism + a real-LLM smoke per the OpenRouter rehearsal path.
 **N/A:** J2 — `/` is a static template-selection shell with no own endpoint.
 
 ### 3 — Artifact contract / schema versioning  ·  `forward-ref: I-rdy-007 (#503)`
 **Tool:** jsonschema validator. **Pass criteria:** Evidence Contract artifacts validate; version migration tested.
 **Applies to:**
+- J5 — `/generation` builds + downloads an audit bundle (`BundlePreview`,
+  `downloadAuditBundle`); the bundle validates against the contract.
 - J6 — the live run emits artifacts; they validate against the live-run
   artifact contract (defined by #503 — schema-level checks deferred to #503).
+- J7 — `/runs/<runId>` exports the run bundle (`getBundle`,
+  `downloadBundleAsJson`); the exported bundle validates against the contract.
 - J8 — the audit bundle / Evidence Contract consumed by the Inspector validates.
 - J11 — `/contracts` editor output validates; `/pin_replay` + `/benchmark`
   consume contract-shaped artifacts.
-**N/A:** J1, J2, J3, J4, J5, J7, J9, J10 — no contract-versioned artifact
-is produced or consumed at these stages (J5 produces report prose; the
-contract artifact is assembled at J6 run-completion).
+**N/A:** J1, J2, J3, J4, J9, J10 — no contract-versioned artifact is
+produced or consumed at these stages.
 **Forward-ref:** until #503 lands, this row's checks are stated at the
 contract level ("artifact validates against the I-rdy-007 contract;
 migration tested"); #516 binds the concrete field-level schema once #503
@@ -130,8 +142,10 @@ recorded sub-flows; J11 surfaces visited.
 - J4 — thin-corpus query → `abort_corpus_inadequate`, not a fabricated report.
 - J5/J6 — 80% source-fetch failure → partial-evidence warning; all sentences fail `strict_verify` → zero-verified abort shown with cause.
 - J9 — 100MB / 0-byte / malformed / password-protected / image-only / Word / plain-text / EPUB inputs handled or refused (never silent).
-**N/A:** J1, J2, J7, J8, J10, J11 — no adversarial *input surface* (J7/J8/J10
-render already-produced runs; covered under Security row 14 for injection).
+- J10 — `/dashboard` adversarial question + malformed/oversize upload at
+  run creation → handled or refused, never a silent bad run.
+**N/A:** J1, J2, J7, J8, J11 — no adversarial *input surface* (J7/J8 render
+already-produced runs; covered under Security row 14 for injection).
 
 ### 7 — Cross-browser
 **Tool:** Playwright (Chromium, Firefox, WebKit/Safari). **Pass criteria:** all pass.
@@ -165,10 +179,14 @@ requirement (a clear error, no white screen) is covered generically.
 
 ### 11 — Streaming SSE ordering / backpressure
 **Tool:** Playwright EventSource consumer. **Pass criteria:** events arrive in order; backpressure handled.
-**Applies to:** **J6 only** — `/audit_live` consumes the `/jobs/<id>/stream`
-SSE; events (searched / rejected / contradiction / verify) arrive in emit
-order; a slow consumer does not drop events.
-**N/A:** J1–J5, J7–J11 — no SSE stream. (`/sse` exercises SSE but is an
+**Applies to:**
+- J6 — `/audit_live` consumes the `/jobs/<id>/stream` SSE; events (searched
+  / rejected / contradiction / verify) arrive in emit order; a slow consumer
+  does not drop events.
+- J7 — `/runs/<runId>` subscribes to the run EventSource (`subscribeToRun`
+  → `/stream/<runId>`, `web/app/runs/[runId]/page.tsx`); streamed events
+  arrive in order.
+**N/A:** J1–J5, J8–J11 — no SSE stream. (`/sse` exercises SSE but is an
 excluded harness, §2.)
 
 ### 12 — Cancellation / resume
@@ -181,30 +199,35 @@ stages (retrieval/generation are sub-steps of the J6 run).
 
 ### 13 — Performance
 **Tool:** Playwright + Lighthouse. **Pass criteria:** Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms.
-**Applies to:**
-- J8 — 200/500-sentence report: hover/click Inspector latency <100ms.
-- J2 — `/` LCP <2.5s (the first paint a Carney-office visitor sees).
-- J3, J6, J7, J10 — INP <200ms on interactive controls.
-**N/A:** J1, J4, J5, J9, J11 — no Core-Web-Vitals-sensitive heavy surface
-(measured generically but no dedicated long-content perf budget).
+**Applies to:** all UI stages J1–J11 — every rendered route is held to Core
+Web Vitals (LCP <2.5s, INP <200ms). Stage-specific budgets: J8 — the
+200/500-sentence report keeps hover/click Inspector latency <100ms; J2 —
+`/` LCP <2.5s (the first paint a Carney-office visitor sees).
+**N/A:** none — Core Web Vitals apply to every rendered page.
 
 ### 14 — Security
 **Tool:** Playwright Security Agent + standard tools. **Pass criteria:** XSS, CSRF, injection, prompt-injection in user docs.
 **Applies to:**
 - J1 — CSRF on the auth POST; session-cookie flags.
 - J3 — XSS / query-injection via the research-question field.
-- J9 — prompt-injection embedded in an uploaded document is neutralized (per CLAUDE.md §9.1.7 delimiter sanitization).
+- J4 — `/retrieval` exposes its own research-question form
+  (`data-testid="retrieval-form"`); XSS / query-injection.
+- J5 — `/generation` exposes its own question form
+  (`data-testid="generation-form"`); XSS / query-injection.
 - J7, J8 — stored-XSS via rendered report/source content.
+- J9 — prompt-injection embedded in an uploaded document is neutralized (per CLAUDE.md §9.1.7 delimiter sanitization).
+- J10 — `/dashboard` exposes a question form + document upload + the
+  `createRun` POST; query-injection, prompt-injection in attached docs, CSRF.
 - J11 — injection via the Evidence Contract editor input.
-**N/A:** J2, J4, J5, J6, J10 — no direct untrusted-input surface (J4/J5/J6
-process inputs already sanitized at J3/J9).
+**N/A:** J2, J6 — no direct untrusted-input surface (J2 is a static
+template-selection shell; J6 streams a run already created elsewhere).
 
 ### 15 — Tenant isolation + data deletion
 **Tool:** pytest + Playwright. **Pass criteria:** Org A cannot see Org B; deletion is real (no log residue).
 **Applies to:**
 - J7/J8 — Org A cannot open Org B's `/runs/<runId>` or `/inspector/<runId>`.
 - J9 — uploaded docs are org-scoped; deletion removes file + chunks + embeddings.
-- J10 — dashboard aggregates show only the caller's org.
+- J10 — `/dashboard` `createRun` is org-scoped; a user creates runs only in their own org.
 - J11 — `/memory` recall is org-scoped; `/contracts` likewise.
 **N/A:** J1, J2 — pre-org-context (sign-in establishes the org; `/` is
 org-agnostic). J3, J4, J5, J6 — covered transitively via the run they
@@ -293,18 +316,18 @@ the second of the two rows excludable for a strict count of 22.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Unit | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 2 | Integration | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 3 | Artifact contract `#503` | — | — | — | — | — | ✓ | — | ✓ | — | — | ✓ |
+| 3 | Artifact contract `#503` | — | — | — | — | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
 | 4 | Visual regression | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 5 | E2E happy path | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 6 | E2E adversarial | — | — | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
+| 6 | E2E adversarial | — | — | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | ✓ | — |
 | 7 | Cross-browser | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 8 | Accessibility | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 9 | Multi-tab safety | — | — | ✓ | — | — | ✓ | ✓ | ✓ | — | — | — |
 | 10 | Network resilience | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 11 | SSE ordering/backpressure | — | — | — | — | — | ✓ | — | — | — | — | — |
+| 11 | SSE ordering/backpressure | — | — | — | — | — | ✓ | ✓ | — | — | — | — |
 | 12 | Cancellation/resume | — | — | — | — | — | ✓ | — | — | — | — | — |
-| 13 | Performance | — | ✓ | ✓ | — | — | ✓ | ✓ | ✓ | — | ✓ | — |
-| 14 | Security | ✓ | — | ✓ | — | — | — | ✓ | ✓ | ✓ | — | ✓ |
+| 13 | Performance | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 14 | Security | ✓ | — | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 15 | Tenant isolation + deletion | — | — | — | — | — | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 16 | Privacy / log redaction | — | — | — | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
 | 17 | Sovereignty routing | — | — | — | ✓ | ✓ | — | — | — | ✓ | — | — |
