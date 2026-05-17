@@ -241,4 +241,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — 0 P0, 0 P1, 0 P2. convergence continue. 5 P2 fixes (P2-1 generate() wrapper-delegate clears call-context in finally; P2-2 flush empty reasoning_trace.jsonl on construct; P2-3 5 abort sites clear set_reasoning_sink(None); P2-4 retry record parent_call_id+attempt_n=2; P2-5 manifest_builder rejects reserved tar members). Branch re-cut to canonical id I-gen-561.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. 5-file +152/-1 code+test diff; reasoning-trace 9/9, manifest-builder 17/17, audit-bundle 88 pass/4 skip. P1 trajectory 0.
