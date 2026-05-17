@@ -84,7 +84,7 @@ index 5c6ba357..de3950ea 100644
  | 23 | Layer-3 walkthrough | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
  | 24 | Fixture governance | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ | ≈ |
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 695ab3ef..f4d6d19e 100644
+index 695ab3ef..1f42c3ae 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -226,3 +226,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -98,5 +98,5 @@ index 695ab3ef..f4d6d19e 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. Doc-only — 4 markdown edits to docs/carney_handover/test_matrix.md (P2-1 sentence_hover_test full route paths; P2-2 row-9 multi-tab cancel-half expected-fail; P2-3 row-15 J9 upload-deletion known gap; P2-4 rows 19/21 J6/J7 + grid J7 tick). Each claim verified against the running system (web/app/sentence_hover_test/, upload.py POST+GET-only).
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: 785730b41056e4df2f298bcd2314f667d2e932cb812fac83bf420a72413efc64
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata). convergence accept_remaining. Doc-only 4-P2 markdown edit; §4 grid stays a valid 11-column table. P1 trajectory 0.
+# canonical-diff-sha256: 5038c02327a936968a5053c2ae9810def736bca87e98741c64be6920fb935ffa
