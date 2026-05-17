@@ -1,0 +1,169 @@
+diff --git a/scripts/live_server.py b/scripts/live_server.py
+index bf41fe0b..9c0f69aa 100644
+--- a/scripts/live_server.py
++++ b/scripts/live_server.py
+@@ -554,7 +554,7 @@ class PipelineRunner:
+             # evaluator gate, tier-balanced evidence selection).
+             graph_version = os.getenv("PG_GRAPH_VERSION", "v4")
+             if graph_version == "v4":
+-                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
++                from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4 as build_and_run
+             elif graph_version == "v3":
+                 from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
+             elif os.getenv("PG_V2_ENABLED", "0") == "1" or graph_version == "v2":
+@@ -567,7 +567,7 @@ class PipelineRunner:
+                     "Unknown PG_GRAPH_VERSION=%r; falling back to v4",
+                     graph_version,
+                 )
+-                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
++                from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4 as build_and_run
+ 
+             # Point the trace tailer to the new trace file
+             new_trace_path = Path(PG_LIVE_TRACE_DIR) / f"pg_trace_{vector_id}.jsonl"
+diff --git a/src/polaris_graph/graph_v4.py b/src/polaris_graph/pipeline_a_ui_adapter.py
+similarity index 99%
+rename from src/polaris_graph/graph_v4.py
+rename to src/polaris_graph/pipeline_a_ui_adapter.py
+index d23e8a71..630d971d 100644
+--- a/src/polaris_graph/graph_v4.py
++++ b/src/polaris_graph/pipeline_a_ui_adapter.py
+@@ -1,5 +1,5 @@
+ """
+-graph_v4 — BUG-B-102 R2c (pipeline-B UI parity via pipeline-A).
++pipeline_a_ui_adapter — BUG-B-102 R2c (pipeline-B UI parity via pipeline-A).
+ 
+ The Docker default `serve` path (scripts/live_server.py → FastAPI) has
+ three legacy graph variants (v1/v2/v3) that do NOT enforce any of the
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 60f4891f..53417c7c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -306,3 +306,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_ionic_bonds intact. P1 trajectory 0. Completes the 4 chemistry-metaphor synthesis renames #440-443.
++
++## I-naming-010 (#444) — rename src/polaris_graph/graph_v4.py -> pipeline_a_ui_adapter.py
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (config/scope_templates/custom.yaml:3 prose mention — left intact, accounted-for, consistent with all conceptual prose). convergence continue. Widest-blast-radius rename of the series — 39 graph_v4 occurrences. Two landmines: (a) `outputs/polaris_graph_v4_runs` output-dir default contains the token — LEFT (behaviour); (b) test_b102_graph_v4.py:197 asserts live_server source text — coupled, updated in lockstep. 4 targeted substring patterns (NOT blind replace) + git mv. Scope file+import-machinery only; test filenames/function names + build_and_run_v4 API + v4 version token + prose left intact. 4 files +15/-15.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted 4-pattern rename; ast.parse 4/4, build_and_run_v4+4 helpers import, 16 passed (incl. coupled live_server source-assertion). polaris_graph_v4_runs output-path landmine intact. P1 trajectory 0. Completes the #437-444 naming series.
+diff --git a/tests/polaris_graph/test_b102_graph_v4.py b/tests/polaris_graph/test_b102_graph_v4.py
+index 58346281..b37724a2 100644
+--- a/tests/polaris_graph/test_b102_graph_v4.py
++++ b/tests/polaris_graph/test_b102_graph_v4.py
+@@ -34,7 +34,7 @@ def test_b102_graph_v4_importable_and_signature_matches() -> None:
+     """build_and_run_v4 signature must be v1/v2/v3-compatible so
+     live_server dispatch drops in without argument changes."""
+     import inspect
+-    from src.polaris_graph.graph_v4 import build_and_run_v4
++    from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4
+     sig = inspect.signature(build_and_run_v4)
+     params = set(sig.parameters.keys())
+     # Minimum required for live_server compatibility
+@@ -53,7 +53,7 @@ def test_b102_graph_v4_importable_and_signature_matches() -> None:
+ def test_b102_graph_v4_domain_inference() -> None:
+     """Application/query hints route to known scope templates. Otherwise
+     default to 'custom' (R2b)."""
+-    from src.polaris_graph.graph_v4 import _infer_domain
++    from src.polaris_graph.pipeline_a_ui_adapter import _infer_domain
+     assert _infer_domain("clinical", "") == "clinical"
+     assert _infer_domain("pharma", "") == "clinical"
+     assert _infer_domain("tech", "") == "tech"
+@@ -72,7 +72,7 @@ def test_b102_graph_v4_domain_inference() -> None:
+ 
+ def test_b102_graph_v4_ui_json_adapter_shape(tmp_path: Path) -> None:
+     """_adapt_pipeline_a_to_ui_json produces fields the UI reads."""
+-    from src.polaris_graph.graph_v4 import _adapt_pipeline_a_to_ui_json
++    from src.polaris_graph.pipeline_a_ui_adapter import _adapt_pipeline_a_to_ui_json
+ 
+     # Build a fake run_dir with a manifest + report
+     run_dir = tmp_path / "run"
+@@ -124,7 +124,7 @@ def test_b102_graph_v4_ui_json_adapter_shape(tmp_path: Path) -> None:
+ def test_b102_graph_v4_writes_ui_json_atomically(tmp_path: Path, monkeypatch) -> None:
+     """_write_ui_json uses a tmp file + rename so readers never see
+     a partial write."""
+-    from src.polaris_graph.graph_v4 import _write_ui_json
++    from src.polaris_graph.pipeline_a_ui_adapter import _write_ui_json
+ 
+     monkeypatch.chdir(tmp_path)
+     data = {"vector_id": "test_vec", "status": "success"}
+@@ -147,7 +147,7 @@ def test_b102_graph_v4_error_path_returns_valid_status(
+ ) -> None:
+     """When run_one_query raises, graph_v4 writes an error UI JSON
+     and returns a status that's in the unified taxonomy."""
+-    from src.polaris_graph import graph_v4
++    from src.polaris_graph import pipeline_a_ui_adapter
+     from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES
+ 
+     async def _boom(*a, **kw):
+@@ -161,7 +161,7 @@ def test_b102_graph_v4_error_path_returns_valid_status(
+     )
+ 
+     async def _runner():
+-        return await graph_v4.build_and_run_v4(
++        return await pipeline_a_ui_adapter.build_and_run_v4(
+             vector_id="err_vec",
+             query="anything",
+             application="tech",
+@@ -194,7 +194,7 @@ def test_b102_live_server_dispatches_v4_by_default() -> None:
+     assert 'os.getenv("PG_GRAPH_VERSION", "v4")' in source, (
+         "live_server PG_GRAPH_VERSION default must be v4"
+     )
+-    assert 'graph_v4 import build_and_run_v4' in source, (
++    assert 'pipeline_a_ui_adapter import build_and_run_v4' in source, (
+         "live_server must import build_and_run_v4 in the v4 branch"
+     )
+ 
+@@ -244,7 +244,7 @@ def test_b102_graph_v4_end_to_end_with_mocked_orchestrator(
+ ) -> None:
+     """Mock run_one_query to return a successful summary; verify
+     graph_v4 adapts it to UI JSON + emits trace events."""
+-    from src.polaris_graph import graph_v4
++    from src.polaris_graph import pipeline_a_ui_adapter
+ 
+     monkeypatch.chdir(tmp_path)
+ 
+@@ -282,7 +282,7 @@ def test_b102_graph_v4_end_to_end_with_mocked_orchestrator(
+     )
+ 
+     async def _runner():
+-        return await graph_v4.build_and_run_v4(
++        return await pipeline_a_ui_adapter.build_and_run_v4(
+             vector_id="e2e_vec",
+             query="What are the efficacy signals for semaglutide?",
+             application="clinical",
+diff --git a/tests/polaris_graph/test_graph_v4_documents.py b/tests/polaris_graph/test_graph_v4_documents.py
+index bde0c56f..e38a7f8a 100644
+--- a/tests/polaris_graph/test_graph_v4_documents.py
++++ b/tests/polaris_graph/test_graph_v4_documents.py
+@@ -18,7 +18,7 @@ class StubIngester:
+ 
+ 
+ def _import_helper():
+-    from src.polaris_graph.graph_v4 import _load_uploaded_documents
++    from src.polaris_graph.pipeline_a_ui_adapter import _load_uploaded_documents
+     return _load_uploaded_documents
+ 
+ 
+@@ -88,7 +88,7 @@ def test_chunk_size_respected():
+ async def test_q_dict_threading_with_stubbed_run_one_query(monkeypatch):
+     """Test 7 per Codex iter-2 P2 #1: stubs run_one_query + DocumentIngester
+     and asserts q['uploaded_documents'] reaches pipeline-A."""
+-    from src.polaris_graph import graph_v4
++    from src.polaris_graph import pipeline_a_ui_adapter
+ 
+     captured = {}
+     docs = {
+@@ -106,7 +106,7 @@ async def test_q_dict_threading_with_stubbed_run_one_query(monkeypatch):
+     )
+     monkeypatch.setattr("scripts.run_honest_sweep_r3.run_one_query", stub_run_one_query)
+ 
+-    await graph_v4.build_and_run_v4(
++    await pipeline_a_ui_adapter.build_and_run_v4(
+         vector_id="test", query="Q", document_ids=["a" * 16, "b" * 16],
+         enable_dashboard=False,
+     )
+# canonical-diff-sha256: ddb188c68f3580c1b4e754a7268880d6010b1c02864c134e7b46f759be4f8529

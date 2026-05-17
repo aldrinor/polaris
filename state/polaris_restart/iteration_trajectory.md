@@ -306,3 +306,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 3/3, 2 public fns import, 44 passed. analyze_ionic_bonds intact. P1 trajectory 0. Completes the 4 chemistry-metaphor synthesis renames #440-443.
+
+## I-naming-010 (#444) — rename src/polaris_graph/graph_v4.py -> pipeline_a_ui_adapter.py
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (config/scope_templates/custom.yaml:3 prose mention — left intact, accounted-for, consistent with all conceptual prose). convergence continue. Widest-blast-radius rename of the series — 39 graph_v4 occurrences. Two landmines: (a) `outputs/polaris_graph_v4_runs` output-dir default contains the token — LEFT (behaviour); (b) test_b102_graph_v4.py:197 asserts live_server source text — coupled, updated in lockstep. 4 targeted substring patterns (NOT blind replace) + git mv. Scope file+import-machinery only; test filenames/function names + build_and_run_v4 API + v4 version token + prose left intact. 4 files +15/-15.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Targeted 4-pattern rename; ast.parse 4/4, build_and_run_v4+4 helpers import, 16 passed (incl. coupled live_server source-assertion). polaris_graph_v4_runs output-path landmine intact. P1 trajectory 0. Completes the #437-444 naming series.
