@@ -1,0 +1,111 @@
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 5c9b9f59..c6a1f27f 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -24,6 +24,7 @@ called ONCE per research question (not repeatedly in a loop).
+ from __future__ import annotations
+ 
+ import logging
++import math
+ import os
+ import asyncio
+ import re
+@@ -588,12 +589,18 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
+ 
+ 
+ def _env_float(name: str, default: float) -> float:
+-    """Positive-float env knob with a safe fallback (LAW VI — no hardcode)."""
++    """Positive-*finite*-float env knob with a safe fallback (LAW VI).
++
++    Non-finite overrides (``inf``/``-inf``/``nan``) fall back to ``default``:
++    ``float("inf")`` parses fine and is ``> 0``, but feeding it to e.g.
++    ``threading.Thread.join(timeout=...)`` raises ``OverflowError`` on
++    Windows (I-bug-116 / #556).
++    """
+     try:
+         value = float(os.getenv(name, str(default)))
+     except (TypeError, ValueError):
+         return default
+-    return value if value > 0 else default
++    return value if math.isfinite(value) and value > 0 else default
+ 
+ 
+ def _env_int(name: str, default: int) -> int:
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index d7bab342..695ab3ef 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -217,3 +217,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata, not a behaviour risk). convergence accept_remaining. Doc-only 3-site judge-prose edit; ast.parse clean. P1 trajectory 0.
++
++## I-bug-116 (#556) — live_retriever._env_float accepts non-finite env values
++
++### Brief review
++- iter 1: REQUEST_CHANGES — 1 P1 (Codex ran a workspace smoke and flagged "fix not present" — a brief-vs-diff stage misunderstanding: the brief is a pre-implementation plan, code is intentionally unapplied at brief-review time). convergence continue.
++- iter 2: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. Added a §0.1 "review stage" note clarifying this is the pre-implementation brief review; the plan itself drew zero objections. P1 trajectory 1 -> 0.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata). convergence accept_remaining. 2-file fix (math.isfinite guard + 24-case regression test); 24/24 pass. P1 trajectory 0.
+diff --git a/tests/polaris_graph/test_live_retriever_env_knobs.py b/tests/polaris_graph/test_live_retriever_env_knobs.py
+new file mode 100644
+index 00000000..be27a7ab
+--- /dev/null
++++ b/tests/polaris_graph/test_live_retriever_env_knobs.py
+@@ -0,0 +1,54 @@
++"""Regression tests for the env-knob helpers in live_retriever (I-bug-116 / #556).
++
++`_env_float` must reject non-finite overrides (``inf`` / ``-inf`` / ``nan``)
++and fall back to the finite default — ``float("inf")`` parses fine and is
++``> 0``, but feeding it to ``threading.Thread.join(timeout=...)`` raises
++``OverflowError: timestamp out of range for platform time_t`` on Windows.
++"""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.retrieval.live_retriever import _env_float, _env_int
++
++_FLOAT_KNOB = "PG_OPENALEX_ENRICH_DEADLINE"
++_INT_KNOB = "PG_OPENALEX_ENRICH_FAILFAST"
++
++
++@pytest.mark.parametrize("raw", ["inf", "-inf", "nan", "Infinity", "+inf", "-Infinity"])
++def test_env_float_rejects_non_finite(monkeypatch, raw):
++    """The #556 bug: a non-finite override must fall back to the default."""
++    monkeypatch.setenv(_FLOAT_KNOB, raw)
++    assert _env_float(_FLOAT_KNOB, 45.0) == 45.0
++
++
++@pytest.mark.parametrize("raw,expected", [("30.5", 30.5), ("1", 1.0), ("999.0", 999.0)])
++def test_env_float_accepts_finite_positive(monkeypatch, raw, expected):
++    monkeypatch.setenv(_FLOAT_KNOB, raw)
++    assert _env_float(_FLOAT_KNOB, 45.0) == expected
++
++
++@pytest.mark.parametrize("raw", ["abc", "", "0", "0.0", "-5", "-0.1"])
++def test_env_float_falls_back_on_garbage_or_non_positive(monkeypatch, raw):
++    monkeypatch.setenv(_FLOAT_KNOB, raw)
++    assert _env_float(_FLOAT_KNOB, 45.0) == 45.0
++
++
++def test_env_float_default_when_unset(monkeypatch):
++    monkeypatch.delenv(_FLOAT_KNOB, raising=False)
++    assert _env_float(_FLOAT_KNOB, 45.0) == 45.0
++
++
++@pytest.mark.parametrize("raw", ["inf", "-inf", "nan", "abc", "3.5", ""])
++def test_env_int_rejects_non_finite_and_non_int(monkeypatch, raw):
++    """`_env_int` needs no finiteness guard — ``int("inf")`` / ``int("nan")`` /
++    ``int("3.5")`` all raise ``ValueError``, already caught -> default. Pins
++    issue #556's claim that ``_env_int`` is unaffected."""
++    monkeypatch.setenv(_INT_KNOB, raw)
++    assert _env_int(_INT_KNOB, 3) == 3
++
++
++@pytest.mark.parametrize("raw,expected", [("5", 5), ("1", 1)])
++def test_env_int_accepts_finite_positive(monkeypatch, raw, expected):
++    monkeypatch.setenv(_INT_KNOB, raw)
++    assert _env_int(_INT_KNOB, 3) == expected
+# canonical-diff-sha256: 36c0db5dfe90032681d19347988eb44114093743df6764ee0cdf46cf126a8962
