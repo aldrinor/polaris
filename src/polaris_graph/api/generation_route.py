@@ -25,11 +25,11 @@ from polaris_graph.evidence_contract import (
     assert_generation_has_contract,
     evaluate_contract,
 )
-from polaris_graph.generator2.generator import (
+from polaris_graph.clinical_generator.generator import (
     GeneratorCompletionFn,
     process_generation,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     GenerationError,
     VerifiedReport,
 )

@@ -20,7 +20,7 @@ from polaris_graph.benchmark.dimension_scorers import (
     score_refusal_correctness,
     score_sourcing_tier_mix,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

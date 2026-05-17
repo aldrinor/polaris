@@ -32,7 +32,7 @@ Notes:
   here per Codex's `extra_invariants_to_pin` guidance.
 - Mechanical-check short-circuit (cheap gates before expensive judge)
   is covered by regular regression in
-  `tests/polaris_graph/generator2/test_strict_verify_entailment.py`;
+  `tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py`;
   not promoted here per Codex's guidance.
 """
 
@@ -40,8 +40,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from src.polaris_graph.generator2 import strict_verify
-from src.polaris_graph.generator2.strict_verify import (
+from src.polaris_graph.clinical_generator import strict_verify
+from src.polaris_graph.clinical_generator.strict_verify import (
     verify_sentence,
     verify_sentence_to_record,
 )

@@ -1,4 +1,4 @@
-"""Tests for polaris_graph.generator2.verified_report schemas."""
+"""Tests for polaris_graph.clinical_generator.verified_report schemas."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     ContradictionSide,
     ContradictionSignal,
     EvaluatorDisagreement,

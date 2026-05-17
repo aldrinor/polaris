@@ -30,7 +30,7 @@ from polaris_graph.audit_bundle.bundle_builder import (
     build_audit_bundle,
     extract_manifest_from_bundle,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

@@ -11,7 +11,7 @@ under a clearly named 'test_cj_002_*' identifier.
 
 from __future__ import annotations
 
-from src.polaris_graph.generator2.provenance import (
+from src.polaris_graph.clinical_generator.provenance import (
     extract_tokens,
     has_any_token,
     strip_tokens,

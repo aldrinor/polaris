@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from polaris_graph.generator2.section_blueprint import (
+from polaris_graph.clinical_generator.section_blueprint import (
     CLINICAL_DIAGNOSIS,
     CLINICAL_EFFICACY,
     CLINICAL_PROGNOSIS,

@@ -46,14 +46,14 @@ import logging
 import os
 import re
 
-from polaris_graph.generator2.provenance import (
+from polaris_graph.clinical_generator.provenance import (
     ProvenanceToken,
     extract_tokens,
     get_span_text,
     strip_tokens,
     validate_token_against_pool,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     DropReason,
     VerifiedSentence,
 )

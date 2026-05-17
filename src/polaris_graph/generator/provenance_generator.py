@@ -741,18 +741,18 @@ def verify_sentence_provenance(
 
         # I-bug-098: entailment judge as the 6th check, runs LAST after
         # all mechanical checks pass. Closes the production audit gap
-        # the I-bug-092..097 generator2/ wiring did NOT close (the
+        # the I-bug-092..097 clinical_generator/ wiring did NOT close (the
         # production sweep at scripts/run_honest_sweep_r3.py uses THIS
-        # verifier, not generator2/strict_verify). Same env gate
+        # verifier, not clinical_generator/strict_verify). Same env gate
         # PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce} (default
         # enforce per I-bug-095). Reuses the judge + telemetry from
-        # generator2.strict_verify so a single counter snapshot covers
+        # clinical_generator.strict_verify so a single counter snapshot covers
         # both code paths. Lazy import keeps this module's cold-import
         # cost zero in off-mode and avoids circular import (the
-        # generator2.strict_verify module does NOT import from
+        # clinical_generator.strict_verify module does NOT import from
         # polaris_graph.generator).
         if not failures:
-            from src.polaris_graph.generator2.strict_verify import (  # noqa: PLC0415
+            from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
                 _entailment_mode,
                 _get_judge,
                 _record_judge_outcome,

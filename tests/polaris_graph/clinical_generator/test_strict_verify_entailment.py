@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from polaris_graph.generator2 import strict_verify
-from polaris_graph.generator2.strict_verify import (
+from polaris_graph.clinical_generator import strict_verify
+from polaris_graph.clinical_generator.strict_verify import (
     verify_sentence,
     verify_sentence_to_record,
 )

@@ -1,6 +1,6 @@
 """Entailment judge — LLM-as-judge for strict_verify check (f).
 
-Originally inlined in `polaris_graph.generator2.strict_verify`. Extracted
+Originally inlined in `polaris_graph.clinical_generator.strict_verify`. Extracted
 per I-bug-099 so future call sites (I-bug-100 OpenRouterClient routing,
 I-bug-101 FPR audit harness, etc.) can import the judge + telemetry from
 a single canonical location.
@@ -30,7 +30,7 @@ matching the §9.1.1 invariant — different lineage from the generator
 (DeepSeek). Calls go through OpenRouter using the existing project
 auth substrate. Family segregation is enforced at construction.
 
-Public surface (re-exported via `polaris_graph.generator2.strict_verify`
+Public surface (re-exported via `polaris_graph.clinical_generator.strict_verify`
 for backwards compat with monkeypatch test pattern):
   - _EntailmentJudge: synchronous httpx wrapper around an OpenRouter call
   - _get_judge(): lazy singleton accessor
@@ -62,7 +62,7 @@ from datetime import datetime, timezone
 # reloading the module.
 #
 # I-bug-102 NOTE: this top-level import IS evaluated even in off-mode.
-# The "skip generator2 import" goal in I-bug-102 is interpreted as
+# The "skip clinical_generator import" goal in I-bug-102 is interpreted as
 # "no JUDGE INSTANTIATION + no NETWORK CALL in off-mode" (verified by
 # `test_off_mode_does_not_instantiate_judge`), NOT as eliminating the
 # module-import side effect. Empirically the openrouter_client import

@@ -12,8 +12,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
-from polaris_graph.generator2.provenance import extract_tokens
-from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.clinical_generator.provenance import extract_tokens
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source, SourceTier
 
 JURISDICTION_DOMAINS: dict[Jurisdiction, frozenset[str]] = {

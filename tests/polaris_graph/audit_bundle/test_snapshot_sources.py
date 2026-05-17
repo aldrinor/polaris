@@ -9,7 +9,7 @@ from polaris_graph.audit_bundle.snapshot_sources import (
     snapshot_size_bytes,
     snapshot_sources,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

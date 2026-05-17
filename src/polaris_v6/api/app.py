@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
     # completion_fn (PR 7); otherwise leave the sentinel default in place
     # which returns 400 completion_backend_unavailable per LAW II.
     if os.environ.get("OPENROUTER_API_KEY", "").strip():
-        from polaris_graph.generator2.real_completion import build_real_completion
+        from polaris_graph.clinical_generator.real_completion import build_real_completion
 
         _real_completion = build_real_completion()
 

@@ -7,15 +7,15 @@ from typing import Callable
 
 import pytest
 
-from polaris_graph.generator2.generator import (
+from polaris_graph.clinical_generator.generator import (
     DEFAULT_VERIFIER_PASS_THRESHOLD,
     process_generation,
 )
-from polaris_graph.generator2.section_blueprint import (
+from polaris_graph.clinical_generator.section_blueprint import (
     Blueprint,
     SectionPlan,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     GenerationError,
     VerifiedReport,
 )

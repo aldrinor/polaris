@@ -32,7 +32,7 @@ from typing import Any
 
 import httpx
 
-from polaris_graph.generator2.section_blueprint import SectionPlan
+from polaris_graph.clinical_generator.section_blueprint import SectionPlan
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
 
 _LOG = logging.getLogger(__name__)

@@ -11,7 +11,7 @@ import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from polaris_graph.generator2.real_completion import OPENROUTER_ENDPOINT, _extract_text
+from polaris_graph.clinical_generator.real_completion import OPENROUTER_ENDPOINT, _extract_text
 from polaris_graph.intake.cluster_labeler import ClusterLabelClient, label_clusters
 from polaris_graph.intake.disambiguation_clusterer import cluster_candidates
 
