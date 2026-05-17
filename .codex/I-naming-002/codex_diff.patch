@@ -1,0 +1,271 @@
+diff --git a/src/polaris_graph/audit_ir/__init__.py b/src/polaris_graph/audit_ir/__init__.py
+index b17ad753..4e7834e6 100644
+--- a/src/polaris_graph/audit_ir/__init__.py
++++ b/src/polaris_graph/audit_ir/__init__.py
+@@ -26,10 +26,10 @@ from src.polaris_graph.audit_ir.job_runner import (
+     register_runner,
+ )
+ from src.polaris_graph.audit_ir.job_worker import JobWorker
+-from src.polaris_graph.audit_ir.v30_runner import (
+-    V30JobRunner,
+-    V30RunnerConfig,
+-    make_default_v30_runner,
++from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
++    HonestSweepJobRunner,
++    HonestSweepJobRunnerConfig,
++    make_default_honest_sweep_job_runner,
+ )
+ from src.polaris_graph.audit_ir.template_catalog import (
+     CuratedTemplate,
+@@ -141,12 +141,12 @@ __all__ = [
+     "RoutingCandidate",
+     "RoutingResult",
+     "RoutingVerdict",
+-    "V30JobRunner",
+-    "V30RunnerConfig",
++    "HonestSweepJobRunner",
++    "HonestSweepJobRunnerConfig",
+     "classify_query",
+     "get_template",
+     "list_catalog",
+-    "make_default_v30_runner",
++    "make_default_honest_sweep_job_runner",
+     "get_runner",
+     "job_to_dict",
+     "list_runners",
+diff --git a/src/polaris_graph/audit_ir/v30_runner.py b/src/polaris_graph/audit_ir/honest_sweep_job_runner.py
+similarity index 97%
+rename from src/polaris_graph/audit_ir/v30_runner.py
+rename to src/polaris_graph/audit_ir/honest_sweep_job_runner.py
+index a6c88641..8a78bd05 100644
+--- a/src/polaris_graph/audit_ir/v30_runner.py
++++ b/src/polaris_graph/audit_ir/honest_sweep_job_runner.py
+@@ -162,7 +162,7 @@ def _read_env_float(name: str, default: float) -> float:
+ 
+ 
+ @dataclass
+-class V30RunnerConfig:
++class HonestSweepJobRunnerConfig:
+     """Runtime configuration for the V30 runner."""
+ 
+     repo_root: Path
+@@ -174,7 +174,7 @@ class V30RunnerConfig:
+     extra_env: Mapping[str, str] | None = None
+ 
+ 
+-class V30JobRunner(JobRunner):
++class HonestSweepJobRunner(JobRunner):
+     """Runs the V30 Phase-2 sweep as a subprocess, checkpoints per phase.
+ 
+     Job params (required): {"slug": "<canonical_slug>"}
+@@ -186,7 +186,7 @@ class V30JobRunner(JobRunner):
+ 
+     template_id = "v30_clinical"
+ 
+-    def __init__(self, config: V30RunnerConfig) -> None:
++    def __init__(self, config: HonestSweepJobRunnerConfig) -> None:
+         self._config = config
+ 
+     def run(self, job: Job, control: JobControl) -> str | None:
+@@ -245,7 +245,7 @@ class V30JobRunner(JobRunner):
+             },
+         )
+ 
+-        logger.info("V30JobRunner: launching %s", " ".join(cmd))
++        logger.info("HonestSweepJobRunner: launching %s", " ".join(cmd))
+         proc = subprocess.Popen(
+             cmd,
+             cwd=str(cfg.repo_root),
+@@ -447,14 +447,14 @@ class V30JobRunner(JobRunner):
+         return candidates[0]
+ 
+ 
+-def make_default_v30_runner(repo_root: Path | None = None) -> V30JobRunner:
++def make_default_honest_sweep_job_runner(repo_root: Path | None = None) -> HonestSweepJobRunner:
+     """Convenience factory pointing at the canonical sweep script."""
+     if repo_root is None:
+-        # repo_root = src/polaris_graph/audit_ir/v30_runner.py.parents[3]
++        # repo_root = src/polaris_graph/audit_ir/honest_sweep_job_runner.py.parents[3]
+         repo_root = Path(__file__).resolve().parents[3]
+-    config = V30RunnerConfig(
++    config = HonestSweepJobRunnerConfig(
+         repo_root=repo_root,
+         sweep_script=repo_root / "scripts" / "run_full_scale_v30_phase2.py",
+         out_root=repo_root / "outputs" / "polaris_v30_jobs",
+     )
+-    return V30JobRunner(config)
++    return HonestSweepJobRunner(config)
+diff --git a/src/polaris_graph/audit_ir/inspector_router.py b/src/polaris_graph/audit_ir/inspector_router.py
+index 9a48ca4c..6306bfb0 100644
+--- a/src/polaris_graph/audit_ir/inspector_router.py
++++ b/src/polaris_graph/audit_ir/inspector_router.py
+@@ -403,7 +403,7 @@ def _ensure_runners_registered() -> None:
+     independently of get_job_queue() so cold-start enqueues with no
+     prior route hit still validate template_id correctly.
+ 
+-    M-9: also registers V30JobRunner under template_id 'v30_clinical'
++    M-9: also registers HonestSweepJobRunner under template_id 'v30_clinical'
+     so the sweep can be launched as an asynchronous job.
+     """
+     global _runners_registered
+@@ -414,15 +414,15 @@ def _ensure_runners_registered() -> None:
+     # V30 sweep runner — wraps scripts/run_full_scale_v30_phase2.py
+     # as a subprocess and emits cooperative checkpoints per phase.
+     try:
+-        from src.polaris_graph.audit_ir.v30_runner import make_default_v30_runner
+-        register_runner(make_default_v30_runner())
++        from src.polaris_graph.audit_ir.honest_sweep_job_runner import make_default_honest_sweep_job_runner
++        register_runner(make_default_honest_sweep_job_runner())
+     except Exception:
+         # If the V30 runner can't be constructed (missing script,
+         # bad repo layout, etc.), don't crash the queue — just skip.
+         # Operators see "v30_clinical not in available_templates" and
+         # know to investigate.
+         import logging
+-        logging.getLogger(__name__).warning("V30JobRunner registration failed", exc_info=True)
++        logging.getLogger(__name__).warning("HonestSweepJobRunner registration failed", exc_info=True)
+     _runners_registered = True
+ 
+ 
+diff --git a/src/polaris_graph/audit_ir/job_runner.py b/src/polaris_graph/audit_ir/job_runner.py
+index da2ea49f..34d7afca 100644
+--- a/src/polaris_graph/audit_ir/job_runner.py
++++ b/src/polaris_graph/audit_ir/job_runner.py
+@@ -8,7 +8,7 @@ Concrete runners:
+   - MockJobRunner: sleeps + checkpoints periodically. Used by tests
+     and Phase A demo to validate the queue/worker plumbing without
+     burning a full V30 sweep.
+-  - V30JobRunner (M-9): wires the actual V30 Phase-2 sweep.
++  - HonestSweepJobRunner (M-9): wires the actual V30 Phase-2 sweep.
+ """
+ 
+ from __future__ import annotations
+diff --git a/src/polaris_graph/audit_ir/progress_surfaces.py b/src/polaris_graph/audit_ir/progress_surfaces.py
+index 13f81210..b4be6225 100644
+--- a/src/polaris_graph/audit_ir/progress_surfaces.py
++++ b/src/polaris_graph/audit_ir/progress_surfaces.py
+@@ -14,7 +14,7 @@ with milestone-driven Inspector state. From the t-table:
+   | 120-145 | Final synthesis + complete Evidence Inspector |
+ 
+ Architecture:
+-- Surfaces are EMITTED by V30JobRunner (and any future runner) as
++- Surfaces are EMITTED by HonestSweepJobRunner (and any future runner) as
+   the audit progresses. Emission lands in a `SurfaceBus` keyed by
+   job_id.
+ - Each emission updates a rolling SNAPSHOT (the latest known
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 13a6834a..105d39bf 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -58,7 +58,7 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+ # extra section calls. Under the stale $0.10 cap a normal V4 Pro run
+ # trips BudgetExceededError before it can finish — i.e. the guard
+ # false-fires on the new generator's NORMAL cost profile. $10.00
+-# matches the v30_runner.py default and still catches a genuine
++# matches the honest_sweep_job_runner.py default and still catches a genuine
+ # infinite loop / recursive-outline runaway. Override per-run via the
+ # PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+ PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index b13a1d9f..cc1b550c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -242,3 +242,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. 5-file +152/-1 code+test diff; reasoning-trace 9/9, manifest-builder 17/17, audit-bundle 88 pass/4 skip. P1 trajectory 0.
++
++## I-naming-002 (#436) — rename v30_runner.py -> honest_sweep_job_runner.py
++
++### Brief review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (Codex scope adjudication CONFIRMING the plan: full file + Python-identifier rename is right; keeping protocol/registry strings v30_clinical / v30_phase* / [v30] tags unchanged is correct). convergence continue. Pure rename — git mv 2 files + V30JobRunner/V30RunnerConfig/make_default_v30_runner identifier renames across 7 files.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 7/7, test_honest_sweep_job_runner 15/15, test_inspector_router 60/60. P1 trajectory 0.
+diff --git a/tests/polaris_graph/test_v30_runner.py b/tests/polaris_graph/test_honest_sweep_job_runner.py
+similarity index 95%
+rename from tests/polaris_graph/test_v30_runner.py
+rename to tests/polaris_graph/test_honest_sweep_job_runner.py
+index 65e3658e..d8607fcb 100644
+--- a/tests/polaris_graph/test_v30_runner.py
++++ b/tests/polaris_graph/test_honest_sweep_job_runner.py
+@@ -1,4 +1,4 @@
+-"""Tests for src/polaris_graph/audit_ir/v30_runner.py.
++"""Tests for src/polaris_graph/audit_ir/honest_sweep_job_runner.py.
+ 
+ The V30 sweep is real-world expensive (~2h25m, $0.0074, 472 fetches).
+ We test the runner using a tiny stub script that simulates the V30
+@@ -23,12 +23,12 @@ from src.polaris_graph.audit_ir import (
+     JobWorker,
+     register_runner,
+ )
+-from src.polaris_graph.audit_ir.v30_runner import (
++from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
+     V30_PHASES,
+-    V30JobRunner,
+-    V30RunnerConfig,
++    HonestSweepJobRunner,
++    HonestSweepJobRunnerConfig,
+     _PHASE_PCT,
+-    make_default_v30_runner,
++    make_default_honest_sweep_job_runner,
+ )
+ from src.polaris_graph.audit_ir.job_runner import _reset_runners_for_tests
+ 
+@@ -69,7 +69,7 @@ def test_classify_phase_recognizes_canonical_lines() -> None:
+         ("Random unrelated line", None),
+     ]
+     for line, expected in cases:
+-        assert V30JobRunner._classify_phase(line) == expected, line
++        assert HonestSweepJobRunner._classify_phase(line) == expected, line
+ 
+ 
+ def test_classify_phase_real_run14_log() -> None:
+@@ -82,7 +82,7 @@ def test_classify_phase_real_run14_log() -> None:
+         pytest.skip("run-14 log not available")
+     detected: set[str] = set()
+     for line in run_log.read_text(encoding="utf-8").splitlines():
+-        phase = V30JobRunner._classify_phase(line)
++        phase = HonestSweepJobRunner._classify_phase(line)
+         if phase:
+             detected.add(phase)
+     # All canonical milestones must be detected in run-14.
+@@ -156,8 +156,8 @@ def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float
+     return script
+ 
+ 
+-def _make_runner(tmp_path: Path, sweep_script: Path) -> V30JobRunner:
+-    return V30JobRunner(V30RunnerConfig(
++def _make_runner(tmp_path: Path, sweep_script: Path) -> HonestSweepJobRunner:
++    return HonestSweepJobRunner(HonestSweepJobRunnerConfig(
+         repo_root=tmp_path,
+         sweep_script=sweep_script,
+         out_root=tmp_path / "out",
+@@ -330,14 +330,14 @@ def test_cancel_terminates_subprocess(tmp_path: Path) -> None:
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_make_default_v30_runner_resolves_canonical_paths() -> None:
+-    runner = make_default_v30_runner()
++def test_make_default_honest_sweep_job_runner_resolves_canonical_paths() -> None:
++    runner = make_default_honest_sweep_job_runner()
+     assert runner.template_id == "v30_clinical"
+     assert runner._config.sweep_script.name == "run_full_scale_v30_phase2.py"
+     assert runner._config.out_root.name == "polaris_v30_jobs"
+ 
+ 
+-def test_v30_runner_registers_in_inspector_router_listing() -> None:
++def test_honest_sweep_job_runner_registers_in_inspector_router_listing() -> None:
+     """When the inspector router boots, 'v30_clinical' must appear in
+     available_templates so the UI can offer it."""
+     from src.polaris_graph.audit_ir.inspector_router import _ensure_runners_registered
+@@ -386,7 +386,7 @@ def test_scope_phase_does_not_emit_preflight_surface() -> None:
+     'scope' to PREFLIGHT — that mapping caused the v1 overwrite
+     bug. The runner's explicit emission at t=0 is the canonical
+     PREFLIGHT source."""
+-    from src.polaris_graph.audit_ir.v30_runner import _PHASE_TO_SURFACE
++    from src.polaris_graph.audit_ir.honest_sweep_job_runner import _PHASE_TO_SURFACE
+     from src.polaris_graph.audit_ir.progress_surfaces import SurfaceKind
+     assert _PHASE_TO_SURFACE.get("scope") is not SurfaceKind.PREFLIGHT
+ 
+# canonical-diff-sha256: 4d6dd2be49e84b20ee45e883845e1cd9ab9285d032da552915564454607afdee

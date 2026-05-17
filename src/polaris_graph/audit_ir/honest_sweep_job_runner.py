@@ -162,7 +162,7 @@ def _read_env_float(name: str, default: float) -> float:
 
 
 @dataclass
-class V30RunnerConfig:
+class HonestSweepJobRunnerConfig:
     """Runtime configuration for the V30 runner."""
 
     repo_root: Path
@@ -174,7 +174,7 @@ class V30RunnerConfig:
     extra_env: Mapping[str, str] | None = None
 
 
-class V30JobRunner(JobRunner):
+class HonestSweepJobRunner(JobRunner):
     """Runs the V30 Phase-2 sweep as a subprocess, checkpoints per phase.
 
     Job params (required): {"slug": "<canonical_slug>"}
@@ -186,7 +186,7 @@ class V30JobRunner(JobRunner):
 
     template_id = "v30_clinical"
 
-    def __init__(self, config: V30RunnerConfig) -> None:
+    def __init__(self, config: HonestSweepJobRunnerConfig) -> None:
         self._config = config
 
     def run(self, job: Job, control: JobControl) -> str | None:
@@ -245,7 +245,7 @@ class V30JobRunner(JobRunner):
             },
         )
 
-        logger.info("V30JobRunner: launching %s", " ".join(cmd))
+        logger.info("HonestSweepJobRunner: launching %s", " ".join(cmd))
         proc = subprocess.Popen(
             cmd,
             cwd=str(cfg.repo_root),
@@ -447,14 +447,14 @@ class V30JobRunner(JobRunner):
         return candidates[0]
 
 
-def make_default_v30_runner(repo_root: Path | None = None) -> V30JobRunner:
+def make_default_honest_sweep_job_runner(repo_root: Path | None = None) -> HonestSweepJobRunner:
     """Convenience factory pointing at the canonical sweep script."""
     if repo_root is None:
-        # repo_root = src/polaris_graph/audit_ir/v30_runner.py.parents[3]
+        # repo_root = src/polaris_graph/audit_ir/honest_sweep_job_runner.py.parents[3]
         repo_root = Path(__file__).resolve().parents[3]
-    config = V30RunnerConfig(
+    config = HonestSweepJobRunnerConfig(
         repo_root=repo_root,
         sweep_script=repo_root / "scripts" / "run_full_scale_v30_phase2.py",
         out_root=repo_root / "outputs" / "polaris_v30_jobs",
     )
-    return V30JobRunner(config)
+    return HonestSweepJobRunner(config)

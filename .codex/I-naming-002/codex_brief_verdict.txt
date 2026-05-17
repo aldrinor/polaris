@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Scope adjudication: full file + Python API rename is the right plan; file/import-only would leave honest_sweep_job_runner.py exporting V30JobRunner. Keeping protocol/registry strings like v30_clinical, v30_phase*, and [v30] tags unchanged is correct."
+convergence_call: continue
+remaining_blockers_for_execution: []

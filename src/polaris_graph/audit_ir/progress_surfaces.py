@@ -14,7 +14,7 @@ with milestone-driven Inspector state. From the t-table:
   | 120-145 | Final synthesis + complete Evidence Inspector |
 
 Architecture:
-- Surfaces are EMITTED by V30JobRunner (and any future runner) as
+- Surfaces are EMITTED by HonestSweepJobRunner (and any future runner) as
   the audit progresses. Emission lands in a `SurfaceBus` keyed by
   job_id.
 - Each emission updates a rolling SNAPSHOT (the latest known

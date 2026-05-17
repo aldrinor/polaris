@@ -8,7 +8,7 @@ Concrete runners:
   - MockJobRunner: sleeps + checkpoints periodically. Used by tests
     and Phase A demo to validate the queue/worker plumbing without
     burning a full V30 sweep.
-  - V30JobRunner (M-9): wires the actual V30 Phase-2 sweep.
+  - HonestSweepJobRunner (M-9): wires the actual V30 Phase-2 sweep.
 """
 
 from __future__ import annotations

@@ -26,10 +26,10 @@ from src.polaris_graph.audit_ir.job_runner import (
     register_runner,
 )
 from src.polaris_graph.audit_ir.job_worker import JobWorker
-from src.polaris_graph.audit_ir.v30_runner import (
-    V30JobRunner,
-    V30RunnerConfig,
-    make_default_v30_runner,
+from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
+    HonestSweepJobRunner,
+    HonestSweepJobRunnerConfig,
+    make_default_honest_sweep_job_runner,
 )
 from src.polaris_graph.audit_ir.template_catalog import (
     CuratedTemplate,
@@ -141,12 +141,12 @@ __all__ = [
     "RoutingCandidate",
     "RoutingResult",
     "RoutingVerdict",
-    "V30JobRunner",
-    "V30RunnerConfig",
+    "HonestSweepJobRunner",
+    "HonestSweepJobRunnerConfig",
     "classify_query",
     "get_template",
     "list_catalog",
-    "make_default_v30_runner",
+    "make_default_honest_sweep_job_runner",
     "get_runner",
     "job_to_dict",
     "list_runners",
