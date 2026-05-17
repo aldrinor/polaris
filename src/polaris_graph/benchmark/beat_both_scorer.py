@@ -92,7 +92,7 @@ def _polaris_dimension_scores(
     """Run all 7 scorers in 'POLARIS-side only' mode (external_text=None)."""
     pool = None
     if polaris.evidence_pool is not None:
-        from polaris_graph.retrieval2.evidence_pool import EvidencePool
+        from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
         pool = EvidencePool.model_validate(polaris.evidence_pool)
     report = None

@@ -21,7 +21,7 @@ from polaris_graph.clinical_generator.real_completion import (
 from polaris_graph.clinical_generator.section_blueprint import (
     CLINICAL_EFFICACY,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

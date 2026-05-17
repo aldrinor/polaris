@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from polaris_graph.retrieval2.clinical_retriever import FetchResult
+from polaris_graph.clinical_retrieval.clinical_retriever import FetchResult
 
 _LOG = logging.getLogger(__name__)
 

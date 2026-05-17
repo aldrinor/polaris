@@ -18,7 +18,7 @@ from polaris_v6.api.artifact_to_slice_chain import (
     _normalize_tier,
     build_slice_chain,
 )
-from polaris_graph.retrieval2.evidence_pool import SourceTier
+from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
 
 
 # ---------------------------------------------------------------------------

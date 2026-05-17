@@ -11,7 +11,7 @@ import json
 import httpx
 import pytest
 
-from polaris_graph.retrieval2.real_fetcher import (
+from polaris_graph.clinical_retrieval.real_fetcher import (
     RealFetcher,
     RealFetcherConfig,
     SERPER_ENDPOINT,

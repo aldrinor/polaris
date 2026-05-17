@@ -9,7 +9,7 @@ source in the pool — cited or not — must be cleared.
 
 from __future__ import annotations
 
-from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
 LEGAL_CLEARED_KEY = "legal_cleared"
 

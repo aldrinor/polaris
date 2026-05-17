@@ -16,7 +16,7 @@ from polaris_graph.clinical_generator.provenance import (
     strip_tokens,
     validate_token_against_pool,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

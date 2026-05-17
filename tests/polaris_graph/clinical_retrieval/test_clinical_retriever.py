@@ -6,15 +6,15 @@ from typing import Callable
 
 import pytest
 
-from polaris_graph.retrieval2.clinical_retriever import (
+from polaris_graph.clinical_retrieval.clinical_retriever import (
     FetchResult,
     process_retrieval,
 )
-from polaris_graph.retrieval2.corpus_adequacy_gate import (
+from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
     CLINICAL_DEFAULT,
     ClinicalTemplate,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     EvidencePool,
     RetrievalError,
     SourceTier,

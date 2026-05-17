@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from polaris_graph.retrieval2.clinical_source_registry import (
+from polaris_graph.clinical_retrieval.clinical_source_registry import (
     classify_url,
     deny_domains,
     filter_allowed,
@@ -13,7 +13,7 @@ from polaris_graph.retrieval2.clinical_source_registry import (
     known_t2_domains,
     known_t3_domains,
 )
-from polaris_graph.retrieval2.evidence_pool import SourceTier
+from polaris_graph.clinical_retrieval.evidence_pool import SourceTier
 
 
 # ---------- T1 (regulatory + systematic reviews) ----------

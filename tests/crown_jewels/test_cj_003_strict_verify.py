@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.polaris_graph.clinical_generator.strict_verify import verify_sentence
-from src.polaris_graph.retrieval2.evidence_pool import (
+from src.polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

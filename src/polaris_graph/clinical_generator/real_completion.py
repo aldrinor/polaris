@@ -33,7 +33,7 @@ from typing import Any
 import httpx
 
 from polaris_graph.clinical_generator.section_blueprint import SectionPlan
-from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
 _LOG = logging.getLogger(__name__)
 

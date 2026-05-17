@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from polaris_graph.retrieval2.corpus_adequacy_gate import (
+from polaris_graph.clinical_retrieval.corpus_adequacy_gate import (
     CLINICAL_DEFAULT,
     CLINICAL_DIAGNOSIS,
     CLINICAL_EFFICACY,
@@ -16,7 +16,7 @@ from polaris_graph.retrieval2.corpus_adequacy_gate import (
     register_template,
     template_for_scope_class,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     Source,
     SourceTier,
 )

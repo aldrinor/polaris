@@ -50,7 +50,7 @@ from polaris_graph.clinical_generator.verified_report import (
     VerifiedReport,
     VerifiedSentence,
 )
-from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
 
 DEFAULT_VERIFIER_PASS_THRESHOLD = 0.40

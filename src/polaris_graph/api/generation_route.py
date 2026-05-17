@@ -33,7 +33,7 @@ from polaris_graph.clinical_generator.verified_report import (
     GenerationError,
     VerifiedReport,
 )
-from polaris_graph.retrieval2.evidence_pool import EvidencePool
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
 router = APIRouter(tags=["generation"])
 

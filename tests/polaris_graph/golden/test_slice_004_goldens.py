@@ -35,7 +35,7 @@ from polaris_graph.clinical_generator.verified_report import (
     VerifiedReport,
     VerifiedSentence,
 )
-from polaris_graph.retrieval2.evidence_pool import (
+from polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
     Source,

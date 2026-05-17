@@ -19,7 +19,7 @@ from typing import NamedTuple
 
 from polaris_graph.clinical_generator.provenance import extract_tokens
 from polaris_graph.clinical_generator.verified_report import VerifiedReport
-from polaris_graph.retrieval2.evidence_pool import EvidencePool, Source
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
 
 
 class SnapshotEntry(NamedTuple):
