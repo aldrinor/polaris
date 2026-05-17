@@ -50,6 +50,9 @@ FILE_EVIDENCE_POOL = "evidence_pool.json"
 FILE_VERIFIED_REPORT = "verified_report.json"
 FILE_METADATA = "metadata.json"
 FILE_REVIEWER_README = "REVIEWER_README.md"
+# I-gen-004 (#496): raw model reasoning channel; mirrors
+# generator.reasoning_trace.REASONING_TRACE_FILENAME.
+FILE_REASONING_TRACE = "reasoning_trace.jsonl"
 SOURCES_DIR = "sources"
 
 
@@ -128,8 +131,17 @@ def build_manifest_and_files(
     decision: ScopeDecision,
     pool: EvidencePool,
     report: VerifiedReport,
+    *,
+    extra_files: dict[str, tuple[bytes, str]] | None = None,
 ) -> tuple[BundleManifest, dict[str, bytes]]:
     """Build the bundle manifest + content-file dict.
+
+    Args:
+        extra_files: optional {path: (content_bytes, content_type)} of
+            caller-supplied artifacts to include + hash in the signed
+            manifest — I-gen-004 (#496) threads the run's
+            reasoning_trace.jsonl through here. Each path must NOT
+            collide with a core bundle file.
 
     Returns:
         (manifest, files) where files is {path: content_bytes}. The
@@ -137,7 +149,8 @@ def build_manifest_and_files(
         the manifest.yaml + manifest.yaml.asc alongside.
 
     Raises:
-        ValueError if report.pipeline_verdict != 'success'.
+        ValueError if report.pipeline_verdict != 'success', or if an
+        extra_files path collides with a core bundle file.
     """
     if report.pipeline_verdict != "success":
         raise ValueError(
@@ -193,6 +206,18 @@ def build_manifest_and_files(
         separators=(",", ":"),
     ).encode("utf-8")
 
+    # I-gen-004 (#496): merge caller-supplied extra files (e.g. the run's
+    # reasoning_trace.jsonl). Each carries its own content_type; a path
+    # collision with a core bundle file is a hard error.
+    extra_content_types: dict[str, str] = {}
+    for path, (content, ct_extra) in (extra_files or {}).items():
+        if path in files_bytes:
+            raise ValueError(
+                f"extra_files path {path!r} collides with a core bundle file"
+            )
+        files_bytes[path] = content
+        extra_content_types[path] = ct_extra
+
     # Build FileEntry list with content_type tags
     file_entries: list[FileEntry] = []
     content_type_by_path = {
@@ -202,9 +227,14 @@ def build_manifest_and_files(
         FILE_METADATA: "metadata",
     }
     for path, content in files_bytes.items():
-        ct = content_type_by_path.get(
-            path,
-            "source_snapshot" if path.startswith(SOURCES_DIR + "/") else "metadata",
+        ct = (
+            content_type_by_path.get(path)
+            or extra_content_types.get(path)
+            or (
+                "source_snapshot"
+                if path.startswith(SOURCES_DIR + "/")
+                else "metadata"
+            )
         )
         file_entries.append(
             FileEntry(

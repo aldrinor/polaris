@@ -162,7 +162,10 @@ async def repair_sentence(
       - "api_failure": exception / network error / no response from API.
       - "skipped": failure_reasons aren't repairable.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     if not is_repairable(dropped.failure_reasons):
         return "skipped", None, 0, 0
@@ -183,6 +186,8 @@ async def repair_sentence(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag the sentence-repair call for the trace sink.
+        set_reasoning_call_context(section="_repair", call_type="repair")
         response = await client.generate(
             prompt=prompt,
             system=REPAIR_SYSTEM_PROMPT,

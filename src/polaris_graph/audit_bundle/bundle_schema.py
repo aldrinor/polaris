@@ -28,6 +28,7 @@ ContentType = Literal[
     "verified_report",     # slice 003 VerifiedReport JSON
     "source_snapshot",     # full_text of one cited source
     "metadata",            # bundle-level metadata (versions, etc.)
+    "reasoning_trace",     # I-gen-004 (#496): raw model reasoning channel
 ]
 
 

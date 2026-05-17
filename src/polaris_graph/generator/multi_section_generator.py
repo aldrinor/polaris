@@ -465,7 +465,10 @@ async def _call_outline(
     BUG-M-203 fix (deep-dive R4): one retry with a tighter prompt when
     validation fails. Retries are capped at 1.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     # Build a compact evidence summary (title + tier + 160 chars of
     # statement). M-40 pass-2 (Codex audit medium): previously the
@@ -507,6 +510,10 @@ async def _call_outline(
     total_out = 0
     retry_attempted = False
     try:
+        # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
+        set_reasoning_call_context(
+            section="_outline", call_type="outline", attempt_n=1,
+        )
         response = await client.generate(
             prompt=prompt,
             system=OUTLINE_SYSTEM_PROMPT,
@@ -561,6 +568,9 @@ async def _call_outline(
                 + ", ".join(sorted(allowed_ev_ids)[:100])
                 + "\n4. Return ONLY the JSON object — no preamble, no "
                 + "markdown, no explanation.\n"
+            )
+            set_reasoning_call_context(
+                section="_outline", call_type="outline", attempt_n=2,
             )
             retry_response = await client.generate(
                 prompt=prompt,
@@ -801,6 +811,7 @@ async def _call_section(
     from src.polaris_graph.llm.openrouter_client import (
         OpenRouterClient,
         ReasoningFirstTruncationError,
+        set_reasoning_call_context,
     )
 
     blocks = []
@@ -871,6 +882,14 @@ async def _call_section(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag this LLM call for the reasoning-trace sink
+        # (no-op unless a run-scoped collector is registered).
+        set_reasoning_call_context(
+            section=section.title,
+            call_type="regen" if tighter_retry else "section",
+            attempt_n=2 if tighter_retry else 1,
+            regen_reason="tighter_retry" if tighter_retry else None,
+        )
         response = await client.generate(
             prompt=prompt,
             system=system,
@@ -1877,7 +1896,10 @@ async def _call_trial_summary_table(
     out-of-range citations are dropped; no deterministic fallback
     emits claims that are not in the prose.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     if not verified_prose or not verified_prose.strip():
         return "", 0, 0
@@ -1902,6 +1924,10 @@ async def _call_trial_summary_table(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag the trial-summary-table call for the trace sink.
+        set_reasoning_call_context(
+            section="Trial Summary", call_type="trial_table",
+        )
         response = await client.generate(
             prompt=prompt,
             system=TRIAL_SUMMARY_TABLE_SYSTEM_PROMPT,
@@ -2000,7 +2026,10 @@ async def _call_m50_per_trial_subsection(
     Returns (prose, input_tokens, output_tokens). Empty prose when the
     LLM call fails. Caller wraps prose in '### TRIAL_NAME\\n\\n' heading.
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     prompt = (
         f"Trial name: {trial_name}\n\n"
@@ -2012,6 +2041,10 @@ async def _call_m50_per_trial_subsection(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag the M-50 per-trial subsection call.
+        set_reasoning_call_context(
+            section=trial_name, call_type="m50_subsection",
+        )
         response = await client.generate(
             prompt=prompt,
             system=_M50_SUBSECTION_SYSTEM_PROMPT,
@@ -2125,7 +2158,10 @@ async def _call_limitations(
     from src.polaris_graph.generator.live_deepseek_generator import (
         _format_telemetry_block,
     )
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     telemetry = _format_telemetry_block(
         tier_fractions, contradictions, date_range, uncovered_topics,
@@ -2139,6 +2175,10 @@ async def _call_limitations(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag the Limitations call for the trace sink.
+        set_reasoning_call_context(
+            section="Limitations", call_type="limitations",
+        )
         response = await client.generate(
             prompt=prompt,
             system=LIMITATIONS_SYSTEM_PROMPT,
@@ -3496,9 +3536,16 @@ async def generate_multi_section_report(
         quotes × ~500 chars = ~5K tokens), so 6000 gives safe
         headroom without inviting runaway verbosity.
         """
-        from ..llm.openrouter_client import OpenRouterClient
+        from ..llm.openrouter_client import (
+            OpenRouterClient,
+            set_reasoning_call_context,
+        )
         client = OpenRouterClient(model=gen_model)
         try:
+            # I-gen-004 (#496): tag the V30 contract-slot extraction call.
+            set_reasoning_call_context(
+                section="_contract_slot", call_type="contract_slot",
+            )
             response = await client.generate(
                 prompt=prompt,
                 system=(
@@ -3617,11 +3664,18 @@ async def generate_multi_section_report(
             }
             sections_for_dedup[sr.title] = [sv.sentence for sv in sv_list]
         if sum(len(v) for v in sections_for_dedup.values()) >= 2:
-            from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient,
+                set_reasoning_call_context,
+            )
 
             async def _dedup_llm_callable(system: str, prompt: str) -> Any:
                 client = OpenRouterClient(model=gen_model)
                 try:
+                    # I-gen-004 (#496): tag the fact-dedup rewrite call.
+                    set_reasoning_call_context(
+                        section="_fact_dedup", call_type="fact_dedup",
+                    )
                     return await client.generate(
                         prompt=prompt,
                         system=system,
