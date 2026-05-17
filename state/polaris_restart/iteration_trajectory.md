@@ -195,4 +195,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 3: APPROVE — 0 P0, 0 P1, 3 P2 (P2-doc-sweep README/architecture refs — addressed in impl; P2-historical-exclusion outputs/sweep_r3_final etc; P2-operator-prose runner logs — addressed in impl). convergence_call accept_remaining. tokens 206241. P1 trajectory 3 -> 1 -> 0.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 2 P2 (live_judge.py:5-7 docstring still names Qwen3-8B + "retained for backcompat"; architecture.md:320 + pipeline_audit_context/02_prompt_templates.md:142-144 still describe judge as Qwen3-8B — both non-execution doc residue). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 286428. Shipped on iter-1 APPROVE; 2 P2 doc-residue captured as follow-up.
