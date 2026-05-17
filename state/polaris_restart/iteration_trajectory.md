@@ -233,4 +233,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — 0 P0, 0 P1, 0 P2. convergence accept_remaining. Doc-only — 4 markdown edits to docs/carney_handover/test_matrix.md (P2-1 sentence_hover_test full route paths; P2-2 row-9 multi-tab cancel-half expected-fail; P2-3 row-15 J9 upload-deletion known gap; P2-4 rows 19/21 J6/J7 + grid J7 tick). Each claim verified against the running system (web/app/sentence_hover_test/, upload.py POST+GET-only).
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes `iteration_trajectory.md` — expected process metadata). convergence accept_remaining. Doc-only 4-P2 markdown edit; §4 grid stays a valid 11-column table. P1 trajectory 0.
