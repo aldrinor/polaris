@@ -321,4 +321,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. CI-log ground truth (PR #576 run 26003953421): the red `lint + format + typecheck + build` job = the `format_check` step failing on 2 files (app/generation/page.tsx + lib/auth.ts); `lint` passes (3 warnings/0 errors), `typecheck` passes. Issue body misattributed the failure (named 3 eslint "errors" — actually tolerated warnings in 3 other files). Fix = `prettier --write` the 2 CI-flagged files (formatting only). Windows-CRLF confound: local format:check flags ~190 files; CI on LF sees only 2 — per-file check used for local verify.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit ddc4655e is the 2 web files only). convergence accept_remaining. Prettier-only reflow, +7/-3; web smoke lint/typecheck/build all exit 0; the 2 files prettier --check clean. P1 trajectory 0.
