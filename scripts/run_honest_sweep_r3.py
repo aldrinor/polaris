@@ -1141,6 +1141,17 @@ async def run_one_query(
     # OpenRouterClient tags its cost-ledger entries with this run.
     set_current_run_id(run_id)
 
+    # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
+    # mode — the jsonl is rewritten on every record/update so it is current
+    # on disk regardless of which abort / error / success path the run exits
+    # through. Sink lifecycle mirrors set_current_run_id (set here, released
+    # in the run tail).
+    from src.polaris_graph.generator.reasoning_trace import (
+        ReasoningTraceCollector,
+    )
+    from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
+    set_reasoning_sink(ReasoningTraceCollector(out_dir=run_dir))
+
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
 
@@ -2980,6 +2991,7 @@ async def run_one_query(
         )
 
     set_current_run_id(None)
+    set_reasoning_sink(None)  # I-gen-004 (#496): release the run-scoped sink
 
     log_f.close()
     return summary

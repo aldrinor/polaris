@@ -321,7 +321,10 @@ async def generate_analyst_synthesis(
     on failure — caller MUST treat empty text as "omit synthesis
     section entirely" (no empty disclosure block per Codex iter-1).
     """
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        set_reasoning_call_context,
+    )
 
     biblio_block = _format_bibliography_for_prompt(bibliography)
     evidence_block = _format_evidence_pool_for_prompt(evidence_rows)
@@ -342,6 +345,10 @@ async def generate_analyst_synthesis(
 
     client = OpenRouterClient(model=model)
     try:
+        # I-gen-004 (#496): tag the analyst-synthesis call for the trace sink.
+        set_reasoning_call_context(
+            section="Analyst Synthesis", call_type="analyst_synthesis",
+        )
         response = await client.generate(
             prompt=prompt,
             system=ANALYST_SYNTHESIS_SYSTEM_PROMPT,

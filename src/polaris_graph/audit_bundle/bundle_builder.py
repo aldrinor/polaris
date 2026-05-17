@@ -76,6 +76,8 @@ def build_audit_bundle(
     report: VerifiedReport,
     output_dir: Path,
     sign_fn: SignFn = _default_sign_fn,
+    *,
+    extra_files: dict[str, tuple[bytes, str]] | None = None,
 ) -> Path:
     """End-to-end: build manifest + sign + pack tarball.
 
@@ -87,6 +89,9 @@ def build_audit_bundle(
         sign_fn: function that takes manifest.yaml bytes and returns
                  .asc bytes. Default raises NotImplementedError; callers
                  MUST inject a real signer.
+        extra_files: optional {path: (bytes, content_type)} of extra
+                 artifacts to include + hash in the signed manifest —
+                 I-gen-004 (#496) threads reasoning_trace.jsonl here.
 
     Returns:
         Path to the generated audit_<bundle_id>.tar.gz file.
@@ -108,7 +113,9 @@ def build_audit_bundle(
         )
 
     t_start = time.perf_counter()
-    manifest, content_files = build_manifest_and_files(decision, pool, report)
+    manifest, content_files = build_manifest_and_files(
+        decision, pool, report, extra_files=extra_files,
+    )
 
     manifest_yaml = serialize_manifest_yaml(manifest)
 

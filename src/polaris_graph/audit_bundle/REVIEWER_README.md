@@ -12,6 +12,7 @@ This `.tar.gz` archive is a self-contained record of one POLARIS clinical-resear
 - `metadata.json` — bundle-level metadata (versions, timestamps).
 - `REVIEWER_README.md` — this file.
 - `sources/<source_id>.txt` — full-text snapshot of every cited source (one file per source).
+- `reasoning_trace.jsonl` — raw model reasoning channel, one record per generator LLM call (see "Reasoning-trace note" below). Process evidence, **NOT** verified claims.
 
 ## Step 1 — verify the GPG signature
 
@@ -36,6 +37,20 @@ For each `path` listed in `manifest.yaml`'s `files[]` array, compute its SHA256 
 ## Truncation note
 
 For very large sources (>200 KB), POLARIS truncates the snapshot at a UTF-8 codepoint boundary and appends a notice line: `[POLARIS audit-bundle truncation notice: source text truncated from N to M bytes per MAX_SOURCE_TEXT_BYTES policy.]`. Bundles are guaranteed to NOT ship cited spans that fall past the reachable body — the bundler refuses to build such a bundle (`cited_span_unreachable_after_snapshot`).
+
+## Reasoning-trace note (`reasoning_trace.jsonl`)
+
+`reasoning_trace.jsonl` records the **raw model reasoning channel** for every generator LLM call in the run — one JSON object per completed provider response. DeepSeek V4 Pro is reasoning-first: it emits a large internal reasoning trace alongside its final answer. POLARIS captures that trace here, stored **separately** from the report.
+
+**This is model-process evidence, NOT verified claims.**
+
+- `strict_verify` is **never** run against `reasoning_text`. Only the report's content channel (`verified_report.json`) is provenance-gated and citation-checked.
+- The reasoning trace is the model *thinking out loud* — it may contain discarded hypotheses, scratch arithmetic, or self-corrections. Do not cite it as a source.
+- Each record carries `call_id`, `section`, `call_type`, `attempt_n`, `status` (`ok` / `retry` / `truncated` / `error`), `content_source` (`direct` / `promoted_from_reasoning` / `extracted_from_reasoning`), token counts, a UTC `timestamp`, and the full **untruncated** `reasoning_text` + `content_text`.
+- When `content_source = promoted_from_reasoning`, the model returned an empty content channel and POLARIS used the reasoning channel as the answer (I-bug-088 response-shape recovery) — `reasoning_text` and `content_text` legitimately overlap there; the record discloses it rather than hiding it.
+- `status = retry` marks a superseded internal-retry attempt; `status = truncated` marks a reasoning-first response that ran out of token budget while still planning — both are preserved so the full call history is auditable.
+
+The file is included in this bundle and SHA256-anchored in `manifest.yaml` under `content_type: reasoning_trace`, so its integrity is covered by the same GPG signature as every other bundle file.
 
 ## Sovereignty note
 

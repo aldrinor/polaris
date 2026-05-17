@@ -27,9 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException
 # A lambda Depends would be a DIFFERENT callable than get_sign_fn — the
 # create_app() override wouldn't fire and the endpoint would always 503.
 from polaris_graph.api.audit_bundle_route import (
-    AuditBundleRequest,
+    build_audit_bundle_response,
     get_sign_fn,
-    post_audit_bundle,
 )
 from polaris_v6.api.artifact_to_slice_chain import (
     SovereigntyFilterEmptiedReportError,
@@ -84,7 +83,7 @@ def get_run_bundle_targz(
         422: run aborted (pipeline_status=abort_*) or sovereignty cascade
              emptied the report
         503: GPG signer not configured (POLARIS_GPG_KEY_ID unset) — surfaced
-             by the inner post_audit_bundle when sign_fn is None.
+             by the inner build_audit_bundle_response when sign_fn is None.
     """
     info = run_store.get_run(run_id)
     if info is None:
@@ -146,7 +145,19 @@ def get_run_bundle_targz(
             detail={"error": f"artifact_dir incomplete: {exc}"},
         ) from exc
 
-    return post_audit_bundle(
-        AuditBundleRequest(decision=decision, pool=pool, report=report),
-        sign_fn=sign_fn,
+    # I-gen-004 (#496): include the run's reasoning trace in the signed
+    # bundle when present. Write-through means the file exists for every
+    # completed run; it is hashed under content_type=reasoning_trace.
+    extra_files: dict[str, tuple[bytes, str]] | None = None
+    trace_path = artifact_dir / "reasoning_trace.jsonl"
+    if trace_path.is_file():
+        extra_files = {
+            "reasoning_trace.jsonl": (
+                trace_path.read_bytes(),
+                "reasoning_trace",
+            )
+        }
+
+    return build_audit_bundle_response(
+        decision, pool, report, sign_fn, extra_files=extra_files,
     )

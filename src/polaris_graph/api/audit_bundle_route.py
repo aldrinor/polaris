@@ -87,14 +87,21 @@ class AuditBundleErrorResponse(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
-@router.post("/audit-bundle")
-def post_audit_bundle(
-    req: AuditBundleRequest,
-    sign_fn: SignFn | None = Depends(get_sign_fn),
+def build_audit_bundle_response(
+    decision: ScopeDecision,
+    pool: EvidencePool,
+    report: VerifiedReport,
+    sign_fn: SignFn | None,
+    *,
+    extra_files: dict[str, tuple[bytes, str]] | None = None,
 ) -> Any:
-    """Build + return a GPG-signed audit bundle as application/gzip.
+    """Build + sign an audit bundle and return it as an application/gzip
+    download.
 
-    Returns the .tar.gz file as a streaming download.
+    Shared by the POST /audit-bundle route and the
+    GET /runs/{run_id}/bundle.tar.gz bridge. The bridge passes the run's
+    reasoning_trace.jsonl via ``extra_files`` so it is included AND hashed
+    in the signed manifest (I-gen-004 / #496).
     """
     if sign_fn is None:
         raise HTTPException(
@@ -106,7 +113,7 @@ def post_audit_bundle(
                     "GPG signer not configured. Set POLARIS_GPG_KEY_ID in env "
                     "and ensure the corresponding key is in the gpg keyring."
                 ),
-                "report_id": req.report.report_id,
+                "report_id": report.report_id,
             },
         )
 
@@ -114,11 +121,12 @@ def post_audit_bundle(
     tmp_dir = Path(tempfile.mkdtemp(prefix="polaris_audit_"))
     try:
         bundle_path = build_audit_bundle(
-            req.decision,
-            req.pool,
-            req.report,
+            decision,
+            pool,
+            report,
             output_dir=tmp_dir,
             sign_fn=sign_fn,
+            extra_files=extra_files,
         )
     except ValueError as exc:
         # FK chain mismatch, verdict != success, cited-span unreachable, or copyrighted span
@@ -137,7 +145,7 @@ def post_audit_bundle(
                 "error": True,
                 "code": code,
                 "message": msg,
-                "report_id": req.report.report_id,
+                "report_id": report.report_id,
             },
         )
     except RuntimeError as exc:
@@ -147,7 +155,7 @@ def post_audit_bundle(
                 "error": True,
                 "code": "sign_failed",
                 "message": str(exc),
-                "report_id": req.report.report_id,
+                "report_id": report.report_id,
             },
         )
 
@@ -155,6 +163,20 @@ def post_audit_bundle(
         path=str(bundle_path),
         filename=bundle_path.name,
         media_type="application/gzip",
+    )
+
+
+@router.post("/audit-bundle")
+def post_audit_bundle(
+    req: AuditBundleRequest,
+    sign_fn: SignFn | None = Depends(get_sign_fn),
+) -> Any:
+    """Build + return a GPG-signed audit bundle as application/gzip.
+
+    Returns the .tar.gz file as a streaming download.
+    """
+    return build_audit_bundle_response(
+        req.decision, req.pool, req.report, sign_fn
     )
 
 

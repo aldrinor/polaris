@@ -99,6 +99,112 @@ def current_run_id() -> str | None:
     return _CURRENT_RUN_ID_CTX.get()
 
 
+# I-gen-004 (#496): run-scoped reasoning-trace capture. The generator wires a
+# ReasoningTraceCollector as the sink (set_reasoning_sink); the client records
+# each raw completed provider response to it (_capture_reasoning_trace) BEFORE
+# any caller-level promotion / </think> extraction / retry / truncation raise.
+# Layering: the sink is duck-typed (the client never imports the generator).
+# The per-call generator context (section, call_type, attempt_n, ...) is
+# supplied separately by the caller via set_reasoning_call_context; capture is
+# a no-op unless BOTH a sink and a call-context are present, which scopes it
+# to generator calls (evaluator / retrieval LLM calls set no context).
+_REASONING_SINK_CTX: contextvars.ContextVar[object | None] = contextvars.ContextVar(
+    "_REASONING_SINK", default=None,
+)
+_REASONING_CALL_CTX: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_REASONING_CALL_CTX", default=None,
+)
+
+
+def set_reasoning_sink(sink: object | None) -> None:
+    """Register (or clear, with None) the run-scoped reasoning-trace sink — a
+    duck-typed object exposing ``record(**fields) -> call_id``. Set at run
+    start, cleared at run end."""
+    _REASONING_SINK_CTX.set(sink)
+
+
+def current_reasoning_sink() -> object | None:
+    return _REASONING_SINK_CTX.get()
+
+
+def set_reasoning_call_context(**ctx: object) -> None:
+    """Set the per-call generator context (section, call_type, attempt_n,
+    parent_call_id, regen_reason) for the next captured provider response.
+    Generator call sites set this immediately before each LLM call; passing
+    no kwargs clears it (a non-generator call records nothing)."""
+    _REASONING_CALL_CTX.set(dict(ctx) if ctx else None)
+
+
+def current_reasoning_call_context() -> dict | None:
+    return _REASONING_CALL_CTX.get()
+
+
+def _capture_reasoning_trace(
+    result: "LLMResponse",
+    content: str,
+    reasoning: Optional[str],
+    *,
+    status: str = "ok",
+) -> None:
+    """Record one raw completed provider response to the run-scoped
+    reasoning-trace sink, if one is registered AND the caller set a generator
+    call-context. ``content_source`` is recorded as ``direct`` here;
+    generate()/reason() finalize it (promoted_from_reasoning /
+    extracted_from_reasoning) via the sink's update() using
+    ``result.trace_call_id``. Best-effort observability — a sink failure is
+    logged loud but never breaks the LLM call (reasoning trace is process
+    transparency, not the generation path)."""
+    sink = current_reasoning_sink()
+    ctx = current_reasoning_call_context()
+    if sink is None or not ctx:
+        return
+    try:
+        result.trace_call_id = sink.record(
+            section=str(ctx.get("section", "")),
+            call_type=str(ctx.get("call_type", "section")),
+            model=result.model or "",
+            status=status,
+            content_source="direct",
+            parent_call_id=ctx.get("parent_call_id"),
+            regen_reason=ctx.get("regen_reason"),
+            attempt_n=int(ctx.get("attempt_n", 1) or 1),
+            reasoning_text=reasoning or "",
+            content_text=content or "",
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            reasoning_tokens=result.reasoning_tokens,
+        )
+    except Exception as exc:  # noqa: BLE001 — observability must not break generation
+        logger.warning(
+            "[polaris graph] I-gen-004: reasoning-trace capture failed "
+            "(%s: %s) — generation continues, this record dropped",
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _finalize_reasoning_trace(call_id: Optional[str], **patch: object) -> None:
+    """I-gen-004 (#496): patch an already-captured reasoning-trace record once
+    the caller (generate()/reason()) has resolved promotion / `</think>`
+    extraction / retry / truncation — e.g. content_source=promoted_from_reasoning
+    or status=retry|truncated|error. No-op if no sink or no call_id.
+    Best-effort: a sink failure is logged, never raised."""
+    if not call_id:
+        return
+    sink = current_reasoning_sink()
+    if sink is None:
+        return
+    try:
+        sink.update(call_id, **patch)
+    except Exception as exc:  # noqa: BLE001 — observability must not break generation
+        logger.warning(
+            "[polaris graph] I-gen-004: reasoning-trace finalize failed "
+            "(%s: %s) — generation continues",
+            type(exc).__name__,
+            exc,
+        )
+
+
 class BudgetExceededError(RuntimeError):
     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
 
@@ -550,6 +656,10 @@ class LLMResponse:
     model: str = ""
     duration_ms: float = 0
     raw_response: Optional[dict] = None
+    # I-gen-004 (#496): id of the reasoning-trace record this response was
+    # captured into (set by _capture_reasoning_trace when a run-scoped sink
+    # is registered). None when no sink / not a traced generator call.
+    trace_call_id: Optional[str] = None
 
 
 class BudgetExhaustedError(Exception):
@@ -1529,6 +1639,11 @@ class OpenRouterClient:
             raw_response=data,
         )
 
+        # I-gen-004 (#496): capture the raw completed provider response to the
+        # run-scoped reasoning-trace sink BEFORE any caller-level promotion /
+        # </think> extraction / retry / ReasoningFirstTruncationError raise.
+        _capture_reasoning_trace(result, content, reasoning)
+
         logger.info(
             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "
             "%.1fs, $%.4f cumulative",
@@ -1907,6 +2022,9 @@ class OpenRouterClient:
             reasoning_max_tokens=reasoning_max_tokens,
             reasoning_exclude=reasoning_exclude,
         )
+        # I-gen-004 (#496): trace-record id of the raw provider response, for
+        # finalizing content_source / status after promotion / retry below.
+        _primary_trace_id = result.trace_call_id
 
         # TWO-POOL: Content field = output. Reasoning field = logged separately.
         # For GLM-5, both pools are populated when max_tokens is sufficient.
@@ -1939,6 +2057,11 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                )
+                _finalize_reasoning_trace(
+                    _primary_trace_id,
+                    content_source="extracted_from_reasoning",
+                    content_text=result.content,
                 )
             elif self.model in _ALWAYS_REASON_MODELS:
                 # FIX-GLM5: Models that always reason don't use </think> tags.
@@ -2000,6 +2123,11 @@ class OpenRouterClient:
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
                 )
+                _finalize_reasoning_trace(
+                    _primary_trace_id,
+                    content_source="promoted_from_reasoning",
+                    content_text=result.content,
+                )
             elif len(result.reasoning.strip()) >= 100:
                 # I-bug-088: response-shape-centric normalization for
                 # reasoning-first models (e.g. DeepSeek V4 Pro) that route
@@ -2022,6 +2150,7 @@ class OpenRouterClient:
                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
                 ):
                     self.usage.total_errors += 1
+                    _finalize_reasoning_trace(_primary_trace_id, status="truncated")
                     raise ReasoningFirstTruncationError(
                         f"I-bug-089: reasoning-first model {self.model} "
                         f"truncated mid-planning. content empty, reasoning "
@@ -2045,6 +2174,11 @@ class OpenRouterClient:
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
                 )
+                _finalize_reasoning_trace(
+                    _primary_trace_id,
+                    content_source="promoted_from_reasoning",
+                    content_text=result.content,
+                )
             else:
                 # Reasoning is too sparse to be a real answer — retry once
                 # (provider may re-route on retry).
@@ -2053,6 +2187,8 @@ class OpenRouterClient:
                     "reasoning sparse (%d chars). Retrying once.",
                     len(result.reasoning),
                 )
+                # I-gen-004: the first attempt is superseded by the retry.
+                _finalize_reasoning_trace(_primary_trace_id, status="retry")
                 result = await self._call(
                     messages=messages,
                     call_type="generate_retry",
@@ -2061,6 +2197,7 @@ class OpenRouterClient:
                     max_tokens=max_tokens,
                     timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
                 )
+                _retry_trace_id = result.trace_call_id
                 # Try extraction on retry result too
                 if not result.content.strip() and result.reasoning:
                     extracted = _extract_answer_from_reasoning(result.reasoning)
@@ -2074,6 +2211,11 @@ class OpenRouterClient:
                             model=result.model,
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
+                        )
+                        _finalize_reasoning_trace(
+                            _retry_trace_id,
+                            content_source="extracted_from_reasoning",
+                            content_text=result.content,
                         )
                     elif len(result.reasoning.strip()) >= 100:
                         # I-bug-088: same response-shape-centric recovery on
@@ -2094,9 +2236,15 @@ class OpenRouterClient:
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
                         )
+                        _finalize_reasoning_trace(
+                            _retry_trace_id,
+                            content_source="promoted_from_reasoning",
+                            content_text=result.content,
+                        )
                     else:
                         # SF-15: Fail loud after exhausting retries
                         self.usage.total_errors += 1
+                        _finalize_reasoning_trace(_retry_trace_id, status="error")
                         raise RuntimeError(
                             f"generate() content empty after retry. "
                             f"Reasoning has {len(result.reasoning)} chars but "
