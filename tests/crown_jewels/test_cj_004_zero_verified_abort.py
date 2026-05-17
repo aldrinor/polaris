@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from src.polaris_graph.generator2.verified_report import (
+from src.polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

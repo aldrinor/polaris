@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from polaris_graph.generator2.generator import process_generation
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.generator import process_generation
+from polaris_graph.clinical_generator.verified_report import (
     GenerationError,
     VerifiedReport,
 )

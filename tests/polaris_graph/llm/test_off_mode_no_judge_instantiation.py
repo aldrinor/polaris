@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.polaris_graph.generator2 import strict_verify
+from src.polaris_graph.clinical_generator import strict_verify
 from src.polaris_graph.llm import entailment_judge
 
 

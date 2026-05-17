@@ -21,7 +21,7 @@ from polaris_graph.audit_bundle.manifest_builder import (
     serialize_manifest_yaml,
 )
 from polaris_graph.audit_bundle.bundle_schema import BundleManifest
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

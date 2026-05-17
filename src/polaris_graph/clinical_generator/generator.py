@@ -35,16 +35,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Protocol
 
-from polaris_graph.generator2.section_blueprint import (
+from polaris_graph.clinical_generator.section_blueprint import (
     Blueprint,
     SectionPlan,
     blueprint_for_scope_class,
 )
-from polaris_graph.generator2.strict_verify import (
+from polaris_graph.clinical_generator.strict_verify import (
     section_pass_rate,
     verify_sentence_to_record,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     GenerationError,
     Section,
     VerifiedReport,

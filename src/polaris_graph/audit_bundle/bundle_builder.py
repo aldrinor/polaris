@@ -44,7 +44,7 @@ from polaris_graph.audit_bundle.manifest_builder import (
     build_manifest_and_files,
     serialize_manifest_yaml,
 )
-from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool
 from polaris_graph.scope.scope_decision import ScopeDecision
 

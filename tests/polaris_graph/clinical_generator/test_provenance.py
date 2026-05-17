@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from polaris_graph.generator2.provenance import (
+from polaris_graph.clinical_generator.provenance import (
     PROVENANCE_TOKEN_RE,
     ProvenanceToken,
     TokenValidationError,

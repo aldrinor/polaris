@@ -11,7 +11,7 @@ from polaris_graph.audit_bundle.sovereignty_guard import (
     LEGAL_CLEARED_KEY,
     assert_all_pool_sources_legal_cleared,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

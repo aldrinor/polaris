@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from polaris_graph.generator2.real_completion import (
+from polaris_graph.clinical_generator.real_completion import (
     OPENROUTER_ENDPOINT,
     RealCompletion,
     RealCompletionConfig,
@@ -18,7 +18,7 @@ from polaris_graph.generator2.real_completion import (
     build_real_completion,
     load_config_from_env,
 )
-from polaris_graph.generator2.section_blueprint import (
+from polaris_graph.clinical_generator.section_blueprint import (
     CLINICAL_EFFICACY,
 )
 from polaris_graph.retrieval2.evidence_pool import (
@@ -245,7 +245,7 @@ def test_endpoint_defaults_to_openrouter(monkeypatch: pytest.MonkeyPatch):
     import importlib
 
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
-    import polaris_graph.generator2.real_completion as rc_mod
+    import polaris_graph.clinical_generator.real_completion as rc_mod
 
     importlib.reload(rc_mod)
     assert rc_mod.OPENROUTER_ENDPOINT == "https://openrouter.ai/api/v1/chat/completions"
@@ -259,7 +259,7 @@ def test_endpoint_respects_vllm_base_url(monkeypatch: pytest.MonkeyPatch):
     import importlib
 
     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
-    import polaris_graph.generator2.real_completion as rc_mod
+    import polaris_graph.clinical_generator.real_completion as rc_mod
 
     importlib.reload(rc_mod)
     assert rc_mod.OPENROUTER_ENDPOINT == "http://10.0.0.42:8000/v1/chat/completions"

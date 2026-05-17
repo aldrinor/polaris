@@ -20,8 +20,8 @@ from polaris_graph.audit_bundle.manifest_builder import (
     build_manifest_and_files,
 )
 from polaris_graph.audit_bundle.snapshot_sources import MAX_SOURCE_TEXT_BYTES
-from polaris_graph.generator2.provenance import extract_tokens
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.provenance import extract_tokens
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

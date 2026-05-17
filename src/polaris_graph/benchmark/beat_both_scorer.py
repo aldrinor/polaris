@@ -97,7 +97,7 @@ def _polaris_dimension_scores(
         pool = EvidencePool.model_validate(polaris.evidence_pool)
     report = None
     if polaris.verified_report is not None:
-        from polaris_graph.generator2.verified_report import VerifiedReport
+        from polaris_graph.clinical_generator.verified_report import VerifiedReport
 
         report = VerifiedReport.model_validate(polaris.verified_report)
 

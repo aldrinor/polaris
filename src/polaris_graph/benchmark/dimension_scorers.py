@@ -18,8 +18,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from polaris_graph.benchmark.benchmark_config import BenchmarkQuestion
-from polaris_graph.generator2.provenance import extract_tokens
-from polaris_graph.generator2.verified_report import VerifiedReport
+from polaris_graph.clinical_generator.provenance import extract_tokens
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
 from polaris_graph.retrieval2.evidence_pool import EvidencePool, SourceTier
 
 

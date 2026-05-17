@@ -3,7 +3,7 @@
 Skipped by default. Opt-in via:
 
     PG_ENTAILMENT_LIVE=1 OPENROUTER_API_KEY=... \
-    pytest tests/polaris_graph/generator2/test_strict_verify_entailment_live.py
+    pytest tests/polaris_graph/clinical_generator/test_strict_verify_entailment_live.py
 
 Or, with the registered `live` marker:
 
@@ -36,7 +36,7 @@ import os
 
 import pytest
 
-from polaris_graph.generator2 import strict_verify
+from polaris_graph.clinical_generator import strict_verify
 
 pytestmark = [
     pytest.mark.live,

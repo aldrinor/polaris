@@ -31,7 +31,7 @@ from polaris_graph.audit_ir.loader import (
     ReportSentence as AuditIRSentence,
     load_audit_ir,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     DropReason,
     PipelineVerdict,
     Section,
@@ -52,14 +52,14 @@ from polaris_graph.scope.scope_decision import (
 )
 
 # I-arch-001d Codex iter-3 P2: import canonical regex if available; else local
-# fallback that matches generator2.provenance shape.
+# fallback that matches clinical_generator.provenance shape.
 try:
-    from polaris_graph.generator2.provenance import (  # type: ignore[attr-defined]
+    from polaris_graph.clinical_generator.provenance import (  # type: ignore[attr-defined]
         PROVENANCE_TOKEN_RE as _CANONICAL_TOKEN_RE,
     )
     _PROV_TOKEN_RE = _CANONICAL_TOKEN_RE
 except ImportError:
-    # NOTE: align with polaris_graph.generator2.provenance shape:
+    # NOTE: align with polaris_graph.clinical_generator.provenance shape:
     # [#ev:<evidence_id>:<start>-<end>]
     _PROV_TOKEN_RE = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
 

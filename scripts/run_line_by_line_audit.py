@@ -8,7 +8,7 @@ Input shape: three accepted inputs.
 
   --verified-sentences <jsonl>   Each line is {"sentence": "...with [#ev:...] tokens..."}.
                                   This is the canonical PRE-RESOLUTION artifact
-                                  emitted by generator2/strict_verify.
+                                  emitted by clinical_generator/strict_verify.
 
   --report <md> --pool <json>    Legacy / direct text path — assumes report
                                   contains [#ev:...] tokens (works for
@@ -124,7 +124,7 @@ def _normalize_pool(raw: Any) -> dict[str, dict[str, Any]]:
     """Normalize evidence pool JSON to {id: {evidence_id, direct_quote/full_text/snippet}}.
 
     Accepts:
-    - List of {evidence_id, direct_quote/full_text/snippet} (legacy generator2 schema).
+    - List of {evidence_id, direct_quote/full_text/snippet} (legacy clinical_generator schema).
     - List of {source_id, full_text/snippet} (canonical retrieval2.EvidencePool schema).
     - Object {<id>: <entry>} (already keyed).
     - Object {sources: [<entry>, ...]} (EvidencePool serialized with sources field).

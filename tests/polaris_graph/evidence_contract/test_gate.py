@@ -16,7 +16,7 @@ from polaris_graph.evidence_contract import (
     assert_generation_has_contract,
     evaluate_contract,
 )
-from polaris_graph.generator2.verified_report import (
+from polaris_graph.clinical_generator.verified_report import (
     Section,
     VerifiedReport,
     VerifiedSentence,

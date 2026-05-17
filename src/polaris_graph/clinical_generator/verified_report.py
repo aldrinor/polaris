@@ -7,7 +7,7 @@ process_generation() consumes an EvidencePool (slice 002 output) and
 produces a VerifiedReport, which slice 004 will export as an audit
 bundle.
 
-Lives in `polaris_graph.generator2` (note the `2`) to keep separation
+Lives in `polaris_graph.clinical_generator` (note the `2`) to keep separation
 from heritage `polaris_graph.generator` (multi_section, live_deepseek)
 which serves the legacy honest-rebuild pipeline. Coexistence by design
 per PLAN.md §4 Heritage Import.

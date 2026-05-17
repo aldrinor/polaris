@@ -1,14 +1,14 @@
 """I-bug-098 — entailment judge wired into PRODUCTION verifier.
 
-Mirrors tests/polaris_graph/generator2/test_strict_verify_entailment.py
+Mirrors tests/polaris_graph/clinical_generator/test_strict_verify_entailment.py
 patterns but exercises the production verifier (generator/
 provenance_generator.py:verify_sentence_provenance) directly. This is
 the verifier the production sweep at scripts/run_honest_sweep_r3.py
-actually uses; the I-bug-092..097 generator2/ tests cover the slice-003
+actually uses; the I-bug-092..097 clinical_generator/ tests cover the slice-003
 demo path which is a different code branch.
 
 Tests use a fake judge to keep CI network-free + deterministic. Live
-canary lives at tests/polaris_graph/generator2/
+canary lives at tests/polaris_graph/clinical_generator/
 test_strict_verify_entailment_live.py (env-gated).
 """
 
@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import pytest
 
-from polaris_graph.generator2 import strict_verify as _gen2
+from polaris_graph.clinical_generator import strict_verify as _gen2
 from src.polaris_graph.generator.provenance_generator import (
     verify_sentence_provenance,
 )
 
 
-# ---------- Fake-judge fixture (shared with generator2 telemetry) ----------
+# ---------- Fake-judge fixture (shared with clinical_generator telemetry) ----------
 
 class _FakeJudge:
     def __init__(self, verdict: str, reason: str = "fake") -> None:
@@ -72,7 +72,7 @@ _M2_SPAN = (
 
 def test_enforce_drops_m2_fabrication(monkeypatch):
     """The audit-revealed M2 fabrication MUST be dropped under enforce
-    by the PRODUCTION verifier (not just generator2/).
+    by the PRODUCTION verifier (not just clinical_generator/).
     """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install(monkeypatch, _FakeJudge("NEUTRAL"))
@@ -201,7 +201,7 @@ def test_no_provenance_short_circuits_before_entailment(monkeypatch):
 
 def test_telemetry_counters_tick_on_production_path(monkeypatch):
     """Critical I-bug-098 invariant: judge_telemetry counters from
-    generator2.strict_verify ALSO tick when the production verifier
+    clinical_generator.strict_verify ALSO tick when the production verifier
     invokes the judge. A single get_judge_telemetry() snapshot must
     cover both code paths (per Codex iter-1 brief acceptance proof).
     """
