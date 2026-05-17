@@ -330,3 +330,19 @@ def test_serialize_manifest_yaml_stable():
     a = serialize_manifest_yaml(manifest)
     b = serialize_manifest_yaml(manifest)
     assert a == b
+
+
+def test_build_manifest_rejects_reserved_tar_member_extra_file():
+    """I-gen-561 (#561) P2-5: an extra_files path equal to a reserved tar
+    member (manifest.yaml / manifest.yaml.asc) is rejected. Those names are
+    written by bundle_builder ALONGSIDE the packed files and would clash at
+    pack time even though they never appear in files_bytes."""
+    pool = _pool(_src("src-A"))
+    for reserved in ("manifest.yaml", "manifest.yaml.asc"):
+        with pytest.raises(ValueError, match="reserved tar member"):
+            build_manifest_and_files(
+                _decision(),
+                pool,
+                _report(),
+                extra_files={reserved: (b"x", "metadata")},
+            )

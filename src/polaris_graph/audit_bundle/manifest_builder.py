@@ -55,6 +55,12 @@ FILE_REVIEWER_README = "REVIEWER_README.md"
 FILE_REASONING_TRACE = "reasoning_trace.jsonl"
 SOURCES_DIR = "sources"
 
+# I-gen-561 (#561) P2-5: tar members that bundle_builder writes ALONGSIDE the
+# packed content files (manifest.yaml + its detached signature). They never
+# appear in `files_bytes`, so an `extra_files` path equal to one of these
+# would pass the core-file collision check yet still clash at pack time.
+_RESERVED_TAR_MEMBERS = frozenset({"manifest.yaml", "manifest.yaml.asc"})
+
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -214,6 +220,12 @@ def build_manifest_and_files(
         if path in files_bytes:
             raise ValueError(
                 f"extra_files path {path!r} collides with a core bundle file"
+            )
+        if path in _RESERVED_TAR_MEMBERS:
+            raise ValueError(
+                f"extra_files path {path!r} collides with a reserved tar "
+                f"member ({sorted(_RESERVED_TAR_MEMBERS)} are written "
+                f"alongside the packed files)"
             )
         files_bytes[path] = content
         extra_content_types[path] = ct_extra

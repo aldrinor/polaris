@@ -236,3 +236,73 @@ def test_long_reasoning_text_is_not_truncated(tmp_path):
     assert len(rows[0]["reasoning_text"]) == 200_000, (
         "the full reasoning log must round-trip with no truncation"
     )
+
+
+# --- I-gen-561 (#561): reasoning-trace capture P2 polish --------------------
+
+def test_p2_2_zero_record_run_flushes_empty_jsonl(tmp_path):
+    """P2-2: a write-through collector flushed once with zero records still
+    materializes reasoning_trace.jsonl (an empty file). A run that aborts
+    before any generator LLM call must not leave the manifest's
+    reasoning_trace reference pointing at a missing file."""
+    collector = ReasoningTraceCollector(out_dir=tmp_path)
+    out_path = collector.flush(tmp_path)
+    assert out_path.name == REASONING_TRACE_FILENAME
+    assert out_path.exists(), "flush must create the file even with 0 records"
+    assert out_path.read_text(encoding="utf-8") == "", "0 records => empty file"
+
+
+def test_p2_4_retry_record_finalized_with_parent_and_attempt():
+    """P2-4: generate()'s COT-2 retry leg finalizes the retry's captured
+    record with parent_call_id=<primary> and attempt_n=2 — the retry no
+    longer inherits the caller's stale attempt-1 call-context."""
+    collector = ReasoningTraceCollector()
+    set_reasoning_sink(collector)
+    set_reasoning_call_context(section="Outline", call_type="outline", attempt_n=1)
+
+    primary = _make_response(content="", reasoning="sparse first attempt")
+    _capture_reasoning_trace(primary, "", primary.reasoning)
+    _finalize_reasoning_trace(primary.trace_call_id, status="retry")
+
+    # the retry _call captures under the still-attempt-1 context ...
+    retry = _make_response(content="", reasoning="still sparse on retry")
+    _capture_reasoning_trace(retry, "", retry.reasoning)
+    assert retry.trace_call_id is not None
+    # ... then generate()'s P2-4 finalize links it + marks attempt 2:
+    _finalize_reasoning_trace(
+        retry.trace_call_id,
+        parent_call_id=primary.trace_call_id,
+        attempt_n=2,
+    )
+
+    retry_rec = collector.records()[1]
+    assert retry_rec.parent_call_id == primary.trace_call_id
+    assert retry_rec.attempt_n == 2
+
+
+@pytest.mark.asyncio
+async def test_p2_1_generate_clears_call_context_on_exit(monkeypatch):
+    """P2-1: OpenRouterClient.generate() clears the per-call reasoning
+    call-context in a finally, so a later non-generator generate() (e.g. the
+    judge) is not captured under a stale generator context."""
+    from src.polaris_graph.llm.openrouter_client import (
+        OpenRouterClient,
+        current_reasoning_call_context,
+    )
+
+    client = OpenRouterClient(api_key="test-key", model="deepseek/deepseek-v4-pro")
+    try:
+        async def _stub_impl(*args, **kwargs):
+            # the context is still live while the real body would run
+            assert current_reasoning_call_context() is not None
+            return _make_response(content="ok", reasoning="")
+
+        monkeypatch.setattr(client, "_generate_impl", _stub_impl)
+        set_reasoning_call_context(section="Mechanism", call_type="section")
+        result = await client.generate("a prompt")
+        assert result.content == "ok"
+        assert current_reasoning_call_context() is None, (
+            "generate() must clear the call-context on every exit (P2-1)"
+        )
+    finally:
+        await client.close()
