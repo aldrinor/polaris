@@ -2981,7 +2981,7 @@ async def synthesize_report(
     # FIX-E2E-2: Cap evidence pool before MoST analyses.
     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
-    # claim_evidence_binding, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
+    # claim_evidence_binding, evidence_section_affinity, cross_section_source_consistency (all vecs @ vecs.T).
     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
     _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
@@ -3031,7 +3031,7 @@ async def synthesize_report(
             logger.warning("[polaris graph] MoST Covalent failed (non-blocking): %s", str(exc)[:200])
 
         try:
-            from src.polaris_graph.synthesis.ionic_rebalancer import analyze_ionic_bonds
+            from src.polaris_graph.synthesis.evidence_section_affinity import analyze_ionic_bonds
             ionic_result = analyze_ionic_bonds(sections, _most_evidence)
             bond_analysis["ionic"] = ionic_result
 
@@ -3039,7 +3039,7 @@ async def synthesize_report(
             migrations = ionic_result.get("migrations", [])
             if migrations:
                 try:
-                    from src.polaris_graph.synthesis.ionic_rebalancer import (
+                    from src.polaris_graph.synthesis.evidence_section_affinity import (
                         format_ionic_findings_for_phase_r,
                     )
                     # Ionic rebalancer provides analysis but not direct section mutation.
