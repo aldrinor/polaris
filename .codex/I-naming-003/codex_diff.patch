@@ -34,7 +34,7 @@ similarity index 100%
 rename from src/polaris_graph/v30_sweep_integration.py
 rename to src/polaris_graph/honest_sweep_integration.py
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index cc1b550c..39e85831 100644
+index cc1b550c..96dbf75b 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -250,3 +250,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -48,7 +48,7 @@ index cc1b550c..39e85831 100644
 +- iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (non-blocking wording notes: 20 `from` + 1 bare import not "21 from"; PowerShell PYTHONPATH syntax). convergence accept_remaining. Pure file + import-path rename — git mv 2 files + substring v30_sweep_integration→honest_sweep_integration over 3 files; V30 identifiers / manifest keys / PG_V30_ENABLED env / report heading left intact (schema/config/output — Codex confirmed scope).
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Pure rename; ast.parse 3/3, import resolves, test_honest_sweep_integration 20/20. P1 trajectory 0.
 diff --git a/tests/polaris_graph/test_v30_sweep_integration.py b/tests/polaris_graph/test_honest_sweep_integration.py
 similarity index 96%
 rename from tests/polaris_graph/test_v30_sweep_integration.py
@@ -245,4 +245,4 @@ index d1a6b962..65cb85dd 100644
              run_v30_post_generation,
          )
          result = run_v30_post_generation(
-# canonical-diff-sha256: b5dadb0d5aaa01af3f606cf795dd448cc9cbc002f0c0863de1c6e8b1a8773944
+# canonical-diff-sha256: 7aa6863d182a8ba73f355633f88dd22b83ff25cc67a5bcbcc5d788dfb63de2fe
