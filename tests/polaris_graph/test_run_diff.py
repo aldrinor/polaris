@@ -124,8 +124,8 @@ def _make_minimal_ir(
         release_allowed=True,
         reasons=(),
         rule_blockers=(),
-        qwen_critical_axes=(),
-        qwen_parse_ok=True,
+        judge_critical_axes=(),
+        judge_parse_ok=True,
     )
     manifest = RunManifest(
         run_id=run_id,

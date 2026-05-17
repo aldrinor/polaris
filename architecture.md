@@ -50,7 +50,7 @@ src/polaris_graph/
 │   └── provenance_generator.py      — [#ev:id:start-end] + strict_verify
 ├── evaluator/
 │   ├── external_evaluator.py        — rule-based evaluator shell
-│   └── live_qwen_judge.py           — Qwen3-8B evaluator
+│   └── live_judge.py               — judge model (separate family)
 ├── llm/
 │   └── openrouter_client.py         — OpenRouter gateway + family segregation
 ├── agents/
@@ -89,7 +89,7 @@ provenance_generator.strict_verify   ──► drop sentences whose span
     │                                    AND ≥2 content-word overlap
     │                                    If zero verified → abort_no_verified_sections
     ▼
-live_qwen_judge (Qwen3-8B, separate family from generator)
+live_judge (judge model, separate family from generator)
     │
     ▼
 external_evaluator.run_external_evaluation
@@ -322,7 +322,7 @@ runs after generation:
 
 - `external_evaluator.run_external_evaluation`: rule-table
   evaluation (per-section coverage, citation density, etc.)
-- `live_qwen_judge.judge_report`: LLM judge (different family from
+- `live_judge.judge_report`: LLM judge (different family from
   generator) scores the report
 
 Both outputs are written to the manifest.

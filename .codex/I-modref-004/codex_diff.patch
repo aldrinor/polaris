@@ -1,0 +1,1485 @@
+diff --git a/README.md b/README.md
+index b68e2df7..445bacbc 100644
+--- a/README.md
++++ b/README.md
+@@ -124,7 +124,7 @@ provenance_generator.strict_verify   ──► drop sentences whose
+     │                                    overlap. If zero verified →
+     │                                    abort_no_verified_sections.
+     ▼
+-live_qwen_judge (Qwen3-8B, DIFFERENT FAMILY from generator)
++live_judge (judge model, DIFFERENT FAMILY from generator)
+     │
+     ▼
+ external_evaluator.run_external_evaluation
+@@ -169,7 +169,7 @@ POLARIS/
+ │   │   ├── nodes/           — scope_gate, corpus_approval_gate, ...
+ │   │   ├── retrieval/       — live_retriever, tier_classifier, ...
+ │   │   ├── generator/       — multi_section, live_deepseek, provenance
+-│   │   ├── evaluator/       — external_evaluator, live_qwen_judge
++│   │   ├── evaluator/       — external_evaluator, live_judge
+ │   │   ├── llm/             — openrouter_client (with two-family check)
+ │   │   ├── graph.py, graph_v2.py, graph_v3.py  — LangGraph variants (pipeline B)
+ │   │   ├── memory/          — campaign/cross-vector stores (pipeline B)
+diff --git a/architecture.md b/architecture.md
+index 2d2e5763..3e5ed26e 100644
+--- a/architecture.md
++++ b/architecture.md
+@@ -50,7 +50,7 @@ src/polaris_graph/
+ │   └── provenance_generator.py      — [#ev:id:start-end] + strict_verify
+ ├── evaluator/
+ │   ├── external_evaluator.py        — rule-based evaluator shell
+-│   └── live_qwen_judge.py           — Qwen3-8B evaluator
++│   └── live_judge.py               — judge model (separate family)
+ ├── llm/
+ │   └── openrouter_client.py         — OpenRouter gateway + family segregation
+ ├── agents/
+@@ -89,7 +89,7 @@ provenance_generator.strict_verify   ──► drop sentences whose span
+     │                                    AND ≥2 content-word overlap
+     │                                    If zero verified → abort_no_verified_sections
+     ▼
+-live_qwen_judge (Qwen3-8B, separate family from generator)
++live_judge (judge model, separate family from generator)
+     │
+     ▼
+ external_evaluator.run_external_evaluation
+@@ -322,7 +322,7 @@ runs after generation:
+ 
+ - `external_evaluator.run_external_evaluation`: rule-table
+   evaluation (per-section coverage, citation density, etc.)
+-- `live_qwen_judge.judge_report`: LLM judge (different family from
++- `live_judge.judge_report`: LLM judge (different family from
+   generator) scores the report
+ 
+ Both outputs are written to the manifest.
+diff --git a/docs/file_directory.md b/docs/file_directory.md
+index 01434278..e646cc13 100644
+--- a/docs/file_directory.md
++++ b/docs/file_directory.md
+@@ -50,7 +50,7 @@ produced, see `docs/live_code_audit.json`.
+ | `src/polaris_graph/nodes/` | Pre-generation gates | A | `scope_gate`, `corpus_approval_gate`, `corpus_adequacy_gate`, `completeness_checker` |
+ | `src/polaris_graph/retrieval/` | Source retrieval + tiering | A | `live_retriever`, `tier_classifier`, `domain_backends`, `scope_query_validator`, `contradiction_detector`, `prefetch_offtopic_filter`, `fetch_limiter` |
+ | `src/polaris_graph/generator/` | Prose generation + strict verify | A | `multi_section_generator`, `live_deepseek_generator`, `provenance_generator` |
+-| `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_qwen_judge` |
++| `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_judge` |
+ | `src/polaris_graph/llm/` | OpenRouter gateway | A, B | `openrouter_client` enforces two-family segregation, budget guard, cost imputation |
+ | `src/polaris_graph/agents/` | Agent helpers | A | `nli_verifier` |
+ | `src/polaris_graph/graph.py` | LangGraph v1 | B | UI pipeline variant |
+diff --git a/docs/pipeline_audit_context/00_README.md b/docs/pipeline_audit_context/00_README.md
+index 464b9e4b..6095d033 100644
+--- a/docs/pipeline_audit_context/00_README.md
++++ b/docs/pipeline_audit_context/00_README.md
+@@ -45,7 +45,7 @@ audit — that was rounds 1-5.
+    `live_deepseek_generator.py`, `provenance_generator.py` wrap + helpers
+ 5. **Strict verify** — `provenance_generator.verify_sentence_provenance`,
+    `strict_verify` (already probed in rounds 1-5, light touch)
+-6. **Evaluator** — `external_evaluator.py`, `live_qwen_judge.py`
++6. **Evaluator** — `external_evaluator.py`, `live_judge.py`
+ 7. **Orchestration** — `scripts/run_honest_sweep_r3.py`
+ 8. **Budget + cost ledger** — `openrouter_client.check_run_budget`,
+    `_impute_cost_from_tokens`
+diff --git a/docs/pipeline_audit_context/01_three_pipelines_map.md b/docs/pipeline_audit_context/01_three_pipelines_map.md
+index dc7d5187..02fa6477 100644
+--- a/docs/pipeline_audit_context/01_three_pipelines_map.md
++++ b/docs/pipeline_audit_context/01_three_pipelines_map.md
+@@ -27,7 +27,7 @@ scripts/run_honest_sweep_r3.py
+        ├── src/polaris_graph/generator/live_deepseek_generator.py
+        └── src/polaris_graph/generator/provenance_generator.py
+             └── strict_verify → abort_no_verified_sections?
+-  └── src/polaris_graph/evaluator/live_qwen_judge.py
++  └── src/polaris_graph/evaluator/live_judge.py
+   └── src/polaris_graph/evaluator/external_evaluator.py
+   └── src/polaris_graph/llm/openrouter_client.py (everywhere)
+   └── src/polaris_graph/agents/nli_verifier.py (optional, PG_NLI_ENABLED)
+diff --git a/docs/pipeline_audit_context/02_prompt_templates.md b/docs/pipeline_audit_context/02_prompt_templates.md
+index f7f35d31..7388d21f 100644
+--- a/docs/pipeline_audit_context/02_prompt_templates.md
++++ b/docs/pipeline_audit_context/02_prompt_templates.md
+@@ -136,7 +136,7 @@ CRITICAL RULES:
+ 
+ ---
+ 
+-## 5. Evaluator — Qwen judge (`live_qwen_judge.py`)
++## 5. Evaluator — judge (`live_judge.py`)
+ 
+ Extract prompt at audit time. Short summary from memory:
+ - Given the final `report.md` + corpus tier distribution, asks
+diff --git a/docs/pipeline_audit_context/03_json_contracts.md b/docs/pipeline_audit_context/03_json_contracts.md
+index d45e0559..4207a181 100644
+--- a/docs/pipeline_audit_context/03_json_contracts.md
++++ b/docs/pipeline_audit_context/03_json_contracts.md
+@@ -212,9 +212,10 @@ all sections.
+ Per-evidence detail used by the generator + verifier — evidence_id,
+ source_url, tier, statement, direct_quote, timestamp, etc.
+ 
+-## `qwen_judge_output.json`
++## `judge_output.json`
+ 
+-Raw Qwen3-8B judge output (rationale + scores).
++Raw judge output (rationale + scores). Legacy runs wrote this as
++`qwen_judge_output.json`; readers fall back to that filename.
+ 
+ ## `run_log.txt`
+ 
+diff --git a/docs/pipeline_audit_context/07_audit_brief_for_codex.md b/docs/pipeline_audit_context/07_audit_brief_for_codex.md
+index 582471f2..97be691a 100644
+--- a/docs/pipeline_audit_context/07_audit_brief_for_codex.md
++++ b/docs/pipeline_audit_context/07_audit_brief_for_codex.md
+@@ -17,7 +17,7 @@ produce a design-level audit covering:
+ 3. Contradictions detection
+ 4. Generation (prompts + outline + sections + limitations)
+ 5. Strict verify (light touch — settled in rounds 1-5)
+-6. Evaluator (both external_evaluator rules and live_qwen_judge)
++6. Evaluator (both external_evaluator rules and live_judge)
+ 7. Orchestration (`scripts/run_honest_sweep_r3.py`)
+ 8. Budget + cost ledger
+ 9. Observability (JSONL cost ledger, manifest shape, logs)
+diff --git a/ground_rules.md b/ground_rules.md
+index 980d425d..cd3a738b 100644
+--- a/ground_rules.md
++++ b/ground_rules.md
+@@ -173,7 +173,7 @@ research_question
+   → multi_section_generator (DeepSeek V3.2-Exp)
+   → provenance_generator.strict_verify
+   → external_evaluator (rule-based)
+-  → live_qwen_judge (different family from generator)
++  → live_judge (different family from generator)
+   → report.md + manifest.json
+ ```
+ 
+@@ -192,7 +192,7 @@ The output files are:
+   findings, open issue)
+ - `report.md` — prose or pipeline-verdict artifact
+ - `corpus_approval.json`, `contradictions.json`, `protocol.json`,
+-  `bibliography.json`, `live_corpus_dump.json`, `qwen_judge_output.json`,
++  `bibliography.json`, `live_corpus_dump.json`, `judge_output.json`,
+   `run_log.txt`
+ 
+ ---
+diff --git a/scripts/compare_live_vs_pg_lb_sa_02.py b/scripts/compare_live_vs_pg_lb_sa_02.py
+index 6c6b338e..791a9843 100644
+--- a/scripts/compare_live_vs_pg_lb_sa_02.py
++++ b/scripts/compare_live_vs_pg_lb_sa_02.py
+@@ -103,7 +103,10 @@ def main() -> int:
+ 
+     with (live_dir / "manifest.json").open(encoding="utf-8") as f:
+         live_manifest = json.load(f)
+-    with (live_dir / "qwen_judge_output.json").open(encoding="utf-8") as f:
++    _judge_artifact = live_dir / "judge_output.json"
++    if not _judge_artifact.exists():
++        _judge_artifact = live_dir / "qwen_judge_output.json"  # I-modref-004 (#530) legacy
++    with _judge_artifact.open(encoding="utf-8") as f:
+         judge = json.load(f)
+     with (live_dir / "evaluator_rule_checks.json").open(encoding="utf-8") as f:
+         rule_checks = json.load(f)
+@@ -226,7 +229,7 @@ def main() -> int:
+         if not r.get("passed"):
+             lines.append(f"  - FAIL {r['item_id']} — {r.get('details', '')[:150]}")
+     lines.append("")
+-    lines.append(f"- Qwen3-8B non-same-family judge (model={judge.get('model')}, "
++    lines.append(f"- Non-same-family judge (model={judge.get('model')}, "
+                  f"parse_ok={judge.get('parse_ok')}):")
+     if judge.get("parse_ok"):
+         for axis, v in judge.get("verdicts", {}).items():
+@@ -277,7 +280,7 @@ def main() -> int:
+             f"or commentary — all mis-labeled GOLD in the pre-rebuild schema."
+         )
+     lines.append("")
+-    lines.append("3. A non-same-family Qwen3-8B evaluator produced **specific "
++    lines.append("3. A non-same-family judge produced **specific "
+                  "per-axis verdicts with notes**. Two axes flagged "
+                  "`needs_revision` with actionable feedback. This replaces "
+                  "the pre-rebuild's single self-graded 90.8% number.")
+diff --git a/scripts/regate_v23.py b/scripts/regate_v23.py
+index 8b63a249..bdf1a0c0 100644
+--- a/scripts/regate_v23.py
++++ b/scripts/regate_v23.py
+@@ -8,9 +8,10 @@ report.md, recomputes the gate, and rewrites `manifest.json`,
+ `evaluator_rule_checks.json`, and the matching entry in
+ `sweep_summary.json`/`sweep_summary.md`.
+ 
+-This is evaluator-only. It does NOT re-run Qwen (already ran during
+-original sweep; the Qwen verdicts stored in `qwen_judge_output.json`
+-are reused verbatim).
++This is evaluator-only. It does NOT re-run the judge (already ran
++during the original sweep; the judge verdicts stored in
++`judge_output.json` (or legacy `qwen_judge_output.json`) are reused
++verbatim).
+ 
+ Usage:
+     python scripts/regate_v23.py \\
+@@ -46,7 +47,7 @@ class _EvOutShim:
+ 
+ 
+ @dataclass
+-class _QwenShim:
++class _JudgeShim:
+     """Minimal shim of JudgeResult for compute_evaluator_gate."""
+     parse_ok: bool
+     verdicts: dict[str, Any]
+@@ -68,8 +69,8 @@ def _status_from_gate(gate) -> str:
+     evaluator-gated path. See run_honest_sweep_r3.py:1326-1344."""
+     if gate.gate_class == "abort":
+         return "abort_evaluator_critical"
+-    if gate.gate_class == "partial" and gate.qwen_critical_axes:
+-        return "partial_qwen_advisory"
++    if gate.gate_class == "partial" and gate.judge_critical_axes:
++        return "partial_evaluator_advisory"
+     return "success"
+ 
+ 
+@@ -77,7 +78,10 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+     report_path = run_dir / "report.md"
+     manifest_path = run_dir / "manifest.json"
+     rule_checks_path = run_dir / "evaluator_rule_checks.json"
+-    qwen_path = run_dir / "qwen_judge_output.json"
++    judge_path = run_dir / "judge_output.json"
++    if not judge_path.exists():
++        # I-modref-004 (#530): legacy V23 artifacts use the old filename.
++        judge_path = run_dir / "qwen_judge_output.json"
+     protocol_path = run_dir / "protocol.json"
+     contradictions_path = run_dir / "contradictions.json"
+     bibliography_path = run_dir / "bibliography.json"
+@@ -85,7 +89,7 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+     report_text = report_path.read_text(encoding="utf-8")
+     manifest_prev = _load_json(manifest_path)
+     rule_checks_prev = _load_json(rule_checks_path)
+-    qwen_prev = _load_json(qwen_path) if qwen_path.exists() else {}
++    judge_prev = _load_json(judge_path) if judge_path.exists() else {}
+     protocol = _load_json(protocol_path)
+     contradictions = (
+         _load_json(contradictions_path)
+@@ -152,16 +156,16 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+         rule_checks=new_results,
+         contradictions_missing=missing_contra,
+     )
+-    qwen_verdicts = qwen_prev.get("verdicts", {}) if isinstance(qwen_prev, dict) else {}
+-    qwen_shim = _QwenShim(
+-        parse_ok=bool(qwen_verdicts),
+-        verdicts=qwen_verdicts,
++    judge_verdicts = judge_prev.get("verdicts", {}) if isinstance(judge_prev, dict) else {}
++    judge_shim = _JudgeShim(
++        parse_ok=bool(judge_verdicts),
++        verdicts=judge_verdicts,
+     )
+     adequacy = manifest_prev.get("adequacy")
+     completeness = manifest_prev.get("completeness")
+     new_gate = compute_evaluator_gate(
+         ev_shim,
+-        qwen_result=qwen_shim,
++        judge_result=judge_shim,
+         adequacy=adequacy,
+         completeness=completeness,
+     )
+diff --git a/scripts/run_full_scale_v27.py b/scripts/run_full_scale_v27.py
+index 0ed3c0b0..8ebb3f80 100644
+--- a/scripts/run_full_scale_v27.py
++++ b/scripts/run_full_scale_v27.py
+@@ -3,7 +3,7 @@
+ V27 = V26 code + M-43 (regulatory_anchors cap 10 → 12).
+ 
+ V26 outcome (2026-04-22 03:44→05:38, 113.7 min):
+-  - manifest.status=partial_qwen_advisory, release_allowed=False
++  - manifest.status=partial_evaluator_advisory, release_allowed=False
+   - Biblio 48 (up from V25=40), contradictions 15 (same as V25)
+   - HC=3 (M-42d target MET, up from V25=1)
+   - Report 3527 words (up from V25=1455, +142%)
+diff --git a/scripts/run_honest_on_prerebuild_corpus.py b/scripts/run_honest_on_prerebuild_corpus.py
+index 416ecba5..2a914202 100644
+--- a/scripts/run_honest_on_prerebuild_corpus.py
++++ b/scripts/run_honest_on_prerebuild_corpus.py
+@@ -17,7 +17,7 @@ Outputs:
+     contradictions.json
+     report.md                (generated by DeepSeek V3.2-Exp + strict_verify)
+     evaluator_rule_checks.json
+-    qwen_judge_output.json
++    judge_output.json
+     manifest.json
+     run_log.txt
+     side_by_side.md          (honest-rebuild report vs pre-rebuild report)
+@@ -49,7 +49,7 @@ for noisy in ("httpx", "httpcore"):
+     logging.getLogger(noisy).setLevel(logging.WARNING)
+ 
+ from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
+-from src.polaris_graph.evaluator.live_qwen_judge import judge_report  # noqa: E402
++from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
+ from src.polaris_graph.generator.live_deepseek_generator import generate_live_draft  # noqa: E402
+ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+     generate_multi_section_report,
+@@ -382,7 +382,7 @@ async def main_async() -> int:
+     _log(f"       final report: {len(final_report)} chars, {len(final_report.split())} words")
+ 
+     # Phase 5 evaluator
+-    _log(f"[6/6] evaluator + Qwen3-8B judge")
++    _log(f"[6/6] evaluator + judge")
+     ev_out = run_external_evaluation(
+         report_text=final_report,
+         protocol=protocol_dict,
+@@ -408,12 +408,12 @@ async def main_async() -> int:
+             temperature=0.2,
+             max_tokens=800,
+         )
+-        _log(f"       Qwen judge: parse_ok={jr.parse_ok} "
++        _log(f"       Judge: parse_ok={jr.parse_ok} "
+              f"input_tok={jr.input_tokens} output_tok={jr.output_tokens}")
+         if jr.parse_ok:
+             for axis, v in jr.verdicts.items():
+                 _log(f"         [{v['verdict'].upper():>15}] {axis}: {v['note'][:90]}")
+-        (run_dir / "qwen_judge_output.json").write_text(
++        (run_dir / "judge_output.json").write_text(
+             json.dumps({
+                 "model": jr.model, "parse_ok": jr.parse_ok,
+                 "verdicts": jr.verdicts, "raw_response": jr.raw_response,
+@@ -422,7 +422,7 @@ async def main_async() -> int:
+             encoding="utf-8",
+         )
+     except Exception as exc:
+-        _log(f"       Qwen judge FAILED: {exc}")
++        _log(f"       Judge FAILED: {exc}")
+         jr = None
+ 
+     # ── Side-by-side comparison ────────────────────────────────────────
+@@ -493,7 +493,7 @@ async def main_async() -> int:
+         "contradictions_found": len(contradictions),
+         "evaluator_rule_pass": ev_out.rule_check_pass_count,
+         "evaluator_rule_fail": ev_out.rule_check_fail_count,
+-        "qwen_judge": (
++        "judge": (
+             {"verdicts": jr.verdicts} if jr and jr.parse_ok
+             else {"error": "failed_or_parse_error"}
+         ),
+@@ -516,7 +516,7 @@ async def main_async() -> int:
+     if jr and jr.parse_ok:
+         vcounts = {v: sum(1 for j in jr.verdicts.values() if j["verdict"] == v)
+                    for v in ("good", "acceptable", "needs_revision", "unknown")}
+-        _log(f"  Qwen judge:            {vcounts}")
++        _log(f"  Judge verdicts:        {vcounts}")
+     _log(f"  Run cost (USD):        ${current_run_cost():.4f} "
+          f"(cap ${PG_MAX_COST_PER_RUN:.4f})")
+     _log("")
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 3619ec65..e5b85933 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -47,7 +47,7 @@ for noisy in ("httpx", "httpcore"):
+     logging.getLogger(noisy).setLevel(logging.WARNING)
+ 
+ from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
+-from src.polaris_graph.evaluator.live_qwen_judge import judge_report  # noqa: E402
++from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
+ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+     generate_multi_section_report,
+ )
+@@ -175,7 +175,8 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+     "partial_incomplete_corpus",
+     "partial_rule_check_warnings",
+     "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
+-    "partial_qwen_advisory",         # BUG-M-205: Qwen judge flagged critical axes
++    "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
++    "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
+     # abort — pipeline refused to produce a report
+     "abort_scope_rejected",
+     "abort_no_sources",
+@@ -193,7 +194,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     "ok_thin_corpus": "partial_thin_corpus",
+     "ok_incomplete_corpus": "partial_incomplete_corpus",
+     "ok_outline_fallback": "partial_outline_fallback",
+-    "ok_qwen_advisory": "partial_qwen_advisory",
++    "ok_evaluator_advisory": "partial_evaluator_advisory",
++    "ok_qwen_advisory": "partial_qwen_advisory",  # I-modref-004 (#530): legacy alias
+     "warn_rule_checks": "partial_rule_check_warnings",
+     "fail_no_sources": "abort_no_sources",
+     "fail_no_verified_prose": "abort_no_verified_sections",
+@@ -2646,7 +2648,7 @@ async def run_one_query(
+             if not r.passed:
+                 _log(f"                FAIL {r.item_id}: {r.details[:100]}")
+ 
+-        # Qwen judge
++        # Judge
+         jr = None
+         try:
+             jr = await judge_report(
+@@ -2667,7 +2669,7 @@ async def run_one_query(
+                          f"{axis}: {v['note'][:80]}")
+             else:
+                 _log(f"[judge]       PARSE ERROR: {jr.error}")
+-            (run_dir / "qwen_judge_output.json").write_text(
++            (run_dir / "judge_output.json").write_text(
+                 json.dumps({
+                     "model": jr.model, "parse_ok": jr.parse_ok,
+                     "verdicts": jr.verdicts, "raw": jr.raw_response,
+@@ -2685,7 +2687,7 @@ async def run_one_query(
+ 
+         # BUG-M-205: evaluator gate combines deterministic rule failures
+         # (PT08 contradiction disclosure, PT11 uncited numerics, PT12
+-        # invalid citation marker) with Qwen judge verdicts to produce
++        # invalid citation marker) with judge verdicts to produce
+         # a release-gating decision. Abort class blocks success; partial
+         # class prevents clean success but still ships the report.
+         from src.polaris_graph.evaluator.evaluator_gate import (  # noqa: E402
+@@ -2693,7 +2695,7 @@ async def run_one_query(
+         )
+         eval_gate = compute_evaluator_gate(
+             ev_out=ev_out,
+-            qwen_result=jr if (jr and jr.parse_ok) else None,
++            judge_result=jr if (jr and jr.parse_ok) else None,
+             adequacy=adequacy,
+             completeness=completeness,
+         )
+@@ -2713,10 +2715,10 @@ async def run_one_query(
+         elif getattr(multi, "outline_fallback_used", False):
+             # BUG-M-203: planner failed/retry-failed; fallback used.
+             summary_status = "ok_outline_fallback"
+-        elif eval_gate.gate_class == "partial" and eval_gate.qwen_critical_axes:
+-            # BUG-M-205: Qwen flagged critical axes (citation_tightness,
++        elif eval_gate.gate_class == "partial" and eval_gate.judge_critical_axes:
++            # BUG-M-205: judge flagged critical axes (citation_tightness,
+             # or hedging+tone pair, or multi-axis).
+-            summary_status = "ok_qwen_advisory"
++            summary_status = "ok_evaluator_advisory"
+         elif ev_out.rule_check_fail_count >= 3:
+             summary_status = "warn_rule_checks"
+         elif adequacy.decision == "expand":
+@@ -2796,7 +2798,7 @@ async def run_one_query(
+             },
+             "evaluator_rule_pass": ev_out.rule_check_pass_count,
+             "evaluator_rule_fail": ev_out.rule_check_fail_count,
+-            "qwen_verdicts": (
++            "judge_verdicts": (
+                 {v: sum(1 for j in jr.verdicts.values()
+                         if j["verdict"] == v)
+                  for v in ("good", "acceptable", "needs_revision", "unknown")}
+@@ -3241,7 +3243,7 @@ async def main_async() -> int:
+     ]
+     for s in all_summaries:
+         m = s.get("manifest", {})
+-        j = m.get("qwen_verdicts", {})
++        j = m["judge_verdicts"] if "judge_verdicts" in m else m.get("qwen_verdicts", {})
+         jtxt = (
+             f"{j.get('good', 0)}/{j.get('acceptable', 0)}/{j.get('needs_revision', 0)}"
+             if isinstance(j, dict) and "error" not in j else "—"
+diff --git a/scripts/run_live_honest_cycle.py b/scripts/run_live_honest_cycle.py
+index 4f7fa4f6..43215c91 100644
+--- a/scripts/run_live_honest_cycle.py
++++ b/scripts/run_live_honest_cycle.py
+@@ -7,7 +7,7 @@ network calls:
+   - Semantic Scholar (academic search)
+   - OpenAlex (publication type enrichment)
+   - DeepSeek V3.2-Exp via OpenRouter (generator)
+-  - Qwen3-8B via OpenRouter (evaluator judge)
++  - Judge model via OpenRouter (evaluator judge)
+ 
+ The canonical query is the same semaglutide 2.4mg / weight loss /
+ adults with obesity question that PG_LB_SA_02 ran.
+@@ -48,7 +48,7 @@ for noisy in ("httpx", "httpcore"):
+ from src.polaris_graph.evaluator.external_evaluator import (  # noqa: E402
+     run_external_evaluation,
+ )
+-from src.polaris_graph.evaluator.live_qwen_judge import (  # noqa: E402
++from src.polaris_graph.evaluator.live_judge import (  # noqa: E402
+     judge_report,
+ )
+ from src.polaris_graph.generator.live_deepseek_generator import (  # noqa: E402
+@@ -325,7 +325,7 @@ async def main_async() -> int:
+ 
+     # ── Phase 5a: Rule-based evaluator ─────────────────────────────
+     _log("")
+-    _log("[7/7] EVALUATOR — rule checks + Qwen3-8B judge")
++    _log("[7/7] EVALUATOR — rule checks + judge")
+     evaluator_output = run_external_evaluation(
+         report_text=final_report,
+         protocol=protocol_dict,
+@@ -341,9 +341,9 @@ async def main_async() -> int:
+         detail = f" — {r.details[:80]}" if not r.passed and r.details else ""
+         _log(f"         [{mark}] {r.item_id} {r.name}{detail}")
+ 
+-    # ── Phase 5b: Qwen judge (REAL LLM CALL) ─────────────────────────
++    # ── Phase 5b: Judge (REAL LLM CALL) ──────────────────────────────
+     _log("")
+-    _log("       Qwen3-8B live judge call...")
++    _log("       live judge call...")
+     t0 = time.time()
+     try:
+         judge = await judge_report(
+@@ -374,7 +374,7 @@ async def main_async() -> int:
+         encoding="utf-8",
+     )
+     if judge is not None:
+-        (run_dir / "qwen_judge_output.json").write_text(
++        (run_dir / "judge_output.json").write_text(
+             json.dumps(
+                 {
+                     "model": judge.model,
+@@ -459,7 +459,7 @@ async def main_async() -> int:
+     _log(f"  Rule checks:            {evaluator_output.rule_check_pass_count}/12 pass")
+     if judge and judge.parse_ok:
+         v_counts = manifest["evaluator_judge"]["verdicts_counts"]
+-        _log(f"  Qwen judge:             {v_counts}")
++        _log(f"  Judge verdicts:         {v_counts}")
+     _log("")
+     _log(f"  Artifacts in:           {run_dir}")
+     _log("")
+diff --git a/scripts/static/inspector/inspector.js b/scripts/static/inspector/inspector.js
+index b71d50d5..6da3d4bd 100644
+--- a/scripts/static/inspector/inspector.js
++++ b/scripts/static/inspector/inspector.js
+@@ -1219,8 +1219,8 @@
+         ["Release allowed", escHtml(eg.release_allowed)],
+         ["Reasons", (eg.reasons || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
+         ["Rule blockers", (eg.rule_blockers || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
+-        ["Qwen critical axes", (eg.qwen_critical_axes || []).map((a) => `<div>${escHtml(a)}</div>`).join("") || "—"],
+-        ["Qwen parse OK", escHtml(eg.qwen_parse_ok)],
++        ["Judge critical axes", ((eg.judge_critical_axes ?? eg.qwen_critical_axes) || []).map((a) => `<div>${escHtml(a)}</div>`).join("") || "—"],
++        ["Judge parse OK", escHtml(eg.judge_parse_ok ?? eg.qwen_parse_ok)],
+       ];
+       html += renderMethodsKv(rows);
+       html += `</div>`;
+diff --git a/src/polaris_graph/audit_ir/inspector_router.py b/src/polaris_graph/audit_ir/inspector_router.py
+index b14a5c37..9a48ca4c 100644
+--- a/src/polaris_graph/audit_ir/inspector_router.py
++++ b/src/polaris_graph/audit_ir/inspector_router.py
+@@ -665,7 +665,8 @@ async def get_audit_bundle(slug: str):
+     optional_files = [
+         "protocol.json",
+         "evaluator_rule_checks.json",
+-        "qwen_judge_output.json",
++        "judge_output.json",
++        "qwen_judge_output.json",  # I-modref-004 (#530): legacy name — historical runs still surface
+         "completeness.json",
+         "corpus_adequacy.json",
+         "corpus_approval.json",
+diff --git a/src/polaris_graph/audit_ir/loader.py b/src/polaris_graph/audit_ir/loader.py
+index 5add3f93..583f1f81 100644
+--- a/src/polaris_graph/audit_ir/loader.py
++++ b/src/polaris_graph/audit_ir/loader.py
+@@ -230,7 +230,7 @@ class ModelProvenance:
+     Sources:
+       - evaluator_rule_checks.json: generator_family/model, evaluator_family/model,
+         and the per-rule pass/fail audit trail
+-      - qwen_judge_output.json: judge model + parse_ok + I/O token counts
++      - judge_output.json: judge model + parse_ok + I/O token counts
+ 
+     The two-family invariant (generator and evaluator from different lineages)
+     is captured here for Inspector View 4 to surface.
+@@ -342,8 +342,8 @@ class EvaluatorGate:
+     release_allowed: bool
+     reasons: tuple[str, ...]
+     rule_blockers: tuple[str, ...]
+-    qwen_critical_axes: tuple[str, ...]
+-    qwen_parse_ok: bool
++    judge_critical_axes: tuple[str, ...]
++    judge_parse_ok: bool
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -670,16 +670,24 @@ def _parse_evaluator_gate(raw: Any) -> EvaluatorGate:
+             release_allowed=False,
+             reasons=(),
+             rule_blockers=(),
+-            qwen_critical_axes=(),
+-            qwen_parse_ok=False,
++            judge_critical_axes=(),
++            judge_parse_ok=False,
+         )
+     return EvaluatorGate(
+         gate_class=str(raw.get("gate_class", "unknown")),
+         release_allowed=bool(raw.get("release_allowed", False)),
+         reasons=tuple(str(r) for r in raw.get("reasons", [])),
+         rule_blockers=tuple(str(r) for r in raw.get("rule_blockers", [])),
+-        qwen_critical_axes=tuple(str(a) for a in raw.get("qwen_critical_axes", [])),
+-        qwen_parse_ok=bool(raw.get("qwen_parse_ok", False)),
++        judge_critical_axes=tuple(
++            str(a) for a in (
++                raw["judge_critical_axes"] if "judge_critical_axes" in raw
++                else raw.get("qwen_critical_axes", [])  # I-modref-004 (#530) legacy
++            )
++        ),
++        judge_parse_ok=bool(
++            raw["judge_parse_ok"] if "judge_parse_ok" in raw
++            else raw.get("qwen_parse_ok", False)  # I-modref-004 (#530) legacy
++        ),
+     )
+ 
+ 
+@@ -881,7 +889,7 @@ def _parse_rule_check(raw: Mapping[str, Any]) -> RuleCheck:
+ 
+ def _parse_model_provenance(
+     eval_rules_raw: Mapping[str, Any] | None,
+-    qwen_judge_raw: Mapping[str, Any] | None,
++    judge_raw: Mapping[str, Any] | None,
+ ) -> ModelProvenance | None:
+     """Codex M-1 v2 review fix: load model/version provenance from runtime artifacts.
+ 
+@@ -890,11 +898,11 @@ def _parse_model_provenance(
+     provenance silently zero-filling the missing half violates audit-grade
+     discipline (Codex M-1 v3 review edge case).
+     """
+-    if eval_rules_raw is None and qwen_judge_raw is None:
++    if eval_rules_raw is None and judge_raw is None:
+         return None
+-    if eval_rules_raw is None or qwen_judge_raw is None:
+-        present = "evaluator_rule_checks.json" if eval_rules_raw else "qwen_judge_output.json"
+-        missing = "qwen_judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
++    if eval_rules_raw is None or judge_raw is None:
++        present = "evaluator_rule_checks.json" if eval_rules_raw else "judge_output.json"
++        missing = "judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
+         raise AuditIRSchemaError(
+             f"Partial model provenance: {present} present but {missing} missing. "
+             f"Both must be present together or both absent."
+@@ -907,10 +915,10 @@ def _parse_model_provenance(
+         generator_model=str(eval_rules_raw.get("generator_model", "")),
+         evaluator_family=str(eval_rules_raw.get("evaluator_family", "")),
+         evaluator_model=str(eval_rules_raw.get("evaluator_model", "")),
+-        judge_model=str(qwen_judge_raw.get("model", "")),
+-        judge_parse_ok=bool(qwen_judge_raw.get("parse_ok", False)),
+-        judge_input_tokens=int(qwen_judge_raw.get("input_tokens", 0)),
+-        judge_output_tokens=int(qwen_judge_raw.get("output_tokens", 0)),
++        judge_model=str(judge_raw.get("model", "")),
++        judge_parse_ok=bool(judge_raw.get("parse_ok", False)),
++        judge_input_tokens=int(judge_raw.get("input_tokens", 0)),
++        judge_output_tokens=int(judge_raw.get("output_tokens", 0)),
+         contradictions_disclosed=int(eval_rules_raw.get("contradictions_disclosed", 0)),
+         contradictions_missing=tuple(
+             str(c) for c in eval_rules_raw.get("contradictions_missing", [])
+@@ -993,7 +1001,11 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
+ 
+     # Optional provenance files — present in V30 Phase-2 runs, absent in legacy.
+     eval_rules_raw = _read_optional_json(artifact_dir / "evaluator_rule_checks.json")
+-    qwen_judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
++    judge_raw = _read_optional_json(artifact_dir / "judge_output.json")
++    if judge_raw is None:
++        # I-modref-004 (#530): legacy artifact-name fallback — historical
++        # runs wrote qwen_judge_output.json; keep loading them.
++        judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
+     protocol_raw = _read_optional_json(artifact_dir / "protocol.json")
+     corpus_approval_raw = _read_optional_json(artifact_dir / "corpus_approval.json")
+ 
+@@ -1006,7 +1018,7 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
+     )
+     tier_mix = _parse_tier_mix(manifest_raw.get("corpus"))
+     verified_report = _parse_verified_report(verification_raw)
+-    model_provenance = _parse_model_provenance(eval_rules_raw, qwen_judge_raw)
++    model_provenance = _parse_model_provenance(eval_rules_raw, judge_raw)
+     protocol = _parse_protocol(protocol_raw)
+     adequacy = _parse_adequacy(manifest_raw.get("adequacy"))
+     corpus_approval = _parse_corpus_approval(corpus_approval_raw)
+diff --git a/src/polaris_graph/audit_ir/regression_lab.py b/src/polaris_graph/audit_ir/regression_lab.py
+index a5837547..486b2b1a 100644
+--- a/src/polaris_graph/audit_ir/regression_lab.py
++++ b/src/polaris_graph/audit_ir/regression_lab.py
+@@ -594,7 +594,8 @@ _STATUS_TIERS: dict[str, int] = {
+     "partial_incomplete_corpus": 1,
+     "partial_rule_check_warnings": 1,
+     "partial_outline_fallback": 1,
+-    "partial_qwen_advisory": 1,
++    "partial_evaluator_advisory": 1,
++    "partial_qwen_advisory": 1,  # legacy alias (I-modref-004 #530)
+     # abort — pipeline refused to produce a report
+     "abort_scope_rejected": 2,
+     "abort_no_sources": 2,
+diff --git a/src/polaris_graph/audit_ir/v30_runner.py b/src/polaris_graph/audit_ir/v30_runner.py
+index 7ff7a964..a6c88641 100644
+--- a/src/polaris_graph/audit_ir/v30_runner.py
++++ b/src/polaris_graph/audit_ir/v30_runner.py
+@@ -107,7 +107,7 @@ V30_PHASES = (
+     ("generation",         75.0,  "Multi-section generation"),
+     ("v30_phase2",         85.0,  "V30 Phase-2 slot-bound generation"),
+     ("evaluator",          90.0,  "Evaluator rule checks"),
+-    ("judge",              92.0,  "Qwen judge"),
++    ("judge",              92.0,  "Judge verdicts"),
+     ("eval_gate",          94.0,  "Evaluator gate decision"),
+     ("v30_phase1",         97.0,  "V30 Phase-1 frame coverage"),
+     ("cost",               99.0,  "Cost ledger finalized"),
+diff --git a/src/polaris_graph/evaluator/evaluator_gate.py b/src/polaris_graph/evaluator/evaluator_gate.py
+index 9a1fe7fa..5ae502d6 100644
+--- a/src/polaris_graph/evaluator/evaluator_gate.py
++++ b/src/polaris_graph/evaluator/evaluator_gate.py
+@@ -2,8 +2,8 @@
+ Evaluator gate — BUG-M-205 fix (deep-dive R5).
+ 
+ Pre-fix, the orchestrator selected `success` / `partial_*` status from
+-outline + rule_check_fail_count + adequacy + completeness. The Qwen
+-judge's `needs_revision` verdicts were logged but never blocked a
++outline + rule_check_fail_count + adequacy + completeness. The judge's
++`needs_revision` verdicts were logged but never blocked a
+ release. Some deterministic rule failures (PT08 contradiction
+ disclosure, PT11 uncited numeric claims, PT12 invalid citation markers)
+ should also block release but were lumped into a generic
+@@ -14,11 +14,11 @@ decision with stable reason codes:
+   pass                - no blocking issues
+   partial             - report ships but release_allowed=False
+   abort               - release-blocking integrity failure
+-  advisory_unavailable - Qwen parse failed; preserve other status
++  advisory_unavailable - judge parse failed; preserve other status
+ 
+ The orchestrator reads `gate_class` + `reasons` to select manifest
+ status. Two new manifest statuses are added to the taxonomy:
+-  partial_qwen_advisory    - report ships, Qwen flagged critical axes
++  partial_evaluator_advisory    - report ships, judge flagged critical axes
+   abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
+ """
+ from __future__ import annotations
+@@ -45,13 +45,13 @@ COMPLIANCE_BLOCKING_RULES: dict[str, str] = {
+ # release but whose failures should surface in `reasons` so operators
+ # can see them in the manifest without opening evaluator_rule_checks.json.
+ # Prefix is "advisory_" so downstream grep patterns that look for
+-# "rule_*" or "qwen_*" don't accidentally treat these as blocking.
++# "rule_*" or "judge_*" don't accidentally treat these as blocking.
+ ADVISORY_RULES: dict[str, str] = {
+     "PT13": "advisory_pt13_unhedged_superlatives",
+ }
+ 
+-# Qwen axes that are in the high-risk set (evidence-integrity adjacent).
+-HIGH_RISK_QWEN_AXES = frozenset({
++# Judge axes that are in the high-risk set (evidence-integrity adjacent).
++HIGH_RISK_JUDGE_AXES = frozenset({
+     "citation_tightness",
+     "hedging_appropriateness",
+     "completeness",
+@@ -65,30 +65,30 @@ class EvaluatorGateResult:
+     `release_allowed` is the headline: False means the release consumer
+     should NOT treat this run as shippable even if `gate_class=="partial"`.
+     `gate_class` drives manifest status selection. `reasons` is the
+-    stable, greppable identifier list; `qwen_critical_axes` and
++    stable, greppable identifier list; `judge_critical_axes` and
+     `rule_blockers` give more detail.
+     """
+     release_allowed: bool
+     gate_class: str                              # pass | partial | abort | advisory_unavailable
+     reasons: list[str] = field(default_factory=list)
+-    qwen_critical_axes: list[str] = field(default_factory=list)
++    judge_critical_axes: list[str] = field(default_factory=list)
+     rule_blockers: list[str] = field(default_factory=list)
+-    qwen_parse_ok: bool = True
++    judge_parse_ok: bool = True
+ 
+     def to_dict(self) -> dict[str, Any]:
+         return {
+             "release_allowed": self.release_allowed,
+             "gate_class": self.gate_class,
+             "reasons": list(self.reasons),
+-            "qwen_critical_axes": list(self.qwen_critical_axes),
++            "judge_critical_axes": list(self.judge_critical_axes),
+             "rule_blockers": list(self.rule_blockers),
+-            "qwen_parse_ok": self.qwen_parse_ok,
++            "judge_parse_ok": self.judge_parse_ok,
+         }
+ 
+ 
+ def compute_evaluator_gate(
+     ev_out,
+-    qwen_result=None,
++    judge_result=None,
+     adequacy=None,
+     completeness=None,
+ ) -> EvaluatorGateResult:
+@@ -98,22 +98,22 @@ def compute_evaluator_gate(
+         ev_out: an EvaluatorOutput-like object with `rule_checks` list
+             of objects carrying .item_id, .passed, .details.
+             `contradictions_missing` list is consulted for PT08.
+-        qwen_result: optional live_qwen_judge.JudgeResult-like with
++        judge_result: optional live_judge.JudgeResult-like with
+             `parse_ok` bool and `verdicts` dict mapping axis name to
+             {"verdict": "good"|"acceptable"|"needs_revision", "note": str}.
+             None or parse_ok=False → advisory_unavailable contribution.
+         adequacy: corpus_adequacy_gate output (used to interpret
+-            Qwen completeness: if deterministic completeness is already
+-            thin, a solo Qwen completeness flag is more meaningful).
++            judge completeness: if deterministic completeness is already
++            thin, a solo judge completeness flag is more meaningful).
+         completeness: optional; completeness_checker.covered_fraction
+-            informs Qwen completeness severity.
++            informs judge completeness severity.
+ 
+     Returns:
+         EvaluatorGateResult with gate_class, reasons, etc.
+     """
+     reasons: list[str] = []
+     rule_blockers: list[str] = []
+-    qwen_critical_axes: list[str] = []
++    judge_critical_axes: list[str] = []
+ 
+     # ── 1. Deterministic release-blocking rule failures ──
+     # Any PT08/PT11/PT12 failure aborts the release regardless of total.
+@@ -149,60 +149,60 @@ def compute_evaluator_gate(
+             if code not in reasons:
+                 reasons.append(code)
+ 
+-    # ── 2. Qwen verdicts ──
+-    qwen_parse_ok = True
+-    qwen_revision_axes: list[str] = []
+-    if qwen_result is None:
+-        qwen_parse_ok = False
+-        reasons.append("qwen_parse_failed")
+-    elif not getattr(qwen_result, "parse_ok", False):
+-        qwen_parse_ok = False
+-        reasons.append("qwen_parse_failed")
++    # ── 2. Judge verdicts ──
++    judge_parse_ok = True
++    judge_revision_axes: list[str] = []
++    if judge_result is None:
++        judge_parse_ok = False
++        reasons.append("judge_parse_failed")
++    elif not getattr(judge_result, "parse_ok", False):
++        judge_parse_ok = False
++        reasons.append("judge_parse_failed")
+     else:
+-        verdicts = getattr(qwen_result, "verdicts", {}) or {}
++        verdicts = getattr(judge_result, "verdicts", {}) or {}
+         for axis, data in verdicts.items():
+             if not isinstance(data, dict):
+                 continue
+             if data.get("verdict") == "needs_revision":
+-                qwen_revision_axes.append(axis)
++                judge_revision_axes.append(axis)
+ 
+-        # Qwen critical conditions (from R5 findings §3):
+-        needs = set(qwen_revision_axes)
+-        high_risk_hits = needs & HIGH_RISK_QWEN_AXES
++        # Judge critical conditions (from R5 findings §3):
++        needs = set(judge_revision_axes)
++        high_risk_hits = needs & HIGH_RISK_JUDGE_AXES
+         if "citation_tightness" in needs:
+-            qwen_critical_axes.append("citation_tightness")
+-            if "qwen_citation_tightness_needs_revision" not in reasons:
+-                reasons.append("qwen_citation_tightness_needs_revision")
++            judge_critical_axes.append("citation_tightness")
++            if "judge_citation_tightness_needs_revision" not in reasons:
++                reasons.append("judge_citation_tightness_needs_revision")
+         if "hedging_appropriateness" in needs and "tone_consistency" in needs:
+-            if "hedging_appropriateness" not in qwen_critical_axes:
+-                qwen_critical_axes.append("hedging_appropriateness")
+-            if "tone_consistency" not in qwen_critical_axes:
+-                qwen_critical_axes.append("tone_consistency")
+-            if "qwen_hedging_tone_needs_revision" not in reasons:
+-                reasons.append("qwen_hedging_tone_needs_revision")
++            if "hedging_appropriateness" not in judge_critical_axes:
++                judge_critical_axes.append("hedging_appropriateness")
++            if "tone_consistency" not in judge_critical_axes:
++                judge_critical_axes.append("tone_consistency")
++            if "judge_hedging_tone_needs_revision" not in reasons:
++                reasons.append("judge_hedging_tone_needs_revision")
+         if "completeness" in needs:
+             comp_thin = (
+                 completeness is not None
+                 and getattr(completeness, "covered_fraction", 1.0) < 0.5
+             )
+             if comp_thin:
+-                qwen_critical_axes.append("completeness")
+-                if "qwen_completeness_needs_revision" not in reasons:
+-                    reasons.append("qwen_completeness_needs_revision")
++                judge_critical_axes.append("completeness")
++                if "judge_completeness_needs_revision" not in reasons:
++                    reasons.append("judge_completeness_needs_revision")
+         # Aggregate multi-axis anti-noise gate
+         if len(needs) >= 3:
+-            if "qwen_multi_axis_needs_revision" not in reasons:
+-                reasons.append("qwen_multi_axis_needs_revision")
++            if "judge_multi_axis_needs_revision" not in reasons:
++                reasons.append("judge_multi_axis_needs_revision")
+             for axis in needs:
+-                if axis not in qwen_critical_axes:
+-                    qwen_critical_axes.append(axis)
++                if axis not in judge_critical_axes:
++                    judge_critical_axes.append(axis)
+         elif len(needs) >= 2 and high_risk_hits:
+             # 2 axes including at least one high-risk → critical
+-            if "qwen_multi_axis_needs_revision" not in reasons:
+-                reasons.append("qwen_multi_axis_needs_revision")
++            if "judge_multi_axis_needs_revision" not in reasons:
++                reasons.append("judge_multi_axis_needs_revision")
+             for axis in needs:
+-                if axis not in qwen_critical_axes:
+-                    qwen_critical_axes.append(axis)
++                if axis not in judge_critical_axes:
++                    judge_critical_axes.append(axis)
+ 
+     # ── 3. Decide gate_class ──
+     if abort_on_rule:
+@@ -210,12 +210,12 @@ def compute_evaluator_gate(
+             release_allowed=False,
+             gate_class="abort",
+             reasons=reasons,
+-            qwen_critical_axes=qwen_critical_axes,
++            judge_critical_axes=judge_critical_axes,
+             rule_blockers=rule_blockers,
+-            qwen_parse_ok=qwen_parse_ok,
++            judge_parse_ok=judge_parse_ok,
+         )
+ 
+-    if qwen_critical_axes or any(
++    if judge_critical_axes or any(
+         r in reasons for r in (
+             "rule_model_disclosure_missing",
+         )
+@@ -224,27 +224,27 @@ def compute_evaluator_gate(
+             release_allowed=False,
+             gate_class="partial",
+             reasons=reasons,
+-            qwen_critical_axes=qwen_critical_axes,
++            judge_critical_axes=judge_critical_axes,
+             rule_blockers=rule_blockers,
+-            qwen_parse_ok=qwen_parse_ok,
++            judge_parse_ok=judge_parse_ok,
+         )
+ 
+-    if not qwen_parse_ok:
+-        # Qwen unavailable but no rule blockers; preserve other status.
++    if not judge_parse_ok:
++        # Judge unavailable but no rule blockers; preserve other status.
+         return EvaluatorGateResult(
+             release_allowed=True,
+             gate_class="advisory_unavailable",
+             reasons=reasons,
+-            qwen_critical_axes=qwen_critical_axes,
++            judge_critical_axes=judge_critical_axes,
+             rule_blockers=rule_blockers,
+-            qwen_parse_ok=False,
++            judge_parse_ok=False,
+         )
+ 
+     return EvaluatorGateResult(
+         release_allowed=True,
+         gate_class="pass",
+         reasons=reasons,
+-        qwen_critical_axes=qwen_critical_axes,
++        judge_critical_axes=judge_critical_axes,
+         rule_blockers=rule_blockers,
+-        qwen_parse_ok=qwen_parse_ok,
++        judge_parse_ok=judge_parse_ok,
+     )
+diff --git a/src/polaris_graph/evaluator/live_qwen_judge.py b/src/polaris_graph/evaluator/live_judge.py
+similarity index 95%
+rename from src/polaris_graph/evaluator/live_qwen_judge.py
+rename to src/polaris_graph/evaluator/live_judge.py
+index b692106b..2ba30bd2 100644
+--- a/src/polaris_graph/evaluator/live_qwen_judge.py
++++ b/src/polaris_graph/evaluator/live_judge.py
+@@ -7,8 +7,8 @@ Phase 1c) to produce per-axis structured verdicts on a completed
+ report. Module name retained for backward compat; the actual model is
+ read from PG_EVALUATOR_MODEL at runtime.
+ 
+-This is the NON-SAME-FAMILY judge: generator is DeepSeek V3.2-Exp,
+-judge is Qwen3-8B. `check_family_segregation()` must succeed before
++This is the NON-SAME-FAMILY judge: generator is DeepSeek V4 Pro,
++judge is Gemma 4 31B. `check_family_segregation()` must succeed before
+ this is called.
+ 
+ DESIGN
+@@ -33,7 +33,7 @@ import re
+ from dataclasses import dataclass
+ from typing import Any, Optional
+ 
+-logger = logging.getLogger("polaris_graph.live_qwen_judge")
++logger = logging.getLogger("polaris_graph.live_judge")
+ 
+ 
+ SYSTEM_PROMPT = """You are a quality auditor for research summaries. You grade along distinct axes, you do NOT produce a single score.
+@@ -123,7 +123,7 @@ async def judge_report(
+     max_tokens: int = 800,
+     temperature: float = 0.2,
+ ) -> LiveJudgeResult:
+-    """Call Qwen3-8B via OpenRouter for a structured per-axis verdict.
++    """Call the evaluator model via OpenRouter for a structured per-axis verdict.
+ 
+     check_family_segregation() is run BEFORE the call. If the configured
+     generator/evaluator pair is same-family, this raises RuntimeError.
+@@ -145,7 +145,7 @@ async def judge_report(
+         f"Return the JSON object as specified in the system prompt."
+     )
+ 
+-    logger.info("[live_qwen_judge] calling %s, report_chars=%d",
++    logger.info("[live_judge] calling %s, report_chars=%d",
+                 eval_model, len(report_text))
+ 
+     try:
+diff --git a/src/polaris_v6/api/bundle.py b/src/polaris_v6/api/bundle.py
+index 543d721b..6b63b38c 100644
+--- a/src/polaris_v6/api/bundle.py
++++ b/src/polaris_v6/api/bundle.py
+@@ -112,7 +112,7 @@ def get_run_bundle_targz(
+ 
+     # I-arch-001d Codex diff iter-2 P1-002 fix: release_allowed gate.
+     # The slice-chain pipeline_verdict collapses partial_* into "success",
+-    # but a release-blocked partial (e.g. partial_qwen_advisory with
++    # but a release-blocked partial (e.g. partial_evaluator_advisory with
+     # release_allowed=false) MUST NOT ship as a clean bundle. Read the raw
+     # manifest.release_allowed flag and refuse with 422 when False.
+     try:
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index ab5d5e1a..90ff9154 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -22,7 +22,8 @@ LifecycleStatus = Literal[
+ PipelineStatus = Literal[
+     "success",
+     "partial_outline_fallback",
+-    "partial_qwen_advisory",
++    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
++    "partial_evaluator_advisory",
+     "partial_thin_corpus",
+     "partial_incomplete_corpus",
+     "partial_rule_check_warnings",
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 2d0ef49f..aa885465 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -186,3 +186,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 P2 (SCOPE consumer list omits src/agents/base_agent.py:129 transitive reader of global_config.models.llm; codex_diff.patch generated post-commit-2 so absent at review time — both non-blocking, comment-only diff). convergence_call accept_remaining. remaining_blockers none. tokens 74690. Shipped on iter-1 APPROVE.
++
++## I-modref-004 (#530) — Class B rename: qwen_* identifiers + live_qwen_judge module + qwen_judge_output artifact
++
++### Brief review
++- iter 1: REQUEST_CHANGES — 3 P1 (missed serialized fields qwen_verdicts/qwen_judge; dual-read missed 2 reader scripts; false "gitignored" premise — 206 tracked outputs/honest_* files).
++- iter 2: REQUEST_CHANGES — 1 NOVEL P1 (ok_qwen_advisory — a second qwen-tainted serialized status) + P2s (_QwenShim class; 7 stale doc/config sites; presence-based field fallback).
++- iter 3: APPROVE — 0 P0, 0 P1, 3 P2 (P2-doc-sweep README/architecture refs — addressed in impl; P2-historical-exclusion outputs/sweep_r3_final etc; P2-operator-prose runner logs — addressed in impl). convergence_call accept_remaining. tokens 206241. P1 trajectory 3 -> 1 -> 0.
++
++### Diff review
++- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 2 P2 (live_judge.py:5-7 docstring still names Qwen3-8B + "retained for backcompat"; architecture.md:320 + pipeline_audit_context/02_prompt_templates.md:142-144 still describe judge as Qwen3-8B — both non-execution doc residue). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 286428. Shipped on iter-1 APPROVE; 2 P2 doc-residue captured as follow-up.
+diff --git a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json b/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json
+index c78514dd..6efcd3d4 100644
+--- a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json
++++ b/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/manifest.json
+@@ -34,17 +34,17 @@
+   "domain": "clinical",
+   "evaluator_gate": {
+     "gate_class": "partial",
+-    "qwen_critical_axes": [
++    "judge_critical_axes": [
+       "citation_tightness",
+       "hedging_appropriateness",
+       "tone_consistency",
+       "completeness"
+     ],
+-    "qwen_parse_ok": true,
++    "judge_parse_ok": true,
+     "reasons": [
+-      "qwen_citation_tightness_needs_revision",
+-      "qwen_hedging_tone_needs_revision",
+-      "qwen_multi_axis_needs_revision"
++      "judge_citation_tightness_needs_revision",
++      "judge_hedging_tone_needs_revision",
++      "judge_multi_axis_needs_revision"
+     ],
+     "release_allowed": false,
+     "rule_blockers": []
+@@ -848,7 +848,7 @@
+   },
+   "protocol_sha256": "fc70d24facd8e99289c24e1b8d615eb15f8822ee48810d27862b2df5015af462",
+   "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+-  "qwen_verdicts": {
++  "judge_verdicts": {
+     "acceptable": 0,
+     "good": 1,
+     "needs_revision": 4,
+@@ -871,7 +871,7 @@
+   },
+   "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1777530575",
+   "slug": "clinical_tirzepatide_t2dm",
+-  "status": "partial_qwen_advisory",
++  "status": "partial_evaluator_advisory",
+   "v30_enabled": true,
+   "v30_warnings": [
+     "phase1_retrieval_coverage_only: Phase-1 V30 manifest.frame_coverage_report reflects retrieval success only, NOT whether the legacy generator cited each entity in the verified report. Phase-2 (M-58 slot-bound generator integration) will populate the same key with true report-coverage semantics. See manifest.frame_coverage_report.entries[*].status = 'pass' only confirms M-56 fetched the entity."
+diff --git a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/model_pin.json b/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/model_pin.json
+index 019457bd..234c3228 100644
+--- a/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/model_pin.json
++++ b/tests/fixtures/m_live_4_baseline/clinical/clinical_tirzepatide_t2dm/model_pin.json
+@@ -56,7 +56,7 @@
+   "llm_providers": {
+     "generator": "openrouter"
+   },
+-  "notes": "sweep clinical/clinical_tirzepatide_t2dm status=ok_qwen_advisory",
++  "notes": "sweep clinical/clinical_tirzepatide_t2dm status=ok_evaluator_advisory",
+   "pin_schema_version": "v4",
+   "prompt_version_hashes": {},
+   "retrieval_source_versions": {},
+diff --git a/tests/polaris_graph/test_audit_ir_loader.py b/tests/polaris_graph/test_audit_ir_loader.py
+index fa4ce103..f2b2f4f7 100644
+--- a/tests/polaris_graph/test_audit_ir_loader.py
++++ b/tests/polaris_graph/test_audit_ir_loader.py
+@@ -104,7 +104,7 @@ def test_evaluator_gate_is_rich_object(ir: AuditIR) -> None:
+     assert len(gate.reasons) >= 1
+     assert "advisory_pt13_unhedged_superlatives" in gate.reasons
+     assert isinstance(gate.rule_blockers, tuple)
+-    assert isinstance(gate.qwen_critical_axes, tuple)
++    assert isinstance(gate.judge_critical_axes, tuple)
+ 
+ 
+ def test_v30_warnings_preserved(ir: AuditIR) -> None:
+@@ -572,7 +572,7 @@ def test_protocol_expected_tier_distribution(ir: AuditIR) -> None:
+ def test_model_provenance_optional_for_legacy_runs(tmp_path: Path) -> None:
+     """Loader must not require model-provenance files (some legacy runs lack them)."""
+     run = _scaffold_minimal_run(tmp_path)
+-    # No evaluator_rule_checks.json or qwen_judge_output.json or protocol.json
++    # No evaluator_rule_checks.json or judge_output.json or protocol.json
+     ir = load_audit_ir(run)
+     assert ir.model_provenance is None
+     assert ir.protocol is None
+@@ -586,13 +586,15 @@ def test_partial_model_provenance_fails_loud(tmp_path: Path) -> None:
+         json.dumps({"generator_family": "x", "generator_model": "y"}),
+         encoding="utf-8",
+     )
+-    # qwen_judge_output.json deliberately absent
++    # judge_output.json (and legacy qwen_judge_output.json) deliberately absent
+     with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
+         load_audit_ir(run)
+ 
+ 
+ def test_partial_model_provenance_fails_loud_other_direction(tmp_path: Path) -> None:
+     run = _scaffold_minimal_run(tmp_path)
++    # I-modref-004 (#530): legacy artifact filename — the loader's
++    # dual-read filename fallback must still pick it up.
+     (run / "qwen_judge_output.json").write_text(
+         json.dumps({"model": "x", "parse_ok": True}),
+         encoding="utf-8",
+@@ -600,3 +602,16 @@ def test_partial_model_provenance_fails_loud_other_direction(tmp_path: Path) ->
+     # evaluator_rule_checks.json deliberately absent
+     with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
+         load_audit_ir(run)
++
++
++def test_partial_model_provenance_fails_loud_new_filename(tmp_path: Path) -> None:
++    """I-modref-004 (#530): the loader reads the new judge_output.json
++    primary filename; a partial-provenance run still fails loud."""
++    run = _scaffold_minimal_run(tmp_path)
++    (run / "judge_output.json").write_text(
++        json.dumps({"model": "x", "parse_ok": True}),
++        encoding="utf-8",
++    )
++    # evaluator_rule_checks.json deliberately absent
++    with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
++        load_audit_ir(run)
+diff --git a/tests/polaris_graph/test_citation_health.py b/tests/polaris_graph/test_citation_health.py
+index adbe3360..c5e25e28 100644
+--- a/tests/polaris_graph/test_citation_health.py
++++ b/tests/polaris_graph/test_citation_health.py
+@@ -72,7 +72,7 @@ def _make_minimal_ir(
+     )
+     eg = EvaluatorGate(
+         gate_class="pass", release_allowed=True, reasons=(),
+-        rule_blockers=(), qwen_critical_axes=(), qwen_parse_ok=True,
++        rule_blockers=(), judge_critical_axes=(), judge_parse_ok=True,
+     )
+     manifest = RunManifest(
+         run_id=run_id, slug=slug, status="success", question="q",
+diff --git a/tests/polaris_graph/test_m205_evaluator_gate.py b/tests/polaris_graph/test_m205_evaluator_gate.py
+index 7f566484..e64e50f1 100644
+--- a/tests/polaris_graph/test_m205_evaluator_gate.py
++++ b/tests/polaris_graph/test_m205_evaluator_gate.py
+@@ -1,7 +1,7 @@
+ """
+ BUG-M-205 regression tests: evaluator gate.
+ 
+-Pre-fix, the Qwen judge saw only report text and its needs_revision
++Pre-fix, the judge saw only report text and its needs_revision
+ verdicts didn't block success. Deterministic rule failures (PT08/11/12)
+ were lumped into generic rule-check counts without triggering release
+ refusal.
+@@ -9,7 +9,7 @@ refusal.
+ Post-fix (deep-dive R5), `compute_evaluator_gate()` produces a
+ structured decision with reason codes. Abort-class blocks success;
+ partial-class prevents clean success; advisory_unavailable preserves
+-other status when Qwen parse fails.
++other status when judge parse fails.
+ """
+ from __future__ import annotations
+ 
+@@ -19,7 +19,7 @@ import pytest
+ 
+ from src.polaris_graph.evaluator.evaluator_gate import (
+     EvaluatorGateResult,
+-    HIGH_RISK_QWEN_AXES,
++    HIGH_RISK_JUDGE_AXES,
+     compute_evaluator_gate,
+ )
+ 
+@@ -61,12 +61,12 @@ def test_m205_evaluator_gate_blocks_pt12_invalid_citations() -> None:
+     ev_out = _FakeEvaluatorOutput(
+         rule_checks=[_FakeRuleCheck("PT12", False, "citation marker exceeds biblio")],
+     )
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         axis: _verdict("good") for axis in
+         ("citation_tightness", "hedging_appropriateness", "tone_consistency",
+          "flow", "completeness")
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "abort"
+     assert gate.release_allowed is False
+     assert "rule_pt12_invalid_citation_marker" in gate.reasons
+@@ -82,99 +82,99 @@ def test_m205_evaluator_gate_blocks_missing_contradiction_disclosure() -> None:
+         rule_checks=[],
+         contradictions_missing=["semaglutide / weight_loss_pct"],
+     )
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         "citation_tightness": _verdict("good"),
+         "hedging_appropriateness": _verdict("good"),
+         "tone_consistency": _verdict("good"),
+         "flow": _verdict("good"),
+         "completeness": _verdict("good"),
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "abort"
+     assert "rule_pt08_contradiction_missing" in gate.reasons
+     assert "PT08" in gate.rule_blockers
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────
+-# 3. Single Qwen flow:needs_revision → advisory, release allowed
++# 3. Single judge flow:needs_revision → advisory, release allowed
+ # ─────────────────────────────────────────────────────────────────
+ 
+-def test_m205_single_qwen_flow_revision_is_advisory() -> None:
++def test_m205_single_judge_flow_revision_is_advisory() -> None:
+     ev_out = _FakeEvaluatorOutput(rule_checks=[])
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         "citation_tightness": _verdict("good"),
+         "hedging_appropriateness": _verdict("good"),
+         "tone_consistency": _verdict("good"),
+         "flow": _verdict("needs_revision"),  # advisory only
+         "completeness": _verdict("good"),
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "pass"
+     assert gate.release_allowed is True
+-    # flow is not in qwen_critical_axes
+-    assert "flow" not in gate.qwen_critical_axes
++    # flow is not in judge_critical_axes
++    assert "flow" not in gate.judge_critical_axes
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────
+-# 4. Single Qwen citation_tightness:needs_revision → partial, block success
++# 4. Single judge citation_tightness:needs_revision → partial, block success
+ # ─────────────────────────────────────────────────────────────────
+ 
+-def test_m205_single_qwen_citation_revision_prevents_success() -> None:
++def test_m205_single_judge_citation_revision_prevents_success() -> None:
+     ev_out = _FakeEvaluatorOutput(rule_checks=[])
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         "citation_tightness": _verdict("needs_revision"),  # critical axis
+         "hedging_appropriateness": _verdict("good"),
+         "tone_consistency": _verdict("good"),
+         "flow": _verdict("good"),
+         "completeness": _verdict("good"),
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "partial"
+     assert gate.release_allowed is False
+-    assert "citation_tightness" in gate.qwen_critical_axes
+-    assert "qwen_citation_tightness_needs_revision" in gate.reasons
++    assert "citation_tightness" in gate.judge_critical_axes
++    assert "judge_citation_tightness_needs_revision" in gate.reasons
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────
+-# 5. Three Qwen axes needs_revision → partial (multi-axis anti-noise gate)
++# 5. Three judge axes needs_revision → partial (multi-axis anti-noise gate)
+ # ─────────────────────────────────────────────────────────────────
+ 
+-def test_m205_three_qwen_axes_needs_revision_is_partial_gate() -> None:
++def test_m205_three_judge_axes_needs_revision_is_partial_gate() -> None:
+     ev_out = _FakeEvaluatorOutput(rule_checks=[])
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         "citation_tightness": _verdict("good"),
+         "hedging_appropriateness": _verdict("needs_revision"),
+         "tone_consistency": _verdict("needs_revision"),
+         "flow": _verdict("needs_revision"),
+         "completeness": _verdict("good"),
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "partial"
+     assert gate.release_allowed is False
+-    assert "qwen_multi_axis_needs_revision" in gate.reasons
++    assert "judge_multi_axis_needs_revision" in gate.reasons
+     # The hedging+tone pair is ALSO detected as critical
+-    assert "qwen_hedging_tone_needs_revision" in gate.reasons
++    assert "judge_hedging_tone_needs_revision" in gate.reasons
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────
+-# 6. Qwen parse failure → advisory_unavailable, doesn't force abort
++# 6. Judge parse failure → advisory_unavailable, doesn't force abort
+ # ─────────────────────────────────────────────────────────────────
+ 
+-def test_m205_qwen_parse_failure_does_not_mask_success_as_abort() -> None:
++def test_m205_judge_parse_failure_does_not_mask_success_as_abort() -> None:
+     ev_out = _FakeEvaluatorOutput(rule_checks=[])
+-    qwen = _FakeJudgeResult(parse_ok=False, verdicts={})
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    judge = _FakeJudgeResult(parse_ok=False, verdicts={})
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "advisory_unavailable"
+     assert gate.release_allowed is True  # no rule blockers; preserve other status
+-    assert "qwen_parse_failed" in gate.reasons
++    assert "judge_parse_failed" in gate.reasons
+ 
+ 
+-def test_m205_qwen_none_treated_as_parse_failure() -> None:
+-    """Pipeline can pass qwen_result=None when the judge call failed."""
++def test_m205_judge_none_treated_as_parse_failure() -> None:
++    """Pipeline can pass judge_result=None when the judge call failed."""
+     ev_out = _FakeEvaluatorOutput(rule_checks=[])
+-    gate = compute_evaluator_gate(ev_out, qwen_result=None)
++    gate = compute_evaluator_gate(ev_out, judge_result=None)
+     assert gate.gate_class == "advisory_unavailable"
+-    assert "qwen_parse_failed" in gate.reasons
++    assert "judge_parse_failed" in gate.reasons
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────
+@@ -189,12 +189,12 @@ def test_m3_pt13_failure_surfaces_in_reasons_without_gating() -> None:
+     ev_out = _FakeEvaluatorOutput(
+         rule_checks=[_FakeRuleCheck("PT13", False, "3 unhedged superlatives")],
+     )
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         axis: _verdict("good") for axis in
+         ("citation_tightness", "hedging_appropriateness", "tone_consistency",
+          "flow", "completeness")
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "pass"
+     assert gate.release_allowed is True
+     assert "advisory_pt13_unhedged_superlatives" in gate.reasons
+@@ -207,12 +207,12 @@ def test_m3_pt13_passing_does_not_emit_advisory_reason() -> None:
+     ev_out = _FakeEvaluatorOutput(
+         rule_checks=[_FakeRuleCheck("PT13", True, "")],
+     )
+-    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
++    judge = _FakeJudgeResult(parse_ok=True, verdicts={
+         axis: _verdict("good") for axis in
+         ("citation_tightness", "hedging_appropriateness", "tone_consistency",
+          "flow", "completeness")
+     })
+-    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
++    gate = compute_evaluator_gate(ev_out, judge_result=judge)
+     assert gate.gate_class == "pass"
+     assert "advisory_pt13_unhedged_superlatives" not in gate.reasons
+ 
+@@ -223,12 +223,19 @@ def test_m3_pt13_passing_does_not_emit_advisory_reason() -> None:
+ 
+ def test_m205_new_statuses_in_taxonomy() -> None:
+     from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES
++    # I-modref-004 (#530): primary status is the model-neutral name;
++    # the legacy qwen alias stays in the taxonomy so historical
++    # manifests still validate.
++    assert "partial_evaluator_advisory" in UNIFIED_STATUS_VALUES
+     assert "partial_qwen_advisory" in UNIFIED_STATUS_VALUES
+     assert "abort_evaluator_critical" in UNIFIED_STATUS_VALUES
+ 
+ 
+ def test_m205_summary_labels_map_to_new_statuses() -> None:
+     from scripts.run_honest_sweep_r3 import to_unified_status
++    # I-modref-004 (#530): the primary summary label maps to the
++    # model-neutral unified status; the legacy label still resolves.
++    assert to_unified_status("ok_evaluator_advisory") == "partial_evaluator_advisory"
+     assert to_unified_status("ok_qwen_advisory") == "partial_qwen_advisory"
+     assert to_unified_status("abort_evaluator_critical") == "abort_evaluator_critical"
+ 
+@@ -246,4 +253,4 @@ def test_m205_orchestrator_calls_compute_evaluator_gate() -> None:
+         "orchestrator must branch on eval_gate.gate_class for abort"
+     )
+     assert '"abort_evaluator_critical"' in source
+-    assert '"ok_qwen_advisory"' in source
++    assert '"ok_evaluator_advisory"' in source
+diff --git a/tests/polaris_graph/test_m_int_8_slide_deck_endpoint.py b/tests/polaris_graph/test_m_int_8_slide_deck_endpoint.py
+index fcc7ac46..25ba0dcb 100644
+--- a/tests/polaris_graph/test_m_int_8_slide_deck_endpoint.py
++++ b/tests/polaris_graph/test_m_int_8_slide_deck_endpoint.py
+@@ -174,8 +174,8 @@ def _build_minimal_audit_ir():
+         contradictions_found=0, completeness_percent=0.0,
+         evaluator_gate=EvaluatorGate(
+             gate_class="pass", release_allowed=True, reasons=(),
+-            rule_blockers=(), qwen_critical_axes=(),
+-            qwen_parse_ok=True,
++            rule_blockers=(), judge_critical_axes=(),
++            judge_parse_ok=True,
+         ),
+         release_allowed=True, v30_enabled=True, v30_warnings=(),
+         retrieval_stats=None,
+diff --git a/tests/polaris_graph/test_manifest_contract.py b/tests/polaris_graph/test_manifest_contract.py
+index c4d988fa..3e32ea37 100644
+--- a/tests/polaris_graph/test_manifest_contract.py
++++ b/tests/polaris_graph/test_manifest_contract.py
+@@ -39,7 +39,8 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
+         "partial_incomplete_corpus",
+         "partial_rule_check_warnings",
+         "partial_outline_fallback",    # added by BUG-M-203 (R4)
+-        "partial_qwen_advisory",       # added by BUG-M-205 (R5)
++        "partial_evaluator_advisory",  # added by BUG-M-205 (R5)
++        "partial_qwen_advisory",       # I-modref-004 (#530): legacy alias
+         "abort_scope_rejected",
+         "abort_no_sources",
+         "abort_corpus_inadequate",
+diff --git a/tests/polaris_graph/test_regression_alerts.py b/tests/polaris_graph/test_regression_alerts.py
+index 71e3b193..be81d725 100644
+--- a/tests/polaris_graph/test_regression_alerts.py
++++ b/tests/polaris_graph/test_regression_alerts.py
+@@ -76,8 +76,8 @@ def _make_ir(
+     )
+     eg = EvaluatorGate(
+         gate_class=gate_class, release_allowed=release_allowed,
+-        reasons=(), rule_blockers=(), qwen_critical_axes=(),
+-        qwen_parse_ok=True,
++        reasons=(), rule_blockers=(), judge_critical_axes=(),
++        judge_parse_ok=True,
+     )
+     manifest = RunManifest(
+         run_id=run_id, slug=slug, status="success", question="q",
+diff --git a/tests/polaris_graph/test_run_diff.py b/tests/polaris_graph/test_run_diff.py
+index 27f61150..46c01031 100644
+--- a/tests/polaris_graph/test_run_diff.py
++++ b/tests/polaris_graph/test_run_diff.py
+@@ -124,8 +124,8 @@ def _make_minimal_ir(
+         release_allowed=True,
+         reasons=(),
+         rule_blockers=(),
+-        qwen_critical_axes=(),
+-        qwen_parse_ok=True,
++        judge_critical_axes=(),
++        judge_parse_ok=True,
+     )
+     manifest = RunManifest(
+         run_id=run_id,
+diff --git a/tests/polaris_graph/test_slide_deck.py b/tests/polaris_graph/test_slide_deck.py
+index e133393c..008eecd7 100644
+--- a/tests/polaris_graph/test_slide_deck.py
++++ b/tests/polaris_graph/test_slide_deck.py
+@@ -101,7 +101,7 @@ def _make_ir(
+     )
+     eg = EvaluatorGate(
+         gate_class="pass", release_allowed=True, reasons=(),
+-        rule_blockers=(), qwen_critical_axes=(), qwen_parse_ok=True,
++        rule_blockers=(), judge_critical_axes=(), judge_parse_ok=True,
+     )
+     manifest = RunManifest(
+         run_id="run_test_1", slug="x_drug_y", status="success",
+diff --git a/tests/polaris_v6/api/test_artifact_to_slice_chain.py b/tests/polaris_v6/api/test_artifact_to_slice_chain.py
+index 9723f5ff..8e65c259 100644
+--- a/tests/polaris_v6/api/test_artifact_to_slice_chain.py
++++ b/tests/polaris_v6/api/test_artifact_to_slice_chain.py
+@@ -63,8 +63,8 @@ def _write_synthetic_artifact_dir(
+             "release_allowed": True,
+             "reasons": [],
+             "rule_blockers": [],
+-            "qwen_critical_axes": [],
+-            "qwen_parse_ok": True,
++            "judge_critical_axes": [],
++            "judge_parse_ok": True,
+         },
+         "completeness": {"percent": 100.0, "covered": 1, "total": 1},
+         "cost_usd": cost_usd,
+# canonical-diff-sha256: 2b71d43c74884e72870b3a8802669045d374aaf7a4eed82e7f1f3dc86659a2e0

@@ -1219,8 +1219,8 @@
         ["Release allowed", escHtml(eg.release_allowed)],
         ["Reasons", (eg.reasons || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
         ["Rule blockers", (eg.rule_blockers || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
-        ["Qwen critical axes", (eg.qwen_critical_axes || []).map((a) => `<div>${escHtml(a)}</div>`).join("") || "—"],
-        ["Qwen parse OK", escHtml(eg.qwen_parse_ok)],
+        ["Judge critical axes", ((eg.judge_critical_axes ?? eg.qwen_critical_axes) || []).map((a) => `<div>${escHtml(a)}</div>`).join("") || "—"],
+        ["Judge parse OK", escHtml(eg.judge_parse_ok ?? eg.qwen_parse_ok)],
       ];
       html += renderMethodsKv(rows);
       html += `</div>`;

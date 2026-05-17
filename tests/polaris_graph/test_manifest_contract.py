@@ -39,7 +39,8 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "partial_incomplete_corpus",
         "partial_rule_check_warnings",
         "partial_outline_fallback",    # added by BUG-M-203 (R4)
-        "partial_qwen_advisory",       # added by BUG-M-205 (R5)
+        "partial_evaluator_advisory",  # added by BUG-M-205 (R5)
+        "partial_qwen_advisory",       # I-modref-004 (#530): legacy alias
         "abort_scope_rejected",
         "abort_no_sources",
         "abort_corpus_inadequate",

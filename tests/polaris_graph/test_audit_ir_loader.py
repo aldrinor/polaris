@@ -104,7 +104,7 @@ def test_evaluator_gate_is_rich_object(ir: AuditIR) -> None:
     assert len(gate.reasons) >= 1
     assert "advisory_pt13_unhedged_superlatives" in gate.reasons
     assert isinstance(gate.rule_blockers, tuple)
-    assert isinstance(gate.qwen_critical_axes, tuple)
+    assert isinstance(gate.judge_critical_axes, tuple)
 
 
 def test_v30_warnings_preserved(ir: AuditIR) -> None:
@@ -572,7 +572,7 @@ def test_protocol_expected_tier_distribution(ir: AuditIR) -> None:
 def test_model_provenance_optional_for_legacy_runs(tmp_path: Path) -> None:
     """Loader must not require model-provenance files (some legacy runs lack them)."""
     run = _scaffold_minimal_run(tmp_path)
-    # No evaluator_rule_checks.json or qwen_judge_output.json or protocol.json
+    # No evaluator_rule_checks.json or judge_output.json or protocol.json
     ir = load_audit_ir(run)
     assert ir.model_provenance is None
     assert ir.protocol is None
@@ -586,14 +586,29 @@ def test_partial_model_provenance_fails_loud(tmp_path: Path) -> None:
         json.dumps({"generator_family": "x", "generator_model": "y"}),
         encoding="utf-8",
     )
-    # qwen_judge_output.json deliberately absent
+    # judge_output.json (and legacy qwen_judge_output.json) deliberately absent
     with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
         load_audit_ir(run)
 
 
 def test_partial_model_provenance_fails_loud_other_direction(tmp_path: Path) -> None:
     run = _scaffold_minimal_run(tmp_path)
+    # I-modref-004 (#530): legacy artifact filename — the loader's
+    # dual-read filename fallback must still pick it up.
     (run / "qwen_judge_output.json").write_text(
+        json.dumps({"model": "x", "parse_ok": True}),
+        encoding="utf-8",
+    )
+    # evaluator_rule_checks.json deliberately absent
+    with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
+        load_audit_ir(run)
+
+
+def test_partial_model_provenance_fails_loud_new_filename(tmp_path: Path) -> None:
+    """I-modref-004 (#530): the loader reads the new judge_output.json
+    primary filename; a partial-provenance run still fails loud."""
+    run = _scaffold_minimal_run(tmp_path)
+    (run / "judge_output.json").write_text(
         json.dumps({"model": "x", "parse_ok": True}),
         encoding="utf-8",
     )

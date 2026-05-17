@@ -103,7 +103,10 @@ def main() -> int:
 
     with (live_dir / "manifest.json").open(encoding="utf-8") as f:
         live_manifest = json.load(f)
-    with (live_dir / "qwen_judge_output.json").open(encoding="utf-8") as f:
+    _judge_artifact = live_dir / "judge_output.json"
+    if not _judge_artifact.exists():
+        _judge_artifact = live_dir / "qwen_judge_output.json"  # I-modref-004 (#530) legacy
+    with _judge_artifact.open(encoding="utf-8") as f:
         judge = json.load(f)
     with (live_dir / "evaluator_rule_checks.json").open(encoding="utf-8") as f:
         rule_checks = json.load(f)
@@ -226,7 +229,7 @@ def main() -> int:
         if not r.get("passed"):
             lines.append(f"  - FAIL {r['item_id']} — {r.get('details', '')[:150]}")
     lines.append("")
-    lines.append(f"- Qwen3-8B non-same-family judge (model={judge.get('model')}, "
+    lines.append(f"- Non-same-family judge (model={judge.get('model')}, "
                  f"parse_ok={judge.get('parse_ok')}):")
     if judge.get("parse_ok"):
         for axis, v in judge.get("verdicts", {}).items():
@@ -277,7 +280,7 @@ def main() -> int:
             f"or commentary — all mis-labeled GOLD in the pre-rebuild schema."
         )
     lines.append("")
-    lines.append("3. A non-same-family Qwen3-8B evaluator produced **specific "
+    lines.append("3. A non-same-family judge produced **specific "
                  "per-axis verdicts with notes**. Two axes flagged "
                  "`needs_revision` with actionable feedback. This replaces "
                  "the pre-rebuild's single self-graded 90.8% number.")

@@ -230,7 +230,7 @@ class ModelProvenance:
     Sources:
       - evaluator_rule_checks.json: generator_family/model, evaluator_family/model,
         and the per-rule pass/fail audit trail
-      - qwen_judge_output.json: judge model + parse_ok + I/O token counts
+      - judge_output.json: judge model + parse_ok + I/O token counts
 
     The two-family invariant (generator and evaluator from different lineages)
     is captured here for Inspector View 4 to surface.
@@ -342,8 +342,8 @@ class EvaluatorGate:
     release_allowed: bool
     reasons: tuple[str, ...]
     rule_blockers: tuple[str, ...]
-    qwen_critical_axes: tuple[str, ...]
-    qwen_parse_ok: bool
+    judge_critical_axes: tuple[str, ...]
+    judge_parse_ok: bool
 
 
 # ---------------------------------------------------------------------------
@@ -670,16 +670,24 @@ def _parse_evaluator_gate(raw: Any) -> EvaluatorGate:
             release_allowed=False,
             reasons=(),
             rule_blockers=(),
-            qwen_critical_axes=(),
-            qwen_parse_ok=False,
+            judge_critical_axes=(),
+            judge_parse_ok=False,
         )
     return EvaluatorGate(
         gate_class=str(raw.get("gate_class", "unknown")),
         release_allowed=bool(raw.get("release_allowed", False)),
         reasons=tuple(str(r) for r in raw.get("reasons", [])),
         rule_blockers=tuple(str(r) for r in raw.get("rule_blockers", [])),
-        qwen_critical_axes=tuple(str(a) for a in raw.get("qwen_critical_axes", [])),
-        qwen_parse_ok=bool(raw.get("qwen_parse_ok", False)),
+        judge_critical_axes=tuple(
+            str(a) for a in (
+                raw["judge_critical_axes"] if "judge_critical_axes" in raw
+                else raw.get("qwen_critical_axes", [])  # I-modref-004 (#530) legacy
+            )
+        ),
+        judge_parse_ok=bool(
+            raw["judge_parse_ok"] if "judge_parse_ok" in raw
+            else raw.get("qwen_parse_ok", False)  # I-modref-004 (#530) legacy
+        ),
     )
 
 
@@ -881,7 +889,7 @@ def _parse_rule_check(raw: Mapping[str, Any]) -> RuleCheck:
 
 def _parse_model_provenance(
     eval_rules_raw: Mapping[str, Any] | None,
-    qwen_judge_raw: Mapping[str, Any] | None,
+    judge_raw: Mapping[str, Any] | None,
 ) -> ModelProvenance | None:
     """Codex M-1 v2 review fix: load model/version provenance from runtime artifacts.
 
@@ -890,11 +898,11 @@ def _parse_model_provenance(
     provenance silently zero-filling the missing half violates audit-grade
     discipline (Codex M-1 v3 review edge case).
     """
-    if eval_rules_raw is None and qwen_judge_raw is None:
+    if eval_rules_raw is None and judge_raw is None:
         return None
-    if eval_rules_raw is None or qwen_judge_raw is None:
-        present = "evaluator_rule_checks.json" if eval_rules_raw else "qwen_judge_output.json"
-        missing = "qwen_judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
+    if eval_rules_raw is None or judge_raw is None:
+        present = "evaluator_rule_checks.json" if eval_rules_raw else "judge_output.json"
+        missing = "judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
         raise AuditIRSchemaError(
             f"Partial model provenance: {present} present but {missing} missing. "
             f"Both must be present together or both absent."
@@ -907,10 +915,10 @@ def _parse_model_provenance(
         generator_model=str(eval_rules_raw.get("generator_model", "")),
         evaluator_family=str(eval_rules_raw.get("evaluator_family", "")),
         evaluator_model=str(eval_rules_raw.get("evaluator_model", "")),
-        judge_model=str(qwen_judge_raw.get("model", "")),
-        judge_parse_ok=bool(qwen_judge_raw.get("parse_ok", False)),
-        judge_input_tokens=int(qwen_judge_raw.get("input_tokens", 0)),
-        judge_output_tokens=int(qwen_judge_raw.get("output_tokens", 0)),
+        judge_model=str(judge_raw.get("model", "")),
+        judge_parse_ok=bool(judge_raw.get("parse_ok", False)),
+        judge_input_tokens=int(judge_raw.get("input_tokens", 0)),
+        judge_output_tokens=int(judge_raw.get("output_tokens", 0)),
         contradictions_disclosed=int(eval_rules_raw.get("contradictions_disclosed", 0)),
         contradictions_missing=tuple(
             str(c) for c in eval_rules_raw.get("contradictions_missing", [])
@@ -993,7 +1001,11 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
 
     # Optional provenance files — present in V30 Phase-2 runs, absent in legacy.
     eval_rules_raw = _read_optional_json(artifact_dir / "evaluator_rule_checks.json")
-    qwen_judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
+    judge_raw = _read_optional_json(artifact_dir / "judge_output.json")
+    if judge_raw is None:
+        # I-modref-004 (#530): legacy artifact-name fallback — historical
+        # runs wrote qwen_judge_output.json; keep loading them.
+        judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
     protocol_raw = _read_optional_json(artifact_dir / "protocol.json")
     corpus_approval_raw = _read_optional_json(artifact_dir / "corpus_approval.json")
 
@@ -1006,7 +1018,7 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
     )
     tier_mix = _parse_tier_mix(manifest_raw.get("corpus"))
     verified_report = _parse_verified_report(verification_raw)
-    model_provenance = _parse_model_provenance(eval_rules_raw, qwen_judge_raw)
+    model_provenance = _parse_model_provenance(eval_rules_raw, judge_raw)
     protocol = _parse_protocol(protocol_raw)
     adequacy = _parse_adequacy(manifest_raw.get("adequacy"))
     corpus_approval = _parse_corpus_approval(corpus_approval_raw)

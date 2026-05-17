@@ -7,7 +7,7 @@ network calls:
   - Semantic Scholar (academic search)
   - OpenAlex (publication type enrichment)
   - DeepSeek V3.2-Exp via OpenRouter (generator)
-  - Qwen3-8B via OpenRouter (evaluator judge)
+  - Judge model via OpenRouter (evaluator judge)
 
 The canonical query is the same semaglutide 2.4mg / weight loss /
 adults with obesity question that PG_LB_SA_02 ran.
@@ -48,7 +48,7 @@ for noisy in ("httpx", "httpcore"):
 from src.polaris_graph.evaluator.external_evaluator import (  # noqa: E402
     run_external_evaluation,
 )
-from src.polaris_graph.evaluator.live_qwen_judge import (  # noqa: E402
+from src.polaris_graph.evaluator.live_judge import (  # noqa: E402
     judge_report,
 )
 from src.polaris_graph.generator.live_deepseek_generator import (  # noqa: E402
@@ -325,7 +325,7 @@ async def main_async() -> int:
 
     # ── Phase 5a: Rule-based evaluator ─────────────────────────────
     _log("")
-    _log("[7/7] EVALUATOR — rule checks + Qwen3-8B judge")
+    _log("[7/7] EVALUATOR — rule checks + judge")
     evaluator_output = run_external_evaluation(
         report_text=final_report,
         protocol=protocol_dict,
@@ -341,9 +341,9 @@ async def main_async() -> int:
         detail = f" — {r.details[:80]}" if not r.passed and r.details else ""
         _log(f"         [{mark}] {r.item_id} {r.name}{detail}")
 
-    # ── Phase 5b: Qwen judge (REAL LLM CALL) ─────────────────────────
+    # ── Phase 5b: Judge (REAL LLM CALL) ──────────────────────────────
     _log("")
-    _log("       Qwen3-8B live judge call...")
+    _log("       live judge call...")
     t0 = time.time()
     try:
         judge = await judge_report(
@@ -374,7 +374,7 @@ async def main_async() -> int:
         encoding="utf-8",
     )
     if judge is not None:
-        (run_dir / "qwen_judge_output.json").write_text(
+        (run_dir / "judge_output.json").write_text(
             json.dumps(
                 {
                     "model": judge.model,
@@ -459,7 +459,7 @@ async def main_async() -> int:
     _log(f"  Rule checks:            {evaluator_output.rule_check_pass_count}/12 pass")
     if judge and judge.parse_ok:
         v_counts = manifest["evaluator_judge"]["verdicts_counts"]
-        _log(f"  Qwen judge:             {v_counts}")
+        _log(f"  Judge verdicts:         {v_counts}")
     _log("")
     _log(f"  Artifacts in:           {run_dir}")
     _log("")

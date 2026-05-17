@@ -17,7 +17,7 @@ produce a design-level audit covering:
 3. Contradictions detection
 4. Generation (prompts + outline + sections + limitations)
 5. Strict verify (light touch — settled in rounds 1-5)
-6. Evaluator (both external_evaluator rules and live_qwen_judge)
+6. Evaluator (both external_evaluator rules and live_judge)
 7. Orchestration (`scripts/run_honest_sweep_r3.py`)
 8. Budget + cost ledger
 9. Observability (JSONL cost ledger, manifest shape, logs)

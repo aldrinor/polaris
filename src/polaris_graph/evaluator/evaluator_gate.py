@@ -2,8 +2,8 @@
 Evaluator gate — BUG-M-205 fix (deep-dive R5).
 
 Pre-fix, the orchestrator selected `success` / `partial_*` status from
-outline + rule_check_fail_count + adequacy + completeness. The Qwen
-judge's `needs_revision` verdicts were logged but never blocked a
+outline + rule_check_fail_count + adequacy + completeness. The judge's
+`needs_revision` verdicts were logged but never blocked a
 release. Some deterministic rule failures (PT08 contradiction
 disclosure, PT11 uncited numeric claims, PT12 invalid citation markers)
 should also block release but were lumped into a generic
@@ -14,11 +14,11 @@ decision with stable reason codes:
   pass                - no blocking issues
   partial             - report ships but release_allowed=False
   abort               - release-blocking integrity failure
-  advisory_unavailable - Qwen parse failed; preserve other status
+  advisory_unavailable - judge parse failed; preserve other status
 
 The orchestrator reads `gate_class` + `reasons` to select manifest
 status. Two new manifest statuses are added to the taxonomy:
-  partial_qwen_advisory    - report ships, Qwen flagged critical axes
+  partial_evaluator_advisory    - report ships, judge flagged critical axes
   abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
 """
 from __future__ import annotations
@@ -45,13 +45,13 @@ COMPLIANCE_BLOCKING_RULES: dict[str, str] = {
 # release but whose failures should surface in `reasons` so operators
 # can see them in the manifest without opening evaluator_rule_checks.json.
 # Prefix is "advisory_" so downstream grep patterns that look for
-# "rule_*" or "qwen_*" don't accidentally treat these as blocking.
+# "rule_*" or "judge_*" don't accidentally treat these as blocking.
 ADVISORY_RULES: dict[str, str] = {
     "PT13": "advisory_pt13_unhedged_superlatives",
 }
 
-# Qwen axes that are in the high-risk set (evidence-integrity adjacent).
-HIGH_RISK_QWEN_AXES = frozenset({
+# Judge axes that are in the high-risk set (evidence-integrity adjacent).
+HIGH_RISK_JUDGE_AXES = frozenset({
     "citation_tightness",
     "hedging_appropriateness",
     "completeness",
@@ -65,30 +65,30 @@ class EvaluatorGateResult:
     `release_allowed` is the headline: False means the release consumer
     should NOT treat this run as shippable even if `gate_class=="partial"`.
     `gate_class` drives manifest status selection. `reasons` is the
-    stable, greppable identifier list; `qwen_critical_axes` and
+    stable, greppable identifier list; `judge_critical_axes` and
     `rule_blockers` give more detail.
     """
     release_allowed: bool
     gate_class: str                              # pass | partial | abort | advisory_unavailable
     reasons: list[str] = field(default_factory=list)
-    qwen_critical_axes: list[str] = field(default_factory=list)
+    judge_critical_axes: list[str] = field(default_factory=list)
     rule_blockers: list[str] = field(default_factory=list)
-    qwen_parse_ok: bool = True
+    judge_parse_ok: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "release_allowed": self.release_allowed,
             "gate_class": self.gate_class,
             "reasons": list(self.reasons),
-            "qwen_critical_axes": list(self.qwen_critical_axes),
+            "judge_critical_axes": list(self.judge_critical_axes),
             "rule_blockers": list(self.rule_blockers),
-            "qwen_parse_ok": self.qwen_parse_ok,
+            "judge_parse_ok": self.judge_parse_ok,
         }
 
 
 def compute_evaluator_gate(
     ev_out,
-    qwen_result=None,
+    judge_result=None,
     adequacy=None,
     completeness=None,
 ) -> EvaluatorGateResult:
@@ -98,22 +98,22 @@ def compute_evaluator_gate(
         ev_out: an EvaluatorOutput-like object with `rule_checks` list
             of objects carrying .item_id, .passed, .details.
             `contradictions_missing` list is consulted for PT08.
-        qwen_result: optional live_qwen_judge.JudgeResult-like with
+        judge_result: optional live_judge.JudgeResult-like with
             `parse_ok` bool and `verdicts` dict mapping axis name to
             {"verdict": "good"|"acceptable"|"needs_revision", "note": str}.
             None or parse_ok=False → advisory_unavailable contribution.
         adequacy: corpus_adequacy_gate output (used to interpret
-            Qwen completeness: if deterministic completeness is already
-            thin, a solo Qwen completeness flag is more meaningful).
+            judge completeness: if deterministic completeness is already
+            thin, a solo judge completeness flag is more meaningful).
         completeness: optional; completeness_checker.covered_fraction
-            informs Qwen completeness severity.
+            informs judge completeness severity.
 
     Returns:
         EvaluatorGateResult with gate_class, reasons, etc.
     """
     reasons: list[str] = []
     rule_blockers: list[str] = []
-    qwen_critical_axes: list[str] = []
+    judge_critical_axes: list[str] = []
 
     # ── 1. Deterministic release-blocking rule failures ──
     # Any PT08/PT11/PT12 failure aborts the release regardless of total.
@@ -149,60 +149,60 @@ def compute_evaluator_gate(
             if code not in reasons:
                 reasons.append(code)
 
-    # ── 2. Qwen verdicts ──
-    qwen_parse_ok = True
-    qwen_revision_axes: list[str] = []
-    if qwen_result is None:
-        qwen_parse_ok = False
-        reasons.append("qwen_parse_failed")
-    elif not getattr(qwen_result, "parse_ok", False):
-        qwen_parse_ok = False
-        reasons.append("qwen_parse_failed")
+    # ── 2. Judge verdicts ──
+    judge_parse_ok = True
+    judge_revision_axes: list[str] = []
+    if judge_result is None:
+        judge_parse_ok = False
+        reasons.append("judge_parse_failed")
+    elif not getattr(judge_result, "parse_ok", False):
+        judge_parse_ok = False
+        reasons.append("judge_parse_failed")
     else:
-        verdicts = getattr(qwen_result, "verdicts", {}) or {}
+        verdicts = getattr(judge_result, "verdicts", {}) or {}
         for axis, data in verdicts.items():
             if not isinstance(data, dict):
                 continue
             if data.get("verdict") == "needs_revision":
-                qwen_revision_axes.append(axis)
+                judge_revision_axes.append(axis)
 
-        # Qwen critical conditions (from R5 findings §3):
-        needs = set(qwen_revision_axes)
-        high_risk_hits = needs & HIGH_RISK_QWEN_AXES
+        # Judge critical conditions (from R5 findings §3):
+        needs = set(judge_revision_axes)
+        high_risk_hits = needs & HIGH_RISK_JUDGE_AXES
         if "citation_tightness" in needs:
-            qwen_critical_axes.append("citation_tightness")
-            if "qwen_citation_tightness_needs_revision" not in reasons:
-                reasons.append("qwen_citation_tightness_needs_revision")
+            judge_critical_axes.append("citation_tightness")
+            if "judge_citation_tightness_needs_revision" not in reasons:
+                reasons.append("judge_citation_tightness_needs_revision")
         if "hedging_appropriateness" in needs and "tone_consistency" in needs:
-            if "hedging_appropriateness" not in qwen_critical_axes:
-                qwen_critical_axes.append("hedging_appropriateness")
-            if "tone_consistency" not in qwen_critical_axes:
-                qwen_critical_axes.append("tone_consistency")
-            if "qwen_hedging_tone_needs_revision" not in reasons:
-                reasons.append("qwen_hedging_tone_needs_revision")
+            if "hedging_appropriateness" not in judge_critical_axes:
+                judge_critical_axes.append("hedging_appropriateness")
+            if "tone_consistency" not in judge_critical_axes:
+                judge_critical_axes.append("tone_consistency")
+            if "judge_hedging_tone_needs_revision" not in reasons:
+                reasons.append("judge_hedging_tone_needs_revision")
         if "completeness" in needs:
             comp_thin = (
                 completeness is not None
                 and getattr(completeness, "covered_fraction", 1.0) < 0.5
             )
             if comp_thin:
-                qwen_critical_axes.append("completeness")
-                if "qwen_completeness_needs_revision" not in reasons:
-                    reasons.append("qwen_completeness_needs_revision")
+                judge_critical_axes.append("completeness")
+                if "judge_completeness_needs_revision" not in reasons:
+                    reasons.append("judge_completeness_needs_revision")
         # Aggregate multi-axis anti-noise gate
         if len(needs) >= 3:
-            if "qwen_multi_axis_needs_revision" not in reasons:
-                reasons.append("qwen_multi_axis_needs_revision")
+            if "judge_multi_axis_needs_revision" not in reasons:
+                reasons.append("judge_multi_axis_needs_revision")
             for axis in needs:
-                if axis not in qwen_critical_axes:
-                    qwen_critical_axes.append(axis)
+                if axis not in judge_critical_axes:
+                    judge_critical_axes.append(axis)
         elif len(needs) >= 2 and high_risk_hits:
             # 2 axes including at least one high-risk → critical
-            if "qwen_multi_axis_needs_revision" not in reasons:
-                reasons.append("qwen_multi_axis_needs_revision")
+            if "judge_multi_axis_needs_revision" not in reasons:
+                reasons.append("judge_multi_axis_needs_revision")
             for axis in needs:
-                if axis not in qwen_critical_axes:
-                    qwen_critical_axes.append(axis)
+                if axis not in judge_critical_axes:
+                    judge_critical_axes.append(axis)
 
     # ── 3. Decide gate_class ──
     if abort_on_rule:
@@ -210,12 +210,12 @@ def compute_evaluator_gate(
             release_allowed=False,
             gate_class="abort",
             reasons=reasons,
-            qwen_critical_axes=qwen_critical_axes,
+            judge_critical_axes=judge_critical_axes,
             rule_blockers=rule_blockers,
-            qwen_parse_ok=qwen_parse_ok,
+            judge_parse_ok=judge_parse_ok,
         )
 
-    if qwen_critical_axes or any(
+    if judge_critical_axes or any(
         r in reasons for r in (
             "rule_model_disclosure_missing",
         )
@@ -224,27 +224,27 @@ def compute_evaluator_gate(
             release_allowed=False,
             gate_class="partial",
             reasons=reasons,
-            qwen_critical_axes=qwen_critical_axes,
+            judge_critical_axes=judge_critical_axes,
             rule_blockers=rule_blockers,
-            qwen_parse_ok=qwen_parse_ok,
+            judge_parse_ok=judge_parse_ok,
         )
 
-    if not qwen_parse_ok:
-        # Qwen unavailable but no rule blockers; preserve other status.
+    if not judge_parse_ok:
+        # Judge unavailable but no rule blockers; preserve other status.
         return EvaluatorGateResult(
             release_allowed=True,
             gate_class="advisory_unavailable",
             reasons=reasons,
-            qwen_critical_axes=qwen_critical_axes,
+            judge_critical_axes=judge_critical_axes,
             rule_blockers=rule_blockers,
-            qwen_parse_ok=False,
+            judge_parse_ok=False,
         )
 
     return EvaluatorGateResult(
         release_allowed=True,
         gate_class="pass",
         reasons=reasons,
-        qwen_critical_axes=qwen_critical_axes,
+        judge_critical_axes=judge_critical_axes,
         rule_blockers=rule_blockers,
-        qwen_parse_ok=qwen_parse_ok,
+        judge_parse_ok=judge_parse_ok,
     )

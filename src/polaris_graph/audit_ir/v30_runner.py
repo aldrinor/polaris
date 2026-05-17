@@ -107,7 +107,7 @@ V30_PHASES = (
     ("generation",         75.0,  "Multi-section generation"),
     ("v30_phase2",         85.0,  "V30 Phase-2 slot-bound generation"),
     ("evaluator",          90.0,  "Evaluator rule checks"),
-    ("judge",              92.0,  "Qwen judge"),
+    ("judge",              92.0,  "Judge verdicts"),
     ("eval_gate",          94.0,  "Evaluator gate decision"),
     ("v30_phase1",         97.0,  "V30 Phase-1 frame coverage"),
     ("cost",               99.0,  "Cost ledger finalized"),

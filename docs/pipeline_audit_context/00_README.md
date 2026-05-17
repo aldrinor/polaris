@@ -45,7 +45,7 @@ audit — that was rounds 1-5.
    `live_deepseek_generator.py`, `provenance_generator.py` wrap + helpers
 5. **Strict verify** — `provenance_generator.verify_sentence_provenance`,
    `strict_verify` (already probed in rounds 1-5, light touch)
-6. **Evaluator** — `external_evaluator.py`, `live_qwen_judge.py`
+6. **Evaluator** — `external_evaluator.py`, `live_judge.py`
 7. **Orchestration** — `scripts/run_honest_sweep_r3.py`
 8. **Budget + cost ledger** — `openrouter_client.check_run_budget`,
    `_impute_cost_from_tokens`

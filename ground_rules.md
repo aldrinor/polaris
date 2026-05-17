@@ -173,7 +173,7 @@ research_question
   → multi_section_generator (DeepSeek V3.2-Exp)
   → provenance_generator.strict_verify
   → external_evaluator (rule-based)
-  → live_qwen_judge (different family from generator)
+  → live_judge (different family from generator)
   → report.md + manifest.json
 ```
 
@@ -192,7 +192,7 @@ The output files are:
   findings, open issue)
 - `report.md` — prose or pipeline-verdict artifact
 - `corpus_approval.json`, `contradictions.json`, `protocol.json`,
-  `bibliography.json`, `live_corpus_dump.json`, `qwen_judge_output.json`,
+  `bibliography.json`, `live_corpus_dump.json`, `judge_output.json`,
   `run_log.txt`
 
 ---

@@ -34,17 +34,17 @@
   "domain": "clinical",
   "evaluator_gate": {
     "gate_class": "partial",
-    "qwen_critical_axes": [
+    "judge_critical_axes": [
       "citation_tightness",
       "hedging_appropriateness",
       "tone_consistency",
       "completeness"
     ],
-    "qwen_parse_ok": true,
+    "judge_parse_ok": true,
     "reasons": [
-      "qwen_citation_tightness_needs_revision",
-      "qwen_hedging_tone_needs_revision",
-      "qwen_multi_axis_needs_revision"
+      "judge_citation_tightness_needs_revision",
+      "judge_hedging_tone_needs_revision",
+      "judge_multi_axis_needs_revision"
     ],
     "release_allowed": false,
     "rule_blockers": []
@@ -848,7 +848,7 @@
   },
   "protocol_sha256": "fc70d24facd8e99289c24e1b8d615eb15f8822ee48810d27862b2df5015af462",
   "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
-  "qwen_verdicts": {
+  "judge_verdicts": {
     "acceptable": 0,
     "good": 1,
     "needs_revision": 4,
@@ -871,7 +871,7 @@
   },
   "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1777530575",
   "slug": "clinical_tirzepatide_t2dm",
-  "status": "partial_qwen_advisory",
+  "status": "partial_evaluator_advisory",
   "v30_enabled": true,
   "v30_warnings": [
     "phase1_retrieval_coverage_only: Phase-1 V30 manifest.frame_coverage_report reflects retrieval success only, NOT whether the legacy generator cited each entity in the verified report. Phase-2 (M-58 slot-bound generator integration) will populate the same key with true report-coverage semantics. See manifest.frame_coverage_report.entries[*].status = 'pass' only confirms M-56 fetched the entity."

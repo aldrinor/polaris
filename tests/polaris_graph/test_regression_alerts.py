@@ -76,8 +76,8 @@ def _make_ir(
     )
     eg = EvaluatorGate(
         gate_class=gate_class, release_allowed=release_allowed,
-        reasons=(), rule_blockers=(), qwen_critical_axes=(),
-        qwen_parse_ok=True,
+        reasons=(), rule_blockers=(), judge_critical_axes=(),
+        judge_parse_ok=True,
     )
     manifest = RunManifest(
         run_id=run_id, slug=slug, status="success", question="q",

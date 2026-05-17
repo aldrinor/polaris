@@ -47,7 +47,7 @@ for noisy in ("httpx", "httpcore"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
-from src.polaris_graph.evaluator.live_qwen_judge import judge_report  # noqa: E402
+from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
 )
@@ -175,7 +175,8 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "partial_incomplete_corpus",
     "partial_rule_check_warnings",
     "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
-    "partial_qwen_advisory",         # BUG-M-205: Qwen judge flagged critical axes
+    "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
+    "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
     # abort — pipeline refused to produce a report
     "abort_scope_rejected",
     "abort_no_sources",
@@ -193,7 +194,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "ok_thin_corpus": "partial_thin_corpus",
     "ok_incomplete_corpus": "partial_incomplete_corpus",
     "ok_outline_fallback": "partial_outline_fallback",
-    "ok_qwen_advisory": "partial_qwen_advisory",
+    "ok_evaluator_advisory": "partial_evaluator_advisory",
+    "ok_qwen_advisory": "partial_qwen_advisory",  # I-modref-004 (#530): legacy alias
     "warn_rule_checks": "partial_rule_check_warnings",
     "fail_no_sources": "abort_no_sources",
     "fail_no_verified_prose": "abort_no_verified_sections",
@@ -2646,7 +2648,7 @@ async def run_one_query(
             if not r.passed:
                 _log(f"                FAIL {r.item_id}: {r.details[:100]}")
 
-        # Qwen judge
+        # Judge
         jr = None
         try:
             jr = await judge_report(
@@ -2667,7 +2669,7 @@ async def run_one_query(
                          f"{axis}: {v['note'][:80]}")
             else:
                 _log(f"[judge]       PARSE ERROR: {jr.error}")
-            (run_dir / "qwen_judge_output.json").write_text(
+            (run_dir / "judge_output.json").write_text(
                 json.dumps({
                     "model": jr.model, "parse_ok": jr.parse_ok,
                     "verdicts": jr.verdicts, "raw": jr.raw_response,
@@ -2685,7 +2687,7 @@ async def run_one_query(
 
         # BUG-M-205: evaluator gate combines deterministic rule failures
         # (PT08 contradiction disclosure, PT11 uncited numerics, PT12
-        # invalid citation marker) with Qwen judge verdicts to produce
+        # invalid citation marker) with judge verdicts to produce
         # a release-gating decision. Abort class blocks success; partial
         # class prevents clean success but still ships the report.
         from src.polaris_graph.evaluator.evaluator_gate import (  # noqa: E402
@@ -2693,7 +2695,7 @@ async def run_one_query(
         )
         eval_gate = compute_evaluator_gate(
             ev_out=ev_out,
-            qwen_result=jr if (jr and jr.parse_ok) else None,
+            judge_result=jr if (jr and jr.parse_ok) else None,
             adequacy=adequacy,
             completeness=completeness,
         )
@@ -2713,10 +2715,10 @@ async def run_one_query(
         elif getattr(multi, "outline_fallback_used", False):
             # BUG-M-203: planner failed/retry-failed; fallback used.
             summary_status = "ok_outline_fallback"
-        elif eval_gate.gate_class == "partial" and eval_gate.qwen_critical_axes:
-            # BUG-M-205: Qwen flagged critical axes (citation_tightness,
+        elif eval_gate.gate_class == "partial" and eval_gate.judge_critical_axes:
+            # BUG-M-205: judge flagged critical axes (citation_tightness,
             # or hedging+tone pair, or multi-axis).
-            summary_status = "ok_qwen_advisory"
+            summary_status = "ok_evaluator_advisory"
         elif ev_out.rule_check_fail_count >= 3:
             summary_status = "warn_rule_checks"
         elif adequacy.decision == "expand":
@@ -2796,7 +2798,7 @@ async def run_one_query(
             },
             "evaluator_rule_pass": ev_out.rule_check_pass_count,
             "evaluator_rule_fail": ev_out.rule_check_fail_count,
-            "qwen_verdicts": (
+            "judge_verdicts": (
                 {v: sum(1 for j in jr.verdicts.values()
                         if j["verdict"] == v)
                  for v in ("good", "acceptable", "needs_revision", "unknown")}
@@ -3241,7 +3243,7 @@ async def main_async() -> int:
     ]
     for s in all_summaries:
         m = s.get("manifest", {})
-        j = m.get("qwen_verdicts", {})
+        j = m["judge_verdicts"] if "judge_verdicts" in m else m.get("qwen_verdicts", {})
         jtxt = (
             f"{j.get('good', 0)}/{j.get('acceptable', 0)}/{j.get('needs_revision', 0)}"
             if isinstance(j, dict) and "error" not in j else "—"
