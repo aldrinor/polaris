@@ -1,0 +1,2798 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e32e8-3e7b-71c2-b43f-a85473d53252
+--------
+user
+# Codex brief review — I-rdy-018 (#514): OpenRouter V4 Pro rehearsal + evidence package
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (return THIS, nothing else)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+scope_decision_ruling: <your answer to the SCOPE DECISION below>
+```
+
+---
+
+## SCOPE DECISION — rule on this first
+
+**Issue #514 says: "Run the full journey end-to-end with the real model …
+Acceptance: the full non-sovereign rehearsal path passes start-to-finish."**
+
+A real V4 Pro end-to-end pipeline-A run makes **billed OpenRouter API
+calls**. This brief is executed inside an **autonomous overnight loop**;
+Claude has no per-run operator authorization to spend money. Per the loop's
+documented halt conditions, unauthorized spend is a **"cost concern" halt**.
+
+**Claude's position:** this PR ships the rehearsal **capability** — a
+runner, an offline (`--dry-run`) validation path, a free model-availability
+check (an authenticated GET to OpenRouter `/models`, no token spend), the
+fixed non-confidential prompt set, and the full procedure doc (env wiring,
+key-removal proof, env-diff to the sovereign config). The **live
+multi-question rehearsal run is the operator's step post-merge**, run with
+`PG_MAX_COST_PER_RUN` capping spend. "The full journey end-to-end with the
+real model" describes what the rehearsal *capability does*, not what this
+autonomous PR must execute live.
+
+**Rule on one of:**
+- **(A) runner + offline validation + availability check suffices** for
+  #514's acceptance — the live run is operator-executed post-merge,
+  documented in `rehearsal_procedure.md`. Claude proceeds to implement.
+- **(B) "passes start-to-finish" requires Claude to execute a live billed
+  run in this PR.** Then Claude HALTS after your verdict, comments on #514
+  requesting operator authorization for a bounded rehearsal run, and does
+  not spend autonomously. This is the documented cost-concern halt, not an
+  invented blocker.
+
+Put your choice in `scope_decision_ruling`. The implementation plan below
+is written for ruling (A); if you rule (B), the plan still stands minus the
+live-run execution (which moves to a post-authorization step).
+
+---
+
+## Issue #514 (I-rdy-018) — verbatim
+
+> **Phase 4. Wire the LLM endpoint as env vars; point at OpenRouter V4 Pro +
+> Gemma (test-only, non-confidential). Run the full journey end-to-end with
+> the real model. Evidence package: model-availability check, fixed
+> non-confidential prompt set, key-removal proof procedure, explicit
+> env-diff to the sovereign config.**
+> Acceptance: the full non-sovereign rehearsal path passes start-to-finish;
+> Codex APPROVE.
+> Depends on: Phase 3 complete (I-rdy-014).
+
+Phase 3 / I-rdy-014 (#510, the coherent demo journey) is **shipped** (PR
+#545) — the dependency is met.
+
+## Context — verified against HEAD
+
+- **The journey entrypoint** is `scripts/run_honest_sweep_r3.run_one_query(q:
+  dict, out_root: Path) -> dict` (async) — the same call `polaris_v6.queue.
+  actors.py:162` makes. `q` carries `domain`, `slug`, `question`,
+  `template_id`, `v6_mode`, `out_root_override`, etc.
+- **LLM wiring is env-driven.** `PG_GENERATOR_MODEL` /
+  `PG_EVALUATOR_MODEL` select the model pair; `OPENROUTER_API_KEY` +
+  `OPENROUTER_BASE_URL` (`https://openrouter.ai/api/v1`) drive the gateway.
+  `infra/vexxhost/.env.example` carries `POLARIS_LLM_BACKEND=openrouter`
+  (the rehearsal config) which flips to `vllm` for the sovereign cutover
+  (gated on #199 + the OVH H200, per that file's own comment).
+- **8 canonical templates** (`actors.py` `TEMPLATE_TO_SCOPE_DOMAIN`):
+  `clinical, policy, tech, due_diligence, ai_sovereignty, canada_us,
+  workforce, custom`.
+- `scripts/demo_smoke.py` is the existing **$0 in-process** TestClient
+  smoke — it explicitly does NOT call OpenRouter. #514 is the
+  complementary **real-model** rehearsal capability.
+- `transparency.py:217` already defaults `PG_GENERATOR_MODEL` to
+  `deepseek/deepseek-v4-pro`.
+
+## Proposed implementation — 4 new files (ruling A)
+
+### File 1 (NEW) — `scripts/v6/run_rehearsal.py`
+
+Self-contained CLI (matches the `scripts/v6/` pattern), two subcommands:
+
+`check-models` — model-availability check:
+- Authenticated GET to `OPENROUTER_BASE_URL`/`models` (no token spend).
+- Confirm the configured `PG_GENERATOR_MODEL` (V4 Pro) and
+  `PG_EVALUATOR_MODEL` (Gemma) IDs are both present in the catalogue.
+- Fail loud (non-zero exit, clear message) if `OPENROUTER_API_KEY` is
+  unset, the HTTP call fails, or a configured model is absent.
+- Print a small table: model id → present/absent.
+
+`run` — the rehearsal journey runner:
+- Load the fixed prompt set (File 2), build a `q` dict per prompt
+  (mirroring the `actors.py` q-dict shape), resolve the LLM env config.
+- `--dry-run` (default-safe): validate + plan ONLY — parse the prompt set,
+  build every `q` dict, resolve and print the env config (generator /
+  evaluator / backend / base-url, key present yes/no), and print what
+  WOULD run. **Makes no LLM call, spends nothing.** Exit 0 on clean wiring.
+- without `--dry-run`: actually `asyncio.run(run_one_query(q, out_root))`
+  for each prompt, writing artifacts under `--out-root`, printing each
+  run's `pipeline_status`. This is the billed live path — per the SCOPE
+  DECISION, the operator runs this post-merge (or, under ruling B, after
+  authorizing it on #514).
+- `--out-root` (default `outputs/rehearsal_runs`), `--only <template>` to
+  run a single prompt.
+
+### File 2 (NEW) — `tests/v6/fixtures/rehearsal_prompts.yaml`
+
+The **fixed non-confidential prompt set** — one entry per canonical
+template, each `{template, question}`, the question a public-policy /
+public-clinical query with **zero confidential content** (these prompts
+travel to OpenRouter, a US gateway, during the non-sovereign rehearsal —
+non-confidentiality is mandatory and stated in the file header). Lives in
+`tests/v6/fixtures/` so the runner and the test share one source of truth.
+
+### File 3 (NEW) — `tests/v6/test_run_rehearsal.py`
+
+Subprocess-driven (harness style of `test_scripts_v6_handover.py`),
+exercising the wiring **without any LLM call or spend**:
+- `test_check_models_fails_loud_without_key`: `check-models` with
+  `OPENROUTER_API_KEY` unset → non-zero exit, clear message.
+- `test_run_dry_run_validates_wiring`: `run --dry-run` → exit 0; stdout
+  shows every template's `q` dict was built and the env config resolved;
+  asserts no network call was needed (runs with no key set).
+- `test_dry_run_makes_no_llm_call`: assert `--dry-run` never imports/invokes
+  `run_one_query` (e.g. it completes with `OPENROUTER_API_KEY` unset and
+  prints the plan only).
+- `test_rehearsal_prompts_cover_all_templates`: the YAML's templates ==
+  the 8 canonical `TEMPLATE_TO_SCOPE_DOMAIN` keys.
+
+### File 4 (NEW) — `docs/carney_handover/rehearsal_procedure.md`
+
+The evidence-package document:
+1. **Env wiring** — exact env vars for the OpenRouter rehearsal config
+   (`POLARIS_LLM_BACKEND=openrouter`, `PG_GENERATOR_MODEL`,
+   `PG_EVALUATOR_MODEL`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`).
+2. **Model-availability check** — the `run_rehearsal.py check-models`
+   command + expected output.
+3. **The rehearsal run** — `run_rehearsal.py run --dry-run` to validate
+   wiring, then the live `run` (operator step; spend capped by
+   `PG_MAX_COST_PER_RUN`); start-to-finish pass criteria.
+4. **Key-removal proof procedure** — how to prove the OpenRouter key is
+   gone after the sovereign cutover: unset `OPENROUTER_API_KEY`, confirm
+   `check-models` fails loud, confirm `/transparency` reports the vLLM
+   backend, grep the running env for the key shape.
+5. **Env-diff to the sovereign config** — an explicit table: every env var
+   that differs between the OpenRouter rehearsal config and the sovereign
+   vLLM config (`POLARIS_LLM_BACKEND` openrouter→vllm, `POLARIS_VLLM_BASE_URL`
+   set, `OPENROUTER_API_KEY` removed, …).
+
+## Explicitly OUT of scope (do not flag as P0/P1)
+
+- The actual sovereign vLLM cutover — that is #199 (`I-sov-001`), gated on
+  the OVH H200.
+- A billed live rehearsal run executed autonomously by Claude — see the
+  SCOPE DECISION.
+
+## LOC estimate + exemption request
+
+~170 lines `run_rehearsal.py` + ~110 lines test ≈ **~280 code**, plus a
+~40-line YAML fixture and a ~120-line doc. Exceeds the 200-LOC isolated-code
+cap. All-new files; modifies no existing code path. **Requesting a LOC-cap
+exemption** (same basis as #512/#516-class all-new-file work). Rule on it.
+
+## Files I have ALSO checked and they're clean
+
+- `scripts/run_honest_sweep_r3.py` — `run_one_query` signature (async,
+  `q: dict`, `out_root: Path`).
+- `src/polaris_v6/queue/actors.py` — the q-dict shape the runner mirrors;
+  `TEMPLATE_TO_SCOPE_DOMAIN` (the 8 templates).
+- `src/polaris_graph/llm/openrouter_client.py` — `OPENROUTER_BASE_URL`
+  default, the gateway the `check-models` GET targets.
+- `scripts/demo_smoke.py` — the existing $0 in-process smoke; #514 is the
+  complementary real-model capability, not a duplicate.
+- `infra/vexxhost/.env.example` — `POLARIS_LLM_BACKEND` openrouter/vllm
+  switch, the basis for the env-diff doc.
+- `tests/v6/test_scripts_v6_handover.py` — the subprocess-test pattern.
+
+## Acceptance criteria for the resulting PR
+
+1. `scripts/v6/run_rehearsal.py` — `check-models` (free GET, fail-loud) +
+   `run` (with a `--dry-run` validate-only path); env-driven, no hard-coding.
+2. `tests/v6/fixtures/rehearsal_prompts.yaml` — non-confidential prompt set
+   covering all 8 canonical templates.
+3. `tests/v6/test_run_rehearsal.py` — passes; exercises wiring with no LLM
+   call / no spend.
+4. `docs/carney_handover/rehearsal_procedure.md` — env wiring, availability
+   check, run procedure, key-removal proof, env-diff to the sovereign config.
+5. `pytest tests/v6/test_run_rehearsal.py` passes; no `tests/v6/` regression.
+6. Per the SCOPE DECISION ruling: (A) live run documented as the operator's
+   post-merge step, or (B) Claude halts for operator cost authorization.
+
+Return the YAML verdict block (including `scope_decision_ruling`).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py -TotalCount 260" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\test_scripts_v6_handover.py -TotalCount 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\queue\\actors.py -TotalCount 260" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "async def run_one_query|def run_one_query|TEMPLATE_TO_SCOPE_DOMAIN|OPENROUTER_BASE_URL|PG_GENERATOR_MODEL|POLARIS_LLM_BACKEND|PG_MAX_COST_PER_RUN" scripts src infra tests -S' in C:\POLARIS
+ succeeded in 1001ms:
+infra\vexxhost\.env.example:8:# GH#199 I-sov-001 — DO NOT set POLARIS_LLM_BACKEND=vllm until that PR lands
+infra\vexxhost\.env.example:12:POLARIS_LLM_BACKEND=openrouter   # flip to "vllm" post-GH#199 + post-OVH-H200
+infra\vexxhost\.env.example:47:PG_MAX_COST_PER_RUN=5.00
+tests\polaris_v6\queue\test_template_to_scope_domain.py:1:"""I-arch-001c — TEMPLATE_TO_SCOPE_DOMAIN mapping coverage.
+tests\polaris_v6\queue\test_template_to_scope_domain.py:11:from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
+tests\polaris_v6\queue\test_template_to_scope_domain.py:17:    must have an explicit entry in TEMPLATE_TO_SCOPE_DOMAIN. Catches future
+tests\polaris_v6\queue\test_template_to_scope_domain.py:20:    mapped_ids = set(TEMPLATE_TO_SCOPE_DOMAIN.keys())
+tests\polaris_v6\queue\test_template_to_scope_domain.py:24:        f"TEMPLATE_TO_SCOPE_DOMAIN — add explicit mappings."
+tests\polaris_v6\queue\test_template_to_scope_domain.py:31:    for template_id, scope_domain in TEMPLATE_TO_SCOPE_DOMAIN.items():
+tests\polaris_v6\queue\test_template_to_scope_domain.py:42:    members, so TEMPLATE_TO_SCOPE_DOMAIN is all-identity — every template id
+tests\polaris_v6\queue\test_template_to_scope_domain.py:55:        assert TEMPLATE_TO_SCOPE_DOMAIN[template_id] == template_id, (
+tests\polaris_v6\queue\test_template_to_scope_domain.py:57:            f"but got {TEMPLATE_TO_SCOPE_DOMAIN[template_id]!r}"
+infra\aws.archived\cloud-init.sh:126:PG_MAX_COST_PER_RUN=5.00
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\model_pin.json:5:    "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
+tests\polaris_graph\test_b4_budget_imputation.py:56:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+tests\polaris_graph\test_b4_budget_imputation.py:74:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+tests\polaris_graph\test_b3_no_verified_sections.py:123:    methods_idx = src.find("PG_GENERATOR_MODEL")
+tests\polaris_graph\test_b3_no_verified_sections.py:134:    methods_idx = src.find("PG_GENERATOR_MODEL")
+tests\polaris_graph\test_budget_cap_r2.py:31:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.50")
+tests\polaris_graph\test_budget_cap_r2.py:43:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.01")
+tests\polaris_graph\test_budget_cap_r2.py:51:    assert "PG_MAX_COST_PER_RUN" in str(excinfo.value)
+tests\polaris_graph\test_budget_cap_r2.py:54:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+tests\polaris_graph\test_budget_cap_r2.py:61:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.05")
+tests\polaris_graph\test_budget_cap_r2.py:72:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+tests\polaris_graph\test_budget_cap_r2.py:77:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.05")
+tests\polaris_graph\test_budget_cap_r2.py:89:    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+src\providers\llm_provider.py:44:OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+src\providers\llm_provider.py:234:            "base_url": OPENROUTER_BASE_URL,
+tests\v6\test_template_canonical_set.py:82:    from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
+tests\v6\test_template_canonical_set.py:84:    assert set(TEMPLATE_TO_SCOPE_DOMAIN) == CANONICAL_8
+tests\v6\test_template_canonical_set.py:86:    for template_id, scope_domain in TEMPLATE_TO_SCOPE_DOMAIN.items():
+tests\polaris_graph\test_external_evaluator.py:439:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-chat")
+tests\polaris_graph\test_external_evaluator.py:456:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:10:   pushed cumulative cost past `PG_MAX_COST_PER_RUN`.
+tests\polaris_graph\llm\test_entailment_judge_cost.py:19:- Patch `openrouter_client.PG_MAX_COST_PER_RUN` similarly for the
+tests\polaris_graph\llm\test_entailment_judge_cost.py:56:    `PG_GENERATOR_MODEL`; we set both env vars so segregation passes.
+tests\polaris_graph\llm\test_entailment_judge_cost.py:59:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:79:    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:120:    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:161:    monkeypatch.setattr(src_orc, "PG_MAX_COST_PER_RUN", 1.0)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:195:    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 1.0)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:218:    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
+tests\polaris_graph\llm\test_entailment_judge_cost.py:219:    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:221:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:228:    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
+tests\polaris_graph\llm\test_entailment_judge_cost.py:231:    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:233:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:241:    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1")
+tests\polaris_graph\llm\test_entailment_judge_cost.py:258:    `PG_MAX_COST_PER_RUN`, `BudgetExceededError` is raised — NOT
+tests\polaris_graph\llm\test_entailment_judge_cost.py:264:    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.0001)
+scripts\deploy.sh:661:OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+src\polaris_v6\api\transparency.py:217:            "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:382:    PG_GENERATOR_MODEL, _EntailmentJudge.__init__ must raise so the
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:389:    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
+tests\polaris_graph\generator2\test_strict_verify_entailment.py:395:    monkeypatch.setattr(_orc, "PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
+tests\polaris_graph\test_manifest_contract.py:212:    # Find the async def run_one_query
+tests\polaris_graph\test_manifest_contract.py:218:    assert func is not None, "expected async def run_one_query"
+tests\polaris_graph\test_manifest_contract.py:302:    assert env["budget_cap_usd"] > 0  # default PG_MAX_COST_PER_RUN
+tests\polaris_graph\generator2\test_real_completion.py:244:    """Default endpoint is OpenRouter when OPENROUTER_BASE_URL is unset."""
+tests\polaris_graph\generator2\test_real_completion.py:247:    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+tests\polaris_graph\generator2\test_real_completion.py:257:    """I-sov-001: OPENROUTER_BASE_URL pointed at the OVH H200 vLLM endpoint
+tests\polaris_graph\generator2\test_real_completion.py:261:    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://10.0.0.42:8000/v1/")
+tests\polaris_graph\generator2\test_real_completion.py:267:    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+src\polaris_graph\generator2\real_completion.py:41:# the generator at the OVH H200 vLLM endpoint (set OPENROUTER_BASE_URL=
+src\polaris_graph\generator2\real_completion.py:44:_OPENROUTER_BASE_URL = os.environ.get(
+src\polaris_graph\generator2\real_completion.py:45:    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+src\polaris_graph\generator2\real_completion.py:47:OPENROUTER_ENDPOINT = f"{_OPENROUTER_BASE_URL}/chat/completions"
+src\polaris_v6\queue\actors.py:46:TEMPLATE_TO_SCOPE_DOMAIN = {
+src\polaris_v6\queue\actors.py:95:    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
+src\polaris_v6\queue\actors.py:98:            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
+src\polaris_v6\queue\actors.py:101:    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:206:             env={"PG_NLI_ENABLED": "1", "PG_MAX_COST_PER_RUN": "5.00"}),
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:208:             env={"PG_NLI_ENABLED": "0", "PG_MAX_COST_PER_RUN": "5.00"}),
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:217:    assert not any(e.dimension == "env_snapshot.PG_MAX_COST_PER_RUN"
+tests\polaris_graph\test_md11_model_pin.py:77:        env_snapshot={"OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"},
+tests\polaris_graph\test_md11_model_pin.py:93:    assert pin.env_snapshot["OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
+tests\polaris_graph\test_md11_model_pin.py:400:        env_snapshot={"OPENROUTER_BASE_URL": "https://example/api"},
+tests\polaris_graph\test_md11_model_pin.py:838:        env_snapshot={"OPENROUTER_BASE_URL": "https://example/api"},
+tests\polaris_graph\test_md11_model_pin.py:845:    assert parsed["env_snapshot"]["OPENROUTER_BASE_URL"] == "https://example/api"
+src\polaris_graph\generator\multi_section_generator.py:3342:    from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL
+src\polaris_graph\generator\multi_section_generator.py:3343:    gen_model = model or PG_GENERATOR_MODEL
+src\polaris_graph\generator\live_deepseek_generator.py:393:        PG_GENERATOR_MODEL,
+src\polaris_graph\generator\live_deepseek_generator.py:399:    generator_model = model or PG_GENERATOR_MODEL
+scripts\live_server.py:3942:                    f"{os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')}"
+scripts\run_phase_g_full_scale.py:14:  PG_MAX_COST_PER_RUN:    $10.00 (vs $2.00)
+scripts\run_phase_g_full_scale.py:55:    "PG_MAX_COST_PER_RUN":             "10.00",
+scripts\run_full_scale_v25.py:47:    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+scripts\run_full_scale_v25.py:48:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_full_scale_v24.py:45:    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+scripts\run_full_scale_v24.py:46:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_full_scale_v23.py:38:    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+scripts\run_full_scale_v23.py:39:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_m_live_1_smoke.py:58:    "PG_MAX_COST_PER_RUN":             "2.00",
+scripts\run_full_scale_v10.py:38:    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+scripts\run_full_scale_v10.py:39:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_entailment_fpr_audit.py:24:PG_MAX_COST_PER_RUN >= 1.0 (200 calls × $0.001 ≈ $0.20). It is
+scripts\run_live_honest_cycle.py:270:        PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
+scripts\run_live_honest_cycle.py:278:        f"Generator model: {PG_GENERATOR_MODEL}.\n"
+scripts\run_honest_sweep_r3.py:59:    PG_MAX_COST_PER_RUN,
+scripts\run_honest_sweep_r3.py:249:        "budget_cap_usd": PG_MAX_COST_PER_RUN,
+scripts\run_honest_sweep_r3.py:1112:async def run_one_query(
+scripts\run_honest_sweep_r3.py:1166:        _log(f"Budget cap: ${PG_MAX_COST_PER_RUN:.4f}")
+scripts\run_honest_sweep_r3.py:2404:            PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
+scripts\run_honest_sweep_r3.py:2445:            f"Generator model: {PG_GENERATOR_MODEL} (multi-section: outline + "
+scripts\run_honest_sweep_r3.py:2795:            "budget_cap_usd": PG_MAX_COST_PER_RUN,
+scripts\run_honest_sweep_r3.py:2905:        _log(f"[cost]        ${run_cost:.4f} (cap ${PG_MAX_COST_PER_RUN:.4f})")
+scripts\run_honest_sweep_r3.py:2934:                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+scripts\run_honest_sweep_r3.py:3252:        f"**Per-query budget cap: ${PG_MAX_COST_PER_RUN:.4f}**"
+src\polaris_graph\evaluator\__init__.py:4:evaluator by default; both swappable via PG_GENERATOR_MODEL /
+scripts\run_honest_on_prerebuild_corpus.py:185:    # to THIS run only. PG_MAX_COST_PER_RUN (default $0.10) will abort
+scripts\run_honest_on_prerebuild_corpus.py:188:        current_run_cost, reset_run_cost, PG_MAX_COST_PER_RUN,
+scripts\run_honest_on_prerebuild_corpus.py:198:    _log(f"Budget cap (PG_MAX_COST_PER_RUN): ${PG_MAX_COST_PER_RUN:.4f}")
+scripts\run_honest_on_prerebuild_corpus.py:339:        PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
+scripts\run_honest_on_prerebuild_corpus.py:348:        f"Generator model: {PG_GENERATOR_MODEL} (multi-section pipeline: "
+scripts\run_honest_on_prerebuild_corpus.py:521:         f"(cap ${PG_MAX_COST_PER_RUN:.4f})")
+scripts\run_full_scale_v30_phase2.py:48:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_full_scale_v29.py:41:    "PG_MAX_COST_PER_RUN":    "10.00",
+src\polaris_graph\evaluator\external_evaluator.py:30:     PG_GENERATOR_MODEL (default deepseek/deepseek-v4-pro).
+src\polaris_graph\evaluator\external_evaluator.py:843:        PG_GENERATOR_MODEL,
+src\polaris_graph\evaluator\external_evaluator.py:859:        generator_model=PG_GENERATOR_MODEL,
+src\polaris_graph\evaluator\external_evaluator.py:876:        generator_model=PG_GENERATOR_MODEL,
+scripts\run_full_scale_v28.py:64:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_full_scale_v27.py:49:    "PG_MAX_COST_PER_RUN":    "10.00",
+scripts\run_full_scale_v26.py:62:    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+scripts\run_full_scale_v26.py:63:    "PG_MAX_COST_PER_RUN":    "10.00",
+src\polaris_graph\audit_ir\v30_runner.py:243:                "cost_cap_usd": _read_env_float("PG_MAX_COST_PER_RUN", 10.0),
+src\polaris_graph\llm\openrouter_client.py:43:OPENROUTER_BASE_URL = os.getenv(
+src\polaris_graph\llm\openrouter_client.py:44:    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+src\polaris_graph\llm\openrouter_client.py:63:# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+src\polaris_graph\llm\openrouter_client.py:64:PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+src\polaris_graph\llm\openrouter_client.py:103:    """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+src\polaris_graph\llm\openrouter_client.py:179:    loop keep calling past PG_MAX_COST_PER_RUN.
+src\polaris_graph\llm\openrouter_client.py:210:    if projected > PG_MAX_COST_PER_RUN:
+src\polaris_graph\llm\openrouter_client.py:212:            f"PG_MAX_COST_PER_RUN={PG_MAX_COST_PER_RUN:.4f} exceeded: "
+src\polaris_graph\llm\openrouter_client.py:214:            f"= ${projected:.4f}. Set PG_MAX_COST_PER_RUN higher or call "
+src\polaris_graph\llm\openrouter_client.py:237:#         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
+src\polaris_graph\llm\openrouter_client.py:275:PG_GENERATOR_MODEL = os.getenv(
+src\polaris_graph\llm\openrouter_client.py:276:    "PG_GENERATOR_MODEL",
+src\polaris_graph\llm\openrouter_client.py:359:    gen_model = generator_model or PG_GENERATOR_MODEL
+src\polaris_graph\llm\openrouter_client.py:840:        self.base_url = (base_url or OPENROUTER_BASE_URL).rstrip("/")
+src\polaris_graph\llm\openrouter_client.py:1471:                    "PG_MAX_COST_PER_RUN.",
+src\polaris_graph\llm\entailment_judge.py:58:# so monkeypatch.setattr on its globals (`PG_MAX_COST_PER_RUN`,
+src\polaris_graph\llm\entailment_judge.py:114:        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+src\polaris_graph\llm\entailment_judge.py:125:        # (set OPENROUTER_BASE_URL=http://<priv-ip>:8000/v1). Default keeps
+src\polaris_graph\llm\entailment_judge.py:128:            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+src\polaris_graph\llm\entailment_judge.py:137:        # variant when PG_GENERATOR_MODEL is also DeepSeek). The
+src\polaris_graph\audit_ir\scope_classifier_llm.py:539:        cost ContextVar (PG_MAX_COST_PER_RUN budget cap) correctly
+src\polaris_graph\audit_ir\model_pin.py:112:    "OPENROUTER_BASE_URL",
+src\polaris_graph\honest_pipeline.py:235:        PG_GENERATOR_MODEL,
+src\polaris_graph\honest_pipeline.py:242:        f"Generator model: {PG_GENERATOR_MODEL}.\n"
+
+ succeeded in 1064ms:
+"""Tests for the 3 v6 handover scripts referenced by docs/carney_handover/runbook.md.
+
+  - scripts/v6/cost_summary.py — aggregates EvidenceContract cost_usd
+  - scripts/v6/replay_pin.py    — diffs two RunPin JSON files
+  - scripts/v6/run_pin_replay.py — pairs baseline+candidate pin sets and gates
+
+Each script is exercised end-to-end via subprocess against a tmp dir with
+real fixtures, asserting both stdout content and exit code.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = REPO_ROOT / "scripts" / "v6"
+FIXTURES = REPO_ROOT / "tests" / "v6" / "fixtures" / "evidence_contract_v1"
+
+
+def _run(script: str, *args: str, env_extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    # Inherit the parent env so pip-installed packages (pydantic, etc.) are
+    # discoverable; override PYTHONPATH so `polaris_v6.*` resolves.
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    if env_extra:
+        env.update(env_extra)
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / script), *args],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+# --- cost_summary.py ---------------------------------------------------------
+
+
+def test_cost_summary_reads_real_bundles_and_reports(tmp_path: Path) -> None:
+    # Use the existing golden fixtures directly — they have real cost_usd.
+    result = _run("cost_summary.py", "--bundles-dir", str(FIXTURES))
+    assert result.returncode == 0, result.stderr
+    assert "matched_runs:" in result.stdout
+    assert "sum_cost_usd:" in result.stdout
+    assert "avg_cost_usd:" in result.stdout
+    assert "min_cost_usd:" in result.stdout
+
+
+def test_cost_summary_empty_dir_exits_1(tmp_path: Path) -> None:
+    result = _run("cost_summary.py", "--bundles-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "no bundles matched" in result.stdout
+
+
+def test_cost_summary_since_filter_excludes_old(tmp_path: Path) -> None:
+    # All goldens are dated 2026-05-01; --since 2030-01-01 excludes everything.
+    result = _run(
+        "cost_summary.py",
+        "--bundles-dir",
+        str(FIXTURES),
+        "--since",
+        "2030-01-01",
+    )
+    assert result.returncode == 1
+    assert "no bundles matched" in result.stdout
+
+
+# --- replay_pin.py -----------------------------------------------------------
+
+
+def _write_pin(path: Path, **overrides) -> None:
+    base = {
+        "pin_id": "pin_001",
+        "workspace_id": "ws_default",
+        "run_id": "run_alpha",
+        "template": "clinical",
+        "question": "Does drug X reduce CV events?",
+        "document_ids": [],
+        "pinned_at": "2026-05-01T10:00:00Z",
+        "generator_model": "deepseek/v4-flash",
+        "verifier_model": "google/gemma-4-31b",
+        "generator_seed": 42,
+        "sealed_evidence_pool_ids": ["ev1", "ev2"],
+        "sealed_verified_sentence_count": 10,
+        "sealed_pipeline_status": "success",
+        "sealed_cost_usd": 0.42,
+    }
+    base.update(overrides)
+    path.write_text(json.dumps(base), encoding="utf-8")
+
+
+def test_replay_pin_no_change_exits_0_no_regression(tmp_path: Path) -> None:
+    orig = tmp_path / "orig.json"
+    rep = tmp_path / "rep.json"
+    _write_pin(orig, pin_id="pin_a")
+    _write_pin(rep, pin_id="pin_b")
+    result = _run("replay_pin.py", "--original", str(orig), "--replay", str(rep))
+    assert result.returncode == 0, result.stderr
+    assert "is_regression:   False" in result.stdout
+
+
+def test_replay_pin_pipeline_status_regression_exits_1(tmp_path: Path) -> None:
+    orig = tmp_path / "orig.json"
+    rep = tmp_path / "rep.json"
+    _write_pin(orig, pin_id="pin_a", sealed_pipeline_status="success")
+    _write_pin(
+        rep,
+        pin_id="pin_b",
+        sealed_pipeline_status="abort_no_verified_sections",
+    )
+    result = _run("replay_pin.py", "--original", str(orig), "--replay", str(rep))
+    assert result.returncode == 1
+    assert "is_regression:   True" in result.stdout
+
+
+def test_replay_pin_json_emit(tmp_path: Path) -> None:
+    orig = tmp_path / "orig.json"
+    rep = tmp_path / "rep.json"
+    _write_pin(orig, pin_id="pin_a")
+    _write_pin(rep, pin_id="pin_b")
+    result = _run("replay_pin.py", "--original", str(orig), "--replay", str(rep), "--json")
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["original_pin_id"] == "pin_a"
+    assert payload["replay_pin_id"] == "pin_b"
+    assert payload["is_regression"] is False
+
+
+# --- run_pin_replay.py -------------------------------------------------------
+
+
+def test_run_pin_replay_clean_pass(tmp_path: Path) -> None:
+    bdir = tmp_path / "baseline"
+    cdir = tmp_path / "candidate"
+    bdir.mkdir()
+    cdir.mkdir()
+    _write_pin(bdir / "p1.json", pin_id="b_p1", run_id="run_alpha")
+    _write_pin(cdir / "p1.json", pin_id="c_p1", run_id="run_alpha")
+    result = _run(
+        "run_pin_replay.py",
+        "--baseline-dir",
+        str(bdir),
+        "--candidate-dir",
+        str(cdir),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "verdict: PASS" in result.stdout
+
+
+def test_run_pin_replay_regression_fails(tmp_path: Path) -> None:
+    bdir = tmp_path / "baseline"
+    cdir = tmp_path / "candidate"
+    bdir.mkdir()
+    cdir.mkdir()
+    _write_pin(
+        bdir / "p1.json",
+        pin_id="b_p1",
+        run_id="run_alpha",
+        sealed_pipeline_status="success",
+    )
+    _write_pin(
+        cdir / "p1.json",
+        pin_id="c_p1",
+        run_id="run_alpha",
+        sealed_pipeline_status="abort_no_verified_sections",
+    )
+    result = _run(
+        "run_pin_replay.py",
+        "--baseline-dir",
+        str(bdir),
+        "--candidate-dir",
+        str(cdir),
+    )
+    assert result.returncode == 1
+    assert "verdict: FAIL" in result.stdout
+    assert "regressions: 1" in result.stdout
+
+
+def test_run_pin_replay_missing_baseline_dir_exits_2(tmp_path: Path) -> None:
+    result = _run(
+        "run_pin_replay.py",
+        "--baseline-dir",
+        str(tmp_path / "nope"),
+        "--candidate-dir",
+        str(tmp_path),
+    )
+    assert result.returncode == 2
+
+ succeeded in 1126ms:
+"""Dramatiq actors for POLARIS v6 research-run lifecycle.
+
+I-arch-001a (2026-05-12): wired to pipeline-A run_one_query. Concurrency-safe
+(no os.environ mutation — v6 fields flow through q-dict). UUID-scoped
+artifact_dir prevents same-slug concurrent overwrites. Full failure mapping
+maps pipeline-A manifest verdict to lifecycle_status × pipeline_status.
+
+Stub-mode preserved: when no run_store row exists (existing test_actors.py
+direct .fn() invocation), returns deterministic noop without DB writes.
+"""
+
+from __future__ import annotations
+
+# I-carney-005 P1-001: broker init MUST happen BEFORE any @dramatiq.actor
+# decoration below, in the SAME interpreter that imports this module.
+# get_broker() is idempotent (broker._INITIALIZED sentinel) so test
+# environments where conftest already installed a StubBroker pay no cost.
+from polaris_v6.queue.broker import get_broker as _ensure_broker
+_ensure_broker()
+
+import asyncio  # noqa: E402 — must come after broker init
+import json  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import uuid  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
+
+import dramatiq  # noqa: E402
+
+from polaris_v6.queue import run_store  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+ENQUEUE_MAX_RETRIES = 3
+
+# I-arch-001c (2026-05-13) + I-rdy-005 (2026-05-15): template_id →
+# pipeline-A scope_domain mapping at the actor boundary.
+#
+# All 8 canonical templates are first-class scope domains: each has its own
+# config/scope_templates/<id>.yaml and is a member of scope_gate.SUPPORTED_DOMAINS.
+# The mapping is therefore all-identity — every template id IS its scope domain.
+# (The earlier climate/defense/housing/trade placeholders were retired by
+# I-rdy-005's reconcile to the canonical 8.)
+TEMPLATE_TO_SCOPE_DOMAIN = {
+    "clinical": "clinical",
+    "policy": "policy",
+    "tech": "tech",
+    "due_diligence": "due_diligence",
+    "ai_sovereignty": "ai_sovereignty",
+    "canada_us": "canada_us",
+    "workforce": "workforce",
+    "custom": "custom",
+}
+
+
+def _derive_slug(template_id: str, question: str) -> str:
+    """Deterministic URL-safe slug for pipeline-A run_dir nesting.
+
+    Pipeline-A reads q['slug']; this produces a stable, human-readable
+    identifier per (template, question) pair. UUID provides uniqueness
+    via the artifact_dir parent — slug itself doesn't need to be unique.
+    """
+    base = f"{template_id}_{question[:60]}"
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", base.lower()).strip("_")
+    return cleaned[:120] or "untitled"
+
+
+@dramatiq.actor(max_retries=ENQUEUE_MAX_RETRIES, time_limit=30 * 60 * 1000)
+def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute a research run via pipeline-A. Idempotent on run_id.
+
+    Stub-mode path: when run_store has no row for run_id (tests use
+    .fn() directly without insert_run), returns deterministic noop
+    without DB writes — preserves I-phase0-005 stub-mode semantics.
+
+    Production path: marks in_progress, builds q-dict with v6 fields,
+    invokes scripts.run_honest_sweep_r3.run_one_query, parses the
+    manifest.json pipeline-A writes, and dispatches to
+    mark_completed / mark_aborted / mark_failed per pipeline_status.
+    """
+    # Stub-mode preservation
+    if run_store.get_run(run_id) is None:
+        return {"run_id": run_id, "status": "completed", "echo": request_payload}
+
+    run_store.mark_in_progress(run_id)
+    decision_id = str(uuid.uuid4())
+    output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
+    artifact_dir_root = output_root / run_id
+    artifact_dir_root.mkdir(parents=True, exist_ok=True)
+
+    template_id = request_payload.get("template", "")
+    question = request_payload.get("question", "")
+    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
+        raise ValueError(
+            f"unknown template_id {template_id!r} — not one of the canonical "
+            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
+            f"must fail loudly here, not silently run as a generic domain."
+        )
+    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
+    slug = _derive_slug(template_id, question)
+
+    # v6 fields flow through q-dict (NO os.environ mutation per iter-2 P1.2)
+    q: dict[str, Any] = {
+        "domain": domain,
+        "slug": slug,
+        "question": question,
+        "external_run_id": run_id,
+        "decision_id": decision_id,
+        "v6_mode": True,
+        "out_root_override": str(artifact_dir_root),
+        "template_id": template_id,
+    }
+
+    # I-arch-001b: synthesize v30.1 contract patch from v6 template's
+    # frame_manifest. Pipeline-A merges this into the scope template's
+    # per_query_report_contract before compile_frame / load_report_contract_for_slug.
+    # Failure is graceful (logger.warning) — pipeline-A handles missing
+    # contract via legacy no-contract path.
+    try:
+        from polaris_v6.templates.registry import load_template
+        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+
+        v6_tmpl = load_template(template_id).model_dump()
+        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+        logger.info(
+            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
+            run_id,
+            template_id,
+            slug,
+            len(q["v30_contract_patch"][slug]["required_entities"]),
+        )
+    except FileNotFoundError as exc:
+        logger.warning(
+            "[actor] v6 template not found template_id=%s run_id=%s; "
+            "pipeline-A will run on legacy no-contract path: %s",
+            template_id,
+            run_id,
+            exc,
+        )
+    except Exception as exc:  # noqa: BLE001 — synthesizer failure must not block runtime
+        logger.warning(
+            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
+            "slug=%s: %s; pipeline-A on legacy no-contract path",
+            run_id,
+            template_id,
+            slug,
+            exc,
+            exc_info=True,
+        )
+
+    run_store.set_pipeline_meta(
+        run_id,
+        query_slug=slug,
+        artifact_dir=str(artifact_dir_root),
+        decision_id=decision_id,
+    )
+
+    try:
+        from scripts.run_honest_sweep_r3 import run_one_query
+
+        summary = asyncio.run(run_one_query(q, artifact_dir_root))
+    except Exception as exc:  # noqa: BLE001 — actor must record any pipeline crash
+        logger.exception("[actor] pipeline-A raised for run_id=%s", run_id)
+        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
+        raise
+
+    # Parse pipeline-A's manifest.json — written at every exit path
+    manifest_path = artifact_dir_root / "manifest.json"
+    if not manifest_path.is_file():
+        run_store.mark_failed(
+            run_id, "manifest_missing: pipeline-A returned without writing manifest.json"
+        )
+        return summary
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
+        return summary
+
+    pipeline_status = manifest.get("status") or "error_unexpected"
+    manifest_run_id = manifest.get("run_id")
+    cost_usd = manifest.get("cost_usd")
+    if cost_usd is None:
+        cost_usd = summary.get("cost_usd")
+    try:
+        cost_usd_f = float(cost_usd) if cost_usd is not None else None
+    except (TypeError, ValueError):
+        cost_usd_f = None
+
+    run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
+
+    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+        run_store.mark_completed(
+            run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+        )
+    elif pipeline_status.startswith("abort_"):
+        run_store.mark_aborted(
+            run_id,
+            pipeline_status=pipeline_status,
+            abort_reason=manifest.get("error") or pipeline_status,
+            cost_usd=cost_usd_f,
+        )
+    elif pipeline_status.startswith("error_"):
+        run_store.mark_failed(
+            run_id, f"pipeline_error: {pipeline_status}: {manifest.get('error', '')}"
+        )
+    else:
+        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+    return summary
+
+
+@dramatiq.actor(max_retries=0)
+def cancel_research_run(run_id: str) -> dict[str, Any]:
+    """Cancel an in-flight research run by run_id.
+
+    Implementation note: real cancellation is via Worker.send_signal on the
+    target message_id (see test_dramatiq_acceptance.py scenario 3); this
+    actor exists to provide an audited entrypoint that records the cancel
+    intent in the run-status table before the signal fires.
+    """
+    return {"run_id": run_id, "status": "cancel_requested"}
+
+ succeeded in 1242ms:
+"""
+R-3: 8-query cross-domain readiness sweep.
+
+Runs the full live honest-rebuild pipeline on 8 queries spanning all
+4 domain scope templates. Records success / failure-mode matrix +
+per-query artifacts in outputs/honest_sweep_r3/<domain>/<slug>/.
+
+This is the "never tested on a query other than semaglutide" gap from
+the readiness-gate analysis. Expect some queries to surface novel
+failure modes; that's the point.
+
+Usage:
+    python -X utf8 scripts/run_honest_sweep_r3.py
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import sys
+import time
+import traceback
+from dataclasses import asdict
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(override=False)
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+# Pipeline modules use both `from src.polaris_graph.X import Y` and
+# `from polaris_graph.X import Y` namespaces. Add C:/POLARIS/src so
+# the bare-namespace imports resolve. (I-bug-100 documented the
+# module-instance identity hazard; for runtime production scripts
+# both prefixes must resolve to the same files.)
+sys.path.insert(0, str(ROOT / "src"))
+
+logging.basicConfig(
+    level=os.environ.get("PG_LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
+)
+for noisy in ("httpx", "httpcore"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
+from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
+from src.polaris_graph.evaluator.live_qwen_judge import judge_report  # noqa: E402
+from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+    generate_multi_section_report,
+)
+from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+    resolve_provenance_to_citations,
+    strict_verify,
+)
+from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+    PG_MAX_COST_PER_RUN,
+    current_run_cost,
+    reset_run_cost,
+    set_current_run_id,
+)
+# M-INT-0b: pin capture + replay
+from src.polaris_graph.audit_ir.model_pin import (  # noqa: E402
+    DEFAULT_REPLAY_ENV_VARS,
+    ModelPin,
+    capture_pin,
+    pin_from_json,
+    pin_to_json,
+)
+from src.polaris_graph.audit_ir.pin_replay import (  # noqa: E402
+    apply_replay_plan,
+    build_replay_plan,
+)
+# M-INT-2: cache + cache-warming
+from src.polaris_graph.audit_ir.retrieval_cache import (  # noqa: E402
+    RetrievalCacheStore,
+)
+from src.polaris_graph.audit_ir.cache_warming import (  # noqa: E402
+    CacheFetcher,
+    FetchResult as WarmFetchResult,
+    warm_cache,
+)
+# M-INT-3: freshness detector + eviction
+from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
+    FreshnessAlertStore,
+    FreshnessCheckResult,
+    FreshnessDetector,
+    FreshnessStatus,
+    check_freshness,
+)
+from src.polaris_graph.audit_ir.manifest_augment import augment_v6_manifest  # noqa: E402
+from src.polaris_v6.queue.run_events import (  # noqa: E402
+    emit_event,
+    emit_terminal_event,
+)
+from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
+    check_completeness,
+)
+from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
+    assess_corpus_adequacy,
+)
+from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
+    CorpusApprovalDecision,
+    check_auto_approve_allowed,
+    compute_tier_distribution,
+    save_approval_decision,
+)
+from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
+# M-INT-4: OpenRouter ScopeAffinityLLM in production scope-gate path
+from src.polaris_graph.audit_ir.scope_classifier_llm import (  # noqa: E402
+    LLMScopeEligibilityClassifier,
+    LLMScopeEligibilityClassifierConfig,
+    LLMVerdict,
+    OpenRouterScopeAffinityLLM,
+)
+# M-INT-5: Domain router into live retrieval flow
+from src.polaris_graph.audit_ir.domain_router import (  # noqa: E402
+    DomainAdapter,
+    DomainTemplate,
+    DomainTemplateRegistry,
+    RoutingOutcome,
+    RoutingResult,
+    route_to_domain,
+)
+# M-INT-7: Billing quota gating
+from src.polaris_graph.audit_ir.billing_quota_store import (  # noqa: E402
+    BillingQuotaStore,
+    PlanTier,
+    QuotaEventKind,
+    QuotaExceededError,
+)
+# M-INT-6: LLMAugmentedInductor in operator-review queue + M-D1 CI
+from src.polaris_graph.auto_induction.keyword_inductor import (  # noqa: E402
+    KeywordInductor,
+)
+from src.polaris_graph.auto_induction.llm_inductor import (  # noqa: E402
+    LLMAugmentedInductor,
+    LLMAugmentedInductorConfig,
+    MockTemplateAffinityClassifier,
+)
+from src.polaris_graph.auto_induction.precision_metrics import (  # noqa: E402
+    InductorVerdict,
+)
+from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
+    detect_contradictions,
+    extract_numeric_claims,
+)
+from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
+    run_live_retrieval,
+)
+
+
+# ─────────────────────────────────────────────────────────────────
+# BUG-B-101 fix: unified manifest.status taxonomy.
+#
+# Pre-fix, successful runs wrote manifest.json WITHOUT a "status" key
+# while abort runs DID include it. Documentation claimed
+# manifest.status was authoritative — it wasn't. See
+# outputs/codex_findings/deep_dive_round_1/findings.md for the full
+# scoping analysis.
+#
+# Post-fix, EVERY exit path writes a manifest.json with a "status"
+# field from this unified taxonomy. `summary["status"]` is preserved
+# as secondary sweep telemetry for backward compatibility with any
+# downstream counter that relied on the legacy labels.
+# ─────────────────────────────────────────────────────────────────
+
+UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+    # success
+    "success",
+    # partial — report produced but degraded signal
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
+    "partial_qwen_advisory",         # BUG-M-205: Qwen judge flagged critical axes
+    # abort — pipeline refused to produce a report
+    "abort_scope_rejected",
+    "abort_no_sources",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
+    # error — unhandled exception
+    "error_unexpected",
+})
+
+# Map legacy summary["status"] labels → unified manifest.status values.
+_SUMMARY_TO_UNIFIED: dict[str, str] = {
+    "ok": "success",
+    "ok_thin_corpus": "partial_thin_corpus",
+    "ok_incomplete_corpus": "partial_incomplete_corpus",
+    "ok_outline_fallback": "partial_outline_fallback",
+    "ok_qwen_advisory": "partial_qwen_advisory",
+    "warn_rule_checks": "partial_rule_check_warnings",
+    "fail_no_sources": "abort_no_sources",
+    "fail_no_verified_prose": "abort_no_verified_sections",
+    "abort_scope_rejected": "abort_scope_rejected",
+    "abort_corpus_inadequate": "abort_corpus_inadequate",
+    "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+    "abort_no_verified_sections": "abort_no_verified_sections",
+    "abort_evaluator_critical": "abort_evaluator_critical",
+    "error": "error_unexpected",
+}
+
+
+def to_unified_status(summary_status: str) -> str:
+    """Map a legacy summary["status"] label to the unified
+    manifest.status taxonomy. Unknown labels become error_unexpected
+    (fail loudly for the reader; still a valid taxonomy value)."""
+    return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+def expected_str_for_abort(protocol: dict) -> str:
+    """Render expected tier distribution for abort-artifact text."""
+    parts = []
+    for entry in protocol.get("expected_tier_distribution", []) or []:
+        tier = entry.get("tier")
+        mn = (entry.get("min_fraction", 0) or 0) * 100
+        mx = (entry.get("max_fraction", 1) or 1) * 100
+        if tier:
+            parts.append(f"{tier} {mn:.0f}-{mx:.0f}%")
+    return ", ".join(parts) or "per scope template"
+
+
+def _base_manifest_envelope(
+    *,
+    run_id: str,
+    q: dict,
+    retrieval=None,
+    run_cost: float = 0.0,
+) -> dict:
+    """BUG-SCHEMA-R8d fix: every manifest (success AND abort) carries
+    the same envelope so downstream consumers get consistent keys
+    regardless of exit path.
+
+    Caller adds status-specific fields on top (adequacy, generator,
+    evaluator_gate, scope, error, etc.). Using this helper prevents
+    the envelope from drifting between exit paths.
+    """
+    env: dict = {
+        "run_id": run_id,
+        "slug": q.get("slug", ""),
+        "domain": q.get("domain", ""),
+        "question": q.get("question", ""),
+        "cost_usd": run_cost,
+        "budget_cap_usd": PG_MAX_COST_PER_RUN,
+    }
+    if retrieval is not None:
+        env["retrieval"] = {
+            "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+            "fetched": getattr(retrieval, "candidates_fetched", 0),
+            "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+            "api_calls": getattr(retrieval, "api_calls", {}),
+        }
+    return env
+
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py -TotalCount 1225 | Select-Object -Last 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py -TotalCount 330" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files scripts\\v6 tests\\v6 docs\\carney_handover | sort" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path infra\\vexxhost\\.env.example -TotalCount 80" in C:\POLARIS
+ succeeded in 1029ms:
+"""
+OpenRouter LLM Client for polaris graph.
+
+Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
+- reason(): reasoning ON, returned separately in reasoning_details
+- generate(): reasoning OFF, clean prose output only
+
+No CoT scrubbing. No regex filters. No post-processing hacks.
+The API handles separation at the protocol level.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional, Type, TypeVar
+
+import httpx
+from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
+
+from src.polaris_graph.tracing import _current_tracer
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+# FIX-305: Persistent cost ledger
+_COST_LEDGER_PATH = Path(os.getenv("PG_COST_LEDGER_PATH", "logs/pg_cost_ledger.jsonl"))
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv(
+    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+)
+OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
+OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+
+# R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+# not an economic limit. Measured by cumulative cost across ALL
+# OpenRouterClient instances within a single run.
+#
+# I-gen-003 (2026-05-14): raised the default from $0.10 to $10.00.
+# The $0.10 default was tuned for the V3.2-Exp generator
+# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
+# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
+# observed) and the I-gen-003 CoT-recovery regen loop adds up to 3
+# extra section calls. Under the stale $0.10 cap a normal V4 Pro run
+# trips BudgetExceededError before it can finish — i.e. the guard
+# false-fires on the new generator's NORMAL cost profile. $10.00
+# matches the v30_runner.py default and still catches a genuine
+# infinite loop / recursive-outline runaway. Override per-run via the
+# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+
+# BUG-B-201 fix (pass 2 remediation): per-task ambient state via
+# contextvars so concurrent async run_one_query() calls don't stomp
+# each other's run_id + cost accumulator.
+#
+# Pre-fix (commit f632ee5), `_CURRENT_RUN_ID` and `_RUN_COST_USD` were
+# module-level globals. Pass 2 showed that under `asyncio.gather`,
+# a later run_one_query overwrote the earlier run's ambient id before
+# downstream OpenRouterClient() construction — tagging the first run's
+# LLM calls with the second run's id.
+#
+# Post-fix: ContextVar scopes per asyncio Task. Each task sees its own
+# run_id + cost without threading explicit kwargs through the call graph.
+# Synchronous / serial callers still work because ContextVar defaults
+# to the module-default if no set_* has run in the current task.
+import contextvars
+
+_RUN_COST_LOCK = __import__("threading").Lock()
+_RUN_COST_CTX: contextvars.ContextVar[float] = contextvars.ContextVar(
+    "_RUN_COST_USD", default=0.0,
+)
+_CURRENT_RUN_ID_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_CURRENT_RUN_ID", default=None,
+)
+
+
+def set_current_run_id(run_id: str | None) -> None:
+    """Set the ambient run-id for the current async task. Each
+    asyncio.Task has its own context, so concurrent runs don't stomp.
+    """
+    _CURRENT_RUN_ID_CTX.set(run_id)
+
+
+def current_run_id() -> str | None:
+    return _CURRENT_RUN_ID_CTX.get()
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+
+
+class ReasoningFirstTruncationError(RuntimeError):
+    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
+    Flash) ran out of token budget while still planning — content is
+    empty and reasoning_content has no provenance markers and ends
+    mid-sentence. Typed (not bare RuntimeError) so the multi_section
+    generator's _call_section can catch *only* this case and let the
+    bounded regen loop retry with a larger budget, while every other
+    RuntimeError still propagates as a real fault."""
+
+
+def reset_run_cost() -> None:
+    """Reset the current task's run-cost accumulator to 0. Call at the
+    start of a run. Uses ContextVar so concurrent async tasks each get
+    their own zero-start."""
+    _RUN_COST_CTX.set(0.0)
+
+
+def current_run_cost() -> float:
+    """Return the cumulative cost of the current run (USD), scoped to
+    the current asyncio task via ContextVar."""
+    return _RUN_COST_CTX.get()
+
+
+def _add_run_cost(delta: float) -> None:
+    # BUG-B-201: ContextVar-scoped cost accumulator. Each async task has
+    # its own run-cost; concurrent gather() of run_one_query() no longer
+    # stomps each other.
+    _RUN_COST_CTX.set(_RUN_COST_CTX.get() + float(delta))
+
+
+# Codex round 1 B-4: conservative per-model prices used when OpenRouter
+# omits usage.cost. Prices are $/M tokens and represent the UPPER END of
+# published rates for each provider family (if a cheaper provider is used
+# we overcharge the run cost, which is the safe direction for a budget
+# guard). When the model is unknown we use OPUS-tier defaults.
+_PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+    # model prefix  :  (input $/M, output $/M)
+    # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
+    # = iteration order = first-match-wins per _impute_cost_from_tokens.
+    "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+    "deepseek/deepseek-v4-flash": (0.14, 0.28),
+    "deepseek/":       (0.27, 0.38),
+    "qwen/qwen3-8b":   (0.05, 0.40),
+    "qwen/qwen3-32b":  (0.10, 0.60),
+    "qwen/":           (0.10, 0.60),
+    "z-ai/glm-5.1":    (0.60, 2.20),
+    "z-ai/":           (0.60, 2.20),
+    "meta-llama/":     (0.30, 0.90),
+    "google/gemma-4-31b-it": (0.13, 0.38),
+    "google/gemma":    (0.05, 0.30),
+    "google/gemini":   (1.25, 5.00),
+    "mistralai/":      (0.30, 0.90),
+    "moonshotai/":     (0.60, 2.50),
+    "openai/":         (3.00, 10.00),
+    "anthropic/":      (3.00, 15.00),
+}
+
+_DEFAULT_PRICE_PER_M = (3.00, 15.00)  # Opus-tier worst-case
+
+
+def _impute_cost_from_tokens(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    reasoning_tokens: int,
+) -> float:
+    """Estimate $/call from token counts + published prices. Reasoning
+    tokens bill at the output rate (matches OpenAI / Anthropic practice).
+    Used by the budget guard when OpenRouter omits usage.cost.
+
+    Defensive: token counts are clamped to >=0. A corrupted API response
+    returning negative tokens must NOT produce a negative cost that
+    would silently shrink the accumulated run budget and let a runaway
+    loop keep calling past PG_MAX_COST_PER_RUN.
+    """
+    # Clamp negative token counts — these can only come from a
+    # corrupted API response. A negative cost here would be silently
+    # absorbed by _add_run_cost and weaken the budget guard.
+    input_tokens = max(0, int(input_tokens))
+    output_tokens = max(0, int(output_tokens))
+    reasoning_tokens = max(0, int(reasoning_tokens))
+    if input_tokens == 0 and output_tokens == 0 and reasoning_tokens == 0:
+        return 0.0
+    model_lower = (model or "").lower()
+    input_rate, output_rate = _DEFAULT_PRICE_PER_M
+    for prefix, (in_r, out_r) in _PRICE_TABLE_USD_PER_M.items():
+        if model_lower.startswith(prefix):
+            input_rate, output_rate = in_r, out_r
+            break
+    return (
+        (input_tokens / 1_000_000.0) * input_rate
+        + ((output_tokens + reasoning_tokens) / 1_000_000.0) * output_rate
+    )
+
+
+def check_run_budget(anticipated_additional: float = 0.0) -> None:
+    """Raise BudgetExceededError if the next call would exceed the cap.
+
+    anticipated_additional: optional estimate of the upcoming call cost
+    (used only for guard-before-call — the actual cost is recorded by
+    `_add_run_cost()` after the call returns).
+    """
+    current = current_run_cost()
+    projected = current + max(0.0, float(anticipated_additional))
+    if projected > PG_MAX_COST_PER_RUN:
+        raise BudgetExceededError(
+            f"PG_MAX_COST_PER_RUN={PG_MAX_COST_PER_RUN:.4f} exceeded: "
+            f"current=${current:.4f} + anticipated=${anticipated_additional:.4f} "
+            f"= ${projected:.4f}. Set PG_MAX_COST_PER_RUN higher or call "
+            f"reset_run_cost() between runs."
+        )
+
+# HONEST-REBUILD Phase 1c (plan: C:/Users/msn/.claude/plans/lovely-finding-firefly.md)
+# ─────────────────────────────────────────────────────────────────────────────
+# Two-family architecture: generator and evaluator MUST be from different
+# training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
+# 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
+#
+# Defaults pin the VERIFIED-ON-GROUNDED-FACTUALITY pair (user decision
+# 2026-04-17 after multi-axis reasoning; generator default upgraded to V4
+# Pro on 2026-05-08 per I-bug-086 once V4 hit OpenRouter):
+#
+#   Generator: deepseek/deepseek-v4-pro   (role-fit: long-form grounded
+#                                          synthesis)
+#       - 1.6T total / 49B active params, hybrid CSA+HCA attention
+#       - 1.05M context, MIT license, $0.435 in / $0.87 out per M tokens
+#         on OpenRouter
+#       - Released 2026-04-24 (current frontier open-weight)
+#       - Sovereign V4 hosting on OVH H200 still pending I-phase0-006
+#         hardware decision; OpenRouter is the bridge until then
+#       - Predecessor V3.2 retained on OpenRouter (`deepseek/deepseek-v3.2-exp`),
+#         Vectara HHEM 5.3% — switch back via PG_GENERATOR_MODEL env var
+#         if V4 Pro produces regressions on the BEAT-BOTH benchmark
+#
+#   Evaluator: google/gemma-4-31b-it     (role-fit: per-claim faithfulness
+#                                         judgment, runs 100s of times per
+#                                         report)
+#       - 30.7B dense parameters (not MoE — every parameter active per
+#         token; preferred for narrow judgment tasks where consistency
+#         matters more than raw capability)
+#       - 256K context, Apache 2.0 license
+#       - Released 2026-04-02 (current frontier open-weight from Google)
+#       - Different family from generator (Google vs DeepSeek) —
+#         check_family_segregation() allows this pair
+#       - Aligns with documented Phase-4 plan (Gemma 4 31B was always the
+#         eventual evaluator target; OpenRouter is the bridge until OVH
+#         hardware lands per I-phase0-009)
+#       - Predecessor Qwen3-8B retained on OpenRouter (`qwen/qwen3-8b`,
+#         Vectara HHEM 4.8%) — switch back via PG_EVALUATOR_MODEL env var
+#         if Gemma 4 produces regressions on internal benchmarks
+#
+# WHY NOT GLM 5.1 + Qwen 3.5 Plus (rejected after multi-axis analysis
+# 2026-04-17):
+#   - GLM-5.1's strengths (SWE-Bench Pro 58.4, BrowseComp 68.0, AIME 92.7)
+#     are for agentic coding tasks, NOT our role. Grounded-generation
+#     faithfulness is the core requirement; GLM-5 ancestor ranks 57/77 on
+#     Vectara at 10.1%. GLM-5.1 has no Vectara data but inherits the signal.
+#   - Qwen 3.5 Plus has zero Vectara data. Sibling Qwen 3.5 397B has 88%
+#     fabrication rate on AA-Omniscience. Unverified factuality is exactly
+#     the "no honest metric" pattern the rebuild is trying to escape.
+#   - Cost: GLM 5.1 at $2.15/M blended is ~5x the combined DeepSeek +
+#     Qwen3-8B cost per call.
+#
+# Research trail:
+#   loopback/audit/_open_source_models_2026.md
+#   loopback/audit/_open_source_models_2026_april_followup.md
+#
+# Escape hatch for fine-tunes / licensed redistributions: PG_*_FAMILY_OVERRIDE.
+# Family derivation uses OpenRouter publisher-slug prefix.
+PG_GENERATOR_MODEL = os.getenv(
+    "PG_GENERATOR_MODEL",
+    # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
+    #
+    # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
+    # because V4 Pro is reasoning-first — it emits CoT-style planning and,
+    # critically, exhausted max_tokens mid-planning, tripping the I-bug-089
+    # SF-15 fail-loud and crashing the pipeline before any section was
+    # written.
+    #
+    # I-gen-003 (2026-05-14) fixes the crash:
+    #   - ReasoningFirstTruncationError (typed) + a 20000-token
+    #     PG_REASONING_FIRST_MIN_MAX_TOKENS floor give V4 Pro room to both
+    #     finish reasoning AND emit the cited paragraph — smoke #3 ran all
+    #     6 sections with zero truncation crash.
+    #   - _call_section catches that exception and returns an empty draft
+    #     so a truncation degrades to an honest abort_no_verified_sections
+    #     rather than a hard error_unexpected.
+    # V4 Pro's report-layer citation tightness vs the evaluator gate is
+    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
+    # is obsolete — NOT a fallback.
+    "deepseek/deepseek-v4-pro",
+)
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+
+# Explicit family overrides for the cases where the model-name prefix is
+# not the true family (fine-tunes, licensed redistributions, etc.).
+PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
+PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+
+# Known family prefixes. The first prefix matched wins. Distinct families
+# per the loopback/audit/_open_source_models_2026.md family-distance table.
+_FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
+    "deepseek": ("deepseek/", "deepseek-ai/"),
+    "qwen":     ("qwen/", "qwen-ai/", "alibaba/"),
+    "glm":      ("z-ai/", "zhipuai/", "thudm/"),
+    "llama":    ("meta-llama/", "meta/", "llama/"),
+    "gemma":    ("google/gemma", "google/gemma-", "gemma/"),
+    "mistral":  ("mistralai/", "mistral/"),
+    "kimi":     ("moonshotai/", "moonshot/", "kimi/"),
+    # Closed frontier families included for completeness (off-MVP, but if
+    # ever allowed via a closed-source fallback they get their own family).
+    "openai":   ("openai/", "gpt-"),
+    "anthropic":("anthropic/", "claude-"),
+    "google-closed": ("google/gemini",),
+}
+
+
+def family_from_model(model_name: str, override: str = "") -> str:
+    """Derive the training-lineage family from an OpenRouter model name.
+
+    Returns the family label ("deepseek", "qwen", "glm", "llama", "gemma",
+    "mistral", "kimi", "openai", "anthropic", "google-closed") or
+    "unknown" if no prefix matches.
+
+    A non-empty `override` bypasses prefix matching. Use it when a model
+
+ succeeded in 1051ms:
+# I-carney-008 — POLARIS Vexxhost deploy .env template.
+#
+# Copy to /root/.env on the Vexxhost VM (NOT in repo — gitignored).
+# All values are sensitive. Replace REPLACE_ME placeholders before scp.
+
+# ---- LLM backend ----
+# DEFAULT to openrouter for the transition window. The vLLM client lives in
+# GH#199 I-sov-001 — DO NOT set POLARIS_LLM_BACKEND=vllm until that PR lands
+# AND OVH BHS H200 is online (GH#90 I-phase0-009). Setting it now will break
+# generation. /transparency surfaces this backend; reviewers see the US
+# disclosure during the transition.
+POLARIS_LLM_BACKEND=openrouter   # flip to "vllm" post-GH#199 + post-OVH-H200
+POLARIS_VLLM_BASE_URL=http://10.0.0.42:8000/v1   # only used when backend=vllm
+OPENROUTER_API_KEY=REPLACE_ME_OR_REMOVE_AFTER_VLLM_CUTOVER
+
+# ---- Live retrieval ----
+# Serper is the search backend. It is US-based and that is accepted per
+# user directive 2026-05-13: search queries carry no confidential content,
+# and the generated reports stay on sovereign infrastructure. Serper is
+# disclosed plainly in /transparency §4. REQUIRED — runs fail loudly
+# without it.
+SERPER_API_KEY=REPLACE_ME
+# Semantic Scholar is hosted by AI2 (US non-profit, public corpus). Disclosed
+# in /transparency; remove for stricter sovereignty.
+SEMANTIC_SCHOLAR_API_KEY=
+
+# ---- Sovereign deploy provenance ----
+# Surfaced by /transparency. Truthful disclosure is non-negotiable.
+POLARIS_PROVIDER=vexxhost
+POLARIS_REGION=montreal-qc
+
+# ---- Auth (I-carney-004) ----
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+POLARIS_JWT_SECRET=REPLACE_ME_64_BYTE_URL_SAFE_RANDOM
+
+# Path inside the container — provision.sh writes /etc/polaris/static_accounts.yaml
+# and bind-mounts /etc/polaris into the container.
+POLARIS_STATIC_ACCOUNTS_PATH=/etc/polaris/static_accounts.yaml
+POLARIS_ETC_DIR=/etc/polaris
+
+# ---- GPG bundle signing ----
+# Fingerprint output by scripts/bootstrap_gpg_demo_key.sh.
+POLARIS_GPG_KEY_ID=REPLACE_ME_FINGERPRINT
+POLARIS_GPG_HOMEDIR=/var/lib/polaris/gpg
+
+# ---- Pipeline-A controls ----
+PG_MAX_COST_PER_RUN=5.00
+POLARIS_GIT_COMMIT=REPLACE_ME_REPO_SHA
+
+# ---- Compose port mapping ----
+POLARIS_API_PORT=8000
+POLARIS_WEB_PORT=3000
+
+# ---- Egress allowlist override (optional) ----
+POLARIS_EGRESS_ALLOWLIST=/etc/polaris/egress_allowlist.txt
+
+ succeeded in 1211ms:
+docs\carney_handover\5min_video_script.md
+docs\carney_handover\bundle_export_sample_README.md
+docs\carney_handover\bundle_export_sample.json
+docs\carney_handover\one_pager.md
+docs\carney_handover\runbook.md
+scripts\v6\benchmark\api_benchmark_runner.py
+scripts\v6\cost_summary.py
+scripts\v6\replay_pin.py
+scripts\v6\run_benchmark.py
+scripts\v6\run_pin_replay.py
+scripts\v6\vastai_query_pricing.py
+tests\v6\__init__.py
+tests\v6\acceptance\__init__.py
+tests\v6\acceptance\test_dramatiq_acceptance.py
+tests\v6\acceptance\test_runs_db_integration.py
+tests\v6\anti_sycophancy\__init__.py
+tests\v6\anti_sycophancy\test_nightly_eval.py
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py
+tests\v6\benchmark\test_benchmark_proof_package.py
+tests\v6\benchmark\test_coverage_scorer.py
+tests\v6\compare\__init__.py
+tests\v6\compare\test_claim_diff.py
+tests\v6\compare\test_jurisdictional_diff.py
+tests\v6\conftest.py
+tests\v6\fixtures\anti_sycophancy\failing_responses.json
+tests\v6\fixtures\anti_sycophancy\passing_responses.json
+tests\v6\fixtures\baseline_pins\baseline_climate.json
+tests\v6\fixtures\baseline_pins\baseline_clinical.json
+tests\v6\fixtures\baseline_pins\baseline_housing.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_ai_sovereignty.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_climate.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_clinical.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_defense.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_contradiction.json
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_drop_reason.json
+tests\v6\fixtures\sycophancy_v1\paired_prompts.json
+tests\v6\test_actors.py
+tests\v6\test_ambiguity_detector.py
+tests\v6\test_anti_sycophancy_ci_gate.py
+tests\v6\test_api_ambiguity.py
+tests\v6\test_api_bundle.py
+tests\v6\test_api_charts.py
+tests\v6\test_api_followup_compare.py
+tests\v6\test_api_health_and_runs.py
+tests\v6\test_api_memory.py
+tests\v6\test_api_stream.py
+tests\v6\test_api_templates.py
+tests\v6\test_api_upload.py
+tests\v6\test_benchmark_schema.py
+tests\v6\test_broker_init_order.py
+tests\v6\test_broker.py
+tests\v6\test_chart_provenance.py
+tests\v6\test_charts.py
+tests\v6\test_chroma_workspace_memory.py
+tests\v6\test_code_executor_sovereignty.py
+tests\v6\test_compare.py
+tests\v6\test_end_to_end_arch_001f.py
+tests\v6\test_evidence_contract_gate.py
+tests\v6\test_evidence_pool_memory.py
+tests\v6\test_evidence_pool_merger.py
+tests\v6\test_followup_agent.py
+tests\v6\test_industry_benchmark_adapters.py
+tests\v6\test_log_redact.py
+tests\v6\test_otel_init.py
+tests\v6\test_otel_propagate_middleware.py
+tests\v6\test_paired_prompts_corpus.py
+tests\v6\test_regression_lab.py
+tests\v6\test_replay.py
+tests\v6\test_run_benchmark_script.py
+tests\v6\test_schemas.py
+tests\v6\test_scope.py
+tests\v6\test_scripts_v6_handover.py
+tests\v6\test_sse_query_auth.py
+tests\v6\test_sticky_connection_middleware.py
+tests\v6\test_sycophancy_ci.py
+tests\v6\test_sycophancy_fixtures.py
+tests\v6\test_template_canonical_set.py
+tests\v6\test_template_registry.py
+tests\v6\test_throttle_middleware.py
+tests\v6\test_verdict_gate_substrate_prep.py
+tests\v6\test_workspace_memory.py
+
+ succeeded in 1344ms:
+    """
+    if os.environ.get("PG_CAPTURE_PIN", "1") == "0":
+        return None
+    try:
+        # Minimal generator-role pin from current OPENROUTER_DEFAULT_MODEL.
+        # Future M-INT-0b v2 may extend with evaluator/judge/inductor roles.
+        generator_model = os.environ.get(
+            "OPENROUTER_DEFAULT_MODEL", "unknown"
+        )
+        pin = capture_pin(
+            run_id=run_id,
+            llm_models={"generator": generator_model},
+            llm_providers={"generator": "openrouter"},
+            capture_env_var_names=DEFAULT_REPLAY_ENV_VARS,
+            notes=notes,
+        )
+        pin_path = run_dir / "model_pin.json"
+        pin_path.write_text(pin_to_json(pin) + "\n", encoding="utf-8")
+        return pin_path
+    except Exception as exc:  # noqa: BLE001 — intentional broad
+        # Per LAW II + FINAL_PLAN risk #3 mitigation: pin capture
+        # failure must never gate the sweep. Log and continue.
+        print(f"[M-INT-0b] WARN: pin capture failed for {run_id}: {exc}")
+        return None
+
+
+async def run_one_query(
+    q: dict,
+    out_root: Path,
+) -> dict:
+    """Run the full honest pipeline on one query. Returns a summary dict."""
+    reset_run_cost()
+    # I-bug-111: reset synthesis-scrub alert + telemetry at run
+    # boundary so per-run manifest reflects ONLY this run's
+    # synthesis behavior. Without this reset, the sticky alert from
+    # query N leaks into query N+1's manifest. Defensive lazy
+    # import: tolerate environments where the module isn't loaded.
+    try:
+        from src.polaris_graph.generator.analyst_synthesis import (
+            reset_synthesis_scrub_alert,
+            reset_synthesis_telemetry,
+        )
+        reset_synthesis_scrub_alert()
+        reset_synthesis_telemetry()
+    except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
+        pass
+
+    # I-arch-001a: v6 actor passes out_root_override (UUID-scoped artifact_dir)
+    # to prevent same-slug concurrent overwrites. Legacy CLI sweep keeps the
+    # domain/slug nesting unchanged.
+    _v6_override = q.get("out_root_override") if q.get("v6_mode") else None
+    run_dir = Path(_v6_override) if _v6_override else (out_root / q["domain"] / q["slug"])
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_id = f"SWEEP_{q['domain']}_{q['slug']}_{int(time.time())}"
+    # BUG-N-301 fix: set ambient run_id so every downstream
+    # OpenRouterClient tags its cost-ledger entries with this run.
+    set_current_run_id(run_id)
+
+    log_path = run_dir / "run_log.txt"
+    log_f = log_path.open("w", encoding="utf-8")
+
+    def _log(msg: str) -> None:
+        print(msg)
+        log_f.write(msg + "\n")
+        log_f.flush()
+
+    summary: dict = {
+        "slug": q["slug"],
+        "domain": q["domain"],
+        "question": q["question"],
+        "run_id": run_id,
+        "status": "started",
+        "run_dir": str(run_dir),
+        "error": "",
+    }
+
+    try:
+        _log("=" * 72)
+        _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
+        _log(f"Question: {q['question']}")
+        _log(f"Budget cap: ${PG_MAX_COST_PER_RUN:.4f}")
+        _log("=" * 72)
+
+        # Phase 2b scope gate
+        scope = run_scope_gate(
+            research_question=q["question"],
+            run_dir=run_dir,
+            run_id=run_id,
+            domain=q["domain"],
+        )
+        protocol = scope.protocol.to_json_dict()
+        _log(f"[scope]       sha256={scope.protocol_sha256[:16]}... "
+             f"decision={scope.protocol.scope_decision} "
+             f"needs_review={scope.protocol.needs_user_review}")
+
+        # I-arch-001e: stage event for SSE consumers (v6_mode only; no-op otherwise).
+        if q.get("v6_mode") and q.get("external_run_id"):
+            emit_event(
+                q.get("external_run_id"),
+                "scope_gate.completed",
+                {
+                    "decision": scope.protocol.scope_decision,
+                    "reason": "; ".join(scope.protocol.scope_reasons) if scope.protocol.scope_rejected else "in_scope",
+                },
+            )
+
+        # M-INT-4: best-effort LLM scope classification alongside
+        # the deterministic template-driven gate. Telemetry only —
+        # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
+        # Codex round-2 HIGH fix (v3): wrap the helper call itself
+        # in try/except. v2 only protected against malformed dict
+        # shapes; if the helper RAISES (e.g. unexpected internal
+        # path, monkeypatched test stub, future bug introduced),
+        # the exception escaped to the outer fatal handler with
+        # status=error. Defense-in-depth: helper has its own
+        # try/except internally; sweep adds a second layer per
+        # LAW II "best-effort telemetry must not gate sweep".
+        try:
+            scope_llm_summary = _classify_scope_with_llm(
+                question=q["question"],
+                domain=q["domain"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[M-INT-4] WARN: scope_llm helper raised: {exc}")
+            scope_llm_summary = None
+        if scope_llm_summary is not None:
+            # Codex round-1 HIGH fix (v2): use .get() to defend
+            # against a malformed M-INT-4 dict (e.g. missing
+            # "confidence" key). v1 used `dict["key"]` here which
+            # raised KeyError BEFORE the M-INT-5 try block — that
+            # aborted run_one_query via the outer fatal handler
+            # with status=error, violating LAW II's best-effort-
+            # telemetry semantic.
+            try:
+                _v4_verdict = scope_llm_summary.get("verdict")
+                _v4_conf = scope_llm_summary.get("confidence", 0.0)
+                _v4_domain = scope_llm_summary.get("domain")
+                _v4_hint = scope_llm_summary.get("template_domain_hint")
+                _log(
+                    f"[M-INT-4]     scope_llm: verdict={_v4_verdict} "
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\v6\\test_template_canonical_set.py -TotalCount 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"v30_contract_patch|template_id|external_run_id|decision_id|out_root_override|v6_mode\" scripts\\run_honest_sweep_r3.py src\\polaris_graph src\\polaris_v6 -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"load_template|frame_manifest|build_v30_contract\" src\\polaris_v6 src\\polaris_graph tests\\v6 -S" in C:\POLARIS
+ succeeded in 902ms:
+scripts\run_honest_sweep_r3.py:1133:    # I-arch-001a: v6 actor passes out_root_override (UUID-scoped artifact_dir)
+scripts\run_honest_sweep_r3.py:1136:    _v6_override = q.get("out_root_override") if q.get("v6_mode") else None
+scripts\run_honest_sweep_r3.py:1181:        # I-arch-001e: stage event for SSE consumers (v6_mode only; no-op otherwise).
+scripts\run_honest_sweep_r3.py:1182:        if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:1184:                q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1353:                external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1354:                decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:1365:            if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:1367:                    q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1414:        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+scripts\run_honest_sweep_r3.py:1415:        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+scripts\run_honest_sweep_r3.py:1495:                external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1496:                decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:1507:            if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:1509:                    q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1721:                external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1722:                decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:1733:            if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:1735:                    q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1812:                external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:1813:                decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:1824:            if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:1826:                    q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:2381:                external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:2382:                decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:2393:            if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:2395:                    q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:2896:            external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:2897:            decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:2938:                    external_run_id=q.get("external_run_id"),
+scripts\run_honest_sweep_r3.py:2939:                    decision_id=q.get("decision_id"),
+scripts\run_honest_sweep_r3.py:2966:    if q.get("v6_mode") and q.get("external_run_id"):
+scripts\run_honest_sweep_r3.py:2977:            q.get("external_run_id"),
+src\polaris_v6\templates\__init__.py:4:- template_id, template_name, summary
+src\polaris_v6\templates\registry.py:23:    template_id: str
+src\polaris_v6\templates\registry.py:35:def load_template(template_id: str) -> TemplateContent:
+src\polaris_v6\templates\registry.py:36:    path = TEMPLATES_DIR / f"{template_id}.json"
+src\polaris_v6\templates\registry.py:43:def list_template_ids() -> list[str]:
+src\polaris_v6\api\artifact_to_slice_chain.py:216:    decision_id = (
+src\polaris_v6\api\artifact_to_slice_chain.py:217:        (manifest_raw.get("scope") or {}).get("decision_id")
+src\polaris_v6\api\artifact_to_slice_chain.py:218:        or manifest_raw.get("external_run_id")
+src\polaris_v6\api\artifact_to_slice_chain.py:226:        decision_id=decision_id,
+src\polaris_v6\api\artifact_to_slice_chain.py:270:        decision_id=decision.decision_id,
+src\polaris_v6\api\artifact_to_slice_chain.py:328:        decision_id=decision.decision_id,
+src\polaris_v6\schemas\run_status.py:65:    decision_id: str | None = None
+src\polaris_v6\api\templates.py:13:    list_template_ids,
+src\polaris_v6\api\templates.py:23:    for tid in list_template_ids():
+src\polaris_v6\api\templates.py:31:@router.get("/{template_id}", response_model=TemplateContent)
+src\polaris_v6\api\templates.py:32:def get_one(template_id: str) -> TemplateContent:
+src\polaris_v6\api\templates.py:34:        return load_template(template_id)
+src\polaris_graph\api\audit_bundle_route.py:130:        elif "FK chain" in msg or "pool_id" in msg or "decision_id" in msg:
+src\polaris_graph\api\audit_bundle_route.py:177:    if req.report.decision_id != req.decision.decision_id:
+src\polaris_graph\api\audit_bundle_route.py:184:                    f"FK chain mismatch: report.decision_id="
+src\polaris_graph\api\audit_bundle_route.py:185:                    f"{req.report.decision_id!r} != decision.decision_id="
+src\polaris_graph\api\audit_bundle_route.py:186:                    f"{req.decision.decision_id!r}"
+src\polaris_v6\queue\run_store.py:6:  cost_usd, decision_id (all nullable; backward-compatible)
+src\polaris_v6\queue\run_store.py:84:        "decision_id": "TEXT",
+src\polaris_v6\queue\run_store.py:137:    decision_id: str | None = None,
+src\polaris_v6\queue\run_store.py:151:            "decision_id=COALESCE(?, decision_id) WHERE run_id=?",
+src\polaris_v6\queue\run_store.py:152:            (query_slug, manifest_run_id, artifact_dir, decision_id, run_id),
+src\polaris_v6\queue\run_store.py:249:                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+src\polaris_v6\queue\run_store.py:269:                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+src\polaris_v6\queue\run_store.py:294:        decision_id=row["decision_id"],
+src\polaris_graph\v30_contract_synthesizer.py:3:Input: v6 template JSON (config/v6_templates/<template_id>.json), query_slug.
+src\polaris_graph\v30_contract_synthesizer.py:50:def _anchor_for(template_id: str, frame_id: str, query_slug: str) -> str:
+src\polaris_graph\v30_contract_synthesizer.py:57:        f"{template_id}|{frame_id}|{query_slug}".encode("utf-8")
+src\polaris_graph\v30_contract_synthesizer.py:59:    return f"{template_id}:{frame_id}:{query_slug[:40]}:{h}"
+src\polaris_graph\v30_contract_synthesizer.py:97:    template_id = v6_template.get("template_id", "")
+src\polaris_graph\v30_contract_synthesizer.py:101:    entity_type = _TYPE_FOR_TEMPLATE.get(template_id, "policy")
+src\polaris_graph\v30_contract_synthesizer.py:103:        template_id, ["jurisdiction", "year"]
+src\polaris_graph\v30_contract_synthesizer.py:114:        section = _section_for_frame(template_id, frame_id, idx)
+src\polaris_graph\v30_contract_synthesizer.py:131:            "anchor": _anchor_for(template_id, frame_id, query_slug),
+src\polaris_graph\v30_contract_synthesizer.py:143:def _section_for_frame(template_id: str, frame_id: str, idx: int) -> str:
+src\polaris_graph\v30_contract_synthesizer.py:149:    if template_id == "clinical":
+src\polaris_v6\queue\run_events.py:50:    external_run_id: str | None,
+src\polaris_v6\queue\run_events.py:62:    if not external_run_id:
+src\polaris_v6\queue\run_events.py:67:            EVENT_STREAM_KEY.format(run_id=external_run_id),
+src\polaris_v6\queue\run_events.py:82:            external_run_id,
+src\polaris_v6\queue\run_events.py:89:    external_run_id: str | None,
+src\polaris_v6\queue\run_events.py:104:    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+src\polaris_v6\queue\run_events.py:158:def _get_lifecycle_status(external_run_id: str) -> str | None:
+src\polaris_v6\queue\run_events.py:169:        row = run_store.get_run(external_run_id)
+src\polaris_v6\queue\run_events.py:176:            external_run_id,
+src\polaris_v6\queue\run_events.py:182:async def _check_lifecycle_terminal(external_run_id: str) -> bool:
+src\polaris_v6\queue\run_events.py:185:    status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
+src\polaris_v6\queue\run_events.py:212:    external_run_id: str,
+src\polaris_v6\queue\run_events.py:237:    key = EVENT_STREAM_KEY.format(run_id=external_run_id)
+src\polaris_v6\queue\run_events.py:262:                        external_run_id,
+src\polaris_v6\queue\run_events.py:270:                    external_run_id,
+src\polaris_v6\queue\run_events.py:279:                if await _check_lifecycle_terminal(external_run_id):
+src\polaris_v6\queue\run_events.py:287:                            external_run_id,
+src\polaris_graph\api\generation_route.py:115:    decision_id: str | None = None
+src\polaris_graph\api\generation_route.py:157:                    "decision_id": req.pool.decision_id,
+src\polaris_graph\api\generation_route.py:176:                "decision_id": result.decision_id,
+src\polaris_graph\api\generation_route.py:194:                    "decision_id": req.pool.decision_id,
+src\polaris_graph\generator2\verified_report.py:412:    a slice-001 decision via decision_id. Same pool can produce different
+src\polaris_graph\generator2\verified_report.py:418:    decision_id: str = Field(min_length=1)
+src\polaris_graph\generator2\verified_report.py:506:    decision_id: str | None = None
+src\polaris_graph\api\retrieval_route.py:85:    decision_id: str | None = None
+src\polaris_graph\api\retrieval_route.py:129:                "decision_id": result.decision_id,
+src\polaris_v6\queue\actors.py:38:# I-arch-001c (2026-05-13) + I-rdy-005 (2026-05-15): template_id →
+src\polaris_v6\queue\actors.py:58:def _derive_slug(template_id: str, question: str) -> str:
+src\polaris_v6\queue\actors.py:65:    base = f"{template_id}_{question[:60]}"
+src\polaris_v6\queue\actors.py:88:    decision_id = str(uuid.uuid4())
+src\polaris_v6\queue\actors.py:93:    template_id = request_payload.get("template", "")
+src\polaris_v6\queue\actors.py:95:    if template_id not in TEMPLATE_TO_SCOPE_DOMAIN:
+src\polaris_v6\queue\actors.py:97:            f"unknown template_id {template_id!r} — not one of the canonical "
+src\polaris_v6\queue\actors.py:101:    domain = TEMPLATE_TO_SCOPE_DOMAIN[template_id]
+src\polaris_v6\queue\actors.py:102:    slug = _derive_slug(template_id, question)
+src\polaris_v6\queue\actors.py:109:        "external_run_id": run_id,
+src\polaris_v6\queue\actors.py:110:        "decision_id": decision_id,
+src\polaris_v6\queue\actors.py:111:        "v6_mode": True,
+src\polaris_v6\queue\actors.py:112:        "out_root_override": str(artifact_dir_root),
+src\polaris_v6\queue\actors.py:113:        "template_id": template_id,
+src\polaris_v6\queue\actors.py:125:        v6_tmpl = load_template(template_id).model_dump()
+src\polaris_v6\queue\actors.py:126:        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+src\polaris_v6\queue\actors.py:128:            "[actor] v30_contract_patch synthesized run_id=%s template_id=%s slug=%s entities=%d",
+src\polaris_v6\queue\actors.py:130:            template_id,
+src\polaris_v6\queue\actors.py:132:            len(q["v30_contract_patch"][slug]["required_entities"]),
+src\polaris_v6\queue\actors.py:136:            "[actor] v6 template not found template_id=%s run_id=%s; "
+src\polaris_v6\queue\actors.py:138:            template_id,
+src\polaris_v6\queue\actors.py:144:            "[actor] v30_contract_patch synthesis FAILED run_id=%s template_id=%s "
+src\polaris_v6\queue\actors.py:147:            template_id,
+src\polaris_v6\queue\actors.py:157:        decision_id=decision_id,
+src\polaris_graph\generator2\generator.py:125:            decision_id=pool.decision_id,
+src\polaris_graph\generator2\generator.py:252:                    decision_id=pool.decision_id,
+src\polaris_graph\generator2\generator.py:260:                    decision_id=pool.decision_id,
+src\polaris_graph\generator2\generator.py:299:        decision_id=pool.decision_id,
+src\polaris_graph\scope\scope_decision.py:151:    decision_id: str = Field(
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:38:    template_id: str
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:56:    template_id="clinical_default",
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:63:    template_id="clinical_efficacy",
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:77:    template_id="clinical_safety",
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:84:    template_id="clinical_diagnosis",
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:91:    template_id="clinical_prognosis",
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:99:    CLINICAL_DEFAULT.template_id: CLINICAL_DEFAULT,
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:100:    CLINICAL_EFFICACY.template_id: CLINICAL_EFFICACY,
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:101:    CLINICAL_SAFETY.template_id: CLINICAL_SAFETY,
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:102:    CLINICAL_DIAGNOSIS.template_id: CLINICAL_DIAGNOSIS,
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:103:    CLINICAL_PROGNOSIS.template_id: CLINICAL_PROGNOSIS,
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:109:    _REGISTRY[template.template_id] = template
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:112:def get_template(template_id: str) -> ClinicalTemplate:
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:114:    return _REGISTRY.get(template_id, CLINICAL_DEFAULT)
+src\polaris_graph\retrieval2\corpus_adequacy_gate.py:163:        f"corpus_adequacy_failed[{template.template_id}]: "
+src\polaris_graph\retrieval2\clinical_retriever.py:110:            decision_id=decision.decision_id,
+src\polaris_graph\retrieval2\clinical_retriever.py:119:            decision_id=decision.decision_id,
+src\polaris_graph\retrieval2\clinical_retriever.py:220:                decision_id=decision.decision_id,
+src\polaris_graph\retrieval2\clinical_retriever.py:226:                decision_id=decision.decision_id,
+src\polaris_graph\retrieval2\clinical_retriever.py:244:        decision_id=decision.decision_id,
+src\polaris_graph\retrieval2\evidence_pool.py:132:    """The slice 002 output. Bound to a specific ScopeDecision via decision_id.
+src\polaris_graph\retrieval2\evidence_pool.py:134:    `pool_id` is fresh per retrieval run; `decision_id` is the FK back to
+src\polaris_graph\retrieval2\evidence_pool.py:141:    decision_id: str = Field(min_length=1)
+src\polaris_graph\retrieval2\evidence_pool.py:178:    decision_id: str | None = None
+src\polaris_graph\audit_bundle\bundle_schema.py:96:    decision_id: str = Field(min_length=1, description="slice 001 ScopeDecision id")
+src\polaris_graph\audit_bundle\bundle_builder.py:104:    if report.decision_id != decision.decision_id:
+src\polaris_graph\audit_bundle\bundle_builder.py:106:            f"FK chain mismatch: report.decision_id={report.decision_id!r}"
+src\polaris_graph\audit_bundle\bundle_builder.py:107:            f" != decision.decision_id={decision.decision_id!r}"
+src\polaris_graph\audit_bundle\manifest_builder.py:184:        "decision_id": decision.decision_id,
+src\polaris_graph\audit_bundle\manifest_builder.py:222:        decision_id=decision.decision_id,
+src\polaris_graph\audit_ir\job_queue.py:94:    template_id: str
+src\polaris_graph\audit_ir\job_queue.py:115:    template_id TEXT NOT NULL,
+src\polaris_graph\audit_ir\job_queue.py:154:        template_id=row["template_id"],
+src\polaris_graph\audit_ir\job_queue.py:227:        template_id: str,
+src\polaris_graph\audit_ir\job_queue.py:240:        if not template_id:
+src\polaris_graph\audit_ir\job_queue.py:241:            raise JobQueueError("enqueue: template_id required")
+src\polaris_graph\audit_ir\job_queue.py:250:                "INSERT INTO jobs (job_id, template_id, params_json, "
+src\polaris_graph\audit_ir\job_queue.py:253:                (job_id, template_id, json.dumps(dict(params)), now,
+src\polaris_graph\audit_ir\job_queue.py:563:        "template_id": job.template_id,
+src\polaris_graph\audit_ir\decision_telemetry.py:42:    for induction; GatedMatchResult action+template_id+rationale
+src\polaris_graph\audit_ir\decision_telemetry.py:227:        (action + template_id + threshold + rationale + ...)
+src\polaris_graph\audit_ir\job_runner.py:75:    template_id: str  # set by concrete subclasses
+src\polaris_graph\audit_ir\job_runner.py:91:    template_id: str = "mock"
+src\polaris_graph\audit_ir\job_runner.py:109:# Registry of runners, keyed by template_id. M-9 / M-10 register V30 + clinical
+src\polaris_graph\audit_ir\job_runner.py:115:    if not runner.template_id:
+src\polaris_graph\audit_ir\job_runner.py:116:        raise ValueError("register_runner: runner.template_id required")
+src\polaris_graph\audit_ir\job_runner.py:117:    _RUNNERS[runner.template_id] = runner
+src\polaris_graph\audit_ir\job_runner.py:120:def get_runner(template_id: str) -> JobRunner | None:
+src\polaris_graph\audit_ir\job_runner.py:121:    return _RUNNERS.get(template_id)
+src\polaris_graph\audit_ir\job_worker.py:91:        runner = get_runner(job.template_id)
+src\polaris_graph\audit_ir\job_worker.py:95:                error=f"no runner registered for template_id={job.template_id!r}",
+src\polaris_graph\audit_ir\inspector_router.py:377:                "template_id": getattr(routing_result, "template_id", None),
+src\polaris_graph\audit_ir\inspector_router.py:404:    prior route hit still validate template_id correctly.
+src\polaris_graph\audit_ir\inspector_router.py:406:    M-9: also registers V30JobRunner under template_id 'v30_clinical'
+src\polaris_graph\audit_ir\inspector_router.py:413:    register_runner(MockJobRunner(template_id="mock", total_seconds=2.0, step_seconds=0.2))
+src\polaris_graph\audit_ir\inspector_router.py:1451:    template_id: str = Field(..., description="Job template, e.g. 'mock' (M-8) or 'v30_clinical' (M-9)")
+src\polaris_graph\audit_ir\inspector_router.py:1468:    if req.template_id not in available:
+src\polaris_graph\audit_ir\inspector_router.py:1471:            detail=f"Unknown template_id={req.template_id!r}. Available: {sorted(available)}",
+src\polaris_graph\audit_ir\inspector_router.py:1475:    job = queue.enqueue(req.template_id, req.params, org_id=caller.org_id)
+src\polaris_graph\audit_ir\inspector_router.py:1568:                "template_id": t.template_id,
+src\polaris_graph\audit_ir\inspector_router.py:1600:      template_id: candidate template (None when unsupported)
+src\polaris_graph\audit_ir\inspector_router.py:1602:      candidates: list of {template_id, score, keyword_hits,
+src\polaris_graph\audit_ir\inspector_router.py:1616:        "template_id": result.template_id,
+src\polaris_graph\audit_ir\inspector_router.py:1620:                "template_id": c.template_id,
+src\polaris_graph\audit_ir\manifest_augment.py:4:1331/1453/1667/1746/2303/2806). When v6_mode is active, each call routes
+src\polaris_graph\audit_ir\manifest_augment.py:6:F-snowball bridge require. When v6_mode is False, manifest stays byte-
+src\polaris_graph\audit_ir\manifest_augment.py:18:    external_run_id: str | None,
+src\polaris_graph\audit_ir\manifest_augment.py:19:    decision_id: str | None,
+src\polaris_graph\audit_ir\manifest_augment.py:27:    Non-v6 invocations (external_run_id is None) get the input back
+src\polaris_graph\audit_ir\manifest_augment.py:30:    if external_run_id is None:
+src\polaris_graph\audit_ir\manifest_augment.py:34:    augmented["external_run_id"] = external_run_id
+src\polaris_graph\audit_ir\manifest_augment.py:38:    scope["decision_id"] = decision_id
+src\polaris_graph\audit_ir\run_diff.py:34:  - Two unrelated runs (different template_id, different slug)
+src\polaris_graph\audit_ir\run_diff.py:110:    template_id field; the audit shape is identified by `slug`
+src\polaris_graph\audit_ir\v30_runner.py:187:    template_id = "v30_clinical"
+src\polaris_graph\audit_ir\v30_runner.py:231:                "Pause is not supported for template_id='v30_clinical' "
+src\polaris_graph\audit_ir\v30_runner.py:314:                                "Pause is not supported for template_id='v30_clinical' "
+src\polaris_graph\audit_ir\v30_runner.py:353:                        "Pause is not supported for template_id='v30_clinical' "
+src\polaris_graph\audit_ir\v30_runner.py:369:                "Pause is not supported for template_id='v30_clinical' "
+src\polaris_graph\audit_ir\template_catalog.py:49:        template_id: Stable identifier matching a registered JobRunner.
+src\polaris_graph\audit_ir\template_catalog.py:62:    template_id: str
+src\polaris_graph\audit_ir\template_catalog.py:81:    template_id="v30_clinical",
+src\polaris_graph\audit_ir\template_catalog.py:258:    template_id="v30_clinical_oncology",
+src\polaris_graph\audit_ir\template_catalog.py:387:    template_id="v30_clinical_cardio",
+src\polaris_graph\audit_ir\template_catalog.py:541:def get_template(template_id: str) -> CuratedTemplate | None:
+src\polaris_graph\audit_ir\template_catalog.py:544:        if tmpl.template_id == template_id:
+src\polaris_graph\audit_ir\scope_classifier.py:246:       enqueue the audit using `result.template_id`.
+src\polaris_graph\audit_ir\scope_classifier.py:267:    `template_id`: top-1 router template if the gate is willing to
+src\polaris_graph\audit_ir\scope_classifier.py:280:    template_id: str | None
+src\polaris_graph\audit_ir\scope_classifier.py:352:            template_id=None,
+src\polaris_graph\audit_ir\scope_classifier.py:390:            template_id=router_result.template_id,
+src\polaris_graph\audit_ir\scope_classifier.py:407:            template_id=None,
+src\polaris_graph\audit_ir\scope_classifier.py:423:            template_id=router_result.template_id,
+src\polaris_graph\audit_ir\scope_classifier.py:434:            f"'{router_result.template_id}' "
+src\polaris_graph\audit_ir\scope_classifier.py:439:            template_id=router_result.template_id,
+src\polaris_graph\audit_ir\scope_classifier.py:454:            template_id=router_result.template_id,
+src\polaris_graph\audit_ir\scope_classifier.py:469:        template_id=None,
+src\polaris_graph\audit_ir\template_classifier.py:24:endpoint still requires an explicit template_id. UI flow: call
+src\polaris_graph\audit_ir\template_classifier.py:90:    template_id: str
+src\polaris_graph\audit_ir\template_classifier.py:103:    template_id: str | None
+src\polaris_graph\audit_ir\template_classifier.py:486:            template_id=None,
+src\polaris_graph\audit_ir\template_classifier.py:501:            template_id=None,
+src\polaris_graph\audit_ir\template_classifier.py:514:                template_id=tmpl.template_id,
+src\polaris_graph\audit_ir\template_classifier.py:545:                    template_id=top.template_id,
+src\polaris_graph\audit_ir\template_classifier.py:550:                        f"with a narrow gap: '{top.template_id}' "
+src\polaris_graph\audit_ir\template_classifier.py:551:                        f"({top.score:.2f}) vs '{top2.template_id}' "
+src\polaris_graph\audit_ir\template_classifier.py:559:            template_id=top.template_id,
+src\polaris_graph\audit_ir\template_classifier.py:563:                f"Query matches '{top.template_id}' with high confidence "
+src\polaris_graph\audit_ir\template_classifier.py:607:            template_id=top.template_id,
+src\polaris_graph\audit_ir\template_classifier.py:611:                f"Query partially matches '{top.template_id}' "
+src\polaris_graph\audit_ir\template_classifier.py:620:        template_id=None,
+src\polaris_graph\audit_ir\template_classifier.py:625:            f"(top candidate '{top.template_id}' scored {top.score:.2f}, "
+
+ succeeded in 987ms:
+"""I-rdy-005 (#501) — template-set drift guard.
+
+`config/scope_templates/` is the single source of truth for the canonical 8
+templates. This test asserts EXACT set-equality of the canonical 8 across every
+id-carrying surface in the codebase, so a future edit that adds / removes /
+renames a template on one surface but not the others fails CI.
+
+This is the enforceable "zero template mismatch" guarantee for I-rdy-005.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+import typing
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_SRC = str(REPO_ROOT / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+# The canonical 8 — the one set every surface must agree on.
+CANONICAL_8 = {
+    "clinical",
+    "policy",
+    "tech",
+    "due_diligence",
+    "ai_sovereignty",
+    "canada_us",
+    "workforce",
+    "custom",
+}
+
+
+def _read(rel_path: str) -> str:
+    return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+
+
+def _ids_in_block(text: str, start_marker: str, end_marker: str = "];") -> set[str]:
+    """Extract `id: "<id>"` literals from the block delimited by the markers."""
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    return set(re.findall(r'id:\s*"([a-z_]+)"', text[start:end]))
+
+
+# ── filesystem source of truth ───────────────────────────────────────────────
+
+
+def test_scope_templates_dir_is_canonical_8():
+    stems = {p.stem for p in (REPO_ROOT / "config" / "scope_templates").glob("*.yaml")}
+    assert stems == CANONICAL_8
+
+
+def test_v6_templates_dir_is_canonical_8():
+    stems = {p.stem for p in (REPO_ROOT / "config" / "v6_templates").glob("*.json")}
+    assert stems == CANONICAL_8
+
+
+# ── backend ──────────────────────────────────────────────────────────────────
+
+
+def test_registry_list_template_ids_is_canonical_8():
+    from polaris_v6.templates.registry import list_template_ids
+
+    assert set(list_template_ids()) == CANONICAL_8
+
+
+def test_scope_gate_supported_domains_is_canonical_8():
+    from polaris_graph.nodes.scope_gate import SUPPORTED_DOMAINS
+
+    assert set(SUPPORTED_DOMAINS) == CANONICAL_8
+
+
+def test_run_request_template_id_literal_is_canonical_8():
+    from polaris_v6.schemas.run_request import TemplateId
+
+    assert set(typing.get_args(TemplateId)) == CANONICAL_8
+
+
+def test_actors_template_to_scope_domain_is_canonical_8_identity():
+    from polaris_v6.queue.actors import TEMPLATE_TO_SCOPE_DOMAIN
+
+    assert set(TEMPLATE_TO_SCOPE_DOMAIN) == CANONICAL_8
+    # All-identity: every canonical template id IS its own scope domain.
+    for template_id, scope_domain in TEMPLATE_TO_SCOPE_DOMAIN.items():
+        assert template_id == scope_domain
+
+
+def test_v30_synthesizer_dicts_are_canonical_8():
+    from polaris_graph.v30_contract_synthesizer import (
+        _REQUIRED_FIELDS_FOR_TEMPLATE,
+        _TYPE_FOR_TEMPLATE,
+    )
+
+    assert set(_TYPE_FOR_TEMPLATE) == CANONICAL_8
+    assert set(_REQUIRED_FIELDS_FOR_TEMPLATE) == CANONICAL_8
+
+
+# ── frontend (parsed textually — no node runtime needed) ─────────────────────
+
+
+def test_frontend_api_ts_template_id_union_is_canonical_8():
+    text = _read("web/lib/api.ts")
+    m = re.search(r"export type TemplateId\s*=([^;]+);", text)
+    assert m, "TemplateId union not found in web/lib/api.ts"
+    assert set(re.findall(r'"([a-z_]+)"', m.group(1))) == CANONICAL_8
+
+
+def test_frontend_landing_page_templates_is_canonical_8():
+    assert _ids_in_block(_read("web/app/page.tsx"), "const templates") == CANONICAL_8
+
+
+def test_frontend_dashboard_fallback_is_canonical_8():
+    assert (
+        _ids_in_block(_read("web/app/dashboard/page.tsx"), "FALLBACK_TEMPLATES")
+        == CANONICAL_8
+    )
+
+
+# ── benchmark ────────────────────────────────────────────────────────────────
+
+
+def test_benchmark_carney_templates_is_canonical_8():
+    text = _read("scripts/v6/benchmark/api_benchmark_runner.py")
+    m = re.search(r"CARNEY_TEMPLATES\s*=\s*frozenset\(\{([^}]+)\}\)", text)
+    assert m, "CARNEY_TEMPLATES frozenset not found in api_benchmark_runner.py"
+    assert set(re.findall(r'"([a-z_]+)"', m.group(1))) == CANONICAL_8
+
+ succeeded in 1053ms:
+tests\v6\test_api_templates.py:39:    assert "regulatory_decision" in {f["frame_id"] for f in body["frame_manifest"]}
+src\polaris_v6\templates\__init__.py:6:- frame_manifest (frame_id + frame_name)
+src\polaris_v6\templates\registry.py:29:    frame_manifest: list[FrameDefinition] = Field(..., min_length=2)
+src\polaris_v6\templates\registry.py:35:def load_template(template_id: str) -> TemplateContent:
+tests\v6\test_template_registry.py:13:    load_template,
+tests\v6\test_template_registry.py:37:    content = load_template(template_id)
+tests\v6\test_template_registry.py:47:    assert len(content.frame_manifest) >= 2
+tests\v6\test_template_registry.py:51:    policy = load_template("policy")
+tests\v6\test_template_registry.py:52:    frame_ids = [f.frame_id for f in policy.frame_manifest]
+tests\v6\test_template_registry.py:58:    tech = load_template("tech")
+tests\v6\test_template_registry.py:59:    frame_ids = [f.frame_id for f in tech.frame_manifest]
+tests\v6\test_template_registry.py:66:        load_template("does_not_exist")
+tests\v6\test_template_registry.py:71:        content = load_template(tid)
+src\polaris_graph\v30_sweep_integration.py:246:    from .generator.frame_manifest import (
+src\polaris_graph\v30_contract_synthesizer.py:78:def build_v30_contract(
+src\polaris_graph\v30_contract_synthesizer.py:98:    frame_manifest = v6_template.get("frame_manifest") or []
+src\polaris_graph\v30_contract_synthesizer.py:110:    for idx, frame in enumerate(frame_manifest):
+src\polaris_v6\queue\actors.py:117:    # frame_manifest. Pipeline-A merges this into the scope template's
+src\polaris_v6\queue\actors.py:122:        from polaris_v6.templates.registry import load_template
+src\polaris_v6\queue\actors.py:123:        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+src\polaris_v6\queue\actors.py:125:        v6_tmpl = load_template(template_id).model_dump()
+src\polaris_v6\queue\actors.py:126:        q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
+src\polaris_v6\api\templates.py:14:    load_template,
+src\polaris_v6\api\templates.py:25:            out.append(load_template(tid))
+src\polaris_v6\api\templates.py:34:        return load_template(template_id)
+src\polaris_graph\pipeline_definition.py:376:def load_template(template_name: str) -> Optional[PipelineDefinition]:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\audit_ir\\manifest_augment.py -TotalCount 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py -TotalCount 1455 | Select-Object -Last 125" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\templates\\registry.py -TotalCount 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\v30_contract_synthesizer.py -TotalCount 170" in C:\POLARIS
+ succeeded in 933ms:
+"""I-arch-001a — single helper for v6-mode manifest augmentation.
+
+Pipeline-A writes manifest.json at 6 sites (line refs in run_honest_sweep_r3.py:
+1331/1453/1667/1746/2303/2806). When v6_mode is active, each call routes
+through augment_v6_manifest() to add the v6 fields the API + run_store +
+F-snowball bridge require. When v6_mode is False, manifest stays byte-
+identical to today (no key added).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def augment_v6_manifest(
+    manifest: dict[str, Any],
+    *,
+    external_run_id: str | None,
+    decision_id: str | None,
+    query_slug: str | None,
+    retrieval_block: dict[str, Any] | None = None,
+    adequacy_block: dict[str, Any] | None = None,
+    models_block: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return augmented manifest dict. Does not mutate input.
+
+    Non-v6 invocations (external_run_id is None) get the input back
+    unchanged — pipeline-A's existing behavior is preserved byte-for-byte.
+    """
+    if external_run_id is None:
+        return manifest
+
+    augmented = dict(manifest)
+    augmented["external_run_id"] = external_run_id
+    augmented["query_slug"] = query_slug
+
+    scope = dict(augmented.get("scope") or {})
+    scope["decision_id"] = decision_id
+    augmented["scope"] = scope
+
+    if retrieval_block is not None:
+        augmented["retrieval"] = retrieval_block
+    if adequacy_block is not None:
+        augmented["adequacy"] = adequacy_block
+    if models_block is not None:
+        augmented["models"] = models_block
+
+    return augmented
+
+ succeeded in 1043ms:
+                "due_diligence.\n"
+                "- Provide user_overrides via the caller's protocol to "
+                "supply the missing scope anchors directly.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            # BUG-SCHEMA-R8d: shared envelope for schema consistency.
+            abort_manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=None, run_cost=run_cost,
+            )
+            abort_manifest.update({
+                "status": "abort_scope_rejected",
+                "protocol_sha256": scope.protocol_sha256,
+                "scope": {
+                    "decision": scope.protocol.scope_decision,
+                    "rejected": scope.protocol.scope_rejected,
+                    "rejection_code": scope.protocol.scope_rejection_code,
+                    "reasons": scope.protocol.scope_reasons,
+                },
+            })
+            abort_manifest = augment_v6_manifest(
+                abort_manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = abort_manifest
+            summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_scope_rejected",
+                    error_msg=summary.get("error"),
+                )
+            set_current_run_id(None)
+            log_f.close()
+            return summary
+
+        # Live retrieval
+        # Env-controllable retrieval width for full-scale runs:
+        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
+        #     queries fanned to Serper
+        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
+        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
+        #     & fetch per query (after pre-filter)
+        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
+        # → ~400 pre-filter candidates, 200 classified sources per query.
+        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
+        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
+        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
+
+        # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+        # the scope template for this domain and — if the template has
+        # a `regulatory_anchors` list — emits one extra amplified query
+        # per anchor of the form `{question} site:{anchor}`. No hard-
+        # coded agency list in Python; template-driven so each domain
+        # controls its own anchors. Empty/missing list = no-op.
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.retrieval.regulatory_expander import (
+            expand_regulatory_queries,
+        )
+        from src.polaris_graph.retrieval.primary_trial_expander import (
+            expand_primary_trial_queries,
+        )
+        try:
+            _template = load_scope_template(q["domain"])
+        except Exception as _ex:
+            _log(
+                f"[M-28/M-35 warn] could not load template for domain="
+                f"{q['domain']!r}: {_ex} — continuing without regulatory "
+                f"(M-28) OR primary-trial (M-35) expansion"
+            )
+            _template = None
+        # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
+        # the v6 template's frame_manifest and passes it through q. Merge it
+        # into the scope template so M-55 compile_frame and
+        # load_report_contract_for_slug see the synthesized contract for this
+        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+        if _v30_patch and isinstance(_template, dict):
+            _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+        _reg_queries = expand_regulatory_queries(q["question"], _template)
+        if _reg_queries:
+            _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+                 f"queries (domain={q['domain']})")
+        # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
+        # sweep slug (trial names are query-specific). Missing slug or
+        # missing `per_query_primary_trial_anchors` key = no-op.
+        _trial_queries = expand_primary_trial_queries(
+            q["question"], _template, q["slug"]
+        )
+        if _trial_queries:
+            _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+                 f"queries (slug={q['slug']})")
+        _amplified_effective = (
+            list(q.get("amplified", [])) + _reg_queries + _trial_queries
+        )
+
+        t0 = time.time()
+        retrieval = run_live_retrieval(
+            research_question=q["question"],
+            amplified_queries=_amplified_effective,
+            protocol=protocol,
+            max_serper=_max_serper,
+            max_s2=_max_s2,
+            fetch_cap=_fetch_cap,
+            enable_openalex_enrich=True,
+            enable_prefetch_filter=False,
+            domain=q["domain"],   # R-6 Gap-2 domain backends
+        )
+        dt = time.time() - t0
+        _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
+             f"fetched={retrieval.candidates_fetched}, "
+             f"failed={retrieval.candidates_failed_fetch}, "
+             f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
+
+        # M-48 (2026-04-22): tag evidence rows with per-anchor
+        # population-scope labels from the scope template. For a T2D
+        # research question, SURMOUNT-2 is direct (T2D+obesity) while
+
+ succeeded in 1013ms:
+"""Template registry — loads + validates per-template JSON content."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+TEMPLATES_DIR = REPO_ROOT / "config" / "v6_templates"
+
+SourceTier = Literal["T1", "T2", "T3"]
+
+
+class FrameDefinition(BaseModel):
+    frame_id: str
+    frame_name: str
+
+
+class TemplateContent(BaseModel):
+    template_id: str
+    template_name: str
+    summary: str = Field(..., min_length=20)
+    primary_domains: list[str] = Field(..., min_length=1)
+    source_tiers: dict[SourceTier, list[str]]
+    min_sources_per_tier: dict[SourceTier, int]
+    frame_manifest: list[FrameDefinition] = Field(..., min_length=2)
+    refusal_patterns: list[str] = Field(default_factory=list)
+    sample_questions: list[str] = Field(..., min_length=2)
+    out_of_scope_examples: list[str] = Field(default_factory=list)
+
+
+def load_template(template_id: str) -> TemplateContent:
+    path = TEMPLATES_DIR / f"{template_id}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Template content not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return TemplateContent.model_validate(payload)
+
+
+def list_template_ids() -> list[str]:
+    if not TEMPLATES_DIR.exists():
+        return []
+    return sorted(p.stem for p in TEMPLATES_DIR.glob("*.json"))
+
+ succeeded in 1092ms:
+"""I-arch-001b — synthesize a v30.1 per_query_report_contract from a v6 template.
+
+Input: v6 template JSON (config/v6_templates/<template_id>.json), query_slug.
+Output: {query_slug: <v30.1 contract dict>} ready to merge into a scope
+template's `per_query_report_contract` key, where M-55 frame_compiler and
+load_report_contract_for_slug both consume it.
+
+Per Codex APPROVE iter 5: every entity carries a concrete http(s) url_pattern
+from T1 + a stable anchor; this satisfies M-56's `_fetch_url_pattern()` which
+treats the value as a literal URL, not a regex.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Any
+
+# Per-template defaults for the type discriminator + identifier field names.
+# Codex iter-2: rolled clinical→drug/condition into a generic "frame" entity-
+# type so the v30 compiler doesn't try to dispatch on type-specific paths
+# that don't exist for synthesized contracts.
+_TYPE_FOR_TEMPLATE: dict[str, str] = {
+    "clinical": "drug",
+    "policy": "policy",
+    "tech": "policy",
+    "due_diligence": "policy",
+    "ai_sovereignty": "policy",
+    "canada_us": "policy",
+    "workforce": "policy",
+    "custom": "policy",
+}
+
+_REQUIRED_FIELDS_FOR_TEMPLATE: dict[str, list[str]] = {
+    "clinical": ["rxcui", "drugbank_id", "icd_10"],
+    "policy": ["jurisdiction", "policy_id", "year"],
+    "tech": ["jurisdiction", "technology_id", "year"],
+    "due_diligence": ["entity_id", "jurisdiction", "year"],
+    "ai_sovereignty": ["bill_id", "jurisdiction", "year"],
+    "canada_us": ["jurisdiction", "treaty_id", "year"],
+    "workforce": ["jurisdiction", "indicator_id", "year"],
+    "custom": ["jurisdiction", "topic_id", "year"],
+}
+
+# Last-resort URL when a template has empty T1. Per Codex iter-5 P2 accepted-
+# remaining: this is acceptable for v1 (all 8 current templates have T1);
+# future templates should fail-loud, deferred to follow-up.
+_EMPTY_T1_FALLBACK = "https://www.canada.ca/en/research.html"
+
+
+def _anchor_for(template_id: str, frame_id: str, query_slug: str) -> str:
+    """Stable, unique anchor: <template>:<frame>:<slug_prefix>:<sha256_8>.
+
+    Used as a secondary stable id (not the retrieval locator — url_pattern is).
+    Collision-safe for any realistic curator workload (2^32 combinations).
+    """
+    h = hashlib.sha256(
+        f"{template_id}|{frame_id}|{query_slug}".encode("utf-8")
+    ).hexdigest()[:8]
+    return f"{template_id}:{frame_id}:{query_slug[:40]}:{h}"
+
+
+def _concrete_url_for_entity(frame_idx: int, source_tiers: dict[str, Any]) -> str:
+    """Concrete http(s) URL for this entity, rotated through T1 by frame index.
+
+    M-56's `_fetch_url_pattern()` treats this value as a literal URL, NOT a
+    regex (per Codex iter-4 P1 verification at frame_fetcher.py:780,1046).
+    Returning a regex would fail to fetch.
+
+    Rotation: entity[i] uses T1[i % len(T1)]. Different frames retrieve
+    different roots; strict_verify later filters per-frame relevance.
+    """
+    t1 = source_tiers.get("T1") or []
+    if t1:
+        return t1[frame_idx % len(t1)]
+    return _EMPTY_T1_FALLBACK
+
+
+def build_v30_contract(
+    v6_template: dict[str, Any],
+    query_slug: str,
+    question: str | None = None,
+) -> dict[str, Any]:
+    """Synthesize a v30.1 per_query_report_contract.{query_slug} dict from a v6 template.
+
+    Args:
+        v6_template: loaded v6 template JSON (config/v6_templates/<id>.json)
+        query_slug: pipeline-A URL-safe slug (e.g. "clinical_glp1_t2dm")
+        question: reserved for future question-aware seeding; iter-1 implementation
+                  uses frame_id as entity_id basis.
+
+    Returns:
+        {query_slug: <contract>} where <contract> has schema_version="v30.1",
+        required_entities, rendering_slots (dict-keyed by slot_id), and
+        section_order. Round-trips clean via load_report_contract_for_slug.
+    """
+    del question  # reserved; suppress unused-arg warning
+    template_id = v6_template.get("template_id", "")
+    frame_manifest = v6_template.get("frame_manifest") or []
+    source_tiers = v6_template.get("source_tiers") or {}
+
+    entity_type = _TYPE_FOR_TEMPLATE.get(template_id, "policy")
+    required_fields = _REQUIRED_FIELDS_FOR_TEMPLATE.get(
+        template_id, ["jurisdiction", "year"]
+    )
+
+    required_entities: list[dict[str, Any]] = []
+    rendering_slots: dict[str, dict[str, Any]] = {}
+    sections_seen: list[str] = []  # ordered, deduped
+
+    for idx, frame in enumerate(frame_manifest):
+        frame_id = frame.get("frame_id", f"frame_{idx}")
+        frame_name = frame.get("frame_name", frame_id.replace("_", " ").title())
+        slot_id = f"{frame_id}_slot"
+        section = _section_for_frame(template_id, frame_id, idx)
+        if section not in sections_seen:
+            sections_seen.append(section)
+
+        rendering_slots[slot_id] = {
+            "section": section,
+            "subsection_title": frame_name,
+            "ordering": idx + 1,
+            "required": True,
+        }
+        required_entities.append({
+            "id": f"{frame_id}_entity",
+            "type": entity_type,
+            "required_fields": list(required_fields),
+            "min_fields_for_completion": 1,
+            "rendering_slot": slot_id,
+            "url_pattern": _concrete_url_for_entity(idx, source_tiers),
+            "anchor": _anchor_for(template_id, frame_id, query_slug),
+        })
+
+    contract = {
+        "schema_version": "v30.1",
+        "required_entities": required_entities,
+        "rendering_slots": rendering_slots,
+        "section_order": sections_seen,
+    }
+    return {query_slug: contract}
+
+
+def _section_for_frame(template_id: str, frame_id: str, idx: int) -> str:
+    """Group frames into 2-4 sections per template. Mechanical grouping; per-
+    template overrides can be added later via report_contract_override blocks.
+    """
+    # Per Codex iter-5 P2: section grouping is left mechanical-but-stable;
+    # template-specific overrides are a follow-up.
+    if template_id == "clinical":
+        section_map = {
+            "efficacy": "Efficacy",
+            "safety": "Safety",
+            "labelling": "Regulatory",
+            "post_market": "Post-market",
+            "subgroup": "Subgroups",
+        }
+    else:
+        # Policy templates default: split into Background / Findings / Implications.
+        if idx < 2:
+            return "Background"
+        if idx < 4:
+            return "Findings"
+        return "Implications"
+    return section_map.get(frame_id, "Other")
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force -Name .env, .env.* 2>$null' in C:\POLARIS
+ succeeded in 673ms:
+.env
+.env.example
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PyYAML|pyyaml|yaml" pyproject.toml requirements*.txt setup.cfg setup.py uv.lock poetry.lock Pipfile* -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Name requirements*.txt, pyproject.toml, setup.cfg, setup.py 2>$null' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path pyproject.toml -TotalCount 220' in C:\POLARIS
+2026-05-16T22:30:43.940003Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: requirements*.txt: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+rg: uv.lock: The system cannot find the file specified. (os error 2)
+rg: poetry.lock: The system cannot find the file specified. (os error 2)
+rg: Pipfile*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 818ms:
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: requirements*.txt: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+rg: uv.lock: The system cannot find the file specified. (os error 2)
+rg: poetry.lock: The system cannot find the file specified. (os error 2)
+rg: Pipfile*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+2026-05-16T22:30:44.018982Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+requirements-orchestrator.txt
+requirements-v6.txt
+requirements.txt
+
+ exited 1 in 891ms:
+requirements-orchestrator.txt
+requirements-v6.txt
+requirements.txt
+
+2026-05-16T22:30:44.152399Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path pyproject.toml -TotalCount 220[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.[0m
+
+ exited 1 in 1032ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path pyproject.toml -TotalCount 220[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\pyproject.toml' because it does not exist.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path requirements-v6.txt -TotalCount 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path requirements.txt,requirements-v6.txt,requirements-orchestrator.txt -Pattern "PyYAML|pyyaml|yaml" -CaseSensitive:$false' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path requirements.txt -TotalCount 140' in C:\POLARIS
+ succeeded in 808ms:
+# POLARIS v6.2 — pinned production dependencies
+# Owning task: Phase 0 Task 0.5 (docs/backend_modernization.md)
+# Pin policy: pin to a specific PyPI release; verified against PyPI on 2026-05-01.
+
+# --- Vector store (I-f14-001 — workspace memory semantic recall) ---
+# Pinned to PyPI release verified 2026-05-07 against local install.
+chromadb==1.0.20
+
+# --- Web framework ---
+fastapi==0.136.1
+pydantic==2.11.7
+pydantic-settings==2.6.1
+uvicorn[standard]==0.36.0
+python-multipart==0.0.20
+sse-starlette==2.4.1
+httpx==0.28.1
+
+# --- Auth (I-carney-004): static-accounts + bcrypt + HS256 JWT ---
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+PyYAML>=6.0
+boto3>=1.34.0  # AWS Secrets Manager fetch in cloud-init not in app; but app reads SECRETS via env
+
+# --- Queue + broker ---
+# Dramatiq 2.1.0 requires redis<8.0,>=4.0 (PyPI verified).
+dramatiq[redis,watch]==2.1.0
+redis==7.4.0
+
+# --- Observability (Errata E-2: gen_ai_latest_experimental, semconv 1.36.0+ baseline) ---
+# Latest stable as of 2026-05-01. opentelemetry-instrumentation-dramatiq is NOT a
+# published package; Dramatiq instrumentation is provided by POLARIS middleware (see
+# backend_modernization.md §4 — src/polaris_v6/queue/middleware/otel_propagate.py).
+opentelemetry-api==1.41.1
+opentelemetry-sdk==1.41.1
+opentelemetry-semantic-conventions==0.62b1
+opentelemetry-exporter-otlp==1.41.1
+opentelemetry-instrumentation-fastapi==0.62b1
+opentelemetry-instrumentation-httpx==0.62b1
+
+# Transitive pin: protobuf is pulled by opentelemetry-exporter-otlp; CVE-2026-0994
+# (GHSA-7gcm-g887-7qv7) affects 6.30.0rc1..6.33.4. Pin to patched range.
+protobuf==6.33.6
+
+# --- Test ---
+pytest==8.4.1
+pytest-asyncio==1.3.0
+anyio==4.8.0
+fakeredis==2.31.1
+
+# --- Lint + format ---
+ruff==0.7.4
+
+ succeeded in 869ms:
+# POLARIS Dependencies
+# =====================
+# Last reviewed: 2026-04-18 (Phase E operational reconciliation)
+#
+# HONEST STATUS (2026-04-18):
+#   This file grew organically across the v2/v3/honest-rebuild arcs.
+#   It is NOT a minimal dep set. Static import analysis of the
+#   post-cleanup tree (docs/live_code_audit.md) shows ~100 external
+#   packages imported. Some deps here are for pipeline B (UI) only;
+#   some were used by now-archived code.
+#
+#   Known gaps (packages imported but NOT listed here):
+#     - duckduckgo_search  (retrieval fallback)
+#     - langchain_fireworks (historical generator)
+#     - openpyxl, pptx, pdfminer, pdfplumber, fpdf  (document ingestion)
+#     - sqlite_vec  (vector storage)
+#     - minicheck  (NLI verifier, installed via pip-install-git; see comment)
+#
+#   Known surplus (listed here but not obviously imported by live code):
+#     - neo4j  (knowledge-graph dep; pipeline C / archived)
+#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+#     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
+#               pipeline C broken — see BUG-M-208)
+#
+#   A proper dep audit (pipeline A minimal, pipeline B minimal,
+#   remove archive-only deps, add missing imports) is queued in
+#   docs/todo_list.md. DO NOT remove lines below without a full
+#   regression run — some transitive imports are subtle.
+
+# ===================
+# POLARIS v3 - NEW
+# ===================
+
+# LangChain & LangGraph (Agentic Framework)
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-google-genai>=2.0.0  # Gemini integration
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+
+# Graph Database (Knowledge Graph)
+neo4j>=5.0
+
+# OpenAI (for GPT-4o, GPT-4V)
+openai>=1.0.0
+
+# RAGAS (Evaluation)
+ragas>=0.2.0
+
+# ===================
+# POLARIS v3 - Text Processing
+# ===================
+
+# Sentence segmentation (FIX-047C: 97.92% accuracy, handles U.S./Dr./e.g.)
+pysbd>=0.3.4
+
+# Content extraction (FIX-047H: F1=0.958, best-in-class boilerplate removal)
+trafilatura>=2.0.0
+
+# ===================
+# POLARIS v2 - Core
+# ===================
+
+# Core
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+# slice 004 audit-bundle GPG signing (requires system gpg binary)
+python-gnupg>=0.5.0
+
+# Async & HTTP
+aiohttp>=3.8.0
+httpx>=0.24.0
+tenacity>=8.2.0
+
+# Vector Database
+chromadb>=0.4.0
+
+# Embeddings & NLI
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=2.0.0
+semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
+
+# RAG Verification (Sprint 2)
+# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+# Install separately (not on PyPI):
+#   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
+
+# Search & Content
+crawl4ai>=0.8.0  # Free Playwright-based web crawler (LLM-ready markdown)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+readability-lxml>=0.8.1  # A1.1: Article extraction from raw HTML (readability algorithm)
+PyMuPDF>=1.22.0  # PDF extraction
+
+# LLM
+google-generativeai>=0.3.0  # Gemini
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+playwright>=1.40.0  # Dashboard audit (headless browser)
+
+# Data Analysis & Visualization (GEMINI-ARCH: real Python charts)
+pandas>=2.0
+matplotlib>=3.8
+numpy>=1.24
+scipy>=1.11  # Statistical tests for data analysis (Fix 8)
+
+# Utilities
+tqdm>=4.65.0
+rich>=13.0.0  # Console formatting
+aiosqlite>=0.20.0  # Async SQLite for caches
+
+# LangGraph Checkpointing
+langgraph-checkpoint>=2.1.0,<3.0.0
+langgraph-checkpoint-sqlite>=2.0.0,<3.0.0
+
+# SOTA: OAI-PMH for PMC metadata extraction
+sickle>=0.7.0  # OAI-PMH harvesting
+
+# ===================
+# POLARIS Live Server
+# ===================
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sse-starlette>=1.6.0
+watchfiles>=0.20.0
+python-multipart>=0.0.6  # Required by FastAPI for form parsing
+slowapi>=0.1.8  # Rate limiting middleware
+
+# ===================
+# POLARIS v6 — Dramatiq queue + OpenTelemetry GenAI semconv
+# ===================
+# Tracked deps for v6 backend modernization (Phase 0 Task 0.5 + Task 0.10).
+
+ succeeded in 1027ms:
+
+requirements.txt:68:[7mpyyaml[0m>=6.0
+requirements-v6.txt:21:[7mPyYAML[0m>=6.0
+requirements-orchestrator.txt:9:[7mpyyaml[0m>=6.0.1,<7                  # task_acceptance_matrix.yaml parsing
+
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Scope mismatch: #514 explicitly requires the full non-sovereign rehearsal path to pass start-to-finish with the real model. Dry-run validation plus /models availability proves capability and wiring, but not the required live end-to-end pass."
+p2:
+  - "When implemented, keep dry-run/check-models from loading local .env secrets implicitly, or tests may accidentally find OPENROUTER_API_KEY and stop proving the no-spend path."
+  - "The live q-dict should match actor parity, including unique artifact dirs and the synthesized v30_contract_patch, so the rehearsal is the v6 path rather than a legacy pipeline-A shortcut."
+  - "Key-removal proof commands should be non-disclosing; do not print the key value if removal fails."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Operator authorization for a bounded billed OpenRouter rehearsal run."
+  - "Evidence from the authorized live run showing each required prompt reached an acceptable pipeline_status under PG_MAX_COST_PER_RUN."
+scope_decision_ruling: "B - acceptance requires a live billed run before #514 can be approved; Claude must halt for operator authorization rather than spend autonomously. LOC-cap exemption is acceptable for the proposed all-new files once the scope blocker is cleared."
+tokens used
+50,712
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Scope mismatch: #514 explicitly requires the full non-sovereign rehearsal path to pass start-to-finish with the real model. Dry-run validation plus /models availability proves capability and wiring, but not the required live end-to-end pass."
+p2:
+  - "When implemented, keep dry-run/check-models from loading local .env secrets implicitly, or tests may accidentally find OPENROUTER_API_KEY and stop proving the no-spend path."
+  - "The live q-dict should match actor parity, including unique artifact dirs and the synthesized v30_contract_patch, so the rehearsal is the v6 path rather than a legacy pipeline-A shortcut."
+  - "Key-removal proof commands should be non-disclosing; do not print the key value if removal fails."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Operator authorization for a bounded billed OpenRouter rehearsal run."
+  - "Evidence from the authorized live run showing each required prompt reached an acceptable pipeline_status under PG_MAX_COST_PER_RUN."
+scope_decision_ruling: "B - acceptance requires a live billed run before #514 can be approved; Claude must halt for operator authorization rather than spend autonomously. LOC-cap exemption is acceptable for the proposed all-new files once the scope blocker is cleared."
