@@ -1,5 +1,5 @@
 """
-graph_v4 — BUG-B-102 R2c (pipeline-B UI parity via pipeline-A).
+pipeline_a_ui_adapter — BUG-B-102 R2c (pipeline-B UI parity via pipeline-A).
 
 The Docker default `serve` path (scripts/live_server.py → FastAPI) has
 three legacy graph variants (v1/v2/v3) that do NOT enforce any of the

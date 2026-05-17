@@ -18,7 +18,7 @@ class StubIngester:
 
 
 def _import_helper():
-    from src.polaris_graph.graph_v4 import _load_uploaded_documents
+    from src.polaris_graph.pipeline_a_ui_adapter import _load_uploaded_documents
     return _load_uploaded_documents
 
 
@@ -88,7 +88,7 @@ def test_chunk_size_respected():
 async def test_q_dict_threading_with_stubbed_run_one_query(monkeypatch):
     """Test 7 per Codex iter-2 P2 #1: stubs run_one_query + DocumentIngester
     and asserts q['uploaded_documents'] reaches pipeline-A."""
-    from src.polaris_graph import graph_v4
+    from src.polaris_graph import pipeline_a_ui_adapter
 
     captured = {}
     docs = {
@@ -106,7 +106,7 @@ async def test_q_dict_threading_with_stubbed_run_one_query(monkeypatch):
     )
     monkeypatch.setattr("scripts.run_honest_sweep_r3.run_one_query", stub_run_one_query)
 
-    await graph_v4.build_and_run_v4(
+    await pipeline_a_ui_adapter.build_and_run_v4(
         vector_id="test", query="Q", document_ids=["a" * 16, "b" * 16],
         enable_dashboard=False,
     )

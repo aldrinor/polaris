@@ -554,7 +554,7 @@ class PipelineRunner:
             # evaluator gate, tier-balanced evidence selection).
             graph_version = os.getenv("PG_GRAPH_VERSION", "v4")
             if graph_version == "v4":
-                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
+                from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4 as build_and_run
             elif graph_version == "v3":
                 from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
             elif os.getenv("PG_V2_ENABLED", "0") == "1" or graph_version == "v2":
@@ -567,7 +567,7 @@ class PipelineRunner:
                     "Unknown PG_GRAPH_VERSION=%r; falling back to v4",
                     graph_version,
                 )
-                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
+                from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4 as build_and_run
 
             # Point the trace tailer to the new trace file
             new_trace_path = Path(PG_LIVE_TRACE_DIR) / f"pg_trace_{vector_id}.jsonl"

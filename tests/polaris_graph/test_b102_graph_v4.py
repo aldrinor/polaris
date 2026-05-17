@@ -34,7 +34,7 @@ def test_b102_graph_v4_importable_and_signature_matches() -> None:
     """build_and_run_v4 signature must be v1/v2/v3-compatible so
     live_server dispatch drops in without argument changes."""
     import inspect
-    from src.polaris_graph.graph_v4 import build_and_run_v4
+    from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4
     sig = inspect.signature(build_and_run_v4)
     params = set(sig.parameters.keys())
     # Minimum required for live_server compatibility
@@ -53,7 +53,7 @@ def test_b102_graph_v4_importable_and_signature_matches() -> None:
 def test_b102_graph_v4_domain_inference() -> None:
     """Application/query hints route to known scope templates. Otherwise
     default to 'custom' (R2b)."""
-    from src.polaris_graph.graph_v4 import _infer_domain
+    from src.polaris_graph.pipeline_a_ui_adapter import _infer_domain
     assert _infer_domain("clinical", "") == "clinical"
     assert _infer_domain("pharma", "") == "clinical"
     assert _infer_domain("tech", "") == "tech"
@@ -72,7 +72,7 @@ def test_b102_graph_v4_domain_inference() -> None:
 
 def test_b102_graph_v4_ui_json_adapter_shape(tmp_path: Path) -> None:
     """_adapt_pipeline_a_to_ui_json produces fields the UI reads."""
-    from src.polaris_graph.graph_v4 import _adapt_pipeline_a_to_ui_json
+    from src.polaris_graph.pipeline_a_ui_adapter import _adapt_pipeline_a_to_ui_json
 
     # Build a fake run_dir with a manifest + report
     run_dir = tmp_path / "run"
@@ -124,7 +124,7 @@ def test_b102_graph_v4_ui_json_adapter_shape(tmp_path: Path) -> None:
 def test_b102_graph_v4_writes_ui_json_atomically(tmp_path: Path, monkeypatch) -> None:
     """_write_ui_json uses a tmp file + rename so readers never see
     a partial write."""
-    from src.polaris_graph.graph_v4 import _write_ui_json
+    from src.polaris_graph.pipeline_a_ui_adapter import _write_ui_json
 
     monkeypatch.chdir(tmp_path)
     data = {"vector_id": "test_vec", "status": "success"}
@@ -147,7 +147,7 @@ def test_b102_graph_v4_error_path_returns_valid_status(
 ) -> None:
     """When run_one_query raises, graph_v4 writes an error UI JSON
     and returns a status that's in the unified taxonomy."""
-    from src.polaris_graph import graph_v4
+    from src.polaris_graph import pipeline_a_ui_adapter
     from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES
 
     async def _boom(*a, **kw):
@@ -161,7 +161,7 @@ def test_b102_graph_v4_error_path_returns_valid_status(
     )
 
     async def _runner():
-        return await graph_v4.build_and_run_v4(
+        return await pipeline_a_ui_adapter.build_and_run_v4(
             vector_id="err_vec",
             query="anything",
             application="tech",
@@ -194,7 +194,7 @@ def test_b102_live_server_dispatches_v4_by_default() -> None:
     assert 'os.getenv("PG_GRAPH_VERSION", "v4")' in source, (
         "live_server PG_GRAPH_VERSION default must be v4"
     )
-    assert 'graph_v4 import build_and_run_v4' in source, (
+    assert 'pipeline_a_ui_adapter import build_and_run_v4' in source, (
         "live_server must import build_and_run_v4 in the v4 branch"
     )
 
@@ -244,7 +244,7 @@ def test_b102_graph_v4_end_to_end_with_mocked_orchestrator(
 ) -> None:
     """Mock run_one_query to return a successful summary; verify
     graph_v4 adapts it to UI JSON + emits trace events."""
-    from src.polaris_graph import graph_v4
+    from src.polaris_graph import pipeline_a_ui_adapter
 
     monkeypatch.chdir(tmp_path)
 
@@ -282,7 +282,7 @@ def test_b102_graph_v4_end_to_end_with_mocked_orchestrator(
     )
 
     async def _runner():
-        return await graph_v4.build_and_run_v4(
+        return await pipeline_a_ui_adapter.build_and_run_v4(
             vector_id="e2e_vec",
             query="What are the efficacy signals for semaglutide?",
             application="clinical",
