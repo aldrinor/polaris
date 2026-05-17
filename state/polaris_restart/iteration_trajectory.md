@@ -242,3 +242,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. 5-file +152/-1 code+test diff; reasoning-trace 9/9, manifest-builder 17/17, audit-bundle 88 pass/4 skip. P1 trajectory 0.
+
+## I-naming-002 (#436) — rename v30_runner.py -> honest_sweep_job_runner.py
+
+### Brief review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (Codex scope adjudication CONFIRMING the plan: full file + Python-identifier rename is right; keeping protocol/registry strings v30_clinical / v30_phase* / [v30] tags unchanged is correct). convergence continue. Pure rename — git mv 2 files + V30JobRunner/V30RunnerConfig/make_default_v30_runner identifier renames across 7 files.
+
+### Diff review
+- (pending — Codex diff review iter 1)
