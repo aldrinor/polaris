@@ -425,7 +425,7 @@ def _build_bond_context(
     ionic = bond_analysis.get("ionic", {})
     if ionic:
         try:
-            from src.polaris_graph.synthesis.ionic_rebalancer import (
+            from src.polaris_graph.synthesis.evidence_section_affinity import (
                 format_ionic_findings_for_phase_r,
             )
             ionic_text = format_ionic_findings_for_phase_r(ionic, section_id)
