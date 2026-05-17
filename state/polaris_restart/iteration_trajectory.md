@@ -298,3 +298,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 2/2, 2 public fns import, 44 passed. analyze_covalent_bonds intact. P1 trajectory 0.
+
+## I-naming-009 (#443) — rename synthesis/ionic_rebalancer.py -> evidence_section_affinity.py
+
+### Brief review
+- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Last of the 4 chemistry-metaphor synthesis files (#440-443). `ionic_rebalancer` is path-only (NOT embedded in any identifier; fns are analyze_ionic_bonds/format_ionic_findings_for_phase_r), 2 importers (synthesizer.py + cross_section_reflector.py). git mv + plain replace ionic_rebalancer→evidence_section_affinity (3 files, +4/-4, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["ionic"]` cross-module key left intact.
+
+### Diff review
+- (pending — Codex diff review iter 1)
