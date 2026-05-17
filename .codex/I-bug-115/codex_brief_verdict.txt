@@ -1,0 +1,2413 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e3464-9656-7042-a49a-432302111b8e
+--------
+user
+# Codex BRIEF review — I-bug-115 / GH #554: post-retrieval candidate loop hangs (no per-candidate wall-clock bound)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+---
+
+## 0. What you are reviewing
+
+This is a **brief review** — judge whether the planned fix correctly and completely
+resolves GH #554, whether the acceptance criteria are right, and whether the diagnosis
+is sound. You are NOT reviewing a diff yet (that is the next gate).
+
+GH #554 — pipeline-A: a live research run hangs indefinitely in the post-retrieval
+candidate-processing loop, before reaching any terminal verdict. Surfaced by the #514
+OpenRouter-rehearsal `policy` prompt (2026-05-17), on a `polaris` that already includes
+the #551 retrieval fan-out timeout fix. **Demo-fatal**: a single query hangs the whole
+run before generation.
+
+## 1. Diagnosis — stated with explicit confidence levels
+
+I instrumented + reproduced per the operator's "stack-dump / instrument / reproduce"
+directive. Findings, by confidence tier:
+
+**PROVEN (rehearsal log `.codex/I-rdy-018/_live_run2.log`):** the hang is *inside*
+`run_live_retrieval`'s post-`parallel_fetch` per-candidate loop
+(`src/polaris_graph/retrieval/live_retriever.py:1309-1415`). The policy run's log:
+```
+21:36:01 [live_retriever] M-INT-1 parallel_fetch: 20 success, 0 errored, 0 timeout
+21:36:02 docling ... Finished converting document tmpb29rmf_z.pdf in 43.22 sec.
+21:36:04 [live_retriever] skipping content-starved evidence for '...WP202502.pdf'
+21:36:07 [live_retriever] skipping content-starved evidence for '...tandfonline.com...'
+<LOG DEAD-ENDS — process killed ~31 min later>
+```
+`parallel_fetch` returned (line 1300 log fired). The loop then printed two
+"skipping content-starved" lines — that log statement is `live_retriever.py:1399-1402`,
+*inside* the loop. No `[retrieval]` line ever followed (`run_honest_sweep_r3.py:1448`,
+emitted only *after* `run_live_retrieval` returns). Therefore `run_live_retrieval` never
+returned: it wedged in the loop, on a candidate at index ≥ 3.
+
+**PROVEN (CPU evidence):** the hang is an **I/O block, not compute**. #554 records the
+killed process used "~43 s CPU over 31 min wall". The docling line above shows a single
+PDF conversion took **43.22 s** — i.e. essentially *all* the process's CPU was the
+legitimate docling OCR during `parallel_fetch`; for the ~31 min after `21:36:07` the
+process burned ≈0 CPU. A compute hang (regex catastrophic backtracking, an embedding
+model) would peg a core. This was a thread blocked on a socket/lock.
+
+**RULED OUT — #554's own hypothesis (`sentence-transformers` corpus-assembly compute):**
+the embedding-based off-topic filter is the only `sentence-transformers` path here, and
+it is **disabled** — `run_honest_sweep_r3.py:1444` passes `enable_prefetch_filter=False`.
+There is no embedding/chunking compute stage between `parallel_fetch` and the loop.
+
+**ESTABLISHED BY ELIMINATION (code-read):** within the loop body (1309-1415), the only
+operation that can block on I/O is `_openalex_enrich` (`live_retriever.py:1332`, defined
+at :517 — it does `httpx.Client(...).get()`). Every other per-candidate operation is
+confirmed pure-CPU with bounded, simple (non-backtracking) regexes:
+`fetched_side.get()` (dict lookup); `_openalex_enrich`; `_domain_of`;
+`_extract_title_from_content` (regex on `content[:4000]` slices); `classify_source_tier`
+(`tier_classifier.py` — rule engine, imports only stdlib, no `httpx`/`requests`/ML);
+`is_content_starved`; `_build_provenance_quote` (linear `re` scan). Given locus (loop)
++ nature (I/O block), `_openalex_enrich` is the hang.
+
+**NOT STACK-CAPTURED — honest limit:** I ran a `faulthandler`-armed live reproduction
+of the policy retrieval (`scripts/_repro_554.py`, throwaway). `run_live_retrieval`
+**returned cleanly in 89 s** (12 sources) — OpenAlex was responsive that run, so the
+hang did not recur. The `faulthandler` dump confirmed docling OCR is the heavy-CPU path
+and that the function returns normally when OpenAlex responds. The specific transient
+trigger inside `_openalex_enrich` (slow response / continuous byte-trickle / DNS stall)
+is therefore inferred, not stack-frozen. The repro logs are committed under
+`.codex/I-bug-115/_repro_*.log` as evidence.
+
+**Mechanism (the `httpx` subtlety):** `_openalex_enrich` uses
+`httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT)` where `DEFAULT_HTTP_TIMEOUT=20.0` (a bare
+float → `connect=read=write=pool=20s`). `httpx` has **no total-request timeout**: the
+`read` timeout fires only when *no* byte arrives for 20 s. A fully-stalled response IS
+caught at 20 s — but a response that trickles bytes < 20 s apart indefinitely
+(slowloris pattern), or a wedge in a code path the phase timeouts don't cover, is never
+bounded. The synchronous loop has **no per-candidate wall-clock guard**, so one wedged
+`_openalex_enrich` hangs the entire run with no terminal verdict.
+
+## 2. Planned fix
+
+`src/polaris_graph/retrieval/live_retriever.py` only. Three layers — the fix is
+**mechanism-agnostic**: it bounds the call by wall-clock regardless of what wedges
+inside it.
+
+**Layer 1 (primary) — wall-clock-bound `_openalex_enrich`.** Add
+`_bounded_openalex_enrich(url, title)` that runs `_openalex_enrich` in a `daemon=True`
+thread with a bounded `worker.join(timeout=deadline)` — the **exact pattern already
+proven in this file** for the fetch backend (`_fetch_content`, lines 860-893). If the
+worker is still alive past the deadline: log loud, abandon the daemon thread, return
+`{}`. OpenAlex enrichment is *optional* — the classifier degrades gracefully to
+title/content signals without it (it is already wrapped in `if enable_openalex_enrich:`
+and `_openalex_enrich` itself returns `{}` on any failure). Swap the call site
+`live_retriever.py:1332` to the bounded wrapper. Deadline env knob
+`PG_OPENALEX_ENRICH_DEADLINE` (default `45.0` s = 2× the 20 s httpx phase timeout, which
+covers the legitimate DOI-lookup + title-search-fallback double request, + margin).
+
+**Layer 2 (defense-in-depth) — overall post-fetch-loop wall-clock budget.** Env knob
+`PG_POST_FETCH_LOOP_BUDGET` (default `900.0` s). Compute `_loop_deadline` before the
+loop; at the *top* of each iteration, if `time.monotonic() > _loop_deadline`, log loud
+and `break` — `run_live_retrieval` then returns with whatever was classified so far, so
+the run always reaches a terminal verdict. (Layer 1 already bounds each iteration; Layer
+2 backstops the aggregate and any future loop addition. It does NOT interrupt a hang
+*inside* an iteration — that is Layer 1's job — which is why both layers exist.)
+
+**Layer 3 (operability) — per-candidate progress logging.** One `logger.info` at the
+loop top recording `i+1/len(candidates)` + truncated URL. So that if anything in the
+loop is ever slow again, the log pins the exact candidate — no more black-box hang.
+
+**Honest fail-safe (state explicitly):** if the diagnosis is wrong in a way the
+elimination missed, Layer 3's per-candidate log guarantees the *next* rehearsal run
+produces a *diagnostic* hang (logs name the wedged candidate), not another black box;
+and Layer 2 still drives the run to a terminal verdict for any future loop body.
+
+**Zero-hardcode (LAW VI):** both deadlines via `os.getenv` with module-level
+helper functions and a safe numeric fallback (mirrors `PG_FETCH_DEADLINE_SECONDS` at
+`live_retriever.py:878`). No magic numbers.
+
+Out of scope (deliberately, to keep the diff tight): `_serper_search` /
+`_s2_bulk_search` (`httpx.Client` at `live_retriever.py:92,127`) share the same
+"float timeout, no total bound" shape, but they run *before* `parallel_fetch`, are not
+the #554 hang locus, and bounding them is a distinct change. Noted as a candidate
+follow-up issue; NOT fixed here.
+
+## 3. Tests (new file `tests/polaris_graph/test_post_fetch_loop_timeout.py`)
+
+Modelled on the #551 regression test `tests/polaris_graph/test_access_bypass_backend_timeout.py`.
+No network, no real OpenAlex — the hang is modelled with `time.sleep` /
+`monkeypatch`.
+
+1. `test_bounded_openalex_enrich_returns_within_deadline` — monkeypatch the inner
+   `_openalex_enrich` to `time.sleep(3600)`; `PG_OPENALEX_ENRICH_DEADLINE=1`; assert
+   `_bounded_openalex_enrich` returns `{}` within ~1.5 s wall-clock.
+2. `test_bounded_openalex_enrich_passes_through_success` — monkeypatch inner to return
+   a populated dict fast; assert the dict passes through untouched.
+3. `test_bounded_openalex_enrich_converts_raise_to_empty` — monkeypatch inner to raise;
+   assert `{}` returned, not propagated.
+4. `test_run_live_retrieval_bounded_when_openalex_wedges` — stub `_serper_search`/
+   `_s2_bulk_search` to return a few fake candidates + stub the fetch so each has
+   content; monkeypatch `_openalex_enrich` to hang; `PG_OPENALEX_ENRICH_DEADLINE=1`;
+   assert `run_live_retrieval` returns within bounded wall-clock AND
+   `classified_sources` is non-empty (candidates still tier-classified without
+   enrichment — the run reaches a terminal verdict).
+5. `test_post_fetch_loop_budget_breaks_the_loop` — `PG_POST_FETCH_LOOP_BUDGET` set
+   tiny; with several candidates, assert the loop breaks early and `run_live_retrieval`
+   returns rather than processing all candidates.
+
+Plus: full `pytest tests/polaris_graph/` must stay green —
+`test_m12_pass12_primary_study_signal.py` (tests `_openalex_enrich` display_name
+preservation — untouched, only a wrapper is added) and
+`test_m_int_1_parallel_fetch_integration.py` (uses `enable_openalex_enrich=False`).
+
+## 4. Files I have ALSO checked and they are clean
+
+- **`_openalex_enrich` call sites** — `grep -rn _openalex_enrich src/ scripts/ tests/`:
+  the only *direct* call is `live_retriever.py:1332` (the loop). `run_honest_sweep_r3.py:1443,1615`,
+  `run_live_honest_cycle.py:136`, `v28_retrieval_preflight.py:123` pass
+  `enable_openalex_enrich=True` as a `run_live_retrieval` *parameter* — they do not call
+  `_openalex_enrich` directly; the wrapper swap is internal to `run_live_retrieval` and
+  transparent to them.
+- **`run_honest_sweep_r3.py:1436-1530`** (driver, `run_live_retrieval` call → `[corpus]`
+  write) — pure CPU between the call and `live_corpus_dump.json`; not a hang site.
+- **`classify_source_tier` (`tier_classifier.py:921`)** — rule engine; module imports
+  only `logging`/`re`/`dataclasses`/`enum`/`typing`/`urllib.parse`; no network/ML.
+- **Loop CPU helpers** `_domain_of`, `_extract_title_from_content`,
+  `is_content_starved`, `_build_provenance_quote` — scanned: no I/O, no `while`, simple
+  bounded regexes (no catastrophic-backtracking shape).
+- **`_fetch_content` (`live_retriever.py:814-915`)** — already wall-clock-bounded by the
+  `PG_FETCH_DEADLINE_SECONDS` daemon-thread join (the pattern Layer 1 reuses); the #551
+  fix bounds the fetch fan-out. Not re-touched.
+- **`scripts/_repro_554.py`** — throwaway diagnostic harness, deleted before commit 1;
+  never committed to `src/`.
+
+## 5. Acceptance criteria (GH #554)
+
+- Post-retrieval candidate loop honours a hard wall-clock bound — per-candidate
+  (Layer 1) and overall (Layer 2); a wedged `_openalex_enrich` is abandoned, the
+  candidate is still classified, and the run reaches a terminal verdict. ✔ planned
+- A regression test exercises a hung enrich call and asserts the run is bounded. ✔ test 4
+- `pytest tests/polaris_graph/` green; ≤200-LOC diff; LAW VI (no hardcode). ✔ planned
+- Codex APPROVE on brief, then on diff.
+
+## 6. Required output schema (§8.3.9)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+### Specific questions for the reviewer
+1. Is the diagnosis sound — locus (loop, log-proven), nature (I/O, CPU-proven),
+   `_openalex_enrich` by elimination — and is the "not stack-captured" honesty
+   adequate, or do you require a second probabilistic live repro before APPROVE?
+2. Is the daemon-thread + bounded-join pattern (reused verbatim from `_fetch_content`)
+   the right bound here, vs. e.g. switching `_openalex_enrich` to an explicit
+   `httpx.Timeout` — given that no `httpx` timeout config bounds *total* request time?
+3. Are `PG_OPENALEX_ENRICH_DEADLINE=45 s` and `PG_POST_FETCH_LOOP_BUDGET=900 s`
+   reasonable defaults?
+4. Is Layer 2 worth its ~6 lines given Layer 1 already bounds each iteration, or is
+   it scope creep?
+
+codex
+I’ll validate the brief against the actual retrieval code paths and existing timeout pattern, then I’ll return the schema with only solid blockers elevated.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def run_live_retrieval|_openalex_enrich|PG_FETCH_DEADLINE_SECONDS|parallel_fetch|skipping content-starved|classify_source_tier|enable_openalex_enrich" src/polaris_graph/retrieval/live_retriever.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"enable_prefetch_filter|run_live_retrieval|\\[retrieval\\]|live_corpus_dump\" scripts/run_honest_sweep_r3.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def classify_source_tier|import |requests|httpx|sentence|transformers" src/polaris_graph/retrieval/tier_classifier.py' in C:\POLARIS
+ succeeded in 786ms:
+48:    classify_source_tier,
+517:def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
+876:    # PG_FETCH_DEADLINE_SECONDS. Set to 0 to disable (not recommended).
+878:        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+1073:def run_live_retrieval(
+1081:    enable_openalex_enrich: bool = True,
+1094:        enable_openalex_enrich: Toggle OpenAlex lookup per URL.
+1218:    # Wires `parallel_fetch.parallel_fetch(...)` into the content-fetch
+1231:        from src.polaris_graph.audit_ir.parallel_fetch import (
+1233:            parallel_fetch,
+1238:            the parallel_fetch substrate's ParallelFetcher Protocol.
+1283:        parallel_report = parallel_fetch(
+1290:        api_calls["parallel_fetch_success_count"] = (
+1293:        api_calls["parallel_fetch_errored_count"] = (
+1296:        api_calls["parallel_fetch_timeout_count"] = (
+1300:            "[live_retriever] M-INT-1 parallel_fetch: %d success, "
+1331:        if enable_openalex_enrich:
+1332:            oa = _openalex_enrich(cand.url, cand.title)
+1375:        tier_result = classify_source_tier(signals)
+1400:                    "[live_retriever] skipping content-starved evidence "
+
+ succeeded in 850ms:
+151:    run_live_retrieval,
+1436:        retrieval = run_live_retrieval(
+1444:            enable_prefetch_filter=False,
+1448:        _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
+1518:        (run_dir / "live_corpus_dump.json").write_text(
+1608:                exp_retrieval = run_live_retrieval(
+1616:                    enable_prefetch_filter=False,
+
+ succeeded in 911ms:
+58:from __future__ import annotations
+60:import logging
+61:import re
+62:from dataclasses import dataclass, field
+63:from enum import Enum
+64:from typing import Any
+65:from urllib.parse import urlparse
+921:def classify_source_tier(
+
+codex
+The surface matches the brief so far: the logged skip is inside `run_live_retrieval`, OpenAlex is called directly in that loop, and the sweep driver disables the prefetch filter. I’m reading the relevant blocks now to check for any design-level blockers in the proposed fix.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 500 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 840 -First 85' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 1428 -First 28' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 1260 -First 180' in C:\POLARIS
+ succeeded in 833ms:
+    try:
+        from src.tools.access_bypass import AccessBypass
+    except Exception as exc:
+        logger.warning(
+            "[live_retriever] AccessBypass unavailable (%s); "
+            "falling back to naive httpx", exc,
+        )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", f"access_bypass_import_failed: {exc}"
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+
+    # Run AccessBypass in a dedicated thread so each call gets its own
+    # fresh event loop. This works whether we're called from sync or
+    # async context (expansion path runs inside a live loop). Crawl4AI
+    # leaves background tasks that make subsequent asyncio.run() in the
+    # same thread fail with "cannot be called from a running event loop".
+    result_holder: dict[str, Any] = {}
+
+    def _bypass_worker() -> None:
+        try:
+            bypass = AccessBypass()
+            result_holder["value"] = asyncio.run(
+                bypass.fetch_with_bypass(url, prefer_legal=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            result_holder["error"] = exc
+
+    worker = threading.Thread(target=_bypass_worker, daemon=True)
+    worker.start()
+    # BUG-FETCH-R8d medium-1 (Codex pass 4): bound the join so a wedged
+    # Crawl4AI/Playwright browser startup/cleanup can't hang the sweep
+    # indefinitely. AccessBypass has internal timeouts but they don't
+    # cover every subprocess/import/browser-cleanup failure mode.
+    # Default 90s = Crawl4AI worst-case (~70s) + margin. Override via
+    # PG_FETCH_DEADLINE_SECONDS. Set to 0 to disable (not recommended).
+    try:
+        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+    except ValueError:
+        deadline = 90.0
+    worker.join(timeout=deadline if deadline > 0 else None)
+    if worker.is_alive():
+        logger.warning(
+            "[live_retriever] AccessBypass timed out after %.0fs for %s "
+            "— falling back to naive httpx (thread will continue as daemon)",
+            deadline, url[:80],
+        )
+        # M-45 pass-2: record AccessBypass timeout so diagnostics can
+        # distinguish timeout from backend refusal.
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+
+    if "error" in result_holder:
+        exc = result_holder["error"]
+        logger.warning(
+            "[live_retriever] AccessBypass raised for %s: %s: %s",
+            url[:80], type(exc).__name__, exc,
+        )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive",
+            f"access_bypass_raised_{type(exc).__name__}",
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+    if "value" not in result_holder:
+        logger.warning(
+            "[live_retriever] AccessBypass produced no result for %s",
+            url[:80],
+        )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", "access_bypass_no_result"
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+    result = result_holder["value"]
+
+    method = getattr(result, "access_method", "unknown") or "unknown"
+    if not result.success or not result.content:
+        reason = (result.metadata or {}).get("reason") if hasattr(result, "metadata") else None
+        logger.info(
+            "[live_retriever] fetch_miss %s (method=%s reason=%s)",
+            url[:80], method, reason or "no_content",
+        )
+        # M-45 pass-2: record the winning backend + reason even on miss
+        # so downstream audits can see which backend was last invoked.
+
+ succeeded in 943ms:
+    """
+    if not url:
+        return ""
+    # Direct DOI URL
+    u = url.strip()
+    if "doi.org/" in u.lower():
+        idx = u.lower().find("doi.org/") + len("doi.org/")
+        doi = u[idx:].split("?")[0].split("#")[0].rstrip("/")
+        return doi
+    # Embedded DOI in publisher URLs
+    m = _DOI_FROM_URL_RE.search(u)
+    if m:
+        return m.group(1).rstrip("/").rstrip(".")
+    return ""
+
+
+def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
+    """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
+
+    M-13 (BUG-M-13, Codex pass 13): prefer DOI-based lookup over
+    title search. When the URL embeds a DOI (Frontiers, JAMA, NEJM,
+    OUP, etc.), OpenAlex's /works/doi:<doi> endpoint is exact and
+    always returns the full display_name. Title-based search often
+    fails when Serper truncated the title or returned a variant
+    that OpenAlex doesn't index. Falls back to title search when no
+    DOI can be extracted (e.g., MDPI URLs, publisher blog posts).
+    """
+    try:
+        doi = _extract_doi_from_url(url)
+        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+            if doi:
+                # Exact DOI lookup — most reliable. OpenAlex accepts
+                # both the bare DOI and the URL form; use bare DOI.
+                r = c.get(f"{OPENALEX_ENDPOINT}/doi:{doi}")
+                if r.status_code != 200:
+                    # Fall back to title search if DOI not indexed
+                    r = c.get(
+                        OPENALEX_ENDPOINT,
+                        params={
+                            "search": (title or url)[:200],
+                            "per-page": 1,
+                        },
+                    )
+                    if r.status_code != 200:
+                        return {}
+                    data = r.json()
+                    results = data.get("results", [])
+                    if not results:
+                        return {}
+                    work = results[0]
+                else:
+                    work = r.json()  # single-work response from /works/doi
+            else:
+                r = c.get(
+                    OPENALEX_ENDPOINT,
+                    params={
+                        "search": (title or url)[:200],
+                        "per-page": 1,
+                    },
+                )
+                if r.status_code != 200:
+                    return {}
+                data = r.json()
+                results = data.get("results", [])
+                if not results:
+                    return {}
+                work = results[0]
+        primary = work.get("primary_location") or {}
+        source = primary.get("source") or {}
+        return {
+            "openalex_pub_type": work.get("type", "") or "",
+            "openalex_source_type": source.get("type", "") or "",
+            "is_peer_reviewed": bool(
+                work.get("type") in ("article", "review")
+                and source.get("type") == "journal"
+            ),
+            "openalex_id": work.get("id", ""),
+            # BUG-M-12 (Codex pass 12): preserve OpenAlex's full
+            # display_name. Serper snippet titles are often truncated
+            # mid-title, losing "systematic review and meta-analysis",
+
+ succeeded in 1022ms:
+            _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+                 f"queries (slug={q['slug']})")
+        _amplified_effective = (
+            list(q.get("amplified", [])) + _reg_queries + _trial_queries
+        )
+
+        t0 = time.time()
+        retrieval = run_live_retrieval(
+            research_question=q["question"],
+            amplified_queries=_amplified_effective,
+            protocol=protocol,
+            max_serper=_max_serper,
+            max_s2=_max_s2,
+            fetch_cap=_fetch_cap,
+            enable_openalex_enrich=True,
+            enable_prefetch_filter=False,
+            domain=q["domain"],   # R-6 Gap-2 domain backends
+        )
+        dt = time.time() - t0
+        _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
+             f"fetched={retrieval.candidates_fetched}, "
+             f"failed={retrieval.candidates_failed_fetch}, "
+             f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
+
+        # M-48 (2026-04-22): tag evidence rows with per-anchor
+        # population-scope labels from the scope template. For a T2D
+        # research question, SURMOUNT-2 is direct (T2D+obesity) while
+        # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
+
+ succeeded in 1073ms:
+        try:
+            max_workers = int(os.environ.get(
+                "PG_LIVE_RETRIEVER_MAX_WORKERS", "8",
+            ))
+        except ValueError:
+            max_workers = 8
+        try:
+            per_task_timeout = float(os.environ.get(
+                "PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS", "120",
+            ))
+        except ValueError:
+            per_task_timeout = 120.0
+
+        fetch_tasks = [
+            FetchTask(
+                source_url=c.url,
+                backend_id="default",
+                task_metadata={"index": idx},
+            )
+            for idx, c in enumerate(candidates)
+        ]
+        fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
+        parallel_report = parallel_fetch(
+            fetch_tasks, fetcher,
+            max_workers=max_workers,
+            per_task_timeout=per_task_timeout,
+        )
+        # Run-log evidence: persist the substrate's report into
+        # api_calls so the manifest sees a non-zero invocation count.
+        api_calls["parallel_fetch_success_count"] = (
+            parallel_report.success_count
+        )
+        api_calls["parallel_fetch_errored_count"] = (
+            parallel_report.errored_count
+        )
+        api_calls["parallel_fetch_timeout_count"] = (
+            parallel_report.timeout_count
+        )
+        logger.info(
+            "[live_retriever] M-INT-1 parallel_fetch: %d success, "
+            "%d errored, %d timeout (max_workers=%d, "
+            "per_task_timeout=%.0fs)",
+            parallel_report.success_count,
+            parallel_report.errored_count,
+            parallel_report.timeout_count,
+            max_workers, per_task_timeout,
+        )
+
+    for i, cand in enumerate(candidates):
+        if use_parallel:
+            content, ok, content_title_from_fetch, body_article_type = (
+                fetched_side.get(cand.url, ("", False, "", ""))
+            )
+        else:
+            # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
+            # Rate-limit gently (Serper doesn't but S2 prefers <= 1rps)
+            if i > 0 and i % 5 == 0:
+                time.sleep(0.2)
+            # Fetch content (for tier classification + evidence)
+            content, ok, content_title_from_fetch, body_article_type = (
+                _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+            )
+        api_calls["fetch"] += 1
+        if not ok:
+            failed_fetch += 1
+        else:
+            fetched += 1
+
+        # Optional OpenAlex enrichment
+        oa = {}
+        if enable_openalex_enrich:
+            oa = _openalex_enrich(cand.url, cand.title)
+            if oa:
+                api_calls["openalex"] += 1
+
+        # Classify via tier_classifier
+        domain_ = _domain_of(cand.url)
+        # BUG-M-12 / M-13 (Codex pass 12/13): title resolution order
+        # (longest → most reliable):
+        #   1. OpenAlex display_name (full title from DOI lookup when
+        #      URL embeds a DOI; otherwise from title-search fallback)
+        #   2. Content-extracted title from fetched page (Jina/Crawl4AI
+        #      markdown or HTML <title>) — catches MDPI/JAMA/PMC URLs
+        #      where DOI isn't in the URL path
+        #   3. Serper snippet title (often truncated)
+        # Existing detectors (_detect_systematic_review_from_title,
+        # _detect_narrative_flavor_from_title) then see the full
+        # suffix and demote correctly.
+        # BUG-M-14 (Codex pass 14): use the title extracted at fetch
+        # time (from raw content BEFORE _strip_html stripped tags)
+        # rather than trying to re-extract from the already-stripped
+        # text. Fall back to the content-based extraction on stripped
+        # text in case fetch didn't populate it.
+        content_title = content_title_from_fetch or _extract_title_from_content(content)
+        openalex_title = oa.get("openalex_full_title", "") or ""
+        # Pick the longest candidate — longer titles carry more signal
+        # (SR/MA / perspective / guidance suffixes).
+        title_candidates = [t for t in (openalex_title, content_title, cand.title) if t]
+        if title_candidates:
+            classifier_title = max(title_candidates, key=len)
+        else:
+            classifier_title = cand.title or ""
+        signals = ClassificationSignals(
+            url=cand.url,
+            title=classifier_title,
+            publisher="",
+            fetched_content_length=len(content),
+            openalex_publication_type=oa.get("openalex_pub_type", "") or "",
+            openalex_source_type=oa.get("openalex_source_type", "") or "",
+            openalex_is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
+            source_type_hint="",
+            # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
+            body_article_type=body_article_type,
+        )
+        tier_result = classify_source_tier(signals)
+
+        classified_sources.append(CorpusSource(
+            url=cand.url,
+            title=cand.title,
+            domain=domain_,
+            tier=tier_result.tier.value,
+            tier_confidence=tier_result.confidence,
+            tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
+            tier_reasons=list(tier_result.reasons),
+        ))
+
+        # Build direct_quote: head-window (first 1500 chars) PLUS 500-char
+        # windows around every decimal in the full content. This way the
+        # Phase-4 provenance verifier can find numeric claims that live
+        # deep in the fetched HTML (e.g., STEP 5 -15.2% on page 3 of a
+        # Nature paper). Without this, strict_verify drops real data
+        # because the number it's looking for is outside the head window.
+        if content:
+            # R-5 Fix D: skip content-starved evidence (PDF metadata,
+            # empty body, formatting noise). Passing these to the
+            # generator wastes tokens and produces "no extractable
+            # text" admissions in the output.
+            if is_content_starved(content):
+                logger.info(
+                    "[live_retriever] skipping content-starved evidence "
+                    "for %r (len=%d)", cand.url, len(content),
+                )
+            else:
+                direct_quote = _build_provenance_quote(
+                    content, head_chars=1500, window_chars=500,
+                )
+                evidence_rows.append({
+                    "evidence_id": f"ev_{i:03d}",
+                    "source_url": cand.url,
+                    "statement": cand.title[:300],
+                    "direct_quote": direct_quote,
+                    "tier": tier_result.tier.value,
+                    "source": cand.source,
+                    "full_content_length": len(content),
+                })
+
+    return LiveRetrievalResult(
+        classified_sources=classified_sources,
+        evidence_rows=evidence_rows,
+        total_candidates_pre_filter=total_pre_filter,
+        candidates_kept_by_scope=len(effective_queries),
+        candidates_kept_by_offtopic=kept_by_offtopic,
+        candidates_fetched=fetched,
+        candidates_failed_fetch=failed_fetch,
+        api_calls=api_calls,
+        notes=notes,
+    )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _fetch_content_httpx_naive|httpx\\.Client|DEFAULT_HTTP_TIMEOUT|PG_USE_PARALLEL_FETCH|fetch_cap|candidates = candidates\" src/polaris_graph/retrieval/live_retriever.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_openalex_enrich" -S src scripts tests' in C:\POLARIS
+ succeeded in 733ms:
+63:DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+92:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+127:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+530:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+612:def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+617:        with httpx.Client(
+618:            timeout=DEFAULT_HTTP_TIMEOUT,
+821:    previous naive httpx.Client. `src/tools/access_bypass.py` already
+1080:    fetch_cap: int = DEFAULT_FETCH_CAP,
+1093:        fetch_cap: Hard cap on total URLs to fetch (cost control).
+1208:    candidates = candidates[:fetch_cap]
+1220:    # evidence, and PG_USE_PARALLEL_FETCH=0 disables (rollback).
+1227:    use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+1315:            # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
+
+ succeeded in 849ms:
+"""
+Live retriever — HONEST-REBUILD.
+
+Performs REAL retrieval using Serper (web) + Semantic Scholar (academic)
++ OpenAlex (canonicalization) and wires every candidate URL through the
+honest-rebuild modules in one clean path:
+
+    1. Serper + Semantic Scholar bulk search
+    2. Convert hits into SearchCandidate
+    3. scope_query_validator on amplified queries
+    4. prefetch_offtopic_filter on candidates (if embedder available)
+    5. Fetch each URL's content (basic http.get) with size cap
+    6. Classify each with tier_classifier
+    7. Return list[CorpusSource] + evidence rows
+
+This is the live alternative to the pre-rebuild searcher.py path,
+which had complex dependencies into src/agents/ that we're trying
+to archive. Keeping the live retriever in polaris_graph/retrieval/
+means the honest-rebuild pipeline is self-contained.
+
+Performance: rate-limited, caps total candidates. Designed to be
+called ONCE per research question (not repeatedly in a loop).
+"""
+from __future__ import annotations
+
+import logging
+import os
+import asyncio
+import re
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+import httpx
+
+from src.polaris_graph.nodes.corpus_approval_gate import CorpusSource
+from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+    SearchCandidate,
+    filter_search_results,
+)
+from src.polaris_graph.retrieval.scope_query_validator import (
+    validate_amplified_queries,
+)
+from src.polaris_graph.retrieval.tier_classifier import (
+    ClassificationSignals,
+    classify_source_tier,
+)
+
+logger = logging.getLogger("polaris_graph.live_retriever")
+
+
+SERPER_ENDPOINT = "https://google.serper.dev/search"
+S2_BULK_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
+OPENALEX_ENDPOINT = "https://api.openalex.org/works"
+
+# Hard caps
+DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
+DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
+DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
+DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+
+
+@dataclass
+class LiveRetrievalResult:
+    classified_sources: list[CorpusSource]
+    evidence_rows: list[dict[str, Any]]
+    total_candidates_pre_filter: int
+    candidates_kept_by_scope: int
+    candidates_kept_by_offtopic: int
+    candidates_fetched: int
+    candidates_failed_fetch: int
+    api_calls: dict[str, int] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API clients
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("[live_retriever] SERPER_API_KEY missing — skipping Serper")
+        return []
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    payload = {"q": query, "num": max(1, min(num, 20))}
+    try:
+        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+            r = c.post(SERPER_ENDPOINT, json=payload, headers=headers)
+        if r.status_code != 200:
+            logger.warning(
+                "[live_retriever] Serper returned %s for %r",
+                r.status_code, query[:60],
+            )
+            return []
+        data = r.json()
+    except Exception as exc:
+        logger.warning("[live_retriever] Serper exception: %s", exc)
+        return []
+    organic = data.get("organic", []) or []
+    out: list[dict[str, Any]] = []
+    for item in organic:
+        out.append({
+            "url": item.get("link", ""),
+            "title": item.get("title", ""),
+            "snippet": item.get("snippet", ""),
+            "source": "serper",
+        })
+    return out
+
+
+def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    headers = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+    params = {
+        "query": query,
+        "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
+        "limit": max(1, min(limit, 100)),
+    }
+    try:
+        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+            r = c.get(S2_BULK_ENDPOINT, params=params, headers=headers)
+        if r.status_code != 200:
+            logger.warning(
+                "[live_retriever] S2 returned %s for %r",
+                r.status_code, query[:60],
+            )
+            return []
+        data = r.json()
+    except Exception as exc:
+        logger.warning("[live_retriever] S2 exception: %s", exc)
+        return []
+    papers = data.get("data", []) or []
+    out: list[dict[str, Any]] = []
+    for p in papers:
+        oa_pdf = (p.get("openAccessPdf") or {}).get("url", "")
+        ext_ids = p.get("externalIds") or {}
+        doi = ext_ids.get("DOI", "")
+        # Full-scale fix (cycle 11): prefer open-access PDF, fall back
+        # to DOI-resolved URL. Never return a bare semanticscholar.org
+        # landing page — those are T7 abstract-only stubs that
+        # AccessBypass deliberately skips and that inflate the T7
+        # fraction in corpus adequacy. If neither oa_pdf nor DOI is
+        # available, skip the paper entirely.
+        if oa_pdf:
+            url = oa_pdf
+        elif doi:
+            url = f"https://doi.org/{doi}"
+        else:
+            # Bare S2 landing page would be returned here; skip.
+            continue
+        abstract = p.get("abstract") or ""
+        out.append({
+            "url": url,
+            "title": p.get("title", "") or "",
+            "snippet": (abstract[:500] if abstract else "")[:500],
+            "source": "s2",
+            "s2_paper_id": p.get("paperId", ""),
+            "doi": doi,
+            "year": p.get("year"),
+            "venue": p.get("venue"),
+        })
+    return out
+
+
+_DOI_FROM_URL_RE = re.compile(
+    r"(10\.\d{4,9}/[^\s?#]+?)(?:[?#]|/full|/abstract|/pdf|/meta|\.html|$)",
+    re.IGNORECASE,
+)
+
+
+# BUG-M-17 (Codex full-scale pass 2): bounded body-text inspection
+# for article-type signals. Reads high-signal regions of fetched
+# content (meta tags, first 4KB, abstract/methods lead) for SR/MA,
+
+ succeeded in 956ms:
+scripts\run_honest_sweep_r3.py:1443:            enable_openalex_enrich=True,
+scripts\run_honest_sweep_r3.py:1615:                    enable_openalex_enrich=True,
+scripts\run_live_honest_cycle.py:136:        enable_openalex_enrich=True,
+src\polaris_graph\retrieval\live_retriever.py:517:def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
+src\polaris_graph\retrieval\live_retriever.py:1081:    enable_openalex_enrich: bool = True,
+src\polaris_graph\retrieval\live_retriever.py:1094:        enable_openalex_enrich: Toggle OpenAlex lookup per URL.
+src\polaris_graph\retrieval\live_retriever.py:1331:        if enable_openalex_enrich:
+src\polaris_graph\retrieval\live_retriever.py:1332:            oa = _openalex_enrich(cand.url, cand.title)
+scripts\v28_retrieval_preflight.py:123:        enable_openalex_enrich=True,
+tests\polaris_graph\test_m12_pass12_primary_study_signal.py:9:1. live_retriever._openalex_enrich preserves OpenAlex display_name
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:211:        enable_openalex_enrich=False,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_m12_pass12_primary_study_signal.py | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 1160 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 600 -First 65' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_access_bypass_backend_timeout.py | Select-Object -First 180' in C:\POLARIS
+ succeeded in 1018ms:
+            return extracted
+    except Exception:
+        pass
+    # Fallback: strip tags + collapse whitespace
+    no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    no_tags = re.sub(r"<style[^>]*>.*?</style>", " ", no_tags, flags=re.DOTALL | re.IGNORECASE)
+    no_tags = re.sub(r"<[^>]+>", " ", no_tags)
+    no_tags = re.sub(r"\s+", " ", no_tags)
+    return no_tags.strip()
+
+
+def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+    """Legacy naive httpx fetcher. Kept as emergency fallback when
+    AccessBypass is unavailable (tests that don't want Crawl4AI browser
+    spawning, or sandboxes without Playwright)."""
+    try:
+        with httpx.Client(
+            timeout=DEFAULT_HTTP_TIMEOUT,
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (POLARIS-honest-rebuild/1.0) "
+                    "research-assistant"
+                ),
+                # BUG-BROTLI-R8d: httpx/aiohttp advertise `br` by default
+                # but can't always decode it. Forbid it so servers don't
+                # return Brotli-encoded bodies we can't read.
+                "Accept-Encoding": "gzip, deflate",
+            },
+        ) as c:
+            r = c.get(url)
+        if r.status_code != 200:
+            return "", False, "", ""
+        ctype = (r.headers.get("content-type", "") or "").lower()
+        raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
+        if not raw and r.content:
+            raw = r.content.decode("utf-8", errors="ignore")
+        # BUG-M-13/M-14: extract title from raw HTML BEFORE stripping
+        # (the <title> tag is gone after _strip_html).
+        extracted_title = _extract_title_from_content(raw)
+        # BUG-M-17: detect article-type from bounded body region.
+        body_type = _detect_article_type_from_body(raw)
+        content = _strip_html(raw)[:max_chars]
+        return content, bool(content), extracted_title, body_type
+    except Exception as exc:
+        logger.debug(
+            "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
+        )
+        return "", False, "", ""
+
+
+def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
+    """M-42b (2026-04-22): re-fetch source content for deterministic
+    trial-table / timeline extraction when the evidence row's
+    existing `direct_quote` is thin (<100 chars) or the row was
+    never successfully fetched.
+
+    Returns a 2000-char extract (head + decimal-windows) via
+    _fetch_content + _build_provenance_quote, or empty string when
+    the URL cannot be fetched or returns thin content.
+
+    Caller is expected to cache the result on the evidence row for
+    the remainder of the run so repeat table generation within the
+    same sweep does not re-hit the network.
+
+
+ succeeded in 1090ms:
+"""BUG-M-12 (Codex pass 12): fix truncated-title T1 hallucinations
+via OpenAlex full-title enrichment + expanded narrative markers.
+
+Codex pass 12 named 4 false T1s caused by Serper snippet titles
+being truncated mid-title, losing "systematic review and
+meta-analysis" / "perspective for primary care providers" suffixes.
+
+Fix approach:
+1. live_retriever._openalex_enrich preserves OpenAlex display_name
+   (full title) and live_retriever passes it to the classifier as
+   the primary title.
+2. Expanded _NARRATIVE_FLAVOR_KEYWORDS to catch "perspective for",
+   "for clinicians", "primary care providers", "prescribing
+   information", etc.
+
+The original idea of requiring a positive primary-study marker was
+too strict — bare "Tirzepatide in type 2 diabetes" / "Semaglutide
+in Obesity" NEJM/Lancet titles are legitimate primary research
+without containing "randomized" / "phase 3" / "cohort" etc.
+"""
+
+from __future__ import annotations
+
+from src.polaris_graph.retrieval.tier_classifier import (
+    ClassificationSignals,
+    classify_source_tier,
+)
+
+
+def _classify(url: str, title: str = "Generic Title", **openalex):
+    sig = ClassificationSignals(
+        url=url,
+        title=title,
+        publisher="",
+        fetched_content_length=8000,
+        openalex_publication_type=openalex.get("pub_type", "article"),
+        openalex_source_type=openalex.get("source_type", "journal"),
+        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+        source_type_hint="",
+    )
+    return classify_source_tier(sig)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Full-title captures the SR/MA / perspective suffix
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_full_mdpi_title_with_sr_ma_suffix_is_t2() -> None:
+    """When the full OpenAlex title contains 'Systematic Review and
+    Meta-Analysis', classifier routes to T2 correctly — the fix is
+    upstream (preserve full title), not in the classifier itself."""
+    r = _classify(
+        url="https://www.mdpi.com/1424-8247/18/5/668",
+        title="The Efficacy and Safety of Tirzepatide in Patients with Diabetes and/or Obesity: Systematic Review and Meta-Analysis of Randomized Clinical Trials",
+        pub_type="article",
+        source_type="journal",
+    )
+    assert r.tier.value == "T2", f"Expected T2, got {r.tier.value}"
+
+
+def test_full_frontiers_title_with_sr_ma_suffix_is_t2() -> None:
+    r = _classify(
+        url="https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full",
+        title="Efficacy and safety of tirzepatide in patients with type 2 diabetes: A systematic review and meta-analysis",
+        pub_type="article",
+        source_type="journal",
+    )
+    assert r.tier.value == "T2", f"Expected T2, got {r.tier.value}"
+
+
+# ─────────────────────────────────────────────────────────────────
+# Expanded narrative markers ("perspective for", "for clinicians")
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_perspective_for_primary_care_title_demotes_to_t4() -> None:
+    """Codex pass 12 case 1: full PMC10115620 title includes
+    'A Perspective for Primary Care Providers'. Expanded narrative
+    markers demote to T4."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+        title="Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes: A Perspective for Primary Care Providers",
+        pub_type="article",
+        source_type="journal",
+    )
+    assert r.tier.value == "T4", f"Expected T4, got {r.tier.value}"
+
+
+def test_for_clinicians_title_demotes_to_t4() -> None:
+    """Generic 'for clinicians' narrative marker."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC99887766/",
+        title="Tirzepatide dosing: what clinicians need to know",
+        pub_type="article",
+        source_type="journal",
+    )
+    assert r.tier.value == "T4"
+
+
+def test_prescribing_recommendations_demotes_to_t4() -> None:
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMCABC/",
+        title="Tirzepatide Prescribing Recommendations for Adults with Diabetes",
+        pub_type="article",
+        source_type="journal",
+    )
+    assert r.tier.value == "T4"
+
+
+# ─────────────────────────────────────────────────────────────────
+# Regressions: primary papers with bare titles on allowlisted hosts
+# remain T1 (these are the legitimate primaries M-12 must not break)
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_regression_bare_nejm_title_still_t1() -> None:
+    """Bare 'Tirzepatide in type 2 diabetes' on NEJM is a legitimate
+    primary trial. Must still be T1."""
+    r = _classify(
+
+ succeeded in 1163ms:
+    # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
+    # for policy. Fail-open: any backend exception yields 0 new hits.
+    if domain:
+        try:
+            from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                run_domain_backends,
+            )
+            domain_result = run_domain_backends(
+                domain=domain,
+                research_question=research_question,
+                amplified_queries=amplified_queries,
+            )
+            for cand in domain_result.candidates:
+                url = cand.url
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                candidates.append(cand)
+            if domain_result.backends_used:
+                notes.append(
+                    f"domain_backends({domain}): "
+                    f"{domain_result.per_backend_counts}"
+                )
+                for backend_name in domain_result.backends_used:
+                    api_calls[backend_name] = (
+                        api_calls.get(backend_name, 0) + 1
+                    )
+        except Exception as exc:
+            logger.warning(
+                "[live_retriever] domain_backends failed for %r: %s",
+                domain, exc,
+            )
+
+    total_pre_filter = len(candidates)
+    logger.info("[live_retriever] %d unique candidates from search", total_pre_filter)
+
+    # ── Step 3: prefetch off-topic filter ──────────────────────────
+    if enable_prefetch_filter and candidates:
+        filt = filter_search_results(candidates, research_question)
+        candidates = filt.kept
+        notes.append(
+            f"prefetch_offtopic: {filt.total_kept} kept / "
+            f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
+        )
+    kept_by_offtopic = len(candidates)
+
+    # ── Step 4: cap, fetch, enrich, classify ────────────────────────
+    candidates = candidates[:fetch_cap]
+
+    classified_sources: list[CorpusSource] = []
+    evidence_rows: list[dict[str, Any]] = []
+    fetched = 0
+    failed_fetch = 0
+
+    # ------------------------------------------------------------------
+    # M-INT-1 — Parallel fetch into live_retriever (Phase E1)
+    # ------------------------------------------------------------------
+    # Wires `parallel_fetch.parallel_fetch(...)` into the content-fetch
+    # loop. Per FINAL_PLAN.md M-INT-1: imported, invoked, run-log
+    # evidence, and PG_USE_PARALLEL_FETCH=0 disables (rollback).
+    #
+    # The substrate's ParallelFetcher Protocol expects (bytes, str,
+    # int). Live retrieval's existing _fetch_content returns
+    # (content, ok, title, body_type) — we wrap it in an adapter
+    # that stashes the full 4-tuple in a side dict keyed by URL,
+    # then post-process serially using the side dict.
+    use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+    fetched_side: dict[str, tuple[str, bool, str, str]] = {}
+
+    if use_parallel and candidates:
+        from src.polaris_graph.audit_ir.parallel_fetch import (
+            FetchTask,
+            parallel_fetch,
+        )
+
+        class _LiveContentParallelFetcher:
+            """Adapter wrapping `_fetch_content(url, max_chars)` for
+            the parallel_fetch substrate's ParallelFetcher Protocol.
+            Stashes the full 4-tuple (content, ok, title, body_type)
+            in a thread-safe side dict so the post-processing loop
+
+ succeeded in 1181ms:
+"""I-bug-114 (#551) — the concurrent fetch fan-out is hard-bounded.
+
+A fetch backend wedged in a Playwright op — including one that hangs *during
+cancellation cleanup* (the class `asyncio.wait_for` cannot escape, because it
+awaits the cancelled coroutine's cleanup) — must not freeze `asyncio.gather`.
+`_bounded_backend` returns within `PG_BACKEND_FETCH_TIMEOUT +
+PG_BACKEND_CLEANUP_GRACE` regardless of backend state.
+
+No network, no Playwright: the hang is modelled with `asyncio.sleep`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+
+import pytest
+
+from src.tools.access_bypass import AccessResult, _bounded_backend
+
+_URL = "https://example.gov/anti-bot-interstitial"
+
+
+async def _hang_through_cancellation() -> AccessResult:
+    """A backend wedged in a long op whose cancellation cleanup ALSO hangs —
+    the exact class a plain `asyncio.wait_for` wrapper cannot bound."""
+    try:
+        await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        # Cleanup that itself hangs during cancellation. Bounded at 2s so the
+        # test event-loop teardown stays clean; 2s > the 1s cleanup grace, so
+        # `_bounded_backend` must detach rather than wait it out.
+        await asyncio.sleep(2.0)
+        raise
+
+
+async def _fast_success() -> AccessResult:
+    return AccessResult(
+        url=_URL,
+        content="a real article body",
+        access_method="jina_reader",
+        legal_alternative=None,
+        success=True,
+        metadata={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_bounded_backend_returns_within_timeout_plus_grace(monkeypatch):
+    monkeypatch.setenv("PG_BACKEND_FETCH_TIMEOUT", "1")
+    monkeypatch.setenv("PG_BACKEND_CLEANUP_GRACE", "1")
+
+    start = time.monotonic()
+    result = await _bounded_backend("crawl4ai", _hang_through_cancellation(), _URL)
+    elapsed = time.monotonic() - start
+
+    # Hard bound: returns within timeout + grace + epsilon — not 30 min, and
+    # not the 2s secondary cleanup sleep it is detached from.
+    assert elapsed < 2.5, f"_bounded_backend took {elapsed:.1f}s — not hard-bounded"
+    assert isinstance(result, AccessResult)
+    assert result.success is False
+    assert result.metadata["error"].startswith("backend_timeout")
+    assert result.access_method == "crawl4ai"
+
+
+@pytest.mark.asyncio
+async def test_gather_survives_one_hung_backend(monkeypatch):
+    """The exact pattern `fetch_with_bypass` uses — `asyncio.gather` over
+    `_bounded_backend`-wrapped backends. One hung backend must not stall it,
+    and the fast backend's result must survive."""
+    monkeypatch.setenv("PG_BACKEND_FETCH_TIMEOUT", "1")
+    monkeypatch.setenv("PG_BACKEND_CLEANUP_GRACE", "1")
+
+    tasks = [
+        _bounded_backend("crawl4ai", _hang_through_cancellation(), _URL),
+        _bounded_backend("jina_reader", _fast_success(), _URL),
+    ]
+    start = time.monotonic()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 2.5, f"gather took {elapsed:.1f}s — a hung backend froze it"
+    successes = [r for r in results if isinstance(r, AccessResult) and r.success]
+    assert len(successes) == 1, f"expected 1 successful backend, got {results!r}"
+    assert successes[0].access_method == "jina_reader"
+    assert successes[0].content == "a real article body"
+
+
+@pytest.mark.asyncio
+async def test_bounded_backend_passes_through_a_fast_success(monkeypatch):
+    """A backend that returns quickly is passed through untouched — the
+    wrapper does not disturb the happy path."""
+    monkeypatch.setenv("PG_BACKEND_FETCH_TIMEOUT", "30")
+    monkeypatch.setenv("PG_BACKEND_CLEANUP_GRACE", "10")
+
+    result = await _bounded_backend("jina_reader", _fast_success(), _URL)
+    assert result.success is True
+    assert result.access_method == "jina_reader"
+    assert result.content == "a real article body"
+
+
+@pytest.mark.asyncio
+async def test_bounded_backend_converts_a_raising_backend_to_failure(monkeypatch):
+    """A backend that finishes fast but raises is converted to a failure
+    AccessResult, not propagated as an exception."""
+    monkeypatch.setenv("PG_BACKEND_FETCH_TIMEOUT", "30")
+
+    async def _raises() -> AccessResult:
+        raise RuntimeError("backend blew up")
+
+    result = await _bounded_backend("firecrawl", _raises(), _URL)
+    assert isinstance(result, AccessResult)
+    assert result.success is False
+    assert "RuntimeError" in result.metadata["error"]
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _extract_title_from_content|def is_content_starved|def _build_provenance_quote|while |for .* in re|re\\.find\" src/polaris_graph/retrieval/live_retriever.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/parallel_fetch.py | Select-Object -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 1120 -First 70' in C:\POLARIS
+ succeeded in 700ms:
+451:def _extract_title_from_content(content: str) -> str:
+969:def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
+1007:def _build_provenance_quote(
+
+ succeeded in 844ms:
+    else:
+        effective_queries = list(all_queries)
+
+    # ── Step 2: run Serper + S2 across queries ──────────────────────
+    seen_urls: set[str] = set()
+    candidates: list[SearchCandidate] = []
+
+    for q in effective_queries:
+        logger.info("[live_retriever] SERPER q=%r", q[:80])
+        serper_hits = _serper_search(q, num=max_serper)
+        api_calls["serper"] += 1
+        for hit in serper_hits:
+            url = hit.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            candidates.append(SearchCandidate(
+                url=url,
+                title=hit.get("title", ""),
+                snippet=hit.get("snippet", ""),
+                source="serper",
+            ))
+
+        logger.info("[live_retriever] S2 q=%r", q[:80])
+        s2_hits = _s2_bulk_search(q, limit=max_s2)
+        api_calls["s2"] += 1
+        for hit in s2_hits:
+            url = hit.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            candidates.append(SearchCandidate(
+                url=url,
+                title=hit.get("title", ""),
+                snippet=hit.get("snippet", ""),
+                source="s2",
+                metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+            ))
+
+    # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+    # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
+    # for policy. Fail-open: any backend exception yields 0 new hits.
+    if domain:
+        try:
+            from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                run_domain_backends,
+            )
+            domain_result = run_domain_backends(
+                domain=domain,
+                research_question=research_question,
+                amplified_queries=amplified_queries,
+            )
+            for cand in domain_result.candidates:
+                url = cand.url
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                candidates.append(cand)
+            if domain_result.backends_used:
+                notes.append(
+                    f"domain_backends({domain}): "
+                    f"{domain_result.per_backend_counts}"
+                )
+                for backend_name in domain_result.backends_used:
+                    api_calls[backend_name] = (
+                        api_calls.get(backend_name, 0) + 1
+                    )
+        except Exception as exc:
+            logger.warning(
+                "[live_retriever] domain_backends failed for %r: %s",
+
+ succeeded in 927ms:
+"""M-D8 phase 1 v1 (Phase D): Parallel-fetch substrate.
+
+The existing live retrieval pipeline (`src/polaris_graph/
+retrieval/live_retriever.py`) issues one fetch at a time
+across heterogeneous backends (Serper, Semantic Scholar,
+DuckDuckGo, etc.). M-D8 phase 1 ships the **parallel-fetch
+substrate** that callers can wire up to those backends to
+fan out N fetches concurrently, with per-backend
+concurrency limits.
+
+## Why this milestone matters
+
+For predictable workloads where the URL list is known
+ahead of time (cache warming via M-D7 phase 2, batch
+audit re-runs, scheduled freshness checks), serial fetching
+pays first-byte latency on every URL. Phase 1 ships the
+substrate primitive that turns that serial loop into a
+concurrent fan-out with operator-controllable concurrency.
+
+Phase 1 does NOT integrate with `live_retriever.py` itself
+— that's phase 2 territory and requires touching production
+retrieval flow. v1 here is the deterministic substrate the
+integration will sit on top of.
+
+## What v1 ships
+
+  - `ParallelFetcher` Protocol — pluggable per-task fetcher
+  - `FetchTask` dataclass — source_url + backend_id
+  - `FetchOutcome` enum: SUCCESS | ERRORED | TIMEOUT
+  - `FetchResultRecord` per-task outcome (renamed from
+    FetchResult to avoid collision with M-D7 phase 2's
+    `cache_warming.FetchResult`)
+  - `ParallelFetchReport` aggregate
+  - `parallel_fetch(tasks, fetcher, *, max_workers,
+    per_backend_max_concurrent, per_task_timeout)` —
+    pure substrate
+
+## Substrate boundary
+
+Imports stdlib only (`concurrent.futures`, `threading`,
+`dataclasses`, `enum`). No HTTP client. No DB. No LLM. The
+Fetcher Protocol is the seam: caller code wires up actual
+HTTP / Crossref / Semantic Scholar clients.
+
+The substrate uses `ThreadPoolExecutor` for parallelism
+(stdlib, no async/await refactor on the caller side). Per-
+backend concurrency limits are enforced via
+`threading.Semaphore` instances keyed by `backend_id`.
+
+See `docs/md8_phase1_threat_model.md` for boundaries.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import threading
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Mapping, Protocol, Sequence
+
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
+class ParallelFetchError(ValueError):
+    """Raised on contract violations — empty tasks not actually
+    empty, bad fetcher Protocol, invalid concurrency limits."""
+
+
+class FetcherProtocolError(ParallelFetchError):
+    """Fetcher returned something other than a FetchResultRecord
+    payload tuple. Caller-side bug — surface loudly per LAW II."""
+
+
+# ---------------------------------------------------------------------------
+# Task + outcome types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FetchTask:
+    """One unit of work for the parallel fetcher.
+
+    `source_url` is the URL to fetch (caller's responsibility
+    to canonicalize if needed — substrate doesn't normalize).
+
+    `backend_id` is the rate-limit class — Serper, Semantic
+    Scholar, DuckDuckGo, etc. Per-backend concurrency limits
+    use this as the semaphore key. Tasks with no specific
+    backend should use a sentinel like `"default"`.
+
+    `task_metadata` is opaque caller-supplied metadata
+    surfaced back in `FetchResultRecord.task_metadata` for
+    correlation. Common usage: tier classification, domain
+    tag, request-id-for-tracing. The substrate doesn't read
+    or interpret this dict.
+    """
+
+    source_url: str
+    backend_id: str
+    task_metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+class FetchOutcome(str, Enum):
+    """Per-task outcome.
+
+    SUCCESS: fetcher returned a payload (regardless of HTTP
+       status code — caller's Fetcher decides what to raise on).
+    ERRORED: fetcher raised an exception.
+    TIMEOUT: per-task timeout fired before the fetcher returned.
+    """
+
+    SUCCESS = "success"
+    ERRORED = "errored"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class FetchResultRecord:
+    """One task's result.
+
+    `payload` is None unless `outcome == SUCCESS`. Type is
+    deliberately `bytes | None` — substrate doesn't dictate
+    whether the caller's Fetcher returns text/JSON/binary;
+    bytes is the lowest-common-denominator transport.
+
+    `content_type` and `fetch_status_code` are caller-supplied
+    metadata when SUCCESS; None otherwise.
+
+    `error` is None unless `outcome == ERRORED` or `TIMEOUT`,
+    in which case it carries `str(exc)` (ERRORED) or the
+    string `"per-task timeout exceeded"` (TIMEOUT). Exception
+    type is NOT preserved — callers wanting structured errors
+    should make their Fetcher catch + convert.
+
+    `started_at` / `finished_at` are UNIX epoch floats. For
+    SUCCESS / ERRORED they mark when the task began (after
+    backend semaphore acquired) and ended. For TIMEOUT,
+    `started_at` is best-effort actual task start if the
+    worker reached the fetch path; otherwise it falls back to
+    the submit-time timeout-budget anchor (a task can time out
+    before entering `fetcher.fetch` under contention).
+
+    `task_metadata` echoes the FetchTask's metadata for
+    correlation.
+    """
+
+    source_url: str
+    backend_id: str
+    outcome: FetchOutcome
+    payload: bytes | None
+    content_type: str | None
+    fetch_status_code: int | None
+    error: str | None
+    started_at: float
+    finished_at: float
+    task_metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ParallelFetchReport:
+    """Aggregate of all tasks in one parallel_fetch call.
+
+    `started_at` / `finished_at` are wall-clock bounds of the
+    full call (NOT sum of per-task times — they're concurrent).
+
+    `results` is one entry per UNIQUE (source_url, backend_id)
+    in the input. Duplicates collapse to first-occurrence
+    (the substrate doesn't fetch the same URL twice in one
+    call by design).
+
+    Counts sum to `len(results)`.
+    """
+
+    started_at: float
+    finished_at: float
+    results: tuple[FetchResultRecord, ...] = field(default_factory=tuple)
+    success_count: int = 0
+    errored_count: int = 0
+    timeout_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Fetcher Protocol
+# ---------------------------------------------------------------------------
+
+
+class ParallelFetcher(Protocol):
+    """Pluggable fetcher contract — single-task, called
+    concurrently by `parallel_fetch`.
+
+    Implementers MUST:
+      - Be thread-safe (concurrent invocations from worker
+        threads are the norm)
+      - Return a `tuple[bytes, str, int]` of (payload,
+        content_type, fetch_status_code) on success
+      - Raise an exception on transport / parse failure
+        (callers should NOT signal failure via a non-2xx
+        status code in the returned tuple — that IS a
+        successful fetch of an error response)
+
+    Implementers MUST NOT:
+      - Mutate any cache directly (that's caller orchestration)
+      - Block the calling thread indefinitely (use the
+        per-task timeout if your backend doesn't enforce one)
+    """
+
+    def fetch(
+        self, task: FetchTask
+    ) -> tuple[bytes, str, int]:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Default per-backend limit
+# ---------------------------------------------------------------------------
+
+
+# Conservative default — any backend not explicitly configured
+# in `per_backend_max_concurrent` gets this limit. Operators
+# can tune for known backends (Semantic Scholar = 1 per their
+# docs; Serper = 10; etc.) by passing a dict.
+DEFAULT_PER_BACKEND_LIMIT = 4
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def parallel_fetch(
+    tasks: Sequence[FetchTask],
+    fetcher: ParallelFetcher,
+    *,
+    max_workers: int = 8,
+    per_backend_max_concurrent: Mapping[str, int] | None = None,
+    per_task_timeout: float | None = None,
+) -> ParallelFetchReport:
+    """Fan out `tasks` to a thread pool and collect results.
+
+    `max_workers` caps the global concurrency. Per-backend
+    limits gate concurrent-by-backend further: a task on
+    backend `"semantic_scholar"` can only proceed when both a
+    worker is free AND the backend's semaphore has capacity.
+
+    `per_backend_max_concurrent` maps `backend_id` to its
+    concurrency limit. Backends absent from the map use
+    `DEFAULT_PER_BACKEND_LIMIT`. Pass `{"semantic_scholar": 1,
+    "serper": 10, ...}` to set explicit ceilings.
+
+    `per_task_timeout` is the wall-clock seconds before a
+    task is marked `TIMEOUT`. None disables timeout.
+    The cancel attempt is best-effort: in-flight tasks may
+    continue running after the timeout fires (Python's
+    Future.cancel() can't interrupt synchronous code), but
+    the report records TIMEOUT and the worker thread is
+    abandoned. Backend semaphore is released either way (in a
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 440 -First 55' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/parallel_fetch.py | Select-Object -Skip 240 -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py | Select-Object -Skip 960 -First 90' in C:\POLARIS
+ succeeded in 752ms:
+    re.compile(r"\.(pdf|obj|endstream)\s+\d+", re.IGNORECASE),
+)
+_FORMATTING_NOISE_MARKERS = (
+    "/Contents", "/MediaBox", "/Font", "/FontName",
+    "<<", ">>", "stream\n",
+)
+
+
+def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
+    """R-5 Fix D: detect evidence rows whose fetched content is PDF
+    metadata / formatting fragments / empty text — not useful prose.
+
+    Returns True if the content should NOT be passed to the generator
+    (because the LLM would admit it has no answer, wasting tokens).
+
+    Heuristics:
+      - Length of visible text < min_useful_chars
+      - PDF metadata markers dominate
+      - Ratio of alphabetic chars to total chars is low
+    """
+    if not content or len(content.strip()) < min_useful_chars:
+        return True
+
+    # PDF-metadata dominance check
+    pdf_hits = 0
+    for pat in _PDF_METADATA_PATTERNS:
+        if pat.search(content):
+            pdf_hits += 1
+    if pdf_hits >= 2:
+        return True
+
+    # Formatting-marker dominance check
+    marker_count = sum(content.count(m) for m in _FORMATTING_NOISE_MARKERS)
+    if marker_count > 20 and marker_count / max(1, len(content) / 100) > 0.5:
+        return True
+
+    # Alphabetic ratio: if less than 40% of chars are letters, probably
+    # not readable prose (e.g., binary-looking PDF remnants).
+    alpha = sum(1 for ch in content if ch.isalpha())
+    total = len(content)
+    if total > 0 and alpha / total < 0.4:
+        return True
+
+    return False
+
+
+def _build_provenance_quote(
+    content: str,
+    head_chars: int = 1500,
+    window_chars: int = 500,
+    max_total_chars: int = 12000,
+    max_windows: int = 20,
+) -> str:
+    """Build a direct_quote that contains the head of the document AND
+    500-char windows around every decimal found in the full content.
+
+    Fixes Fix-3: strict_verify was dropping sentences that cited real
+    numbers living outside the first 1500 chars (e.g., STEP 5 -15.2%
+    in the results section of a Nature paper). Caller stores the result
+    as evidence.direct_quote; Phase 4 _find_span_for_decimal will now
+    find the decimal because a window containing it is in the quote.
+
+    Returns a concatenation: head || "\\n\\n[...]\\n\\n" || window_1 || ...
+    Deduplicates overlapping windows. Caps total length at max_total_chars
+    to keep prompt budget under control.
+    """
+    if not content:
+        return ""
+    head = content[:head_chars]
+    if len(content) <= head_chars:
+        return head
+
+    # Find all decimal positions in the full content
+    positions: list[tuple[int, int]] = []
+    for m in _DECIMAL_PATTERN.finditer(content):
+        start = max(0, m.start() - window_chars // 2)
+        end = min(len(content), m.end() + window_chars // 2)
+        positions.append((start, end))
+
+    # De-overlap: merge adjacent windows that touch each other
+    positions.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in positions:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    # Drop windows already fully inside the head
+    merged = [(s, e) for s, e in merged if e > head_chars]
+
+ succeeded in 813ms:
+) -> ParallelFetchReport:
+    """Fan out `tasks` to a thread pool and collect results.
+
+    `max_workers` caps the global concurrency. Per-backend
+    limits gate concurrent-by-backend further: a task on
+    backend `"semantic_scholar"` can only proceed when both a
+    worker is free AND the backend's semaphore has capacity.
+
+    `per_backend_max_concurrent` maps `backend_id` to its
+    concurrency limit. Backends absent from the map use
+    `DEFAULT_PER_BACKEND_LIMIT`. Pass `{"semantic_scholar": 1,
+    "serper": 10, ...}` to set explicit ceilings.
+
+    `per_task_timeout` is the wall-clock seconds before a
+    task is marked `TIMEOUT`. None disables timeout.
+    The cancel attempt is best-effort: in-flight tasks may
+    continue running after the timeout fires (Python's
+    Future.cancel() can't interrupt synchronous code), but
+    the report records TIMEOUT and the worker thread is
+    abandoned. Backend semaphore is released either way (in a
+    finally block), so subsequent tasks on the same backend
+    don't deadlock waiting on a leaked permit.
+
+    Returns a `ParallelFetchReport` summarizing per-task
+    outcomes. Order of `results` is the input task order,
+    NOT completion order — callers correlate via task_metadata
+    if they need other orderings.
+
+    Duplicate (source_url, backend_id) pairs in input collapse
+    to first-occurrence (subsequent dupes dropped silently).
+    """
+    if not isinstance(tasks, Sequence) or isinstance(
+        tasks, (str, bytes)
+    ):
+        raise ParallelFetchError(
+            f"tasks must be a sequence of FetchTask, got "
+            f"{type(tasks).__name__}"
+        )
+    if fetcher is None or not hasattr(fetcher, "fetch"):
+        raise ParallelFetchError(
+            "fetcher must implement the ParallelFetcher Protocol"
+        )
+    if max_workers < 1:
+        raise ParallelFetchError(
+            f"max_workers must be >= 1, got {max_workers}"
+        )
+    if per_task_timeout is not None and per_task_timeout <= 0:
+        raise ParallelFetchError(
+            f"per_task_timeout must be > 0 or None, got "
+            f"{per_task_timeout}"
+        )
+
+    if per_backend_max_concurrent is not None:
+        for k, v in per_backend_max_concurrent.items():
+            if not isinstance(v, int) or v < 1:
+                raise ParallelFetchError(
+                    f"per_backend_max_concurrent[{k!r}] must be "
+                    f"a positive int, got {v!r}"
+                )
+
+    # Build deduplicated task list (first wins).
+    seen_keys: set[tuple[str, str]] = set()
+    deduped: list[FetchTask] = []
+    for i, task in enumerate(tasks):
+        if not isinstance(task, FetchTask):
+            raise ParallelFetchError(
+                f"tasks[{i}] must be FetchTask, got "
+                f"{type(task).__name__}"
+            )
+        key = (task.source_url, task.backend_id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(task)
+
+    started_at = time.time()
+
+    if not deduped:
+        return ParallelFetchReport(
+            started_at=started_at,
+            finished_at=started_at,
+            results=(),
+            success_count=0,
+            errored_count=0,
+            timeout_count=0,
+        )
+
+    # Per-backend semaphores. Lazily allocated on first task
+    # for each backend.
+    backend_limits: dict[str, int] = dict(per_backend_max_concurrent or {})
+    semaphores: dict[str, threading.Semaphore] = {}
+    semaphores_lock = threading.Lock()
+
+    def _get_semaphore(backend_id: str) -> threading.Semaphore:
+        with semaphores_lock:
+            sem = semaphores.get(backend_id)
+            if sem is None:
+                limit = backend_limits.get(
+                    backend_id, DEFAULT_PER_BACKEND_LIMIT,
+                )
+                sem = threading.Semaphore(limit)
+                semaphores[backend_id] = sem
+            return sem
+
+    task_started_by_index: dict[int, float] = {}
+    task_started_lock = threading.Lock()
+
+    def _run_task(
+        index: int, task: FetchTask,
+    ) -> FetchResultRecord:
+        sem = _get_semaphore(task.backend_id)
+        sem.acquire()
+        task_started = time.time()
+        with task_started_lock:
+            task_started_by_index[index] = task_started
+        try:
+            try:
+                result = fetcher.fetch(task)
+            except Exception as exc:  # noqa: BLE001 — intentional broad
+                return FetchResultRecord(
+                    source_url=task.source_url,
+                    backend_id=task.backend_id,
+                    outcome=FetchOutcome.ERRORED,
+                    payload=None,
+                    content_type=None,
+                    fetch_status_code=None,
+                    error=str(exc),
+                    started_at=task_started,
+                    finished_at=time.time(),
+                    task_metadata=task.task_metadata,
+                )
+
+            if (
+                not isinstance(result, tuple)
+                or len(result) != 3
+                or not isinstance(result[0], (bytes, bytearray))
+                or not isinstance(result[1], str)
+                or not isinstance(result[2], int)
+            ):
+                raise FetcherProtocolError(
+                    f"fetcher.fetch({task.source_url!r}) returned "
+                    f"{type(result).__name__}, expected "
+                    "tuple[bytes, str, int]"
+                )
+
+            payload, content_type, status = result
+            return FetchResultRecord(
+                source_url=task.source_url,
+                backend_id=task.backend_id,
+                outcome=FetchOutcome.SUCCESS,
+                payload=bytes(payload),
+                content_type=content_type,
+                fetch_status_code=status,
+                error=None,
+                started_at=task_started,
+                finished_at=time.time(),
+                task_metadata=task.task_metadata,
+            )
+        finally:
+            sem.release()
+
+    results_by_index: dict[int, FetchResultRecord] = {}
+
+    # Codex round-1 HIGH fix (v2): manage executor manually so we
+    # can shutdown(wait=False, cancel_futures=True) on TIMEOUT.
+    # The `with` block's __exit__ calls shutdown(wait=True) which
+    # blocks until all in-flight workers finish — defeating
+    # boundary 3's caller-latency promise.
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+    )
+    try:
+        future_to_index: dict[concurrent.futures.Future, int] = {}
+        deadline_per_future: dict[concurrent.futures.Future, float] = {}
+        submit_now = time.time()
+        for idx, task in enumerate(deduped):
+            fut = executor.submit(_run_task, idx, task)
+            future_to_index[fut] = idx
+            if per_task_timeout is not None:
+                deadline_per_future[fut] = submit_now + per_task_timeout
+
+        remaining: set[concurrent.futures.Future] = set(future_to_index)
+        protocol_error_to_raise: FetcherProtocolError | None = None
+
+        while remaining and protocol_error_to_raise is None:
+            if per_task_timeout is None:
+                # No timeout — just wait for the next completion.
+                done, _ = concurrent.futures.wait(
+                    remaining,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+            else:
+                now = time.time()
+                # Earliest deadline among still-running futures.
+                next_deadline = min(deadline_per_future[f] for f in remaining)
+                wait_timeout = max(0.0, next_deadline - now)
+                done, _ = concurrent.futures.wait(
+                    remaining,
+                    timeout=wait_timeout,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+
+            if done:
+                for fut in done:
+                    idx = future_to_index[fut]
+                    task = deduped[idx]
+                    try:
+                        rec = fut.result()
+                    except FetcherProtocolError as exc:
+                        protocol_error_to_raise = exc
+                        break
+                    results_by_index[idx] = rec
+                    remaining.discard(fut)
+                    deadline_per_future.pop(fut, None)
+            else:
+                # Wait expired with no completions — at least one
+                # future has hit its deadline. Mark expired futures
+                # as TIMEOUT and continue.
+                now = time.time()
+                expired = [
+                    f for f in list(remaining)
+                    if deadline_per_future.get(f, float("inf")) <= now
+                ]
+                if not expired:
+                    # No expired but no completions either — defensive
+                    # tiny-deadline race; loop again.
+                    continue
+                for fut in expired:
+                    idx = future_to_index[fut]
+                    task = deduped[idx]
+                    fut.cancel()  # best-effort
+                    with task_started_lock:
+                        timeout_started_at = task_started_by_index.get(
+                            idx, submit_now,
+                        )
+                    results_by_index[idx] = FetchResultRecord(
+                        source_url=task.source_url,
+                        backend_id=task.backend_id,
+                        outcome=FetchOutcome.TIMEOUT,
+                        payload=None,
+                        content_type=None,
+                        fetch_status_code=None,
+                        error="per-task timeout exceeded",
+                        started_at=timeout_started_at,
+                        finished_at=now,
+                        task_metadata=task.task_metadata,
+                    )
+                    remaining.discard(fut)
+                    deadline_per_future.pop(fut, None)
+
+        if protocol_error_to_raise is not None:
+            for other_fut in remaining:
+                other_fut.cancel()
+            # Codex round-1 MEDIUM fix (v2): release the executor
+            # without waiting so the protocol error propagates
+            # promptly. In-flight workers continue but caller
+            # gets control back.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise protocol_error_to_raise
+    finally:
+
+ succeeded in 888ms:
+            if _ANAPHORIC_GUIDELINE_CITATION.search(preceding):
+                continue
+            return "GUIDELINE"
+    for pattern in _BODY_PERSPECTIVE_CONTEXT_PATTERNS:
+        if re.search(pattern, lead_lower, re.IGNORECASE):
+            return "PERSPECTIVE"
+
+    return ""
+
+
+def _extract_title_from_content(content: str) -> str:
+    """Extract the full paper title from fetched page content.
+
+    M-13 fallback (Codex pass 13): OpenAlex DOI lookup doesn't work
+    for MDPI URLs (they don't embed DOI in URL path). And OpenAlex
+    title-search with a truncated Serper snippet often misses the
+    right paper. As a third recovery path, parse the fetched HTML
+    or markdown for the real title.
+
+    - Jina Reader and Crawl4AI often emit markdown with `Title: ...`
+      or `# Title` on the first line.
+    - Direct HTTP returns HTML; look for `<title>...</title>` tag.
+    - trafilatura output is plain text; the first significant line
+      is usually the title.
+
+    Returns empty string if no plausible title found.
+    """
+    if not content:
+        return ""
+    # Jina/Crawl4AI "Title: X" pattern
+    m = re.search(r"^\s*Title:\s*(.+?)\s*$", content[:2000], re.MULTILINE)
+    if m:
+        t = m.group(1).strip()
+        if 10 <= len(t) <= 500:
+            return t
+    # Markdown H1
+    m = re.search(r"^\s*#\s+(.+?)\s*$", content[:2000], re.MULTILINE)
+    if m:
+        t = m.group(1).strip()
+        if 10 <= len(t) <= 500 and "content" not in t.lower()[:30]:
+            return t
+    # HTML <title> tag
+    m = re.search(r"<title[^>]*>(.+?)</title>", content[:4000],
+                  re.IGNORECASE | re.DOTALL)
+    if m:
+        t = m.group(1).strip()
+        # Strip journal suffixes like " — Frontiers", " | MDPI"
+        t = re.sub(r"\s*[|\-—–]\s*(mdpi|frontiers|nejm|jama|lancet|"
+                   r"bmc|springer|nature|science|cell|plos).*$", "",
+                   t, flags=re.IGNORECASE)
+        if 10 <= len(t) <= 500:
+            return t
+    return ""
+
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/parallel_fetch.py | Select-Object -Skip 500 -First 80' in C:\POLARIS
+ succeeded in 619ms:
+        # Codex round-1 HIGH fix (v2): non-blocking shutdown.
+        # Pending (not-yet-started) futures are cancelled;
+        # in-flight workers continue but don't gate our return.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    # Reorder by input index.
+    results = tuple(
+        results_by_index[i] for i in range(len(deduped))
+    )
+
+    success = sum(1 for r in results if r.outcome == FetchOutcome.SUCCESS)
+    errored = sum(1 for r in results if r.outcome == FetchOutcome.ERRORED)
+    timed_out = sum(1 for r in results if r.outcome == FetchOutcome.TIMEOUT)
+
+    return ParallelFetchReport(
+        started_at=started_at,
+        finished_at=time.time(),
+        results=results,
+        success_count=success,
+        errored_count=errored,
+        timeout_count=timed_out,
+    )
+
+
+def report_to_exit_code(report: ParallelFetchReport) -> int:
+    """Map outcome to CI exit code.
+
+    Convention: any errored OR timeout → 1; all-success or
+    empty → 0.
+    """
+    if report.errored_count > 0 or report.timeout_count > 0:
+        return 1
+    return 0
+
+codex
+The plan’s main mechanics look compatible with the current code: `_openalex_enrich` is optional, its result is already allowed to be empty, and the classifier path can continue from URL/title/content signals. I’m checking for acceptance-test blind spots and any risk introduced by detached daemon threads before I settle the verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_openalex_enrich|OpenAlex|openalex" tests/polaris_graph src scripts | Select-Object -First 100' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class SearchCandidate|filter_search_results" src/polaris_graph/retrieval/prefetch_offtopic_filter.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path .codex -Recurse -Filter "*_live_run2.log" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName' in C:\POLARIS
+ succeeded in 725ms:
+41:class SearchCandidate:
+64:    """Return value of filter_search_results()."""
+148:def filter_search_results(
+
+ succeeded in 864ms:
+scripts\build_walkthrough_pdf.py:73:     "OpenAlex 5, Exa 4, S2 3, DuckDuckGo 3), and full list of 12 Planned Queries "
+scripts\compare_live_vs_pg_lb_sa_02.py:52:    # OpenAlex metadata we already stored, build ClassificationSignals,
+scripts\compare_live_vs_pg_lb_sa_02.py:61:        # Pre-rebuild stored openalex fields directly on the biblio entry
+scripts\compare_live_vs_pg_lb_sa_02.py:62:        pub_type = b.get("openalex_publication_type", "") or b.get("publication_type", "")
+scripts\compare_live_vs_pg_lb_sa_02.py:63:        source_type = b.get("openalex_source_type", "") or b.get("source_type_normalized", "")
+scripts\compare_live_vs_pg_lb_sa_02.py:74:            openalex_publication_type=pub_type,
+scripts\compare_live_vs_pg_lb_sa_02.py:75:            openalex_source_type=source_type,
+scripts\compare_live_vs_pg_lb_sa_02.py:76:            openalex_is_peer_reviewed=is_peer,
+scripts\compare_live_vs_pg_lb_sa_02.py:312:    lines.append("4. OpenAlex mis-classified at least two sources: "
+scripts\compare_live_vs_pg_lb_sa_02.py:317:                 "hostname-denylist rules that fire before OpenAlex "
+src\utils\cost_tracker.py:113:    "openalex": 0.0,        # Free (no limit)
+tests/polaris_graph\test_audit_ir_loader.py:124:    # run-14 has openalex/s2/serper providers
+tests/polaris_graph\test_audit_ir_loader.py:125:    assert "openalex" in stats.by_provider
+tests/polaris_graph\test_audit_ir_loader.py:126:    assert stats.by_provider["openalex"] > 0
+src\search\__init__.py:13:    OpenAlexEngine,
+src\search\__init__.py:50:    "OpenAlexEngine",
+tests/polaris_graph\conftest.py:3:Disables OpenAlex by default so tests don't hit the real API unless
+tests/polaris_graph\conftest.py:14:def _disable_openalex_by_default(monkeypatch):
+tests/polaris_graph\conftest.py:15:    """Default OpenAlex off for all tests; individual tests opt in."""
+tests/polaris_graph\conftest.py:19:        from src.polaris_graph.tools import openalex_client as _oa
+tests/polaris_graph\test_external_evaluator.py:34:        "Retrieved on 2026-04-17 from PubMed, OpenAlex, and Semantic Scholar.\n"
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:7:2. NIH literature aggregators (PMC, PubMed) without OpenAlex metadata
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:24:def _classify(url, title="Generic Title", **openalex):
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:30:        openalex_publication_type=openalex.get("pub_type", ""),
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:31:        openalex_source_type=openalex.get("source_type", ""),
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:32:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", False),
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:76:# when OpenAlex metadata is present, and fall back to R10 default T1
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:82:def test_pmc_without_openalex_still_r10_fallback_t1() -> None:
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:83:    """Guard 2 revert regression: PMC paper without OpenAlex metadata
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:97:def test_pmc_with_openalex_primary_still_t1() -> None:
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:98:    """PMC paper with OpenAlex article+journal metadata routes via R9,
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:1:"""BUG-M-13 (Codex pass 13): DOI-based OpenAlex lookup + content-title
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:6:- OpenAlex title-search with the Serper-truncated title didn't find
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:12:from pharmatimes.com which was already there), allowing OpenAlex to
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:28:def _classify(url, title="Generic Title", **openalex):
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:34:        openalex_publication_type=openalex.get("pub_type", "article"),
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:35:        openalex_source_type=openalex.get("source_type", "journal"),
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:36:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:133:    """Codex pass 13: pharmacytimes.com was lifted to T2 via OpenAlex
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:2:via OpenAlex full-title enrichment + expanded narrative markers.
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:9:1. live_retriever._openalex_enrich preserves OpenAlex display_name
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:30:def _classify(url: str, title: str = "Generic Title", **openalex):
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:36:        openalex_publication_type=openalex.get("pub_type", "article"),
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:37:        openalex_source_type=openalex.get("source_type", "journal"),
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:38:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:50:    """When the full OpenAlex title contains 'Systematic Review and
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:1:"""BUG-M-11 (Codex pass 11): R9 OpenAlex primary-study rule now
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:6:Previously R9 granted T1 solely on OpenAlex article+journal
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:20:def _classify(url: str, title: str = "Generic Title", **openalex):
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:26:        openalex_publication_type=openalex.get("pub_type", "article"),
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:27:        openalex_source_type=openalex.get("source_type", "journal"),
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:28:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:125:def test_unknown_domain_with_openalex_primary_demotes_to_t4() -> None:
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:126:    """Core M-11: if OpenAlex says peer-reviewed article+journal but
+tests/polaris_graph\test_m11_pass11_r9_allowlist_guard.py:137:        f"Unknown host with OpenAlex primary metadata should demote "
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:14:These survive because R9_openalex_primary_study trusts
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:15:OpenAlex article+journal metadata regardless of domain or title
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:27:def _classify(url: str, title: str = "Generic Title", **openalex):
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:28:    """Worst-case OpenAlex metadata: peer-reviewed article in journal.
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:35:        openalex_publication_type=openalex.get("pub_type", "article"),
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:36:        openalex_source_type=openalex.get("source_type", "journal"),
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:37:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+tests/polaris_graph\test_m18_dr_audit_fixes.py:46:    """End-to-end: NEJM URL + head-to-head RCT title + OpenAlex article
+tests/polaris_graph\test_m18_dr_audit_fixes.py:53:        openalex_publication_type="article",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:54:        openalex_source_type="journal",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:55:        openalex_is_peer_reviewed=True,
+tests/polaris_graph\test_m18_dr_audit_fixes.py:149:        openalex_publication_type="article",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:150:        openalex_source_type="journal",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:151:        openalex_is_peer_reviewed=True,
+tests/polaris_graph\test_m18_dr_audit_fixes.py:171:        openalex_publication_type="article",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:172:        openalex_source_type="journal",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:173:        openalex_is_peer_reviewed=True,
+tests/polaris_graph\test_m18_dr_audit_fixes.py:176:    assert "R9_openalex_narrative_review" in r.matched_rules
+tests/polaris_graph\test_m18_dr_audit_fixes.py:185:        openalex_publication_type="article",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:186:        openalex_source_type="journal",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:187:        openalex_is_peer_reviewed=True,
+tests/polaris_graph\test_m18_dr_audit_fixes.py:198:        openalex_publication_type="article",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:199:        openalex_source_type="journal",
+tests/polaris_graph\test_m18_dr_audit_fixes.py:200:        openalex_is_peer_reviewed=True,
+tests/polaris_graph\test_m17_body_article_type.py:555:        openalex_publication_type=oa.get("pub_type", "article"),
+tests/polaris_graph\test_m17_body_article_type.py:556:        openalex_source_type=oa.get("source_type", "journal"),
+tests/polaris_graph\test_m17_body_article_type.py:557:        openalex_is_peer_reviewed=oa.get("is_peer_reviewed", True),
+tests/polaris_graph\test_m17_body_article_type.py:600:def test_body_signal_overrides_even_strong_openalex_primary() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:673:    named trial) AND OpenAlex peer-reviewed journal status should
+tests/polaris_graph\test_m17_body_article_type.py:722:    """M-17g: the primary-study gate ONLY fires when OpenAlex confirms
+tests/polaris_graph\test_m16_full_scale_pass1_fixes.py:16:def _classify(url, title="Generic Title", **openalex):
+tests/polaris_graph\test_m16_full_scale_pass1_fixes.py:22:        openalex_publication_type=openalex.get("pub_type", ""),
+tests/polaris_graph\test_m16_full_scale_pass1_fixes.py:23:        openalex_source_type=openalex.get("source_type", ""),
+tests/polaris_graph\test_m16_full_scale_pass1_fixes.py:24:        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", False),
+scripts\inject_test_trace.py:208:        # OpenAlex academic results (WAVE 2.2)
+scripts\inject_test_trace.py:210:             engine="openalex",
+scripts\forensic_audit.py:335:                        if eng not in ("semantic_scholar", "openalex"))
+scripts\forensic_audit.py:337:                         if eng in ("semantic_scholar", "openalex"))
+tests/polaris_graph\test_m37_health_canada.py:14:   Monograph PDF fell through R2d and hit R9 OpenAlex which
+tests/polaris_graph\test_m37_health_canada.py:15:   demoted it to T4 (OpenAlex tagged it "article" but the host
+scripts\pg_integration_smoke_v2.py:59:    # STAGE 2: S2 parallel with OpenAlex (real query)
+scripts\pg_integration_smoke_v2.py:61:    print("\n[STAGE 2] S2 + OpenAlex parallel...")
+scripts\pg_integration_smoke_v2.py:71:    results["s2_openalex"] = {"total": len(acad_results)}
+scripts\pg_integration_smoke_v2.py:74:    # STAGE 3: Dedup across Scholar + S2/OpenAlex
+scripts\pg_integration_smoke_v2.py:268:        print(f"  S2+OA: {results['s2_openalex']['total']} parallel results")
+
+ succeeded in 958ms:
+C:\POLARIS\.codex\I-rdy-018\_live_run2.log
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/prefetch_offtopic_filter.py | Select-Object -First 95' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path .codex/I-rdy-018/_live_run2.log -Pattern \"parallel_fetch|skipping content-starved|\\[retrieval\\]\" -Context 0,1" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/conftest.py | Select-Object -First 60' in C:\POLARIS
+ succeeded in 771ms:
+"""
+Pre-fetch off-topic filter — HONEST-REBUILD Phase 2d.
+
+Filters search results BEFORE full-page fetching so we don't waste
+network / parse budget on results whose title+snippet is already
+clearly unrelated to the research question.
+
+WHY THIS EXISTS (PG_LB_SA_02_CONTENT_AUDIT Section E-03):
+- The pre-rebuild pipeline fetched every search result, extracted
+  evidence, then filtered off-topic evidence during synthesis.
+- The legacy PG_OFFTOPIC_THRESHOLD=0.15 was so low that near-zero-
+  similarity evidence (e.g., Japan health insurance general articles
+  when the query was semaglutide CV risk) survived.
+- The "risk axis retained below threshold" path further defeated
+  tightening attempts because its floor was pinned at 0.15.
+
+PHASE 2D APPROACH:
+- Filter snippets BEFORE fetch using a looser threshold
+  (PG_OFFTOPIC_PREFETCH_THRESHOLD, default 0.25).
+- Filter evidence AFTER fetch + extraction using a tighter threshold
+  (PG_OFFTOPIC_THRESHOLD, default 0.35).
+- Both stages use the scope-protocol's research_question as the
+  canonical anchor, not a free-form state.query that could drift.
+
+This module is cheap to call — it uses the embedding service we
+already load for evidence deduplication, so there's no new model
+cost.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from typing import Any, Optional
+
+logger = logging.getLogger("polaris_graph.prefetch_offtopic")
+
+
+@dataclass
+class SearchCandidate:
+    """Minimal shape of a search result for off-topic filtering.
+
+    Callers wrap Serper / OpenAlex / Semantic Scholar results into
+    this shape. All fields may be empty; `snippet_text` is the only
+    one actually used for similarity scoring.
+    """
+
+    url: str
+    title: str = ""
+    snippet: str = ""
+    source: str = ""            # "serper" / "openalex" / "s2" / "exa"
+    metadata: dict[str, Any] | None = None
+
+    @property
+    def snippet_text(self) -> str:
+        """Text used for embedding-based similarity."""
+        parts = [self.title.strip(), self.snippet.strip()]
+        return " ".join(p for p in parts if p)
+
+
+@dataclass
+class FilterResult:
+    """Return value of filter_search_results()."""
+
+    kept: list[SearchCandidate]
+    rejected: list[tuple[SearchCandidate, float, str]]  # (cand, sim, reason)
+    threshold_used: float
+    total_in: int
+    total_kept: int
+    total_rejected: int
+
+
+def _load_embedder() -> Any:
+    """Lazy-load the embedding service. Returns None on import failure."""
+    try:
+        from src.polaris_graph.agents.nli_verifier import (  # type: ignore
+            EmbeddingService,
+        )
+        return EmbeddingService()
+    except Exception as exc:
+        try:
+            # Fallback: sentence-transformers direct
+            from sentence_transformers import SentenceTransformer
+            model_name = os.getenv(
+                "PG_EMBED_MODEL",
+                "sentence-transformers/all-MiniLM-L6-v2",
+            )
+            return SentenceTransformer(model_name)
+        except Exception:
+            logger.warning(
+                "[prefetch_offtopic] Embedder not available: %s — "
+                "skipping filter (fail-open)",
+                str(exc)[:200],
+            )
+
+ succeeded in 840ms:
+
+> .codex\I-rdy-018\_live_run2.log:523:21:33:46 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 
+[7mparallel_fetch[0m: [0m[7m[0m20 [0m[7m[0msuccess, [0m[7m[0m0 [0m[7m[0merrored, [0m[7m[0m0 [0m[7m[0mtimeout [0m[7m[0m(max_workers=8, [0m[7m[0mper_task_timeout=120s)[0m
+> .codex\I-rdy-018\_live_run2.log:524:[7m[retrieval] [0m[7m [0m[7m [0m[7m[0mpre_filter=65, [0m[7m[0mfetched=17, [0m[7m[0mfailed=3, [0m[7m[0melapsed=62.7s [0m[7m [0m
+[7m[0mapi_calls={'serper': [0m[7m[0m12, [0m[7m[0m's2': [0m[7m[0m12, [0m[7m[0m'openalex': [0m[7m[0m14, [0m[7m[0m'fetch': [0m[7m[0m20, [0m[7m[0m'parallel_fetch_success_count': [0m[7m[0m20, [0m
+[7m[0m'parallel_fetch_errored_count': [0m[7m[0m0, [0m[7m[0m'parallel_fetch_timeout_count': [0m[7m[0m0}[0m
+[7m [0m[7m [0m[7m[0m.codex\I-rdy-018\_live_run2.log:525:[corpus] [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mtotal=20 [0m[7m [0m[7m[0mT2=5%, [0m[7m[0mT3=40%, [0m[7m[0mT4=30%, [0m[7m[0mT6=15%, [0m[7m[0mT7=10% [0m[7m [0m
+[7m[0mmaterial_deviation=True[0m
+> .codex\I-rdy-018\_live_run2.log:1051:21:36:01 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 
+[7mparallel_fetch[0m: [0m[7m[0m20 [0m[7m[0msuccess, [0m[7m[0m0 [0m[7m[0merrored, [0m[7m[0m0 [0m[7m[0mtimeout [0m[7m[0m(max_workers=8, [0m[7m[0mper_task_timeout=120s)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-rdy-018\_live_run2.log:1052:21:36:02 [0m[7m[0mdocling.document_converter [0m[7m[0mINFO [0m[7m[0mFinished [0m[7m[0mconverting [0m[7m[0mdocument [0m
+[7m[0mtmpb29rmf_z.pdf [0m[7m[0min [0m[7m[0m43.22 [0m[7m[0msec.[0m
+> .codex\I-rdy-018\_live_run2.log:1055:21:36:04 polaris_graph.live_retriever INFO [live_retriever] [7mskipping [0m
+[7mcontent-starved [0m[7m[0mevidence [0m[7m[0mfor [0m[7m[0m'https://www.mun.ca/economics/media/production/memorial/academic/faculty-of-humanities-and[0m
+[7m[0m-social-sciences/economics/economics-new-site/research/working-paper-series/WP202502.pdf' [0m[7m[0m(len=25000)[0m
+> .codex\I-rdy-018\_live_run2.log:1056:21:36:07 polaris_graph.live_retriever INFO [live_retriever] [7mskipping [0m
+[7mcontent-starved [0m[7m[0mevidence [0m[7m[0mfor [0m[7m[0m'https://www.tandfonline.com/doi/full/10.1080/15435075.2024.2350564' [0m[7m[0m(len=2727)[0m
+
+
+ succeeded in 863ms:
+"""Pytest fixtures for polaris_graph tests.
+
+Disables OpenAlex by default so tests don't hit the real API unless
+they explicitly opt in via monkeypatch.setenv("PG_OPENALEX_ENABLED", "1").
+"""
+from __future__ import annotations
+
+import os
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_openalex_by_default(monkeypatch):
+    """Default OpenAlex off for all tests; individual tests opt in."""
+    # Only set if not already set by the test itself.
+    if "PG_OPENALEX_ENABLED" not in os.environ or os.environ.get("PG_OPENALEX_ENABLED") == "1":
+        monkeypatch.setenv("PG_OPENALEX_ENABLED", "0")
+        from src.polaris_graph.tools import openalex_client as _oa
+        _oa.ENABLED = False
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_strict_verify_entailment_by_default(monkeypatch):
+    """I-bug-095: production default for PG_STRICT_VERIFY_ENTAILMENT is
+    'enforce', which lazy-constructs an OpenRouter judge if the test
+    calls verify_sentence and the env var is unset. To keep unit tests
+    network-free + cost-free, force the env to 'off' here unconditionally
+    (per Codex iter-1 diff review P2 — stricter hermeticity prevents an
+    inherited developer/CI shell env of 'warn' or 'enforce' from leaking
+    into unrelated tests). Tests that exercise the entailment gate
+    explicitly override via monkeypatch.setenv inside the test body.
+    """
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _enable_test_caller_header(monkeypatch):
+    """Codex M-15b retrofit: every M-1..M-13 endpoint now requires
+    auth. For the test surface we use the X-Polaris-Caller test
+    header (gated by PG_AUTH_TRUSTED_TEST_HEADER) so unit tests
+    don't need to mint real bcrypt-hashed API keys.
+
+    Each test's TestClient call should include a header like:
+      X-Polaris-Caller: org_alpha:usr_test:owner
+
+    Production MUST leave PG_AUTH_TRUSTED_TEST_HEADER unset.
+    """
+    monkeypatch.setenv("PG_AUTH_TRUSTED_TEST_HEADER", "1")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_phase_b_singletons():
+    """Reset M-8 module-level singletons (job queue, worker, runner registry)
+    around every test to prevent cross-test pollution.
+
+    Flake root cause: a worker started by test A keeps polling test A's
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_OPENALEX_ENABLED|OPENALEX_ENABLED|openalex_client" src/polaris_graph/retrieval/live_retriever.py src/polaris_graph/tools/openalex_client.py tests/polaris_graph -g "*.py"' in C:\POLARIS
+ succeeded in 617ms:
+src/polaris_graph/tools/openalex_client.py:46:ENABLED = os.getenv("PG_OPENALEX_ENABLED", "1") == "1"
+tests/polaris_graph\conftest.py:4:they explicitly opt in via monkeypatch.setenv("PG_OPENALEX_ENABLED", "1").
+tests/polaris_graph\conftest.py:17:    if "PG_OPENALEX_ENABLED" not in os.environ or os.environ.get("PG_OPENALEX_ENABLED") == "1":
+tests/polaris_graph\conftest.py:18:        monkeypatch.setenv("PG_OPENALEX_ENABLED", "0")
+tests/polaris_graph\conftest.py:19:        from src.polaris_graph.tools import openalex_client as _oa
+tests/polaris_graph\test_openalex_authority_tier_t7.py:7:from src.polaris_graph.tools.openalex_client import OpenAlexWork
+tests/polaris_graph\test_patch_d_openalex.py:17:from src.polaris_graph.tools.openalex_client import OpenAlexWork
+tests/polaris_graph\test_patch_d_openalex.py:88:    """_build_bibliography reads openalex_client.canonicalize_sync and
+tests/polaris_graph\test_patch_d_openalex.py:90:    monkeypatch.setenv("PG_OPENALEX_ENABLED", "1")
+tests/polaris_graph\test_patch_d_openalex.py:94:    from src.polaris_graph.tools import openalex_client as _oa
+tests/polaris_graph\test_patch_d_openalex.py:148:    """PG_OPENALEX_ENABLED=0 → no HTTP calls, authority_tier defaults UNKNOWN."""
+tests/polaris_graph\test_patch_d_openalex.py:149:    monkeypatch.setenv("PG_OPENALEX_ENABLED", "0")
+tests/polaris_graph\test_patch_d_openalex.py:152:    from src.polaris_graph.tools import openalex_client as _oa
+tests/polaris_graph\test_patch_d_openalex.py:181:    monkeypatch.setenv("PG_OPENALEX_ENABLED", "1")
+tests/polaris_graph\test_patch_d_openalex.py:185:    from src.polaris_graph.tools import openalex_client as _oa
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test 5 should make the loop-budget break deterministic. A merely tiny budget can be racey if the loop body is fast; count attempted candidates or inject a small per-candidate delay."
+  - "Detached daemon enrich threads can accumulate if OpenAlex wedges repeatedly across many candidates/runs. Not a blocker for #554, but consider logging/counting timeouts and disabling enrichment after a threshold."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Diagnosis is sound enough for brief approval. No second probabilistic live repro required. The daemon-thread bounded join is the right mechanism for a total wall-clock bound here; `httpx.Timeout` alone does not provide that. The 45s per-candidate and 900s aggregate defaults are reasonable, and Layer 2 is worth keeping as defense-in-depth rather than scope creep.
+tokens used
+50,861
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Test 5 should make the loop-budget break deterministic. A merely tiny budget can be racey if the loop body is fast; count attempted candidates or inject a small per-candidate delay."
+  - "Detached daemon enrich threads can accumulate if OpenAlex wedges repeatedly across many candidates/runs. Not a blocker for #554, but consider logging/counting timeouts and disabling enrichment after a threshold."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Diagnosis is sound enough for brief approval. No second probabilistic live repro required. The daemon-thread bounded join is the right mechanism for a total wall-clock bound here; `httpx.Timeout` alone does not provide that. The 45s per-candidate and 900s aggregate defaults are reasonable, and Layer 2 is worth keeping as defense-in-depth rather than scope creep.
