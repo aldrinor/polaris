@@ -1,0 +1,65 @@
+diff --git a/src/polaris_graph/agents/synthesizer.py b/src/polaris_graph/agents/synthesizer.py
+index e7478799..cca08f79 100644
+--- a/src/polaris_graph/agents/synthesizer.py
++++ b/src/polaris_graph/agents/synthesizer.py
+@@ -2981,7 +2981,7 @@ async def synthesize_report(
+     # FIX-E2E-2: Cap evidence pool before MoST analyses.
+     # MoST operations are O(n²) on evidence (pairwise similarity matrices).
+     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
+-    # claim_evidence_binding, ionic_rebalancer, cross_section_source_consistency (all vecs @ vecs.T).
++    # claim_evidence_binding, evidence_section_affinity, cross_section_source_consistency (all vecs @ vecs.T).
+     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
+     _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
+     _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
+@@ -3031,7 +3031,7 @@ async def synthesize_report(
+             logger.warning("[polaris graph] MoST Covalent failed (non-blocking): %s", str(exc)[:200])
+ 
+         try:
+-            from src.polaris_graph.synthesis.ionic_rebalancer import analyze_ionic_bonds
++            from src.polaris_graph.synthesis.evidence_section_affinity import analyze_ionic_bonds
+             ionic_result = analyze_ionic_bonds(sections, _most_evidence)
+             bond_analysis["ionic"] = ionic_result
+ 
+@@ -3039,7 +3039,7 @@ async def synthesize_report(
+             migrations = ionic_result.get("migrations", [])
+             if migrations:
+                 try:
+-                    from src.polaris_graph.synthesis.ionic_rebalancer import (
++                    from src.polaris_graph.synthesis.evidence_section_affinity import (
+                         format_ionic_findings_for_phase_r,
+                     )
+                     # Ionic rebalancer provides analysis but not direct section mutation.
+diff --git a/src/polaris_graph/synthesis/cross_section_reflector.py b/src/polaris_graph/synthesis/cross_section_reflector.py
+index 95c82d78..4344aa90 100644
+--- a/src/polaris_graph/synthesis/cross_section_reflector.py
++++ b/src/polaris_graph/synthesis/cross_section_reflector.py
+@@ -425,7 +425,7 @@ def _build_bond_context(
+     ionic = bond_analysis.get("ionic", {})
+     if ionic:
+         try:
+-            from src.polaris_graph.synthesis.ionic_rebalancer import (
++            from src.polaris_graph.synthesis.evidence_section_affinity import (
+                 format_ionic_findings_for_phase_r,
+             )
+             ionic_text = format_ionic_findings_for_phase_r(ionic, section_id)
+diff --git a/src/polaris_graph/synthesis/ionic_rebalancer.py b/src/polaris_graph/synthesis/evidence_section_affinity.py
+similarity index 100%
+rename from src/polaris_graph/synthesis/ionic_rebalancer.py
+rename to src/polaris_graph/synthesis/evidence_section_affinity.py
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index bd17388b..3061a616 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -298,3 +298,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. Plain rename; ast.parse 2/2, 2 public fns import, 44 passed. analyze_covalent_bonds intact. P1 trajectory 0.
++
++## I-naming-009 (#443) — rename synthesis/ionic_rebalancer.py -> evidence_section_affinity.py
++
++### Brief review
++- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Last of the 4 chemistry-metaphor synthesis files (#440-443). `ionic_rebalancer` is path-only (NOT embedded in any identifier; fns are analyze_ionic_bonds/format_ionic_findings_for_phase_r), 2 importers (synthesizer.py + cross_section_reflector.py). git mv + plain replace ionic_rebalancer→evidence_section_affinity (3 files, +4/-4, 1 git mv). Scope file+import-path only; metaphor identifiers + `bond_analysis["ionic"]` cross-module key left intact.
++
++### Diff review
++- (pending — Codex diff review iter 1)
+# canonical-diff-sha256: 72f42170870b887d5ab103991da122b76e0d0a8b48d8584e44de0bfc76d3d3ee
