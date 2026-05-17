@@ -1,0 +1,1313 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 398f83ed..3619ec65 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1141,6 +1141,17 @@ async def run_one_query(
+     # OpenRouterClient tags its cost-ledger entries with this run.
+     set_current_run_id(run_id)
+ 
++    # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
++    # mode — the jsonl is rewritten on every record/update so it is current
++    # on disk regardless of which abort / error / success path the run exits
++    # through. Sink lifecycle mirrors set_current_run_id (set here, released
++    # in the run tail).
++    from src.polaris_graph.generator.reasoning_trace import (
++        ReasoningTraceCollector,
++    )
++    from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
++    set_reasoning_sink(ReasoningTraceCollector(out_dir=run_dir))
++
+     log_path = run_dir / "run_log.txt"
+     log_f = log_path.open("w", encoding="utf-8")
+ 
+@@ -2980,6 +2991,7 @@ async def run_one_query(
+         )
+ 
+     set_current_run_id(None)
++    set_reasoning_sink(None)  # I-gen-004 (#496): release the run-scoped sink
+ 
+     log_f.close()
+     return summary
+diff --git a/src/polaris_graph/api/audit_bundle_route.py b/src/polaris_graph/api/audit_bundle_route.py
+index 75b0b681..e129ca0a 100644
+--- a/src/polaris_graph/api/audit_bundle_route.py
++++ b/src/polaris_graph/api/audit_bundle_route.py
+@@ -87,14 +87,21 @@ class AuditBundleErrorResponse(BaseModel):
+ # Routes
+ # ---------------------------------------------------------------------------
+ 
+-@router.post("/audit-bundle")
+-def post_audit_bundle(
+-    req: AuditBundleRequest,
+-    sign_fn: SignFn | None = Depends(get_sign_fn),
++def build_audit_bundle_response(
++    decision: ScopeDecision,
++    pool: EvidencePool,
++    report: VerifiedReport,
++    sign_fn: SignFn | None,
++    *,
++    extra_files: dict[str, tuple[bytes, str]] | None = None,
+ ) -> Any:
+-    """Build + return a GPG-signed audit bundle as application/gzip.
++    """Build + sign an audit bundle and return it as an application/gzip
++    download.
+ 
+-    Returns the .tar.gz file as a streaming download.
++    Shared by the POST /audit-bundle route and the
++    GET /runs/{run_id}/bundle.tar.gz bridge. The bridge passes the run's
++    reasoning_trace.jsonl via ``extra_files`` so it is included AND hashed
++    in the signed manifest (I-gen-004 / #496).
+     """
+     if sign_fn is None:
+         raise HTTPException(
+@@ -106,7 +113,7 @@ def post_audit_bundle(
+                     "GPG signer not configured. Set POLARIS_GPG_KEY_ID in env "
+                     "and ensure the corresponding key is in the gpg keyring."
+                 ),
+-                "report_id": req.report.report_id,
++                "report_id": report.report_id,
+             },
+         )
+ 
+@@ -114,11 +121,12 @@ def post_audit_bundle(
+     tmp_dir = Path(tempfile.mkdtemp(prefix="polaris_audit_"))
+     try:
+         bundle_path = build_audit_bundle(
+-            req.decision,
+-            req.pool,
+-            req.report,
++            decision,
++            pool,
++            report,
+             output_dir=tmp_dir,
+             sign_fn=sign_fn,
++            extra_files=extra_files,
+         )
+     except ValueError as exc:
+         # FK chain mismatch, verdict != success, cited-span unreachable, or copyrighted span
+@@ -137,7 +145,7 @@ def post_audit_bundle(
+                 "error": True,
+                 "code": code,
+                 "message": msg,
+-                "report_id": req.report.report_id,
++                "report_id": report.report_id,
+             },
+         )
+     except RuntimeError as exc:
+@@ -147,7 +155,7 @@ def post_audit_bundle(
+                 "error": True,
+                 "code": "sign_failed",
+                 "message": str(exc),
+-                "report_id": req.report.report_id,
++                "report_id": report.report_id,
+             },
+         )
+ 
+@@ -158,6 +166,20 @@ def post_audit_bundle(
+     )
+ 
+ 
++@router.post("/audit-bundle")
++def post_audit_bundle(
++    req: AuditBundleRequest,
++    sign_fn: SignFn | None = Depends(get_sign_fn),
++) -> Any:
++    """Build + return a GPG-signed audit bundle as application/gzip.
++
++    Returns the .tar.gz file as a streaming download.
++    """
++    return build_audit_bundle_response(
++        req.decision, req.pool, req.report, sign_fn
++    )
++
++
+ @router.post("/audit-bundle/preview")
+ def post_audit_bundle_preview(req: AuditBundleRequest) -> dict[str, Any]:
+     """Build the manifest only and return it for preview (no GPG, no tar)."""
+diff --git a/src/polaris_graph/audit_bundle/REVIEWER_README.md b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+index 4ba642da..83ffd8aa 100644
+--- a/src/polaris_graph/audit_bundle/REVIEWER_README.md
++++ b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+@@ -12,6 +12,7 @@ This `.tar.gz` archive is a self-contained record of one POLARIS clinical-resear
+ - `metadata.json` — bundle-level metadata (versions, timestamps).
+ - `REVIEWER_README.md` — this file.
+ - `sources/<source_id>.txt` — full-text snapshot of every cited source (one file per source).
++- `reasoning_trace.jsonl` — raw model reasoning channel, one record per generator LLM call (see "Reasoning-trace note" below). Process evidence, **NOT** verified claims.
+ 
+ ## Step 1 — verify the GPG signature
+ 
+@@ -37,6 +38,20 @@ For each `path` listed in `manifest.yaml`'s `files[]` array, compute its SHA256
+ 
+ For very large sources (>200 KB), POLARIS truncates the snapshot at a UTF-8 codepoint boundary and appends a notice line: `[POLARIS audit-bundle truncation notice: source text truncated from N to M bytes per MAX_SOURCE_TEXT_BYTES policy.]`. Bundles are guaranteed to NOT ship cited spans that fall past the reachable body — the bundler refuses to build such a bundle (`cited_span_unreachable_after_snapshot`).
+ 
++## Reasoning-trace note (`reasoning_trace.jsonl`)
++
++`reasoning_trace.jsonl` records the **raw model reasoning channel** for every generator LLM call in the run — one JSON object per completed provider response. DeepSeek V4 Pro is reasoning-first: it emits a large internal reasoning trace alongside its final answer. POLARIS captures that trace here, stored **separately** from the report.
++
++**This is model-process evidence, NOT verified claims.**
++
++- `strict_verify` is **never** run against `reasoning_text`. Only the report's content channel (`verified_report.json`) is provenance-gated and citation-checked.
++- The reasoning trace is the model *thinking out loud* — it may contain discarded hypotheses, scratch arithmetic, or self-corrections. Do not cite it as a source.
++- Each record carries `call_id`, `section`, `call_type`, `attempt_n`, `status` (`ok` / `retry` / `truncated` / `error`), `content_source` (`direct` / `promoted_from_reasoning` / `extracted_from_reasoning`), token counts, a UTC `timestamp`, and the full **untruncated** `reasoning_text` + `content_text`.
++- When `content_source = promoted_from_reasoning`, the model returned an empty content channel and POLARIS used the reasoning channel as the answer (I-bug-088 response-shape recovery) — `reasoning_text` and `content_text` legitimately overlap there; the record discloses it rather than hiding it.
++- `status = retry` marks a superseded internal-retry attempt; `status = truncated` marks a reasoning-first response that ran out of token budget while still planning — both are preserved so the full call history is auditable.
++
++The file is included in this bundle and SHA256-anchored in `manifest.yaml` under `content_type: reasoning_trace`, so its integrity is covered by the same GPG signature as every other bundle file.
++
+ ## Sovereignty note
+ 
+ POLARIS classifies every source by data-sovereignty tier. Bundles for runs whose corpus contained CLIENT / CAN_REAL / PRIVATE / UNKNOWN classifications were processed only on Canadian-sovereign infrastructure (no external LLM API calls).
+diff --git a/src/polaris_graph/audit_bundle/bundle_builder.py b/src/polaris_graph/audit_bundle/bundle_builder.py
+index f94c9868..fa177340 100644
+--- a/src/polaris_graph/audit_bundle/bundle_builder.py
++++ b/src/polaris_graph/audit_bundle/bundle_builder.py
+@@ -76,6 +76,8 @@ def build_audit_bundle(
+     report: VerifiedReport,
+     output_dir: Path,
+     sign_fn: SignFn = _default_sign_fn,
++    *,
++    extra_files: dict[str, tuple[bytes, str]] | None = None,
+ ) -> Path:
+     """End-to-end: build manifest + sign + pack tarball.
+ 
+@@ -87,6 +89,9 @@ def build_audit_bundle(
+         sign_fn: function that takes manifest.yaml bytes and returns
+                  .asc bytes. Default raises NotImplementedError; callers
+                  MUST inject a real signer.
++        extra_files: optional {path: (bytes, content_type)} of extra
++                 artifacts to include + hash in the signed manifest —
++                 I-gen-004 (#496) threads reasoning_trace.jsonl here.
+ 
+     Returns:
+         Path to the generated audit_<bundle_id>.tar.gz file.
+@@ -108,7 +113,9 @@ def build_audit_bundle(
+         )
+ 
+     t_start = time.perf_counter()
+-    manifest, content_files = build_manifest_and_files(decision, pool, report)
++    manifest, content_files = build_manifest_and_files(
++        decision, pool, report, extra_files=extra_files,
++    )
+ 
+     manifest_yaml = serialize_manifest_yaml(manifest)
+ 
+diff --git a/src/polaris_graph/audit_bundle/bundle_schema.py b/src/polaris_graph/audit_bundle/bundle_schema.py
+index d8265f52..dc879182 100644
+--- a/src/polaris_graph/audit_bundle/bundle_schema.py
++++ b/src/polaris_graph/audit_bundle/bundle_schema.py
+@@ -28,6 +28,7 @@ ContentType = Literal[
+     "verified_report",     # slice 003 VerifiedReport JSON
+     "source_snapshot",     # full_text of one cited source
+     "metadata",            # bundle-level metadata (versions, etc.)
++    "reasoning_trace",     # I-gen-004 (#496): raw model reasoning channel
+ ]
+ 
+ 
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index bf6500e6..7fad8389 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -50,6 +50,9 @@ FILE_EVIDENCE_POOL = "evidence_pool.json"
+ FILE_VERIFIED_REPORT = "verified_report.json"
+ FILE_METADATA = "metadata.json"
+ FILE_REVIEWER_README = "REVIEWER_README.md"
++# I-gen-004 (#496): raw model reasoning channel; mirrors
++# generator.reasoning_trace.REASONING_TRACE_FILENAME.
++FILE_REASONING_TRACE = "reasoning_trace.jsonl"
+ SOURCES_DIR = "sources"
+ 
+ 
+@@ -128,16 +131,26 @@ def build_manifest_and_files(
+     decision: ScopeDecision,
+     pool: EvidencePool,
+     report: VerifiedReport,
++    *,
++    extra_files: dict[str, tuple[bytes, str]] | None = None,
+ ) -> tuple[BundleManifest, dict[str, bytes]]:
+     """Build the bundle manifest + content-file dict.
+ 
++    Args:
++        extra_files: optional {path: (content_bytes, content_type)} of
++            caller-supplied artifacts to include + hash in the signed
++            manifest — I-gen-004 (#496) threads the run's
++            reasoning_trace.jsonl through here. Each path must NOT
++            collide with a core bundle file.
++
+     Returns:
+         (manifest, files) where files is {path: content_bytes}. The
+         caller (bundle_builder) packs files into a tarball and writes
+         the manifest.yaml + manifest.yaml.asc alongside.
+ 
+     Raises:
+-        ValueError if report.pipeline_verdict != 'success'.
++        ValueError if report.pipeline_verdict != 'success', or if an
++        extra_files path collides with a core bundle file.
+     """
+     if report.pipeline_verdict != "success":
+         raise ValueError(
+@@ -193,6 +206,18 @@ def build_manifest_and_files(
+         separators=(",", ":"),
+     ).encode("utf-8")
+ 
++    # I-gen-004 (#496): merge caller-supplied extra files (e.g. the run's
++    # reasoning_trace.jsonl). Each carries its own content_type; a path
++    # collision with a core bundle file is a hard error.
++    extra_content_types: dict[str, str] = {}
++    for path, (content, ct_extra) in (extra_files or {}).items():
++        if path in files_bytes:
++            raise ValueError(
++                f"extra_files path {path!r} collides with a core bundle file"
++            )
++        files_bytes[path] = content
++        extra_content_types[path] = ct_extra
++
+     # Build FileEntry list with content_type tags
+     file_entries: list[FileEntry] = []
+     content_type_by_path = {
+@@ -202,9 +227,14 @@ def build_manifest_and_files(
+         FILE_METADATA: "metadata",
+     }
+     for path, content in files_bytes.items():
+-        ct = content_type_by_path.get(
+-            path,
+-            "source_snapshot" if path.startswith(SOURCES_DIR + "/") else "metadata",
++        ct = (
++            content_type_by_path.get(path)
++            or extra_content_types.get(path)
++            or (
++                "source_snapshot"
++                if path.startswith(SOURCES_DIR + "/")
++                else "metadata"
++            )
+         )
+         file_entries.append(
+             FileEntry(
+diff --git a/src/polaris_graph/audit_ir/manifest_augment.py b/src/polaris_graph/audit_ir/manifest_augment.py
+index be695d8f..85694d10 100644
+--- a/src/polaris_graph/audit_ir/manifest_augment.py
++++ b/src/polaris_graph/audit_ir/manifest_augment.py
+@@ -3,8 +3,9 @@
+ Pipeline-A writes manifest.json at 6 sites (line refs in run_honest_sweep_r3.py:
+ 1331/1453/1667/1746/2303/2806). When v6_mode is active, each call routes
+ through augment_v6_manifest() to add the v6 fields the API + run_store +
+-F-snowball bridge require. When v6_mode is False, manifest stays byte-
+-identical to today (no key added).
++F-snowball bridge require. When v6_mode is False, only the I-gen-004 (#496)
++``reasoning_trace`` reference is added (see augment_v6_manifest); all other
++v6 fields stay absent.
+ """
+ 
+ from __future__ import annotations
+@@ -24,13 +25,28 @@ def augment_v6_manifest(
+ ) -> dict[str, Any]:
+     """Return augmented manifest dict. Does not mutate input.
+ 
+-    Non-v6 invocations (external_run_id is None) get the input back
+-    unchanged — pipeline-A's existing behavior is preserved byte-for-byte.
++    The I-gen-004 (#496) ``reasoning_trace`` reference is added on EVERY
++    invocation (operator transparency directive). Non-v6 invocations
++    (external_run_id is None) otherwise get the input back unchanged — no
++    v6 run_store / retrieval / adequacy / models fields.
+     """
++    augmented = dict(manifest)
++    # I-gen-004 (#496): every run writes reasoning_trace.jsonl (the raw model
++    # reasoning channel — process-transparency evidence, NOT verified claims;
++    # strict_verify is never run against it). Referenced unconditionally so
++    # an operator can locate it from any manifest — success / abort / error,
++    # v6-mode or legacy CLI. Filename mirrors
++    # generator.reasoning_trace.REASONING_TRACE_FILENAME.
++    augmented["reasoning_trace"] = {
++        "file": "reasoning_trace.jsonl",
++        "description": (
++            "raw model reasoning channel captured per generator LLM call; "
++            "process-transparency evidence, NOT verified claims"
++        ),
++    }
+     if external_run_id is None:
+-        return manifest
++        return augmented
+ 
+-    augmented = dict(manifest)
+     augmented["external_run_id"] = external_run_id
+     augmented["query_slug"] = query_slug
+ 
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 3038f555..0b6bc0d2 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -321,7 +321,10 @@ async def generate_analyst_synthesis(
+     on failure — caller MUST treat empty text as "omit synthesis
+     section entirely" (no empty disclosure block per Codex iter-1).
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     biblio_block = _format_bibliography_for_prompt(bibliography)
+     evidence_block = _format_evidence_pool_for_prompt(evidence_rows)
+@@ -342,6 +345,10 @@ async def generate_analyst_synthesis(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag the analyst-synthesis call for the trace sink.
++        set_reasoning_call_context(
++            section="Analyst Synthesis", call_type="analyst_synthesis",
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=ANALYST_SYNTHESIS_SYSTEM_PROMPT,
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 902eed07..0e86c770 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -465,7 +465,10 @@ async def _call_outline(
+     BUG-M-203 fix (deep-dive R4): one retry with a tighter prompt when
+     validation fails. Retries are capped at 1.
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     # Build a compact evidence summary (title + tier + 160 chars of
+     # statement). M-40 pass-2 (Codex audit medium): previously the
+@@ -507,6 +510,10 @@ async def _call_outline(
+     total_out = 0
+     retry_attempted = False
+     try:
++        # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
++        set_reasoning_call_context(
++            section="_outline", call_type="outline", attempt_n=1,
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=OUTLINE_SYSTEM_PROMPT,
+@@ -562,6 +569,9 @@ async def _call_outline(
+                 + "\n4. Return ONLY the JSON object — no preamble, no "
+                 + "markdown, no explanation.\n"
+             )
++            set_reasoning_call_context(
++                section="_outline", call_type="outline", attempt_n=2,
++            )
+             retry_response = await client.generate(
+                 prompt=prompt,
+                 system=tighter_system,
+@@ -801,6 +811,7 @@ async def _call_section(
+     from src.polaris_graph.llm.openrouter_client import (
+         OpenRouterClient,
+         ReasoningFirstTruncationError,
++        set_reasoning_call_context,
+     )
+ 
+     blocks = []
+@@ -871,6 +882,14 @@ async def _call_section(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag this LLM call for the reasoning-trace sink
++        # (no-op unless a run-scoped collector is registered).
++        set_reasoning_call_context(
++            section=section.title,
++            call_type="regen" if tighter_retry else "section",
++            attempt_n=2 if tighter_retry else 1,
++            regen_reason="tighter_retry" if tighter_retry else None,
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=system,
+@@ -1877,7 +1896,10 @@ async def _call_trial_summary_table(
+     out-of-range citations are dropped; no deterministic fallback
+     emits claims that are not in the prose.
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     if not verified_prose or not verified_prose.strip():
+         return "", 0, 0
+@@ -1902,6 +1924,10 @@ async def _call_trial_summary_table(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag the trial-summary-table call for the trace sink.
++        set_reasoning_call_context(
++            section="Trial Summary", call_type="trial_table",
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=TRIAL_SUMMARY_TABLE_SYSTEM_PROMPT,
+@@ -2000,7 +2026,10 @@ async def _call_m50_per_trial_subsection(
+     Returns (prose, input_tokens, output_tokens). Empty prose when the
+     LLM call fails. Caller wraps prose in '### TRIAL_NAME\\n\\n' heading.
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     prompt = (
+         f"Trial name: {trial_name}\n\n"
+@@ -2012,6 +2041,10 @@ async def _call_m50_per_trial_subsection(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag the M-50 per-trial subsection call.
++        set_reasoning_call_context(
++            section=trial_name, call_type="m50_subsection",
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=_M50_SUBSECTION_SYSTEM_PROMPT,
+@@ -2125,7 +2158,10 @@ async def _call_limitations(
+     from src.polaris_graph.generator.live_deepseek_generator import (
+         _format_telemetry_block,
+     )
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     telemetry = _format_telemetry_block(
+         tier_fractions, contradictions, date_range, uncovered_topics,
+@@ -2139,6 +2175,10 @@ async def _call_limitations(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag the Limitations call for the trace sink.
++        set_reasoning_call_context(
++            section="Limitations", call_type="limitations",
++        )
+         response = await client.generate(
+             prompt=prompt,
+             system=LIMITATIONS_SYSTEM_PROMPT,
+@@ -3496,9 +3536,16 @@ async def generate_multi_section_report(
+         quotes × ~500 chars = ~5K tokens), so 6000 gives safe
+         headroom without inviting runaway verbosity.
+         """
+-        from ..llm.openrouter_client import OpenRouterClient
++        from ..llm.openrouter_client import (
++            OpenRouterClient,
++            set_reasoning_call_context,
++        )
+         client = OpenRouterClient(model=gen_model)
+         try:
++            # I-gen-004 (#496): tag the V30 contract-slot extraction call.
++            set_reasoning_call_context(
++                section="_contract_slot", call_type="contract_slot",
++            )
+             response = await client.generate(
+                 prompt=prompt,
+                 system=(
+@@ -3617,11 +3664,18 @@ async def generate_multi_section_report(
+             }
+             sections_for_dedup[sr.title] = [sv.sentence for sv in sv_list]
+         if sum(len(v) for v in sections_for_dedup.values()) >= 2:
+-            from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++            from src.polaris_graph.llm.openrouter_client import (
++                OpenRouterClient,
++                set_reasoning_call_context,
++            )
+ 
+             async def _dedup_llm_callable(system: str, prompt: str) -> Any:
+                 client = OpenRouterClient(model=gen_model)
+                 try:
++                    # I-gen-004 (#496): tag the fact-dedup rewrite call.
++                    set_reasoning_call_context(
++                        section="_fact_dedup", call_type="fact_dedup",
++                    )
+                     return await client.generate(
+                         prompt=prompt,
+                         system=system,
+diff --git a/src/polaris_graph/generator/reasoning_trace.py b/src/polaris_graph/generator/reasoning_trace.py
+new file mode 100644
+index 00000000..628df8ad
+--- /dev/null
++++ b/src/polaris_graph/generator/reasoning_trace.py
+@@ -0,0 +1,224 @@
++"""I-gen-004 (#496): run-scoped reasoning-trace collector.
++
++DeepSeek V4 Pro is reasoning-first — every generator LLM call emits a large
++reasoning trace alongside the final content (one outline call observed at
++content=1791 B + reasoning=17521 B). POLARIS historically discarded
++``response.reasoning``. This module provides a run-scoped collector that
++captures one record per raw completed provider response and flushes them to
++``reasoning_trace.jsonl`` — model-process evidence stored SEPARATELY from
++``report.md`` / verified prose (operator transparency directive 2026-05-14).
++
++Layering: this module does NOT import the LLM client. The
++``OpenRouterClient`` exposes a generic callable sink
++(``openrouter_client.set_reasoning_sink``); the generator wires a
++``ReasoningTraceCollector`` to it. The collector is a dumb, thread-safe
++append/update store — capture-point policy lives in the client, flush
++policy lives in the run orchestrator.
++
++The reasoning text is captured here and NOWHERE else: it is never merged
++into ``report.md`` / ``verified_text`` and ``strict_verify`` is never run
++against it. Reasoning is process-transparency evidence, not a claim source.
++"""
++
++from __future__ import annotations
++
++import json
++import threading
++import uuid
++from dataclasses import asdict, dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional, Union
++
++# Fixed artifact name (like ``report.md`` / ``manifest.json``) — not a tunable.
++REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
++
++# Frozen vocabularies so the artifact schema is uniform and stable.
++CALL_TYPES = frozenset(
++    {
++        "outline",
++        "section",
++        "repair",
++        "regen",
++        "limitations",
++        "trial_table",
++        "m50_subsection",
++        "analyst_synthesis",
++        "fact_dedup",
++        "contract_slot",
++        "regulatory",
++    }
++)
++# ok        — a clean completed provider response used as-is
++# retry     — a superseded attempt inside an internal client retry loop
++# truncated — a reasoning-first response that ran out of token budget
++#             (ReasoningFirstTruncationError) — captured before the raise
++# error     — a hard provider/transport error
++STATUSES = frozenset({"ok", "retry", "truncated", "error"})
++# direct                  — content came straight from the provider `content`
++# promoted_from_reasoning — content was empty; the raw reasoning was promoted
++#                           to content (I-bug-088 response-shape recovery)
++# extracted_from_reasoning— content was extracted from a `</think>` block
++CONTENT_SOURCES = frozenset(
++    {"direct", "promoted_from_reasoning", "extracted_from_reasoning"}
++)
++
++
++@dataclass
++class ReasoningTraceRecord:
++    """One raw completed provider response from a generator-side LLM call.
++
++    ``reasoning_text`` is the model's raw reasoning channel; ``content_text``
++    is what was used as the section content; ``content_source`` discloses
++    their relationship (see ``CONTENT_SOURCES``). For a
++    ``promoted_from_reasoning`` record the two legitimately overlap — the
++    record discloses it rather than hiding it.
++    """
++
++    call_id: str
++    section: str
++    call_type: str
++    model: str
++    status: str = "ok"
++    content_source: str = "direct"
++    parent_call_id: Optional[str] = None
++    regen_reason: Optional[str] = None
++    attempt_n: int = 1
++    reasoning_text: str = ""
++    content_text: str = ""
++    input_tokens: int = 0
++    output_tokens: int = 0
++    reasoning_tokens: int = 0
++    timestamp: str = ""
++
++
++class ReasoningTraceCollector:
++    """Run-scoped, thread-safe collector of :class:`ReasoningTraceRecord`.
++
++    ``record()`` appends a record and returns its ``call_id``. ``update()``
++    patches an existing record in place — the I-gen-004 finalization
++    semantics: a record captured before client-level promotion / retry
++    resolution is updated once the final ``status`` / ``content_source`` /
++    ``content_text`` are known. ``flush()`` writes the full jsonl with NO
++    truncation of ``reasoning_text``.
++    """
++
++    def __init__(self, out_dir: Optional[Union[str, Path]] = None) -> None:
++        """``out_dir`` enables write-through mode: every ``record()`` /
++        ``update()`` re-writes the full ``reasoning_trace.jsonl`` so the
++        artifact is current on disk no matter which abort / error / success
++        path the run exits through — no run-orchestrator flush call needed
++        (I-gen-004 P2). ``out_dir=None`` → pure in-memory; ``flush()`` must
++        then be called explicitly (the unit-test path).
++        """
++        self._records: list[ReasoningTraceRecord] = []
++        self._by_id: dict[str, ReasoningTraceRecord] = {}
++        self._lock = threading.Lock()
++        self._out_dir: Optional[Path] = (
++            Path(out_dir) if out_dir is not None else None
++        )
++
++    def record(
++        self,
++        *,
++        section: str,
++        call_type: str,
++        model: str,
++        status: str = "ok",
++        content_source: str = "direct",
++        parent_call_id: Optional[str] = None,
++        regen_reason: Optional[str] = None,
++        attempt_n: int = 1,
++        reasoning_text: str = "",
++        content_text: str = "",
++        input_tokens: int = 0,
++        output_tokens: int = 0,
++        reasoning_tokens: int = 0,
++        call_id: Optional[str] = None,
++    ) -> str:
++        """Append one record. Returns the ``call_id`` (generated if absent).
++
++        Fails loud on an unknown ``call_type`` / ``status`` /
++        ``content_source`` so a wiring mistake surfaces immediately rather
++        than writing a malformed artifact.
++        """
++        if call_type not in CALL_TYPES:
++            raise ValueError(f"unknown reasoning-trace call_type: {call_type!r}")
++        if status not in STATUSES:
++            raise ValueError(f"unknown reasoning-trace status: {status!r}")
++        if content_source not in CONTENT_SOURCES:
++            raise ValueError(
++                f"unknown reasoning-trace content_source: {content_source!r}"
++            )
++        rec = ReasoningTraceRecord(
++            call_id=call_id or uuid.uuid4().hex,
++            section=section,
++            call_type=call_type,
++            model=model,
++            status=status,
++            content_source=content_source,
++            parent_call_id=parent_call_id,
++            regen_reason=regen_reason,
++            attempt_n=max(1, int(attempt_n)),
++            reasoning_text=reasoning_text or "",
++            content_text=content_text or "",
++            input_tokens=max(0, int(input_tokens)),
++            output_tokens=max(0, int(output_tokens)),
++            reasoning_tokens=max(0, int(reasoning_tokens)),
++            timestamp=datetime.now(timezone.utc).isoformat(),
++        )
++        with self._lock:
++            self._records.append(rec)
++            self._by_id[rec.call_id] = rec
++            if self._out_dir is not None:
++                self._write_locked(self._out_dir)
++        return rec.call_id
++
++    def update(self, call_id: str, **patch: object) -> None:
++        """Patch an already-recorded call in place. Fails loud on an unknown
++        ``call_id`` or field — both indicate a wiring bug."""
++        with self._lock:
++            rec = self._by_id.get(call_id)
++            if rec is None:
++                raise KeyError(f"reasoning-trace call_id not found: {call_id!r}")
++            for key, value in patch.items():
++                if not hasattr(rec, key):
++                    raise AttributeError(
++                        f"ReasoningTraceRecord has no field {key!r}"
++                    )
++                setattr(rec, key, value)
++            if self._out_dir is not None:
++                self._write_locked(self._out_dir)
++
++    def records(self) -> list[ReasoningTraceRecord]:
++        with self._lock:
++            return list(self._records)
++
++    def __len__(self) -> int:
++        with self._lock:
++            return len(self._records)
++
++    def _write_locked(self, out_dir: Path) -> Path:
++        """Write the full ``reasoning_trace.jsonl`` into ``out_dir``. The
++        caller MUST hold ``self._lock``. One JSON object per record, full
++        ``reasoning_text`` (NO truncation; the trace is the whole reasoning
++        log). The file is always written (zero records → an empty file) so
++        the artifact + manifest reference are uniform across runs.
++        """
++        out_path = Path(out_dir)
++        out_path.mkdir(parents=True, exist_ok=True)
++        path = out_path / REASONING_TRACE_FILENAME
++        with path.open("w", encoding="utf-8") as handle:
++            for rec in self._records:
++                handle.write(json.dumps(asdict(rec), ensure_ascii=False) + "\n")
++        return path
++
++    def flush(self, out_dir: Union[str, Path]) -> Path:
++        """Explicitly write ``reasoning_trace.jsonl`` into ``out_dir`` and
++        return the path. In write-through mode (``out_dir`` passed to the
++        constructor) the file is already current after every record/update;
++        ``flush()`` stays valid and is the in-memory path's only writer.
++        Fails loud on a write error.
++        """
++        with self._lock:
++            return self._write_locked(Path(out_dir))
+diff --git a/src/polaris_graph/generator/sentence_repair.py b/src/polaris_graph/generator/sentence_repair.py
+index 5346cb27..566beeac 100644
+--- a/src/polaris_graph/generator/sentence_repair.py
++++ b/src/polaris_graph/generator/sentence_repair.py
+@@ -162,7 +162,10 @@ async def repair_sentence(
+       - "api_failure": exception / network error / no response from API.
+       - "skipped": failure_reasons aren't repairable.
+     """
+-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++    from src.polaris_graph.llm.openrouter_client import (
++        OpenRouterClient,
++        set_reasoning_call_context,
++    )
+ 
+     if not is_repairable(dropped.failure_reasons):
+         return "skipped", None, 0, 0
+@@ -183,6 +186,8 @@ async def repair_sentence(
+ 
+     client = OpenRouterClient(model=model)
+     try:
++        # I-gen-004 (#496): tag the sentence-repair call for the trace sink.
++        set_reasoning_call_context(section="_repair", call_type="repair")
+         response = await client.generate(
+             prompt=prompt,
+             system=REPAIR_SYSTEM_PROMPT,
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 52bf311e..cf1b4d55 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -99,6 +99,112 @@ def current_run_id() -> str | None:
+     return _CURRENT_RUN_ID_CTX.get()
+ 
+ 
++# I-gen-004 (#496): run-scoped reasoning-trace capture. The generator wires a
++# ReasoningTraceCollector as the sink (set_reasoning_sink); the client records
++# each raw completed provider response to it (_capture_reasoning_trace) BEFORE
++# any caller-level promotion / </think> extraction / retry / truncation raise.
++# Layering: the sink is duck-typed (the client never imports the generator).
++# The per-call generator context (section, call_type, attempt_n, ...) is
++# supplied separately by the caller via set_reasoning_call_context; capture is
++# a no-op unless BOTH a sink and a call-context are present, which scopes it
++# to generator calls (evaluator / retrieval LLM calls set no context).
++_REASONING_SINK_CTX: contextvars.ContextVar[object | None] = contextvars.ContextVar(
++    "_REASONING_SINK", default=None,
++)
++_REASONING_CALL_CTX: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
++    "_REASONING_CALL_CTX", default=None,
++)
++
++
++def set_reasoning_sink(sink: object | None) -> None:
++    """Register (or clear, with None) the run-scoped reasoning-trace sink — a
++    duck-typed object exposing ``record(**fields) -> call_id``. Set at run
++    start, cleared at run end."""
++    _REASONING_SINK_CTX.set(sink)
++
++
++def current_reasoning_sink() -> object | None:
++    return _REASONING_SINK_CTX.get()
++
++
++def set_reasoning_call_context(**ctx: object) -> None:
++    """Set the per-call generator context (section, call_type, attempt_n,
++    parent_call_id, regen_reason) for the next captured provider response.
++    Generator call sites set this immediately before each LLM call; passing
++    no kwargs clears it (a non-generator call records nothing)."""
++    _REASONING_CALL_CTX.set(dict(ctx) if ctx else None)
++
++
++def current_reasoning_call_context() -> dict | None:
++    return _REASONING_CALL_CTX.get()
++
++
++def _capture_reasoning_trace(
++    result: "LLMResponse",
++    content: str,
++    reasoning: Optional[str],
++    *,
++    status: str = "ok",
++) -> None:
++    """Record one raw completed provider response to the run-scoped
++    reasoning-trace sink, if one is registered AND the caller set a generator
++    call-context. ``content_source`` is recorded as ``direct`` here;
++    generate()/reason() finalize it (promoted_from_reasoning /
++    extracted_from_reasoning) via the sink's update() using
++    ``result.trace_call_id``. Best-effort observability — a sink failure is
++    logged loud but never breaks the LLM call (reasoning trace is process
++    transparency, not the generation path)."""
++    sink = current_reasoning_sink()
++    ctx = current_reasoning_call_context()
++    if sink is None or not ctx:
++        return
++    try:
++        result.trace_call_id = sink.record(
++            section=str(ctx.get("section", "")),
++            call_type=str(ctx.get("call_type", "section")),
++            model=result.model or "",
++            status=status,
++            content_source="direct",
++            parent_call_id=ctx.get("parent_call_id"),
++            regen_reason=ctx.get("regen_reason"),
++            attempt_n=int(ctx.get("attempt_n", 1) or 1),
++            reasoning_text=reasoning or "",
++            content_text=content or "",
++            input_tokens=result.input_tokens,
++            output_tokens=result.output_tokens,
++            reasoning_tokens=result.reasoning_tokens,
++        )
++    except Exception as exc:  # noqa: BLE001 — observability must not break generation
++        logger.warning(
++            "[polaris graph] I-gen-004: reasoning-trace capture failed "
++            "(%s: %s) — generation continues, this record dropped",
++            type(exc).__name__,
++            exc,
++        )
++
++
++def _finalize_reasoning_trace(call_id: Optional[str], **patch: object) -> None:
++    """I-gen-004 (#496): patch an already-captured reasoning-trace record once
++    the caller (generate()/reason()) has resolved promotion / `</think>`
++    extraction / retry / truncation — e.g. content_source=promoted_from_reasoning
++    or status=retry|truncated|error. No-op if no sink or no call_id.
++    Best-effort: a sink failure is logged, never raised."""
++    if not call_id:
++        return
++    sink = current_reasoning_sink()
++    if sink is None:
++        return
++    try:
++        sink.update(call_id, **patch)
++    except Exception as exc:  # noqa: BLE001 — observability must not break generation
++        logger.warning(
++            "[polaris graph] I-gen-004: reasoning-trace finalize failed "
++            "(%s: %s) — generation continues",
++            type(exc).__name__,
++            exc,
++        )
++
++
+ class BudgetExceededError(RuntimeError):
+     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+ 
+@@ -550,6 +656,10 @@ class LLMResponse:
+     model: str = ""
+     duration_ms: float = 0
+     raw_response: Optional[dict] = None
++    # I-gen-004 (#496): id of the reasoning-trace record this response was
++    # captured into (set by _capture_reasoning_trace when a run-scoped sink
++    # is registered). None when no sink / not a traced generator call.
++    trace_call_id: Optional[str] = None
+ 
+ 
+ class BudgetExhaustedError(Exception):
+@@ -1529,6 +1639,11 @@ class OpenRouterClient:
+             raw_response=data,
+         )
+ 
++        # I-gen-004 (#496): capture the raw completed provider response to the
++        # run-scoped reasoning-trace sink BEFORE any caller-level promotion /
++        # </think> extraction / retry / ReasoningFirstTruncationError raise.
++        _capture_reasoning_trace(result, content, reasoning)
++
+         logger.info(
+             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "
+             "%.1fs, $%.4f cumulative",
+@@ -1907,6 +2022,9 @@ class OpenRouterClient:
+             reasoning_max_tokens=reasoning_max_tokens,
+             reasoning_exclude=reasoning_exclude,
+         )
++        # I-gen-004 (#496): trace-record id of the raw provider response, for
++        # finalizing content_source / status after promotion / retry below.
++        _primary_trace_id = result.trace_call_id
+ 
+         # TWO-POOL: Content field = output. Reasoning field = logged separately.
+         # For GLM-5, both pools are populated when max_tokens is sufficient.
+@@ -1940,6 +2058,11 @@ class OpenRouterClient:
+                     duration_ms=result.duration_ms,
+                     raw_response=result.raw_response,
+                 )
++                _finalize_reasoning_trace(
++                    _primary_trace_id,
++                    content_source="extracted_from_reasoning",
++                    content_text=result.content,
++                )
+             elif self.model in _ALWAYS_REASON_MODELS:
+                 # FIX-GLM5: Models that always reason don't use </think> tags.
+                 # Use reasoning directly as content (same as COT-3 free-form).
+@@ -2000,6 +2123,11 @@ class OpenRouterClient:
+                     duration_ms=result.duration_ms,
+                     raw_response=result.raw_response,
+                 )
++                _finalize_reasoning_trace(
++                    _primary_trace_id,
++                    content_source="promoted_from_reasoning",
++                    content_text=result.content,
++                )
+             elif len(result.reasoning.strip()) >= 100:
+                 # I-bug-088: response-shape-centric normalization for
+                 # reasoning-first models (e.g. DeepSeek V4 Pro) that route
+@@ -2022,6 +2150,7 @@ class OpenRouterClient:
+                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
+                 ):
+                     self.usage.total_errors += 1
++                    _finalize_reasoning_trace(_primary_trace_id, status="truncated")
+                     raise ReasoningFirstTruncationError(
+                         f"I-bug-089: reasoning-first model {self.model} "
+                         f"truncated mid-planning. content empty, reasoning "
+@@ -2045,6 +2174,11 @@ class OpenRouterClient:
+                     duration_ms=result.duration_ms,
+                     raw_response=result.raw_response,
+                 )
++                _finalize_reasoning_trace(
++                    _primary_trace_id,
++                    content_source="promoted_from_reasoning",
++                    content_text=result.content,
++                )
+             else:
+                 # Reasoning is too sparse to be a real answer — retry once
+                 # (provider may re-route on retry).
+@@ -2053,6 +2187,8 @@ class OpenRouterClient:
+                     "reasoning sparse (%d chars). Retrying once.",
+                     len(result.reasoning),
+                 )
++                # I-gen-004: the first attempt is superseded by the retry.
++                _finalize_reasoning_trace(_primary_trace_id, status="retry")
+                 result = await self._call(
+                     messages=messages,
+                     call_type="generate_retry",
+@@ -2061,6 +2197,7 @@ class OpenRouterClient:
+                     max_tokens=max_tokens,
+                     timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+                 )
++                _retry_trace_id = result.trace_call_id
+                 # Try extraction on retry result too
+                 if not result.content.strip() and result.reasoning:
+                     extracted = _extract_answer_from_reasoning(result.reasoning)
+@@ -2075,6 +2212,11 @@ class OpenRouterClient:
+                             duration_ms=result.duration_ms,
+                             raw_response=result.raw_response,
+                         )
++                        _finalize_reasoning_trace(
++                            _retry_trace_id,
++                            content_source="extracted_from_reasoning",
++                            content_text=result.content,
++                        )
+                     elif len(result.reasoning.strip()) >= 100:
+                         # I-bug-088: same response-shape-centric recovery on
+                         # retry. If retry still produces reasoning-only output
+@@ -2094,9 +2236,15 @@ class OpenRouterClient:
+                             duration_ms=result.duration_ms,
+                             raw_response=result.raw_response,
+                         )
++                        _finalize_reasoning_trace(
++                            _retry_trace_id,
++                            content_source="promoted_from_reasoning",
++                            content_text=result.content,
++                        )
+                     else:
+                         # SF-15: Fail loud after exhausting retries
+                         self.usage.total_errors += 1
++                        _finalize_reasoning_trace(_retry_trace_id, status="error")
+                         raise RuntimeError(
+                             f"generate() content empty after retry. "
+                             f"Reasoning has {len(result.reasoning)} chars but "
+diff --git a/src/polaris_v6/api/bundle.py b/src/polaris_v6/api/bundle.py
+index b37916c5..543d721b 100644
+--- a/src/polaris_v6/api/bundle.py
++++ b/src/polaris_v6/api/bundle.py
+@@ -27,9 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException
+ # A lambda Depends would be a DIFFERENT callable than get_sign_fn — the
+ # create_app() override wouldn't fire and the endpoint would always 503.
+ from polaris_graph.api.audit_bundle_route import (
+-    AuditBundleRequest,
++    build_audit_bundle_response,
+     get_sign_fn,
+-    post_audit_bundle,
+ )
+ from polaris_v6.api.artifact_to_slice_chain import (
+     SovereigntyFilterEmptiedReportError,
+@@ -84,7 +83,7 @@ def get_run_bundle_targz(
+         422: run aborted (pipeline_status=abort_*) or sovereignty cascade
+              emptied the report
+         503: GPG signer not configured (POLARIS_GPG_KEY_ID unset) — surfaced
+-             by the inner post_audit_bundle when sign_fn is None.
++             by the inner build_audit_bundle_response when sign_fn is None.
+     """
+     info = run_store.get_run(run_id)
+     if info is None:
+@@ -146,7 +145,19 @@ def get_run_bundle_targz(
+             detail={"error": f"artifact_dir incomplete: {exc}"},
+         ) from exc
+ 
+-    return post_audit_bundle(
+-        AuditBundleRequest(decision=decision, pool=pool, report=report),
+-        sign_fn=sign_fn,
++    # I-gen-004 (#496): include the run's reasoning trace in the signed
++    # bundle when present. Write-through means the file exists for every
++    # completed run; it is hashed under content_type=reasoning_trace.
++    extra_files: dict[str, tuple[bytes, str]] | None = None
++    trace_path = artifact_dir / "reasoning_trace.jsonl"
++    if trace_path.is_file():
++        extra_files = {
++            "reasoning_trace.jsonl": (
++                trace_path.read_bytes(),
++                "reasoning_trace",
++            )
++        }
++
++    return build_audit_bundle_response(
++        decision, pool, report, sign_fn, extra_files=extra_files,
+     )
+diff --git a/tests/polaris_graph/test_reasoning_trace_capture.py b/tests/polaris_graph/test_reasoning_trace_capture.py
+new file mode 100644
+index 00000000..47c59f0f
+--- /dev/null
++++ b/tests/polaris_graph/test_reasoning_trace_capture.py
+@@ -0,0 +1,238 @@
++"""I-gen-004 (#496): reasoning-trace capture + collector tests.
++
++Pins the operator-directed invariant (transparency directive 2026-05-14):
++DeepSeek V4 Pro's raw reasoning channel is captured to a SEPARATE per-run
++artifact (``reasoning_trace.jsonl``), never merged into ``report.md`` /
++verified prose, and never ``strict_verify``'d.
++
++These exercise the REAL production functions — the ``ReasoningTraceCollector``
++and the ``openrouter_client`` capture / finalize helpers
++(``_capture_reasoning_trace`` / ``_finalize_reasoning_trace``) that run inside
++``_call_impl`` / ``generate()``. No HTTP layer is mocked: the tests drive the
++capture machinery directly with a real collector wired as the sink, which is
++exactly what the run orchestrator does at run start.
++"""
++from __future__ import annotations
++
++import json
++from dataclasses import asdict, fields
++
++import pytest
++
++from src.polaris_graph.generator.reasoning_trace import (
++    REASONING_TRACE_FILENAME,
++    ReasoningTraceCollector,
++    ReasoningTraceRecord,
++)
++from src.polaris_graph.llm.openrouter_client import (
++    LLMResponse,
++    _capture_reasoning_trace,
++    _finalize_reasoning_trace,
++    set_reasoning_call_context,
++    set_reasoning_sink,
++)
++
++
++def _make_response(*, content: str = "", reasoning: str = "") -> LLMResponse:
++    """A raw provider response shaped like one the client builds in
++    ``_call_impl`` right before ``_capture_reasoning_trace`` fires."""
++    return LLMResponse(
++        content=content,
++        reasoning=reasoning,
++        input_tokens=10,
++        output_tokens=20,
++        reasoning_tokens=30,
++        model="deepseek/deepseek-v4-pro",
++        duration_ms=100.0,
++    )
++
++
++@pytest.fixture(autouse=True)
++def _reset_reasoning_context():
++    """The sink + call-context are ContextVars — reset them around every
++    test so nothing leaks across cases."""
++    set_reasoning_sink(None)
++    set_reasoning_call_context()
++    yield
++    set_reasoning_sink(None)
++    set_reasoning_call_context()
++
++
++# --- Test 1: separation invariant -------------------------------------------
++
++def test_reasoning_trace_is_a_separate_artifact(tmp_path):
++    """flush() writes the reasoning trace as its OWN file and nothing else.
++
++    The reasoning channel is physically a distinct artifact — it cannot
++    leak into report.md / verified_report.json because the collector's
++    only writer is flush(), and flush() writes exactly one file.
++    """
++    collector = ReasoningTraceCollector()
++    collector.record(
++        section="Mechanism",
++        call_type="section",
++        model="deepseek/deepseek-v4-pro",
++        reasoning_text="DISTINCTIVE_COT_MARKER — the model's scratch thinking",
++        content_text="The verified prose that ships in report.md.",
++    )
++    out_path = collector.flush(tmp_path)
++
++    written = sorted(p.name for p in tmp_path.iterdir())
++    assert written == [REASONING_TRACE_FILENAME], (
++        f"flush must write exactly {REASONING_TRACE_FILENAME!r}; got {written}"
++    )
++
++    rows = [
++        json.loads(ln)
++        for ln in out_path.read_text(encoding="utf-8").splitlines()
++    ]
++    assert len(rows) == 1
++    assert rows[0]["reasoning_text"].startswith("DISTINCTIVE_COT_MARKER")
++    assert rows[0]["content_text"] == "The verified prose that ships in report.md."
++
++
++# --- Test 2: V4-Pro content='' + reasoning promoted -------------------------
++
++def test_v4_pro_content_empty_reasoning_promoted_is_recorded():
++    """V4-Pro shape (content empty, reasoning carries the answer): the raw
++    response is captured, and once generate() promotes reasoning->content
++    the record is finalized content_source=promoted_from_reasoning."""
++    collector = ReasoningTraceCollector()
++    set_reasoning_sink(collector)
++    set_reasoning_call_context(
++        section="Mechanism", call_type="section", attempt_n=1,
++    )
++
++    reasoning = "SENTINEL_REASONING describing tirzepatide mechanism. " * 20
++    resp = _make_response(content="", reasoning=reasoning)
++    _capture_reasoning_trace(resp, "", resp.reasoning)
++
++    assert resp.trace_call_id is not None, "capture must tag the response"
++    # generate() I-bug-088 recovery promotes reasoning -> content, then:
++    _finalize_reasoning_trace(
++        resp.trace_call_id,
++        content_source="promoted_from_reasoning",
++        content_text=reasoning,
++    )
++
++    recs = collector.records()
++    assert len(recs) == 1
++    assert recs[0].content_source == "promoted_from_reasoning"
++    assert recs[0].content_text == reasoning
++    assert recs[0].reasoning_text == reasoning
++
++
++# --- Test 3: internal generate_retry — every attempt recorded ---------------
++
++def test_generate_retry_records_every_attempt():
++    """The internal retry path captures one record per attempt; the
++    superseded attempt is finalized status=retry, the retry links to it
++    via parent_call_id."""
++    collector = ReasoningTraceCollector()
++    set_reasoning_sink(collector)
++
++    set_reasoning_call_context(
++        section="Outline", call_type="outline", attempt_n=1,
++    )
++    r1 = _make_response(content="", reasoning="sparse first-attempt reasoning")
++    _capture_reasoning_trace(r1, "", r1.reasoning)
++    # generate() decides to retry — the superseded attempt is finalized:
++    _finalize_reasoning_trace(r1.trace_call_id, status="retry")
++
++    set_reasoning_call_context(
++        section="Outline", call_type="outline", attempt_n=2,
++        parent_call_id=r1.trace_call_id,
++    )
++    r2 = _make_response(content="recovered outline", reasoning="")
++    _capture_reasoning_trace(r2, "recovered outline", "")
++
++    recs = collector.records()
++    assert len(recs) == 2, "both the superseded attempt and the retry recorded"
++    assert [r.status for r in recs] == ["retry", "ok"]
++    assert [r.attempt_n for r in recs] == [1, 2]
++    assert recs[1].parent_call_id == r1.trace_call_id
++
++
++# --- Test 4: ReasoningFirstTruncationError path -----------------------------
++
++def test_reasoning_first_truncation_is_recorded_before_raise():
++    """A reasoning-first response that ran out of budget is captured and
++    finalized status=truncated BEFORE generate() raises
++    ReasoningFirstTruncationError — the reasoning is preserved even though
++    the call 'fails'."""
++    collector = ReasoningTraceCollector()
++    set_reasoning_sink(collector)
++    set_reasoning_call_context(section="Efficacy", call_type="section")
++
++    truncated_reasoning = "The model planned the section but ran out of budget"
++    resp = _make_response(content="", reasoning=truncated_reasoning)
++    _capture_reasoning_trace(resp, "", truncated_reasoning)
++    # generate() detects the truncation shape and finalizes before raising:
++    _finalize_reasoning_trace(resp.trace_call_id, status="truncated")
++
++    recs = collector.records()
++    assert len(recs) == 1
++    assert recs[0].status == "truncated"
++    assert recs[0].reasoning_text == truncated_reasoning, (
++        "the truncated reasoning is preserved despite the call failing"
++    )
++
++
++# --- Test 5: non-reasoning model + capture gating ---------------------------
++
++def test_non_reasoning_model_uniform_schema_and_capture_gating():
++    """A non-reasoning model still gets a record (empty reasoning_text,
++    uniform 15-field schema). And a call with NO generator context
++    (evaluator / retrieval calls) is NOT captured."""
++    collector = ReasoningTraceCollector()
++    set_reasoning_sink(collector)
++    set_reasoning_call_context(section="Summary", call_type="section")
++
++    resp = _make_response(content="A plain answer, no chain-of-thought.", reasoning="")
++    _capture_reasoning_trace(resp, resp.content, "")
++
++    recs = collector.records()
++    assert len(recs) == 1
++    assert recs[0].reasoning_text == ""
++    assert recs[0].content_text == "A plain answer, no chain-of-thought."
++
++    record_dict = asdict(recs[0])
++    schema = {f.name for f in fields(ReasoningTraceRecord)}
++    assert set(record_dict) == schema, "record must carry the full uniform schema"
++    assert len(schema) == 15, "I-gen-004 record schema is 15 fields"
++    json.dumps(record_dict)  # must be JSON-serializable for the jsonl
++
++    # Gating: clear the call-context (an evaluator / retrieval call) — capture
++    # must no-op even though the sink is still registered.
++    set_reasoning_call_context()
++    resp2 = _make_response(content="evaluator output", reasoning="evaluator cot")
++    _capture_reasoning_trace(resp2, "evaluator output", "evaluator cot")
++    assert resp2.trace_call_id is None, "no call-context => no capture"
++    assert len(collector.records()) == 1, "evaluator call left the trace untouched"
++
++
++# --- Test 6: long reasoning_text is NOT truncated ---------------------------
++
++def test_long_reasoning_text_is_not_truncated(tmp_path):
++    """reasoning_trace.jsonl stores the WHOLE reasoning log — flush()
++    performs no truncation, regardless of length (Codex iter-3 P2 #5:
++    must not reuse the existing 50k-capped reasoning_capture path)."""
++    collector = ReasoningTraceCollector()
++    huge_reasoning = "x" * 200_000
++    collector.record(
++        section="Mechanism",
++        call_type="section",
++        model="deepseek/deepseek-v4-pro",
++        reasoning_text=huge_reasoning,
++        content_text="a short verified answer",
++    )
++    out_path = collector.flush(tmp_path)
++
++    rows = [
++        json.loads(ln)
++        for ln in out_path.read_text(encoding="utf-8").splitlines()
++    ]
++    assert len(rows) == 1
++    assert len(rows[0]["reasoning_text"]) == 200_000, (
++        "the full reasoning log must round-trip with no truncation"
++    )
+# canonical-diff-sha256: 59f273aca76fb10695e1d00ef38c73c923e231ab1f8de5e21f99333735d12732

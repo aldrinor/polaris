@@ -155,3 +155,26 @@ I-f3-010 brief iter1=REQ_CH (artifacts not at HEAD) iter2=REQ_CH (file:line refs
 I-f3-010 diff iter1=APPROVE 0/0/0
 I-f15-001 brief iter1=APPROVE 0/0/2P2 (substrate at HEAD)
 I-f15-001 diff iter1=APPROVE 0/0/2P2
+I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, PT11 Limitations exclusion + cosmetic citation normalization, GLM _REASONING_FIRST_MODELS superset bug) iter2=APPROVE 0/0/0 (1P3 stale comments) accept_remaining; smoke#4=success gate_class=pass; tokens=103921
+
+## I-rdy-019 (#515) — author 22-type test matrix vs product journey
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 1 P1 (I-rdy-019-P1-001: route axis omitted `/` real entry, misclassified `/sse` as real journey vs harness). tokens 48565.
+- iter 2: APPROVE — 0 P0, 0 P1, 1 P2 (I-rdy-019-P2-001: route-group URL spelling, non-blocking, applied in diff). convergence_call accept_remaining. tokens 128411.
+
+### Diff review
+- iter 1: REQUEST_CHANGES — 2 P1 (security N/A wrong J4/J5/J10; SSE missing J7) + 4 P2. tokens ~?
+- iter 2: REQUEST_CHANGES — 1 P1 (P1-003: /audit_live is a non-production test surface). tokens 119410.
+- iter 3: REQUEST_CHANGES — 1 P1 (P1-004: tenant-isolation missing J6 /stream) + 1 P2 (cancel disabled). tokens 206283.
+- iter 4: APPROVE — 0 P0, 0 P1, 4 P2 (non-blocking: sentence_hover URL spelling, multi-tab-cancel gap tie, upload-DELETE gap, J7 quality/anti-syco grid ticks). convergence_call accept_remaining. tokens 173258. P2s -> follow-up issue.
+
+## I-gen-004 (#496) — capture + store V4 Pro reasoning trace
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 3 P1 (client-level reasoning promotion path; scope must cover all generator LLM calls; signed-bundle path under-specified). tokens 140492.
+- iter 2: REQUEST_CHANGES — 1 P1 (P1-004: capture point too high — misses internal generate_retry + ReasoningFirstTruncationError raise). tokens 174245.
+- iter 3: APPROVE — 0 P0, 0 P1, 5 P2 (impl guidance: content_source for </think> extraction; record finalization; collector flush on early-return; bundle call-site enumeration; no-truncation test). convergence_call accept_remaining. tokens 163256.
+
+### Diff review
+- iter 1: APPROVE — 0 NOVEL P0, 0 continuing P0, 0 P1, 5 P2 (sticky reasoning call-context can mislabel a later non-generator generate(); zero-record abort runs skip reasoning_trace.jsonl while the manifest references it; abort paths don't clear set_reasoning_sink(None); generate_retry record doesn't finalize parent_call_id/attempt_n=2; extra_files collision check doesn't reject manifest.yaml/.asc). convergence_call accept_remaining. remaining_blockers_for_execution none. tokens 133960. Shipped on iter-1 APPROVE; 5 P2 captured as a follow-up Issue.
