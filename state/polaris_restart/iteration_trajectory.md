@@ -425,3 +425,6 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (mirror the _full_text_for_evidence_id precedent fully — source_id id-alias + source_url||url fallback; expand test coverage for zero-token-200/malformed-pool/missing-body/{sources:[]}-container — all baked into commit 1). convergence accept_remaining. Slice 7a of #504 (backend half of the Codex-consult 7a/7b/7c split). New GET /api/inspector/runs/{run_id}/evidence in src/polaris_v6/api/inspector.py — reads evidence_pool.json, range-keyed verified spans (span_text=body[start:end]), fail-loud 422; +10 tests. Backend only, no web/. ~53k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; one further test-coverage nicety — two sentences citing the exact same (evidence_id,start,end) aggregating claim_ids — Codex: "implementation appears correct", accepted-residual). convergence accept_remaining. src/polaris_v6/api/inspector.py +196 + tests/v6/test_inspector_route.py +260. ast.parse clean; pytest 15/15 green. P1 trajectory 0. ~145k tokens.
