@@ -1,121 +1,104 @@
-# Claude architect audit — I-rdy-008 (#504) slice 7b
+# Claude architect audit — I-rdy-008 (#504) slice 7c
 
 **Issue:** GH #504 (I-rdy-008) — Phase 3.5: wire live runs into the rich UI.
-**Slice 7b of #504** — the frontend half of the slice-7 split decided by the
-Codex architecture consult (`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`):
-7a backend evidence-span route → **7b frontend migration** → 7c test rebaseline.
-Slices 1-6 + 7a merged (PR #590-#596).
-**Branch:** `bot/I-rdy-008-slice7b` off `polaris` HEAD `2e4ef83f`.
-**Commit 1:** `3847826c` — `web/app/inspector/[runId]/page.tsx` +
-`web/lib/api.ts` + `logs/bug_log.md`.
-**Brief:** `.codex/I-rdy-008/brief.md` — Codex brief review iter 1 APPROVE
-(0 P0/P1; 3 P2 baked into commit 1).
+**Slice 7c of #504** — the test rebaseline, last slice of the slice-7 split
+decided by the Codex architecture consult
+(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`): 7a backend evidence
+route → 7b frontend migration → **7c test rebaseline**. Slices 1-6 + 7a + 7b
+merged (PR #590-#597).
+**Branch:** `bot/I-rdy-008-slice7c` off `polaris` HEAD `91a9a9b8`.
+**Commit 1:** `52f6e239` — `web/tests/e2e/inspector.spec.ts`.
+**Brief:** `.codex/I-rdy-008/brief.md` — Codex brief review APPROVE iter 2
+(iter-1 P1 fixed; 1 P2 accepted).
 
 ## 1. What shipped
 
-The inspector page is migrated off the golden-fixture-only `getBundle()`
-dependency. Before this slice the page dual-fetched `getAuditRun()` +
-`getBundle()` and gated its whole body on `{ir && bundle && (...)}`; for a
-live run `getBundle()` 404s (its route `bundle.py` is a hardcoded 7-run
-index), so `bundle` stayed null and the body never rendered. The inspector
-was therefore golden-fixture-only — #504's live-run goal was unmet.
+`web/tests/e2e/inspector.spec.ts` is rebaselined for the slice-7b data-path
+migration. Slice 7b (PR #597) removed the inspector page's bundle Export
+button and migrated `PoolTab`/`EvidencePane` off `getBundle()` onto
+`GET /api/inspector/runs/{id}/evidence`. Two changes:
 
-- **`web/lib/api.ts`** — new `getInspectorEvidence(runId)` client →
-  `GET /api/inspector/runs/{runId}/evidence` (the slice-7a route), with
-  `AuditIrEvidenceSpan` / `AuditIrEvidenceResponse` types matching that
-  route's JSON. `getBundle` / `EvidenceContract` / `SourceSpan` /
-  `downloadBundleAsJson` are **retained** — still imported by
-  `web/app/runs/[runId]/page.tsx` (verified, see §2).
-- **`web/app/inspector/[runId]/page.tsx`** — `bundle` state →
-  `evidence: AuditIrEvidenceResponse | null` + `evidenceError: string | null`
-  (an independent fetch alongside `getAuditRun()`); `selectedEvidence:
-  SourceSpan` → `selectedEvidenceId: string | null`; the body gate +
-  tabs-initializer gate drop `&& bundle` (now `ir` only); the bundle Export
-  button removed; `PoolTab` + `EvidencePane` rewritten to consume the
-  range-keyed evidence spans grouped by `evidence_id`.
-- **`logs/bug_log.md`** — the slice-7 §6.2 Degradation Proposal marked
-  RESOLVED.
+- **Stale file-header comment fixed.** It claimed "the backend serves real
+  EvidenceContract JSON from `tests/v6/fixtures/evidence_contract_v1/*.json`"
+  — the inspector page now reads the AuditIR
+  (`GET /api/inspector/runs/{id}`) + the evidence route
+  (`GET /api/inspector/runs/{id}/evidence`).
+- **The `"Export bundle JSON button is present"` test replaced** with
+  `"Evidence pool tab settles into a terminal PoolTab state"` — the Export
+  button no longer exists; the new test exercises the 7b-rewritten Pool tab.
 
 ## 2. Per-finding verification (against the APPROVE'd brief)
 
-- **VERIFIED — getBundle() dependency removed from the inspector page.**
-  `grep` of `web/app/inspector/[runId]/page.tsx` returns no `getBundle` /
-  `EvidenceContract` / `SourceSpan` / `downloadBundleAsJson` references in
-  code (only 4 prose comments mention "bundle" historically). The page no
-  longer fetches `/runs/{id}/bundle`; for a live run with a completed
-  AuditIR the body now renders.
-- **VERIFIED — getBundle() retained for the runs page.** `getBundle` /
-  `EvidenceContract` / `SourceSpan` / `downloadBundleAsJson` stay exported
-  from `web/lib/api.ts`; `web/app/runs/[runId]/page.tsx` still imports them.
-  No cross-page regression — slice 7b touches only the inspector page.
-- **VERIFIED — P2-1 (PoolTab guards `evidence === null`).** Because the body
-  now gates on `ir` only, `PoolTab` is reachable while the evidence fetch is
-  still in flight. `PoolTab` branches: `evidenceError` → error panel;
-  `evidence === null` → "Loading evidence…"; `evidence.spans` empty → "No
-  verified evidence spans"; else the grouped list. No unguarded
-  `evidence.spans` dereference.
-- **VERIFIED — P2-2 (EvidencePane receives `evidenceError`).** `EvidencePane`
-  takes `{evidenceId, spans, evidenceError, onClose}`; when the evidence
-  fetch failed it renders an "Evidence unavailable" card carrying the error
-  string rather than a misleading empty placeholder.
-- **VERIFIED — P2-3 (dead `slugifySection` removed).** The
-  `slugifySection` helper and the `SentencesTab` contradiction badge (its
-  only consumers) are deleted; `tsc --noEmit` + `eslint` confirm no dead-code
-  or unused-symbol error.
-- **VERIFIED — evidence-fetch failure degrades only its tab.** The evidence
-  fetch is independent of `getAuditRun()`; a failure sets `evidenceError`
-  and leaves `ir` intact, so the Summary / Sentences / Frames /
-  Contradictions tabs still render. Fail loud — the error string surfaces in
-  PoolTab + EvidencePane; no silent fallback, no zero-fill.
-- **VERIFIED — range-keyed spans grouped by `evidence_id`.** The slice-7a
-  route returns one span per `(evidence_id, start, end)`. `PoolTab` builds a
-  `Map<evidence_id, AuditIrEvidenceSpan[]>` (push-or-init), one row per
-  source showing `tier` + span count + a preview; `EvidencePane` renders
-  every span of the clicked id (`spans[0]` for the shared tier/source_url,
-  iterates all spans for the char ranges + `<pre>` bodies).
-- **VERIFIED — pool count.** The Pool tab badge counts distinct evidence
-  ids: `new Set((evidence?.spans ?? []).map(s => s.evidence_id)).size` —
-  `0` while loading/failed, not a crash.
-- **VERIFIED — scope.** Only `web/app/inspector/[runId]/page.tsx` +
-  `web/lib/api.ts` (code) + `logs/bug_log.md` (the §6.2 record). No backend
-  change (7a shipped that), no test change (7c rebaselines the e2e/demo
-  fixtures — deferred per the brief, Codex scope ruling 3.5 accept).
+- **VERIFIED — only the broken CI-run assertion is touched.** The CI
+  `e2e_playwright` job (`.github/workflows/web_ci.yml`) runs exactly 4 specs;
+  a grep of `accessibility.spec.ts` / `performance.spec.ts` /
+  `evidence_tooltip_perf.spec.ts` for `Export`/`bundle`/`getBundle`/
+  `EvidenceContract`/`Pool`/`/evidence` returned zero hits. The only
+  slice-7b-broken assertion was `inspector.spec.ts`'s Export-button test.
+  Slice 7c modifies only `inspector.spec.ts`.
+- **VERIFIED — the transient state is rejected (Codex brief iter-1 P1).**
+  The new test's terminal-state locator is the regex
+  `/· tier .+ · \d+ span|No verified evidence spans for this run\.|Evidence
+  unavailable:/` — matching the three terminal `PoolTab` states only.
+  `"Loading evidence…"` (PoolTab's `evidence === null` branch,
+  `page.tsx:1001`) is NOT in the locator; the test additionally asserts
+  `getByText("Loading evidence…")` has count 0 after the terminal state is
+  visible. A test that accepted the transient state would pass even if the
+  evidence fetch never resolved — that hole is closed.
+- **VERIFIED — the terminal-state strings match the slice-7b PoolTab.**
+  Confirmed against `page.tsx`: `Evidence unavailable: {evidenceError}`
+  (line 996), `No verified evidence spans for this run.` (line 1006), and
+  the grouped-row `<button>` text `{evidenceId} · tier {tier} · {n} span(s)`.
+  The Pool tab label `"Evidence pool"` (line 153) is matched by
+  `getByRole("button", {name:/Evidence pool/})`.
+- **VERIFIED — robust to the golden-fixture open question.** The test
+  accepts ANY of the three terminal states, so it passes whether or not the
+  golden-run artifact_dirs carry `evidence_pool.json` (grouped rows if
+  present; "No verified evidence spans" / "Evidence unavailable:" if not) —
+  while still proving the evidence fetch resolved past the loading state.
+- **VERIFIED — the other `inspector.spec.ts` tests are untouched.** KPI
+  cards, two-family invariant, Executive-summary default tab,
+  Verified-sentences provenance tokens, Contradictions `noted_both`, Charts
+  Vega-Lite, Dashboard scope — all verbatim; none was slice-7b-affected.
+- **VERIFIED — scope.** Only `web/tests/e2e/inspector.spec.ts`. No
+  production-code change, no fixture change, no backend change. The 16+
+  `sentence_inspector_*.spec.ts` files are not CI-run and are untouched.
 
 ## 3. Smoke
 
-`npx prettier --write` — both files reformatted. `npm run format:check` —
-188 files flagged, all **pre-existing repo-wide debt** (the 2 slice-7b files
-are clean post-prettier). `npm run lint` — **0 errors**, 3 warnings, all
-pre-existing (`benchmark_board` unused import; `frame_coverage_panel.spec`
-unused var; `page.tsx:705` `chartTypes` `exhaustive-deps` — verified
-identical on `origin/polaris` at line 739, the line shift is slice-7b's
-dead-code removal). `npm run typecheck` — `tsc --noEmit` clean. `npm run
-build` — succeeded; `/inspector/[runId]` present as a dynamic route. No new
-unit test (a data-source swap, consistent with slices 3-6); slice 7c
-rebaselines the inspector e2e + demo fixtures.
+`npx prettier --write tests/e2e/inspector.spec.ts` — formatted. `npm run
+lint` — **0 errors**, 3 pre-existing warnings (`benchmark_board` unused
+import; `page.tsx:739` `chartTypes` exhaustive-deps; `frame_coverage_panel`
+unused var) — none in the changed file. `npm run typecheck` — `tsc --noEmit`
+clean. `npm run build` — succeeded. The Playwright e2e job itself runs only
+in CI (it needs the live backend) and is not part of the offline smoke.
 
 ## 4. Codex iteration trail
 
-- **Slice-7 architecture consult** — split into 7a/7b/7c; live runs persist
-  span text in `evidence_pool.json`; reject the lossy fallback.
-- **Slice 7a** — backend evidence route, merged PR #596.
-- **Brief iter 1 APPROVE** — 0 P0/P1; 3 P2 (PoolTab `evidence===null`
-  guard; EvidencePane `evidenceError`; dead `slugifySection`) — all baked
-  into commit 1.
+- **Brief iter 1 REQUEST_CHANGES** — 1 P1: the plan accepted the transient
+  `"Loading evidence…"` state as a passing condition. Fixed: the plan now
+  waits for a terminal state and explicitly excludes the loading state.
+- **Brief iter 2 APPROVE** — 0 P0/P1; 1 P2 (accept scope call 3.3 —
+  golden-run `evidence_pool.json` is real follow-up/demo hardening, not
+  required for this test rebaseline).
 
 ## 5. Scope + residuals
 
-Slice 7b = the frontend migration. 7c (inspector e2e + demo fixture
-rebaseline) follows; #504 stays open. The slice-7a evidence route fails loud
-(422) when a run predates `evidence_pool.json` persistence — the inspector
-surfaces that as the PoolTab/EvidencePane "Evidence unavailable" state, the
-honest UI for an un-renderable run.
+Slice 7c = the inspector e2e spec rebaseline; it is the last slice of the
+slice-7 split. #504 continues with slices 8-12. **Accepted residual
+(Codex brief iter-2 P2):** the golden-run artifact_dirs may lack
+`evidence_pool.json`, so the inspector Pool tab can render "Evidence
+unavailable" for golden runs in the demo — adding golden-fixture
+`evidence_pool.json` so the Pool tab shows real spans is real demo-hardening
+work, tracked as a #504 follow-up, not slice 7c. Slice 7c does not attempt
+to fix pre-existing, non-slice-7b `e2e_playwright` CI failures (a documented
+loop NON-halt).
 
 ## 6. Verdict
 
-Faithful to the APPROVE'd brief and the Codex arch consult: the inspector
-page no longer depends on the golden-fixture-only `getBundle()`, so a live
-completed run renders; the evidence fetch is independent and fails loud into
-its own tab without degrading the rest of the page; all 3 brief P2 guardrails
-are in commit 1; `getBundle()` stays for the runs page; prettier / lint
-(0 err) / tsc / build green. Ready for Codex diff review.
+Faithful to the APPROVE'd brief: the one CI-run e2e spec with a
+slice-7b-broken assertion is rebaselined; the new Pool-tab test waits for a
+real terminal state and rejects the transient loading state (the iter-1 P1);
+the terminal-state strings are verified against the slice-7b `PoolTab`; no
+production/fixture/backend change; prettier / lint (0 err) / tsc / build
+green. Ready for Codex diff review.
