@@ -236,10 +236,10 @@ index 93d73dd1..7f150597 100644
 +
 +    return {"run_id": run_id, "spans": spans}
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 7a95ea5e..1e86fba7 100644
+index 7a95ea5e..be528f08 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -416,3 +416,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -416,3 +416,15 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
  - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
@@ -252,6 +252,9 @@ index 7a95ea5e..1e86fba7 100644
 +
 +### Brief review
 +- iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (mirror the _full_text_for_evidence_id precedent fully — source_id id-alias + source_url||url fallback; expand test coverage for zero-token-200/malformed-pool/missing-body/{sources:[]}-container — all baked into commit 1). convergence accept_remaining. Slice 7a of #504 (backend half of the Codex-consult 7a/7b/7c split). New GET /api/inspector/runs/{run_id}/evidence in src/polaris_v6/api/inspector.py — reads evidence_pool.json, range-keyed verified spans (span_text=body[start:end]), fail-loud 422; +10 tests. Backend only, no web/. ~53k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; one further test-coverage nicety — two sentences citing the exact same (evidence_id,start,end) aggregating claim_ids — Codex: "implementation appears correct", accepted-residual). convergence accept_remaining. src/polaris_v6/api/inspector.py +196 + tests/v6/test_inspector_route.py +260. ast.parse clean; pytest 15/15 green. P1 trajectory 0. ~145k tokens.
 diff --git a/tests/v6/test_inspector_route.py b/tests/v6/test_inspector_route.py
 index 75e6f1ad..1829bb7a 100644
 --- a/tests/v6/test_inspector_route.py
@@ -521,4 +524,4 @@ index 75e6f1ad..1829bb7a 100644
 +    span = response.json()["spans"][0]
 +    assert span["span_text"] == _BODY[0:10]
 
-# canonical-diff-sha256: 9eaffbcf8c886df61f436e5fb707e95db37ccdf30f45037cbabbae09639a4ca2
+# canonical-diff-sha256: b99c790d6fe0657deb497a7ea3df22072a0c750258491bea7a83a56491a3ba19
