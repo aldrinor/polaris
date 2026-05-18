@@ -15,9 +15,18 @@ index c4430021..01923ce3 100644
 +- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 ("Start run" can call createRun() without ever running the optional "Check scope", so an ambiguous dashboard query could create a run with the modal never shown — the plan must wire the ambiguity check into the onSubmit path itself). convergence continue. ~18k tokens.
 +- iter 2: APPROVE — 0 P0/P1, 5 non-blocking P2 (SB1 reuse light checkAmbiguity; SB2 client-side cluster-selection with visible representation; SB3 keep the inline card; SB4 the mandatory submit preflight closes the bypass, no-upload empty-candidate limitation accepted; SB5 no backend-backed e2e required; impl caution: capture+stale-check the input key around the async preflight — all baked into commit 1). convergence accept_remaining. Fix: onSubmit now runs a mandatory ambiguity preflight before createRun(); resetAmbiguityState() in every input-change handler (not a useEffect, per react-hooks/set-state-in-effect) + an ambiguityCheckedKey freshness key invalidate stale results/selections. web/app/dashboard/page.tsx only. ~52k tokens.
 diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
-index 565e7018..eedee2d0 100644
+index 565e7018..b269f719 100644
 --- a/web/app/dashboard/page.tsx
 +++ b/web/app/dashboard/page.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+-import { useEffect, useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+ import {
 @@ -19,12 +19,14 @@ import {
    createRun,
    listTemplates,
@@ -33,7 +42,7 @@ index 565e7018..eedee2d0 100644
  
  // Static fallback if /templates is unreachable. Keeps the dashboard usable
  // even if the backend is down; live data preferred when available.
-@@ -82,6 +84,17 @@ export default function DashboardPage() {
+@@ -82,6 +84,19 @@ export default function DashboardPage() {
    const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
    const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
    const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
@@ -41,29 +50,37 @@ index 565e7018..eedee2d0 100644
 +  // DisambiguationModal; `pickedClusterId` is the "selected one cluster"
 +  // resolution mode (distinct from `acknowledgedAmbiguity` = "run on all");
 +  // `ambiguityCheckedKey` marks which (question, template, uploads) the
-+  // `ambiguity` result is valid for, so the onSubmit preflight can detect a
-+  // stale result and re-check.
++  // `ambiguity` result is valid for; `resolvedForKey` binds a resolution
++  // (a pick or an acknowledge) to the input key it was made for, so a stale
++  // resolution cannot unblock a later, changed query (Codex diff iter-1 P1).
 +  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
 +  const [pickedClusterId, setPickedClusterId] = useState<number | null>(null);
 +  const [ambiguityCheckedKey, setAmbiguityCheckedKey] = useState<string | null>(
 +    null,
 +  );
++  const [resolvedForKey, setResolvedForKey] = useState<string | null>(null);
  
    useEffect(() => {
      let cancelled = false;
-@@ -99,6 +112,39 @@ export default function DashboardPage() {
+@@ -99,6 +114,46 @@ export default function DashboardPage() {
      };
    }, []);
  
 +  // I-rdy-009 (#505): the ambiguity result is valid only for the exact
-+  // (question, template, uploads) it was computed for. This key lets the
-+  // onSubmit preflight detect a stale result and re-check a changed query.
-+  const currentInputKey = () =>
-+    JSON.stringify({
-+      q: question.trim(),
-+      t: template,
-+      d: uploads.map((u) => u.document_id),
-+    });
++  // (question, template, uploads) it was computed for. `currentInputKey` is
++  // recomputed every render; `latestInputKeyRef` mirrors it so async code
++  // can compare a captured key against the LATEST committed inputs after an
++  // await — a plain `currentInputKey` re-read inside an async handler would
++  // only see that handler's stale render closure (Codex diff iter-1 P1).
++  const currentInputKey = JSON.stringify({
++    q: question.trim(),
++    t: template,
++    d: uploads.map((u) => u.document_id),
++  });
++  const latestInputKeyRef = useRef(currentInputKey);
++  useEffect(() => {
++    latestInputKeyRef.current = currentInputKey;
++  });
 +
 +  // The light-detector candidates: one per uploaded-document chunk preview.
 +  const buildCandidates = (): AmbiguityCandidate[] =>
@@ -85,13 +102,14 @@ index 565e7018..eedee2d0 100644
 +    setAcknowledgedAmbiguity(false);
 +    setPickedClusterId(null);
 +    setAmbiguityCheckedKey(null);
++    setResolvedForKey(null);
 +    setDisambigModalOpen(false);
 +  };
 +
    const handleFiles = async (files: FileList | File[]) => {
      const list = Array.from(files);
      if (list.length === 0) return;
-@@ -111,6 +157,7 @@ export default function DashboardPage() {
+@@ -111,6 +166,7 @@ export default function DashboardPage() {
          results.push(result);
        }
        setUploads((prev) => [...prev, ...results]);
@@ -99,14 +117,19 @@ index 565e7018..eedee2d0 100644
      } catch (err) {
        setError(err instanceof Error ? err.message : "Upload failed");
      } finally {
-@@ -132,19 +179,23 @@ export default function DashboardPage() {
+@@ -132,19 +188,27 @@ export default function DashboardPage() {
      setError(null);
      setAmbiguity(null);
      setAcknowledgedAmbiguity(false);
 +    setPickedClusterId(null);
 +    setAmbiguityCheckedKey(null);
++    setResolvedForKey(null);
++    // Captured before any await; compared against latestInputKeyRef (the
++    // latest committed inputs) afterwards — not a stale closure re-read.
++    const key = currentInputKey;
      try {
        const decision = await checkScope(template, question.trim());
++      if (latestInputKeyRef.current !== key) return;
        setScopeDecision(decision);
 -      if (decision.verdict === "accepted" && uploads.length > 0) {
 -        const candidates = uploads.flatMap((u, ui) =>
@@ -118,10 +141,9 @@ index 565e7018..eedee2d0 100644
 +      if (decision.verdict === "accepted") {
 +        const candidates = buildCandidates();
          if (candidates.length > 0) {
-+          const key = currentInputKey();
            const result = await checkAmbiguity(question.trim(), candidates);
 +          // Ignore a late result whose inputs changed during the await.
-+          if (currentInputKey() !== key) return;
++          if (latestInputKeyRef.current !== key) return;
            setAmbiguity(result);
 +          setAmbiguityCheckedKey(key);
 +          if (result.is_ambiguous && result.clusters.length > 0) {
@@ -130,7 +152,7 @@ index 565e7018..eedee2d0 100644
          }
        }
      } catch (err) {
-@@ -164,14 +215,53 @@ export default function DashboardPage() {
+@@ -164,14 +228,61 @@ export default function DashboardPage() {
        setError("Scope gate rejected this question. Reframe before submitting.");
        return;
      }
@@ -147,7 +169,10 @@ index 565e7018..eedee2d0 100644
 +    // acknowledged) — so the disambiguation modal cannot be bypassed by
 +    // clicking "Start run" without first running "Check scope".
 +    let amb = ambiguity;
-+    const key = currentInputKey();
++    // Captured before any await; the stale-guard compares it against
++    // latestInputKeyRef (the latest committed inputs), never a re-read of
++    // this handler's own stale render closure (Codex diff iter-1 P1).
++    const key = currentInputKey;
 +    if (ambiguityCheckedKey !== key) {
 +      const candidates = buildCandidates();
 +      if (candidates.length === 0) {
@@ -158,7 +183,7 @@ index 565e7018..eedee2d0 100644
 +      } else {
 +        try {
 +          const result = await checkAmbiguity(question.trim(), candidates);
-+          if (currentInputKey() !== key) {
++          if (latestInputKeyRef.current !== key) {
 +            // Inputs changed mid-flight — discard this stale result.
 +            setSubmitting(false);
 +            return;
@@ -176,7 +201,12 @@ index 565e7018..eedee2d0 100644
 +      }
 +    }
 +
-+    const resolved = pickedClusterId !== null || acknowledgedAmbiguity;
++    // A pick / acknowledge only resolves the ambiguity if it was made for
++    // THIS input key — a resolution recorded for an earlier query must not
++    // unblock a changed one (Codex diff iter-1 P1).
++    const resolved =
++      resolvedForKey === key &&
++      (pickedClusterId !== null || acknowledgedAmbiguity);
 +    if (amb?.is_ambiguous && !resolved) {
 +      // Open the disambiguation modal and hold the run until the operator
 +      // picks a meaning (or acknowledges all clusters in the panel).
@@ -190,7 +220,7 @@ index 565e7018..eedee2d0 100644
      try {
        const run = await createRun({
          template,
-@@ -235,7 +325,10 @@ export default function DashboardPage() {
+@@ -235,7 +346,10 @@ export default function DashboardPage() {
                      type="button"
                      role="radio"
                      aria-checked={selected}
@@ -202,7 +232,7 @@ index 565e7018..eedee2d0 100644
                      className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
                        selected
                          ? "border-foreground"
-@@ -266,7 +359,10 @@ export default function DashboardPage() {
+@@ -266,7 +380,10 @@ export default function DashboardPage() {
                type="text"
                placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
                value={question}
@@ -214,7 +244,7 @@ index 565e7018..eedee2d0 100644
                minLength={4}
                maxLength={2000}
                required
-@@ -331,11 +427,12 @@ export default function DashboardPage() {
+@@ -331,11 +448,12 @@ export default function DashboardPage() {
                      </span>
                      <button
                        type="button"
@@ -230,7 +260,7 @@ index 565e7018..eedee2d0 100644
                        className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
                      >
                        remove
-@@ -418,16 +515,34 @@ export default function DashboardPage() {
+@@ -418,16 +536,39 @@ export default function DashboardPage() {
                      </li>
                    ))}
                  </ul>
@@ -264,7 +294,12 @@ index 565e7018..eedee2d0 100644
 +                      <Button
 +                        type="button"
 +                        variant={acknowledgedAmbiguity ? "default" : "outline"}
-+                        onClick={() => setAcknowledgedAmbiguity((v) => !v)}
++                        onClick={() => {
++                          setAcknowledgedAmbiguity((v) => !v);
++                          // Bind the acknowledge decision to the current
++                          // input key (Codex diff iter-1 P1).
++                          setResolvedForKey(currentInputKey);
++                        }}
 +                      >
 +                        {acknowledgedAmbiguity
 +                          ? "Acknowledged — will run on all clusters"
@@ -275,7 +310,7 @@ index 565e7018..eedee2d0 100644
                  </div>
                </CardContent>
              </Card>
-@@ -465,6 +580,27 @@ export default function DashboardPage() {
+@@ -465,6 +606,31 @@ export default function DashboardPage() {
                {submitting ? "Queuing…" : "Start run"}
              </Button>
            </div>
@@ -296,6 +331,10 @@ index 565e7018..eedee2d0 100644
 +            }
 +            onSelectCluster={(cid) => {
 +              setPickedClusterId(cid);
++              // Bind the resolution to the input key it was made for, so a
++              // pick cannot unblock a later, changed query (Codex diff
++              // iter-1 P1).
++              setResolvedForKey(currentInputKey);
 +              setDisambigModalOpen(false);
 +            }}
 +            onCancel={() => setDisambigModalOpen(false)}
@@ -304,4 +343,4 @@ index 565e7018..eedee2d0 100644
        </main>
  
 
-# canonical-diff-sha256: f625135cc3149df596dda6cd7599d5af6e6dfdc8c409bc2972fd1a17ff917130
+# canonical-diff-sha256: 8550446d5e8ff85805644f59bb2865cf411a9622806751a25b64644471453b4f
