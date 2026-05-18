@@ -3,7 +3,6 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Scope metadata: canonical/branch diff also includes state/polaris_restart/iteration_trajectory.md:420, despite the stated 2-file slice scope. Process metadata only; not an execution blocker."
-  - "Test gap: tests cover same evidence_id with different ranges, but not two sentences citing the same (evidence_id,start,end) aggregating two claim_ids. Implementation appears correct."
+  - "Canonical diff includes state/polaris_restart/iteration_trajectory.md as a fourth non-excluded file despite the stated 3-file scope; it is process metadata only and has no execution impact."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
