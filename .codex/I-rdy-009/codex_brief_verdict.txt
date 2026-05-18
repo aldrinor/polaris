@@ -1,0 +1,11 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "SB1/SB4 ACCEPT: reuse the existing dashboard `checkAmbiguity()` path. The mandatory submit preflight closes the iter-1 bypass; the no-upload empty-candidate limitation is acceptable for this slice."
+  - "SB2/SB3 ACCEPT: cluster selection may stay client-side only, with the inline card kept as persistent record/fallback. Prefer modeling selected-cluster vs acknowledge-all as separate resolution modes to avoid contradictory UI text."
+  - "SB5 ACCEPT as non-blocking: no backend-backed e2e required, though a mocked Playwright dashboard test for `/api/v6/ambiguity` + `/api/v6/runs` would be useful regression coverage."
+  - "Implementation caution: set a preflight/submitting state before awaiting `checkAmbiguity()` and ignore late async results whose captured key no longer matches the current input key, to avoid duplicate submits or stale modal display."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

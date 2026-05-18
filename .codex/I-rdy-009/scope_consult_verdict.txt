@@ -1,0 +1,13 @@
+verdict: APPROVE
+chosen_option: B
+i_rdy_009_residual: "Ambiguous queries in the run-creating /dashboard flow must trigger a disambiguation modal before createRun()/POST /runs."
+slice_scope: "Wire dashboard pre-run disambiguation modal behavior; do not unify /intake and /dashboard."
+close_505: "after the slice merges"
+overlaps_510: "no"
+rationale: |
+  /dashboard is the actual ask/create-run path; /intake is a gates-only product page and never creates a run.
+  The F2 modal is not rendered in /dashboard, which currently only has a light ambiguity panel plus acknowledge checkbox.
+  Also, the live /intake backend does not appear to emit candidate_snippets/needs_disambiguation, so treating intake as full acceptance is not honest enough.
+  Keep #505 narrow: dashboard pre-run disambiguation only. Full journey unification would be #510 territory.
+remaining_blockers_for_execution:
+  - "Choose the dashboard data contract: true F2 /api/disambiguation requires embedded candidates, while current /dashboard candidates are upload chunk text for /ambiguity."

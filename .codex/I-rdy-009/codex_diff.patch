@@ -1,0 +1,350 @@
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index c4430021..56af615e 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -456,3 +456,15 @@ Two Codex consults preceded slice 8: scope consult (Option A — #504 residual =
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (from_audit_ir.py docstring lines 5-6 name from_bundle.chart_from_bundle / EvidenceContract as historical "what this replaces" context — Codex confirmed there is NO runtime import, bundle construction, or artifact_dir→EvidenceContract bridge; the prose mention is correct documentation, left as-is). convergence accept_remaining. 7 files: src/polaris_v6/api/{run_resolver.py(new),inspector.py,charts.py} + src/polaris_v6/charts/from_audit_ir.py(new) + tests/v6/{_audit_ir_fixtures.py(new),test_api_charts.py} + iteration_trajectory.md; ~635 LOC code (intrinsic — the arch consult mandated a new derivation module + seeded test rewrite; brief APPROVE'd at this scope). ast.parse clean; pytest tests/v6/test_api_charts.py + test_inspector_route.py 26/26 green. P1 trajectory 0. ~127k tokens.
++
++## I-rdy-009 (#505) — wire the disambiguation modal into the /dashboard ask/create-run flow
++
++A Codex scope consult (.codex/I-rdy-009/scope_consult_verdict.txt, Option B) preceded the brief: the F2 DisambiguationModal was already wired into /intake (gates-only), but the run-creating /dashboard flow never opened it. #505 = wire pre-run disambiguation into /dashboard; do NOT unify intake/dashboard (#510 territory).
++
++### Brief review
++- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 ("Start run" can call createRun() without ever running the optional "Check scope", so an ambiguous dashboard query could create a run with the modal never shown — the plan must wire the ambiguity check into the onSubmit path itself). convergence continue. ~18k tokens.
++- iter 2: APPROVE — 0 P0/P1, 5 non-blocking P2 (SB1 reuse light checkAmbiguity; SB2 client-side cluster-selection with visible representation; SB3 keep the inline card; SB4 the mandatory submit preflight closes the bypass, no-upload empty-candidate limitation accepted; SB5 no backend-backed e2e required; impl caution: capture+stale-check the input key around the async preflight — all baked into commit 1). convergence accept_remaining. Fix: onSubmit now runs a mandatory ambiguity preflight before createRun(); resetAmbiguityState() in every input-change handler (not a useEffect, per react-hooks/set-state-in-effect) + an ambiguityCheckedKey freshness key invalidate stale results/selections. web/app/dashboard/page.tsx only. ~52k tokens.
++
++### Diff review
++- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (stale_async_guard_uses_stale_render_closure: the onSubmit ambiguity preflight re-read currentInputKey() AFTER `await checkAmbiguity` to detect a mid-flight input change, but the re-read used the SAME render closure's question/template/uploads — it could never observe a change that occurred during the await, so the stale guard was a dead no-op; required fix — capture an immutable input snapshot before the async work and compare against a latest-key ref afterwards). convergence continue. 65k tokens.
++- iter 2: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Fix (commit 30a9d67e): currentInputKey is now a render-computed const mirrored into latestInputKeyRef via a no-dep useEffect (a ref WRITE, not setState — lint-clean, does not trip react-hooks/set-state-in-effect); onSubmit + runScopeCheck capture `const key = currentInputKey` before the await and guard with `latestInputKeyRef.current !== key`; new resolvedForKey state binds a resolution (a modal cluster pick or an acknowledge-all) to the input key it was made for, and `resolved` is now `resolvedForKey === key && (pickedClusterId !== null || acknowledgedAmbiguity)` — a resolution recorded for an earlier query can no longer unblock a later, changed one. resetAmbiguityState() clears resolvedForKey; onSelectCluster + the acknowledge toggle set it. web/app/dashboard/page.tsx only. Codex confirmed createRun() is after the ambiguity gate, stale results are discarded via the captured-key/ref comparison, resolutions are key-bound, and every post-setSubmitting(true) early return clears submitting. 86k tokens.
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 565e7018..b269f719 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+-import { useEffect, useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+ import {
+@@ -19,12 +19,14 @@ import {
+   createRun,
+   listTemplates,
+   uploadDocument,
++  type AmbiguityCandidate,
+   type AmbiguityResult,
+   type ScopeDecision,
+   type TemplateContent,
+   type TemplateId,
+   type UploadResponse,
+ } from "@/lib/api";
++import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+ 
+ // Static fallback if /templates is unreachable. Keeps the dashboard usable
+ // even if the backend is down; live data preferred when available.
+@@ -82,6 +84,19 @@ export default function DashboardPage() {
+   const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+   const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
++  // I-rdy-009 (#505): pre-run disambiguation. `disambigModalOpen` drives the
++  // DisambiguationModal; `pickedClusterId` is the "selected one cluster"
++  // resolution mode (distinct from `acknowledgedAmbiguity` = "run on all");
++  // `ambiguityCheckedKey` marks which (question, template, uploads) the
++  // `ambiguity` result is valid for; `resolvedForKey` binds a resolution
++  // (a pick or an acknowledge) to the input key it was made for, so a stale
++  // resolution cannot unblock a later, changed query (Codex diff iter-1 P1).
++  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
++  const [pickedClusterId, setPickedClusterId] = useState<number | null>(null);
++  const [ambiguityCheckedKey, setAmbiguityCheckedKey] = useState<string | null>(
++    null,
++  );
++  const [resolvedForKey, setResolvedForKey] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -99,6 +114,46 @@ export default function DashboardPage() {
+     };
+   }, []);
+ 
++  // I-rdy-009 (#505): the ambiguity result is valid only for the exact
++  // (question, template, uploads) it was computed for. `currentInputKey` is
++  // recomputed every render; `latestInputKeyRef` mirrors it so async code
++  // can compare a captured key against the LATEST committed inputs after an
++  // await — a plain `currentInputKey` re-read inside an async handler would
++  // only see that handler's stale render closure (Codex diff iter-1 P1).
++  const currentInputKey = JSON.stringify({
++    q: question.trim(),
++    t: template,
++    d: uploads.map((u) => u.document_id),
++  });
++  const latestInputKeyRef = useRef(currentInputKey);
++  useEffect(() => {
++    latestInputKeyRef.current = currentInputKey;
++  });
++
++  // The light-detector candidates: one per uploaded-document chunk preview.
++  const buildCandidates = (): AmbiguityCandidate[] =>
++    uploads.flatMap((u, ui) =>
++      u.chunk_preview.map((text, ci) => ({
++        source_id: `${u.document_id}:${ui}-${ci}`,
++        text,
++      })),
++    );
++
++  // I-rdy-009 (#505): a question / template / uploads change invalidates
++  // any prior ambiguity result AND modal selection — otherwise a cluster
++  // picked for an earlier query could wrongly unblock a later, changed one
++  // (the freshness key alone does not clear `pickedClusterId`). Called from
++  // every input-change handler — NOT a useEffect (resetting state in an
++  // effect is the react-hooks/set-state-in-effect anti-pattern).
++  const resetAmbiguityState = () => {
++    setAmbiguity(null);
++    setAcknowledgedAmbiguity(false);
++    setPickedClusterId(null);
++    setAmbiguityCheckedKey(null);
++    setResolvedForKey(null);
++    setDisambigModalOpen(false);
++  };
++
+   const handleFiles = async (files: FileList | File[]) => {
+     const list = Array.from(files);
+     if (list.length === 0) return;
+@@ -111,6 +166,7 @@ export default function DashboardPage() {
+         results.push(result);
+       }
+       setUploads((prev) => [...prev, ...results]);
++      resetAmbiguityState();
+     } catch (err) {
+       setError(err instanceof Error ? err.message : "Upload failed");
+     } finally {
+@@ -132,19 +188,27 @@ export default function DashboardPage() {
+     setError(null);
+     setAmbiguity(null);
+     setAcknowledgedAmbiguity(false);
++    setPickedClusterId(null);
++    setAmbiguityCheckedKey(null);
++    setResolvedForKey(null);
++    // Captured before any await; compared against latestInputKeyRef (the
++    // latest committed inputs) afterwards — not a stale closure re-read.
++    const key = currentInputKey;
+     try {
+       const decision = await checkScope(template, question.trim());
++      if (latestInputKeyRef.current !== key) return;
+       setScopeDecision(decision);
+-      if (decision.verdict === "accepted" && uploads.length > 0) {
+-        const candidates = uploads.flatMap((u, ui) =>
+-          u.chunk_preview.map((text, ci) => ({
+-            source_id: `${u.document_id}:${ui}-${ci}`,
+-            text,
+-          })),
+-        );
++      if (decision.verdict === "accepted") {
++        const candidates = buildCandidates();
+         if (candidates.length > 0) {
+           const result = await checkAmbiguity(question.trim(), candidates);
++          // Ignore a late result whose inputs changed during the await.
++          if (latestInputKeyRef.current !== key) return;
+           setAmbiguity(result);
++          setAmbiguityCheckedKey(key);
++          if (result.is_ambiguous && result.clusters.length > 0) {
++            setDisambigModalOpen(true);
++          }
+         }
+       }
+     } catch (err) {
+@@ -164,14 +228,61 @@ export default function DashboardPage() {
+       setError("Scope gate rejected this question. Reframe before submitting.");
+       return;
+     }
+-    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+-      setError(
+-        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+-      );
++    setError(null);
++    setSubmitting(true);
++
++    // I-rdy-009 (#505): mandatory pre-run ambiguity preflight. createRun()
++    // cannot fire until ambiguity has been checked for the CURRENT inputs
++    // and is either absent or resolved (a cluster picked, or all clusters
++    // acknowledged) — so the disambiguation modal cannot be bypassed by
++    // clicking "Start run" without first running "Check scope".
++    let amb = ambiguity;
++    // Captured before any await; the stale-guard compares it against
++    // latestInputKeyRef (the latest committed inputs), never a re-read of
++    // this handler's own stale render closure (Codex diff iter-1 P1).
++    const key = currentInputKey;
++    if (ambiguityCheckedKey !== key) {
++      const candidates = buildCandidates();
++      if (candidates.length === 0) {
++        // No candidate snippets — nothing for the detector to cluster.
++        amb = null;
++        setAmbiguity(null);
++        setAmbiguityCheckedKey(key);
++      } else {
++        try {
++          const result = await checkAmbiguity(question.trim(), candidates);
++          if (latestInputKeyRef.current !== key) {
++            // Inputs changed mid-flight — discard this stale result.
++            setSubmitting(false);
++            return;
++          }
++          amb = result;
++          setAmbiguity(result);
++          setAmbiguityCheckedKey(key);
++        } catch (err) {
++          setError(
++            err instanceof Error ? err.message : "Ambiguity check failed",
++          );
++          setSubmitting(false);
++          return;
++        }
++      }
++    }
++
++    // A pick / acknowledge only resolves the ambiguity if it was made for
++    // THIS input key — a resolution recorded for an earlier query must not
++    // unblock a changed one (Codex diff iter-1 P1).
++    const resolved =
++      resolvedForKey === key &&
++      (pickedClusterId !== null || acknowledgedAmbiguity);
++    if (amb?.is_ambiguous && !resolved) {
++      // Open the disambiguation modal and hold the run until the operator
++      // picks a meaning (or acknowledges all clusters in the panel).
++      setDisambigModalOpen(true);
++      setSubmitting(false);
+       return;
+     }
+-    setSubmitting(true);
+-    setError(null);
++
+     try {
+       const run = await createRun({
+         template,
+@@ -235,7 +346,10 @@ export default function DashboardPage() {
+                     type="button"
+                     role="radio"
+                     aria-checked={selected}
+-                    onClick={() => setTemplate(t.id)}
++                    onClick={() => {
++                      setTemplate(t.id);
++                      resetAmbiguityState();
++                    }}
+                     className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                       selected
+                         ? "border-foreground"
+@@ -266,7 +380,10 @@ export default function DashboardPage() {
+               type="text"
+               placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+               value={question}
+-              onChange={(e) => setQuestion(e.target.value)}
++              onChange={(e) => {
++                setQuestion(e.target.value);
++                resetAmbiguityState();
++              }}
+               minLength={4}
+               maxLength={2000}
+               required
+@@ -331,11 +448,12 @@ export default function DashboardPage() {
+                     </span>
+                     <button
+                       type="button"
+-                      onClick={() =>
++                      onClick={() => {
+                         setUploads((prev) =>
+                           prev.filter((p) => p.document_id !== u.document_id),
+-                        )
+-                      }
++                        );
++                        resetAmbiguityState();
++                      }}
+                       className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+                     >
+                       remove
+@@ -418,16 +536,39 @@ export default function DashboardPage() {
+                     </li>
+                   ))}
+                 </ul>
+-                <div className="mt-3 flex gap-2">
+-                  <Button
+-                    type="button"
+-                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+-                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+-                  >
+-                    {acknowledgedAmbiguity
+-                      ? "Acknowledged — will run on all clusters"
+-                      : "Acknowledge ambiguity"}
+-                  </Button>
++                <div className="mt-3 flex flex-col gap-2">
++                  {pickedClusterId !== null ? (
++                    // Resolution mode: one cluster picked via the modal.
++                    <p className="text-foreground text-sm font-medium">
++                      Focused on Cluster {pickedClusterId + 1} — the run will
++                      proceed with that interpretation.
++                    </p>
++                  ) : (
++                    // Unresolved: re-open the modal to pick one, or
++                    // acknowledge all clusters to run on every meaning.
++                    <div className="flex flex-wrap gap-2">
++                      <Button
++                        type="button"
++                        onClick={() => setDisambigModalOpen(true)}
++                      >
++                        Pick a meaning…
++                      </Button>
++                      <Button
++                        type="button"
++                        variant={acknowledgedAmbiguity ? "default" : "outline"}
++                        onClick={() => {
++                          setAcknowledgedAmbiguity((v) => !v);
++                          // Bind the acknowledge decision to the current
++                          // input key (Codex diff iter-1 P1).
++                          setResolvedForKey(currentInputKey);
++                        }}
++                      >
++                        {acknowledgedAmbiguity
++                          ? "Acknowledged — will run on all clusters"
++                          : "Acknowledge ambiguity"}
++                      </Button>
++                    </div>
++                  )}
+                 </div>
+               </CardContent>
+             </Card>
+@@ -465,6 +606,31 @@ export default function DashboardPage() {
+               {submitting ? "Queuing…" : "Start run"}
+             </Button>
+           </div>
++
++          {/* I-rdy-009 (#505): the disambiguation modal — opened by the
++              onSubmit ambiguity preflight (and by "Check scope" / "Pick a
++              meaning…"). Picking a cluster resolves the ambiguity and lets
++              the held run proceed. Clusters are the real AmbiguityResult
++              clusters; representative_text is reused 1:1 as the label. */}
++          <DisambiguationModal
++            open={disambigModalOpen}
++            clusters={
++              ambiguity?.clusters.map((c) => ({
++                cluster_id: c.cluster_id,
++                label: c.representative_text,
++                sample_snippets: [c.representative_text],
++              })) ?? []
++            }
++            onSelectCluster={(cid) => {
++              setPickedClusterId(cid);
++              // Bind the resolution to the input key it was made for, so a
++              // pick cannot unblock a later, changed query (Codex diff
++              // iter-1 P1).
++              setResolvedForKey(currentInputKey);
++              setDisambigModalOpen(false);
++            }}
++            onCancel={() => setDisambigModalOpen(false)}
++          />
+         </form>
+       </main>
+ 
+
+# canonical-diff-sha256: 7ee021650bfe1b747b80bc5b5884f7821bafe33d61b7f90e8f9815d1a16247e0
