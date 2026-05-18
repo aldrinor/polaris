@@ -349,4 +349,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 3: APPROVE — 0 P0/P1, 2 non-blocking P2 (.pytest_cache already ignored by line 41 — audit-text accuracy; separate global-excludes permission warning — both folded into claude_audit.md). convergence continue. P1 trajectory 2→1→0. One small slice of #432 per Codex disposition B_close_recut_fresh after PR #433 (233-file mega-PR) closed: .gitignore gains 21 anchored root-only patterns for the ~150 observed scratch-dir families. #432 stays open (physical archiving is Windows-ACL user-gated; .codex/ mass-archive deferred).
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md alongside .gitignore — expected process metadata; the code commit be777332 is .gitignore only +27/-0). convergence accept_remaining. Shadowing check (lines 166-186) empty; positive coverage 23/23 dirs; no CRLF reflow. P1 trajectory 0.
