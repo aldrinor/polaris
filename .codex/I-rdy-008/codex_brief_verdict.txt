@@ -2,6 +2,9 @@ verdict: APPROVE
 novel_p0: []
 continuing_p0: []
 p1: []
-p2: []
+p2:
+  - "§3.4: if implementation literally uses `err.message`, FastAPI 422 detail will be hidden because `asJsonOrThrow()` stores it on `ApiError.body`; extract `body.detail` when present."
+  - "§2.2: `ir.protocol` is nullable, so use neutral fallback text for missing `scope_decision` / `created_at_iso`."
+  - "§3.3: deriving two-family PASS/FAIL from families is acceptable, but show PASS only when both family strings are non-empty and unequal; otherwise use neutral provenance-incomplete state."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []

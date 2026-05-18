@@ -15,8 +15,11 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
 import { VegaChart } from "@/components/ui/vega-chart";
 import {
   downloadBundleAsJson,
+  getAuditRun,
   getBundle,
   getChart,
+  type ApiError,
+  type AuditIrRun,
   type ChartType,
   type EvidenceContract,
   type SourceSpan,
@@ -27,8 +30,56 @@ interface InspectorPageProps {
   params: Promise<{ runId: string }>;
 }
 
+/**
+ * Extract a human-readable message from a thrown error. FastAPI puts its
+ * 404/409/422 reason in the JSON response body's `detail` field, which
+ * `asJsonOrThrow` stores on `ApiError.body` — `err.message` alone would
+ * surface only the bare "POLARIS backend returned 422".
+ */
+function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object" && "body" in err) {
+    const body = (err as ApiError).body;
+    if (body && typeof body === "object" && "detail" in body) {
+      const detail = (body as { detail: unknown }).detail;
+      if (typeof detail === "string" && detail.length > 0) return detail;
+    }
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
+/**
+ * Two-family invariant (CLAUDE.md §9.1.1) derived from the AuditIR model
+ * provenance. AuditIR carries no stored `family_segregation_passed` boolean —
+ * the invariant *is* "generator and evaluator from different lineages", so it
+ * is recomputed from the family strings. PASS/FAIL is only meaningful when
+ * both family strings are recorded; otherwise the state is "not recorded".
+ */
+function twoFamilyState(ir: AuditIrRun): {
+  known: boolean;
+  passed: boolean;
+  generatorModel: string;
+  evaluatorModel: string;
+} {
+  const mp = ir.model_provenance;
+  if (mp == null || mp.generator_family === "" || mp.evaluator_family === "") {
+    return {
+      known: false,
+      passed: false,
+      generatorModel: "",
+      evaluatorModel: "",
+    };
+  }
+  return {
+    known: true,
+    passed: mp.generator_family !== mp.evaluator_family,
+    generatorModel: mp.generator_model,
+    evaluatorModel: mp.evaluator_model,
+  };
+}
+
 export default function InspectorPage({ params }: InspectorPageProps) {
   const { runId } = use(params);
+  const [ir, setIr] = useState<AuditIrRun | null>(null);
   const [bundle, setBundle] = useState<EvidenceContract | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
@@ -38,15 +89,28 @@ export default function InspectorPage({ params }: InspectorPageProps) {
     "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
   >("summary");
 
+  // I-rdy-008 (#504) slice 3 — dual-fetch transition state. The shell + the
+  // Executive-summary tab read the faithful AuditIR (`getAuditRun`); the other
+  // 5 tabs + EvidencePane still read the legacy bundle (`getBundle`). Slices
+  // 4-7 migrate the remaining tabs, after which the `getBundle` call is
+  // removed.
   useEffect(() => {
     let cancelled = false;
+    getAuditRun(runId)
+      .then((r) => {
+        if (!cancelled) setIr(r);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setError(apiErrorMessage(err, "Run inspector load failed"));
+      });
     getBundle(runId)
       .then((b) => {
         if (!cancelled) setBundle(b);
       })
       .catch((err) => {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "Bundle load failed");
+          setError(apiErrorMessage(err, "Evidence bundle load failed"));
       });
     return () => {
       cancelled = true;
@@ -121,7 +185,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
               id="inspector-error-heading"
               className="text-foreground text-2xl font-semibold tracking-tight"
             >
-              Bundle load failed
+              Run inspector unavailable
             </h1>
             <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
               {error}
@@ -129,66 +193,9 @@ export default function InspectorPage({ params }: InspectorPageProps) {
           </section>
         )}
 
-        {bundle && (
+        {ir && bundle && (
           <>
-            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Card>
-                <CardHeader>
-                  <CardDescription className="text-xs tracking-widest uppercase">
-                    Pipeline status
-                  </CardDescription>
-                  <CardTitle className="font-mono text-sm">
-                    {bundle.pipeline_status}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card
-                className={
-                  bundle.family_segregation_passed
-                    ? "border-emerald-500/40 bg-emerald-50/30"
-                    : "border-destructive/60"
-                }
-              >
-                <CardHeader>
-                  <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
-                    Two-family invariant
-                  </CardDescription>
-                  <CardTitle className="text-sm">
-                    {bundle.family_segregation_passed ? "PASS" : "FAIL"} ·{" "}
-                    {bundle.generator_model} → {bundle.verifier_model}
-                  </CardTitle>
-                </CardHeader>
-                {!bundle.family_segregation_passed && (
-                  <CardContent className="text-foreground text-sm font-medium">
-                    CLAUDE.md §9.1 invariant violated. Run output is suspect:
-                    generator and verifier share lineage. Re-run with
-                    family-segregated models before trusting verdicts.
-                  </CardContent>
-                )}
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription className="text-xs tracking-widest uppercase">
-                    Cost
-                  </CardDescription>
-                  <CardTitle className="text-sm">
-                    USD {bundle.cost_usd.toFixed(2)}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            </section>
-
-            <section className="flex flex-col gap-2">
-              <h1 className="text-foreground text-2xl font-semibold tracking-tight">
-                {bundle.question}
-              </h1>
-              <p className="text-muted-foreground text-sm">
-                Template:{" "}
-                <span className="text-foreground">{bundle.template}</span>
-                {" · "}Queued <time>{bundle.queued_at}</time>
-                {" · "}Finished <time>{bundle.finished_at}</time>
-              </p>
-            </section>
+            <RunShell ir={ir} />
 
             <nav className="border-border flex gap-2 border-b">
               {tabs.map((t) => (
@@ -213,7 +220,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 {activeTab === "summary" && (
                   <ExecutiveSummaryTab
                     runId={runId}
-                    bundle={bundle}
+                    ir={ir}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
                   />
                 )}
@@ -258,6 +265,88 @@ export default function InspectorPage({ params }: InspectorPageProps) {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * Run shell — the 3 status cards + run-header, rendered from the faithful
+ * AuditIR (I-rdy-008 #504 slice 3). `template` / `queued_at` / `finished_at`
+ * are run_store lifecycle fields with no AuditIR equivalent; the header
+ * instead shows the AuditIR-native `slug`, `scope_decision`, and
+ * `created_at_iso` (the latter two only when `protocol` is recorded).
+ */
+function RunShell({ ir }: { ir: AuditIrRun }) {
+  const twoFamily = twoFamilyState(ir);
+  return (
+    <>
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              Pipeline status
+            </CardDescription>
+            <CardTitle className="font-mono text-sm">
+              {ir.manifest.status}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card
+          className={
+            !twoFamily.known
+              ? ""
+              : twoFamily.passed
+                ? "border-emerald-500/40 bg-emerald-50/30"
+                : "border-destructive/60"
+          }
+        >
+          <CardHeader>
+            <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+              Two-family invariant
+            </CardDescription>
+            <CardTitle className="text-sm">
+              {!twoFamily.known
+                ? "Model provenance not recorded"
+                : `${twoFamily.passed ? "PASS" : "FAIL"} · ${twoFamily.generatorModel} → ${twoFamily.evaluatorModel}`}
+            </CardTitle>
+          </CardHeader>
+          {twoFamily.known && !twoFamily.passed && (
+            <CardContent className="text-foreground text-sm font-medium">
+              CLAUDE.md §9.1 invariant violated. Run output is suspect:
+              generator and evaluator share lineage. Re-run with
+              family-segregated models before trusting verdicts.
+            </CardContent>
+          )}
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              Cost
+            </CardDescription>
+            <CardTitle className="text-sm">
+              USD {ir.manifest.cost_usd.toFixed(2)}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          {ir.manifest.question}
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Run <span className="text-foreground">{ir.manifest.slug}</span>
+          {ir.protocol && (
+            <>
+              {" · "}Scope{" "}
+              <span className="text-foreground">
+                {ir.protocol.scope_decision}
+              </span>
+              {" · "}Created <time>{ir.protocol.created_at_iso}</time>
+            </>
+          )}
+        </p>
+      </section>
+    </>
   );
 }
 
@@ -458,17 +547,19 @@ function ContradictionsTab({
 
 function ExecutiveSummaryTab({
   runId,
-  bundle,
+  ir,
   onSelect,
 }: {
   runId: string;
-  bundle: EvidenceContract;
+  ir: AuditIrRun;
   onSelect: (id: string) => void;
 }) {
   /**
    * F10c executive-summary infographic — composes all 3 chart types
    * (forest_plot + comparison_table + timeline) into a single page-
    * level briefing view, anchored by the run question + key counts.
+   * I-rdy-008 #504 slice 3: counts + tier mix now read the faithful
+   * AuditIR manifest/bibliography rather than the legacy bundle.
    */
   const chartTypes: ChartType[] = [
     "forest_plot",
@@ -506,18 +597,20 @@ function ExecutiveSummaryTab({
     };
   }, [runId]);
 
-  const verifiedCount = bundle.verified_sentences.length;
-  const droppedCount = bundle.verified_sentences.filter(
-    (s) => s.drop_reason,
-  ).length;
-  const contradictionCount = bundle.contradictions.length;
-  const tierCounts = bundle.evidence_pool.reduce<Record<string, number>>(
-    (acc, span) => {
-      acc[span.source_tier] = (acc[span.source_tier] ?? 0) + 1;
+  const verifiedCount = ir.manifest.sentences_verified;
+  const droppedCount = ir.manifest.sentences_dropped;
+  const contradictionCount = ir.manifest.contradictions_found;
+  const tierCounts = ir.bibliography.reduce<Record<string, number>>(
+    (acc, entry) => {
+      acc[entry.tier] = (acc[entry.tier] ?? 0) + 1;
       return acc;
     },
     {},
   );
+  const tierSummary = Object.keys(tierCounts)
+    .sort()
+    .map((tier) => `${tier}:${tierCounts[tier]}`)
+    .join(" · ");
 
   return (
     <div className="flex flex-col gap-4">
@@ -526,10 +619,10 @@ function ExecutiveSummaryTab({
           <CardDescription className="text-xs tracking-widest uppercase">
             Executive briefing — at a glance
           </CardDescription>
-          <CardTitle className="text-base">{bundle.template} run</CardTitle>
+          <CardTitle className="text-base">{ir.manifest.slug} run</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-foreground text-sm">{bundle.question}</p>
+          <p className="text-foreground text-sm">{ir.manifest.question}</p>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
             <div>
               <p className="text-muted-foreground text-xs uppercase">
@@ -556,16 +649,38 @@ function ExecutiveSummaryTab({
             <div>
               <p className="text-muted-foreground text-xs uppercase">Sources</p>
               <p className="text-foreground text-xl font-semibold">
-                {bundle.evidence_pool.length}
+                {ir.bibliography.length}
                 <span className="text-muted-foreground ml-2 text-xs font-normal">
-                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
-                  {tierCounts.T3 ?? 0}
+                  {tierSummary || "no tiers"}
                 </span>
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {ir.report_md && (
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              Verified report
+            </CardDescription>
+            <CardTitle className="text-sm">
+              Full markdown · {ir.manifest.word_count} words
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <details>
+              <summary className="text-muted-foreground cursor-pointer text-xs">
+                View full verified report (raw markdown)
+              </summary>
+              <pre className="bg-muted text-foreground mt-2 max-h-[32rem] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+                {ir.report_md}
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
 
       {chartTypes.map((t) => {
         const spec = specs[t];

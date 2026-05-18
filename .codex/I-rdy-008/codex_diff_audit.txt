@@ -3,6 +3,6 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "state/polaris_restart/iteration_trajectory.md:380 - Actual git diff with the stated exclusions includes this out-of-scope tracker update, so the branch is not strictly the advertised one-file web/lib/api.ts slice. No runtime impact."
+  - "Non-blocking scope drift: `git diff origin/polaris...HEAD` includes `state/polaris_restart/iteration_trajectory.md:388` in addition to `web/app/inspector/[runId]/page.tsx`. Execution path is unaffected, but it contradicts the stated one-file slice unless this process metadata is intentionally allowed."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
