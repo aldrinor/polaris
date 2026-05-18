@@ -72,12 +72,25 @@ jobs:
           # are gated.
           # Examples that SKIP: `bot/pr-d-mechanical-gates`,
           # `bot/cleanup-pr-3a-archive-m1m26`, `bot/pr-e`.
+          # I-ci-001 (#571) fix: the base-ID capture group ALSO absorbs an
+          # optional `-followup` literal OR a single bare carved letter
+          # `[a-z]` directly after the 3-digit number. Without this,
+          # `-followup` issues collapsed onto the PARENT id (reading the
+          # parent's already-merged `.codex/<id>/` artifacts) and carved
+          # `a/b/c...` issues failed the regex outright (PR rejected). The
+          # carved letter is bare; a descriptive slug always carries a
+          # leading `-`, which keeps the two unambiguous —
+          # `bot/I-rdy-014a` -> `I-rdy-014a` (carved) vs
+          # `bot/I-rdy-014-a` -> `I-rdy-014` (slug `a`). Each followup/carved
+          # id thus owns its own `.codex/<id>/` artifact dir.
           # Examples that GATE: `bot/I-f1-001`, `bot/I-f1-001-scope-discovery`,
-          # `bot/I-bug-079`, `bot/I-hand-003-final` -> issue_id =
-          # `I-f1-001`, `I-bug-079`, `I-hand-003`.
+          # `bot/I-bug-079`, `bot/I-hand-003-final`, `bot/I-rdy-019-followup`,
+          # `bot/I-rdy-019-followup-test-matrix`, `bot/I-rdy-014a` -> issue_id =
+          # `I-f1-001`, `I-bug-079`, `I-hand-003`, `I-rdy-019-followup`,
+          # `I-rdy-019-followup`, `I-rdy-014a`.
           # Examples that REJECT (closed: branch-name bypass): `bot/pr-malicious`,
           # `bot/setup-anything`, `bot/slice-foo`, `bot/cleanup-pr-9` (no canonical PR-9).
-          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3})(-[a-z0-9_-]+)?$ ]]; then
+          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3}(-followup|[a-z])?)(-[a-z0-9_-]+)?$ ]]; then
             issue_id="${BASH_REMATCH[1]}"
             printf 'issue_id=%s\n' "$issue_id" >> "$GITHUB_OUTPUT"
             printf 'skip=false\n' >> "$GITHUB_OUTPUT"
@@ -116,7 +129,7 @@ jobs:
             # AND doesn't match the infra-branch allowlist. Reject explicitly
             # to prevent malformed issue IDs sneaking through the gate.
             echo "ERROR: head ref '$HEAD_REF' starts with bot/ but doesn't match"
-            echo "       (a) canonical issue schema 'I-[a-z0-9]{2,8}-[0-9]{3}[-<NAME>]'"
+            echo "       (a) canonical issue schema 'I-[a-z0-9]{2,8}-[0-9]{3}[-followup|<a-z>][-<NAME>]'"
             echo "           (per state/polaris_restart/issue_breakdown.md §3)"
             echo "       OR (b) infra allowlist: bot/pr-(a|a2|a3|b|b2|c|d|e|f) or"
             echo "          bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8) [with optional -<slug>]"
