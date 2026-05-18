@@ -1,4 +1,4 @@
-# Codex DIFF review — I-rdy-008 / GH #504 slice 5: migrate the frame-coverage tab to AuditIR
+# Codex DIFF review — I-rdy-008 / GH #504 slice 6: migrate the contradictions tab to AuditIR
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -12,65 +12,66 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 ## 1. What you are reviewing
 
-The commit-1 diff for #504 **slice 5** — `git diff origin/polaris...HEAD`
+The commit-1 diff for #504 **slice 6** — `git diff origin/polaris...HEAD`
 excluding `.codex/I-rdy-008/` and `outputs/audits/I-rdy-008/` (canonical diff
 in `.codex/I-rdy-008/codex_diff.patch`, sha256 trailer). Implements the
 Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, all
-5 scope calls accepted). **1 file: `web/app/inspector/[runId]/page.tsx`.**
+6 scope calls accepted). **1 file: `web/app/inspector/[runId]/page.tsx`.**
 
-Slice 5 of ~12 for #504 (Option A). Migrates the inspector page
-**frame-coverage tab** (`FramesTab`) off `getBundle()`/`EvidenceContract`
-onto the AuditIR `frame_coverage`. `SentencesTab` (slice 4) /
-`ContradictionsTab` / `ChartsTab` / `PoolTab` / `EvidencePane` stay on
-`getBundle()` — slices 6-7. Do NOT flag "the other tabs still use
+Slice 6 of ~12 for #504 (Option A). Migrates the inspector page
+**contradictions tab** (`ContradictionsTab`) off `getBundle()`/
+`EvidenceContract` onto the AuditIR `contradictions`. `SentencesTab` (s4) /
+`FramesTab` (s5) / `ChartsTab` / `PoolTab` / `EvidencePane` stay on
+`getBundle()` — slices 7+. Do NOT flag "the other tabs still use
 getBundle()" — deliberate.
 
 ## 2. The change
 
-- `FramesTab` — new prop `{ ir: AuditIrRun }` (was `{ bundle }`); renders
-  `ir.frame_coverage` (`AuditIrFrameCoverageReport`): a `semantics_warning`
-  banner, a summary card (pass/partial/gap/fault counts, totals,
-  schema_version), and a per-entry list (`subsection_title`, `section`/
-  `slot_id`, `status` badge, `entity_type`/`provenance_class`,
-  `failure_reason`, `doi`/`pmid` links, collapsible `retrieval_attempt_log`).
-- New `frameStatusClass(status)` — heuristic color (pass/partial/else).
-- `frames` tab count `bundle.frame_coverage.length` →
-  `ir.frame_coverage.entries.length`.
-- Call site `<FramesTab bundle={bundle} />` → `<FramesTab ir={ir} />`.
+- `ContradictionsTab` — new props `{ ir, onSelect }` (was `{ bundle,
+  onSelect }`); maps `ir.contradictions` (`AuditIrContradictionCluster[]`):
+  per cluster a Card (key `cluster_id`) with a `severity` badge + diff
+  (`absolute_difference`/`relative_difference`), `subject` — `predicate`
+  title, `recommended_action` line, and an N-row `claims[]` list (per claim:
+  `value`/`unit`, `endpoint_phrase`, `arm`/`dose`/`source_tier`,
+  `context_snippet`, clickable `evidence_id`, `source_url` link).
+- New `contradictionSeverityClass(severity)` — heuristic color.
+- `contradictions` tab count `bundle.contradictions.length` →
+  `ir.contradictions.length`.
+- Call site `<ContradictionsTab bundle={bundle} … />` → `ir={ir}`.
 
 ## 3. Verify
 
-1. **AuditIR field access faithful.** `fc` = `ir.frame_coverage`
-   (`AuditIrFrameCoverageReport`: `pass_count`, `partial_count`,
-   `frame_gap_count`, `pipeline_fault_count`, `total_entities`,
-   `total_slots`, `schema_version`, `semantics_warning|null`, `entries`);
-   each entry (`AuditIrFrameCoverageEntry`: `entity_id`, `entity_type`,
-   `section`, `slot_id`, `subsection_title`, `status`, `doi|null`,
-   `pmid|null`, `failure_reason|null`, `provenance_class`,
-   `is_pipeline_fault`, `retrieval_attempt_log`); each attempt
-   (`AuditIrRetrievalAttempt`: `attempt_index`, `source`, `url`, `outcome`,
-   `http_status|null`). Cross-check `web/lib/api.ts` (slice 2) +
-   `src/polaris_graph/audit_ir/loader.py` `_parse_frame_coverage`.
-2. **No fabrication.** Nullable fields (`semantics_warning`,
-   `failure_reason`, `doi`, `pmid`, `http_status`) are all guarded before
-   render; `subsection_title` falls back to `entity_id`.
-3. **`status` is a free string** — `frameStatusClass` renders it raw and
-   only color-codes; no enum assumption breaks an unknown value.
-4. **`FramesTab` no longer reads `bundle`** — the prop is `ir` only.
-5. **The other tabs + `EvidencePane`** are byte-identical to `polaris` HEAD;
-   `evidenceById` / `onSelect` chains untouched.
+1. **AuditIR field access faithful.** `AuditIrContradictionCluster`
+   (`cluster_id`, `subject`, `predicate`, `severity`, `absolute_difference`,
+   `relative_difference`, `recommended_action`, `claims`);
+   `AuditIrContradictionClaim` (`evidence_id`, `subject`, `predicate`,
+   `arm`, `dose`, `value`, `unit`, `source_tier`, `source_url`,
+   `context_snippet`, `endpoint_phrase`). Cross-check `web/lib/api.ts`
+   (slice 2) + `src/polaris_graph/audit_ir/loader.py` `_parse_contradictions`.
+2. **`source_url` guarded.** The `source` link renders only when
+   `claim.source_url` is non-empty (the loader defaults missing to `""`).
+3. **No fabrication.** `recommended_action` / `context_snippet` /
+   `endpoint_phrase` / `arm` / `dose` rendered only when non-empty;
+   `cluster_id` is the React key only (the loader assigns it from the list
+   index — stable per load).
+4. **`onSelect`** still routes a claim `evidence_id` to the bundle-backed
+   `EvidencePane` (dual-fetch transition); the `InspectorPage` closure +
+   `evidenceById` are untouched.
+5. **The other tabs + `EvidencePane`** byte-identical to `polaris` HEAD;
+   `SentencesTab`'s `bundle.contradictions[].section_id` badge is
+   independent of this change and untouched.
 6. **Scope** — only `web/app/inspector/[runId]/page.tsx`; no `web/lib/api.ts`,
    no `web/components/ui/**`, no `src/`.
 
 ## 4. Files I have ALSO checked and they're clean
 
-- `web/lib/api.ts` — `AuditIrFrameCoverageReport`/`AuditIrFrameCoverageEntry`/
-  `AuditIrRetrievalAttempt` (slice 2); NOT modified.
-- `src/polaris_graph/audit_ir/loader.py` — `_parse_frame_coverage` (frame
-  coverage from `manifest.json.frame_coverage_report`; `by_status` →
-  `pass_count`/`partial_count`); NOT modified.
-- `SentencesTab` / `ContradictionsTab` / `ChartsTab` / `PoolTab` /
-  `EvidencePane` — untouched.
+- `web/lib/api.ts` — `AuditIrContradictionCluster`/`AuditIrContradictionClaim`
+  (slice 2); NOT modified.
+- `src/polaris_graph/audit_ir/loader.py` — `_parse_contradictions`
+  (`cluster_id=idx`; `claims` ≥2; `severity` default `"unknown"`); NOT
+  modified.
+- `SentencesTab` / `FramesTab` / `ChartsTab` / `PoolTab` / `EvidencePane` —
+  untouched.
 
 ## 5. Smoke state
 

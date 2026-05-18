@@ -3,6 +3,7 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Scope rulings: 3.1 accept; 3.2 accept; 3.3 accept; 3.4 accept collapsible retrieval log in slice 5; 3.5 accept raw-status rendering with pass/partial/else coloring."
-convergence_call: continue
+  - "Non-blocking implementation note: render source_url as a link only when non-empty, since the loader defaults missing source_url to ''."
+  - "Scope calls accepted: 3.1 N-claim list redesign; 3.2 subject/predicate/severity header with cluster_id key-only; 3.3 recommended_action as the resolution successor; 3.4 bundle-backed onSelect during dual-fetch; 3.5 full claim detail rendering; 3.6 no SentencesTab action."
+convergence_call: accept_remaining
 remaining_blockers_for_execution: []

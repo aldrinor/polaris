@@ -1,211 +1,180 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 383181e4..20f82e9f 100644
+index 20f82e9f..7a95ea5e 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -400,3 +400,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -408,3 +408,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside the 2 code files — expected process metadata, same note as slices 1-3). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +95/-59 + evidence-tooltip.tsx sourceTier widening. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~104k tokens.
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; zero-entry frame_coverage returns the empty-state before the report-level semantics_warning/summary — Codex explicitly "edge-case UI omission, not an execution blocker", accepted-residual: a run with zero frame entries does not occur in practice). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +140/-30 — FramesTab on AuditIR frame_coverage. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~54k tokens.
 +
-+## I-rdy-008 (#504) slice 5 — migrate the frame-coverage tab to the AuditIR client
++## I-rdy-008 (#504) slice 6 — migrate the contradictions tab to the AuditIR client
 +
 +### Brief review
-+- iter 1: APPROVE — 0 P0/P1, 1 P2 (all 5 §3 scope-boundary calls ruled accept: no per-entry coverage_percent → status badge + report-level summary; entity/slot identifiers replace frame_id/frame_name; semantics_warning disclosure banner; collapsible retrieval_attempt_log in slice 5; raw-status heuristic coloring). convergence continue (verdict APPROVE, 0 P0/P1). Slice 5 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — FramesTab migrates off EvidenceContract onto AuditIR frame_coverage (AuditIrFrameCoverageReport → entries → retrieval_attempt_log); ContradictionsTab/ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 6-7). ~33k tokens.
++- iter 1: APPROVE — 0 P0/P1, 1 P2 (render source_url link only when non-empty — loader defaults missing to "" — baked into commit 1; all 6 §3 scope-boundary calls ruled accept: N-claim cluster list replaces 2-sided A/B; cluster_id key-only header; recommended_action as the resolution successor; bundle-backed onSelect during dual-fetch; full claim detail; SentencesTab contradiction-in-section badge unaffected). convergence accept_remaining. Slice 6 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — ContradictionsTab migrates off EvidenceContract onto AuditIR contradictions (AuditIrContradictionCluster → AuditIrContradictionClaim); ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 7+). ~22k tokens.
 +
 +### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; zero-entry frame_coverage returns the empty-state before the report-level semantics_warning/summary — Codex explicitly "edge-case UI omission, not an execution blocker", accepted-residual: a run with zero frame entries does not occur in practice). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +140/-30 — FramesTab on AuditIR frame_coverage. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~54k tokens.
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
 diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
-index 4694504e..f5a18eb0 100644
+index f5a18eb0..21351265 100644
 --- a/web/app/inspector/[runId]/page.tsx
 +++ b/web/app/inspector/[runId]/page.tsx
-@@ -139,7 +139,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-           {
-             id: "frames",
-             label: "Frame coverage",
--            count: bundle.frame_coverage.length,
-+            count: ir.frame_coverage.entries.length,
-           },
+@@ -144,7 +144,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
            {
              id: "contradictions",
-@@ -238,7 +238,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-                     }
-                   />
-                 )}
--                {activeTab === "frames" && <FramesTab bundle={bundle} />}
-+                {activeTab === "frames" && <FramesTab ir={ir} />}
+             label: "Contradictions",
+-            count: bundle.contradictions.length,
++            count: ir.contradictions.length,
+           },
+           {
+             id: "pool",
+@@ -241,7 +241,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+                 {activeTab === "frames" && <FramesTab ir={ir} />}
                  {activeTab === "contradictions" && (
                    <ContradictionsTab
-                     bundle={bundle}
-@@ -475,37 +475,142 @@ function renderSentenceWithTokens(
-   return <>{parts}</>;
- }
- 
--function FramesTab({ bundle }: { bundle: EvidenceContract }) {
--  if (bundle.frame_coverage.length === 0) {
-+/** Heuristic color for a frame-coverage entry status (free string). */
-+function frameStatusClass(status: string): string {
-+  if (status === "pass") return "bg-emerald-100 text-emerald-900";
-+  if (status === "partial") return "bg-amber-100 text-amber-900";
-+  return "bg-red-100 text-red-900";
-+}
-+
-+/**
-+ * I-rdy-008 (#504) slice 5 — the frame-coverage tab reads the faithful
-+ * AuditIR `frame_coverage` report (retrieval-coverage manifest) instead of
-+ * the legacy flat bundle list. AuditIR entries carry a discrete `status`
-+ * (not a coverage percentage), so the per-frame progress bar is replaced by
-+ * a report-level summary + per-entry status badges.
-+ */
-+function FramesTab({ ir }: { ir: AuditIrRun }) {
-+  const fc = ir.frame_coverage;
-+  if (fc.entries.length === 0) {
-     return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
-   }
-   return (
--    <ul className="flex flex-col gap-2">
--      {bundle.frame_coverage.map((f) => (
--        <li key={f.frame_id}>
--          <Card>
--            <CardHeader>
--              <CardDescription className="text-xs tracking-widest uppercase">
--                {f.frame_id}
--              </CardDescription>
--              <CardTitle className="text-base">{f.frame_name}</CardTitle>
--            </CardHeader>
--            <CardContent>
--              <div className="bg-muted h-2 w-full overflow-hidden rounded">
--                <div
--                  className="bg-foreground h-full"
--                  style={{ width: `${f.coverage_percent}%` }}
--                />
--              </div>
--              <p className="text-muted-foreground mt-2 text-xs">
--                {f.sources_assigned} sources · {f.coverage_percent.toFixed(1)}%
--                coverage
--              </p>
--            </CardContent>
--          </Card>
--        </li>
--      ))}
--    </ul>
-+    <div className="flex flex-col gap-3">
-+      {fc.semantics_warning && (
-+        <p
-+          role="note"
-+          className="border-border text-muted-foreground rounded-md border p-3 text-xs"
-+        >
-+          {fc.semantics_warning}
-+        </p>
-+      )}
-+      <Card className="border-foreground/30 bg-muted/20">
-+        <CardHeader>
-+          <CardDescription className="text-xs tracking-widest uppercase">
-+            Frame coverage — retrieval manifest
-+          </CardDescription>
-+          <CardTitle className="text-sm">
-+            {fc.pass_count} pass · {fc.partial_count} partial ·{" "}
-+            {fc.frame_gap_count} gap · {fc.pipeline_fault_count} pipeline-fault
-+          </CardTitle>
-+        </CardHeader>
-+        <CardContent>
-+          <p className="text-muted-foreground text-xs">
-+            {fc.total_entities} entities · {fc.total_slots} slots · schema{" "}
-+            {fc.schema_version}
-+          </p>
-+        </CardContent>
-+      </Card>
-+      <ul className="flex flex-col gap-2">
-+        {fc.entries.map((e, idx) => (
-+          <li key={`${e.entity_id}:${e.slot_id}:${idx}`}>
-+            <Card>
-+              <CardHeader>
-+                <CardDescription className="text-xs tracking-widest uppercase">
-+                  {e.section}
-+                  {e.slot_id && ` · ${e.slot_id}`}
-+                  <span
-+                    className={`ml-2 inline-flex items-center rounded px-2 py-0.5 text-xs font-medium normal-case ${frameStatusClass(e.status)}`}
-+                  >
-+                    {e.status}
-+                  </span>
-+                </CardDescription>
-+                <CardTitle className="text-base">
-+                  {e.subsection_title || e.entity_id}
-+                </CardTitle>
-+              </CardHeader>
-+              <CardContent className="flex flex-col gap-1 text-xs">
-+                <p className="text-muted-foreground">
-+                  {e.entity_type} · provenance: {e.provenance_class}
-+                  {e.is_pipeline_fault && " · pipeline-fault"}
-+                </p>
-+                {e.failure_reason && (
-+                  <p className="text-foreground font-medium">
-+                    {e.failure_reason}
-+                  </p>
-+                )}
-+                {(e.doi || e.pmid) && (
-+                  <p className="text-muted-foreground">
-+                    {e.doi && (
-+                      <a
-+                        href={`https://doi.org/${e.doi}`}
-+                        target="_blank"
-+                        rel="noreferrer"
-+                        className="underline-offset-4 hover:underline"
-+                      >
-+                        DOI {e.doi}
-+                      </a>
-+                    )}
-+                    {e.doi && e.pmid && " · "}
-+                    {e.pmid && (
-+                      <a
-+                        href={`https://pubmed.ncbi.nlm.nih.gov/${e.pmid}/`}
-+                        target="_blank"
-+                        rel="noreferrer"
-+                        className="underline-offset-4 hover:underline"
-+                      >
-+                        PMID {e.pmid}
-+                      </a>
-+                    )}
-+                  </p>
-+                )}
-+                {e.retrieval_attempt_log.length > 0 && (
-+                  <details className="mt-1">
-+                    <summary className="text-muted-foreground cursor-pointer">
-+                      Retrieval attempts ({e.retrieval_attempt_log.length})
-+                    </summary>
-+                    <ul className="mt-1 flex flex-col gap-1">
-+                      {e.retrieval_attempt_log.map((a) => (
-+                        <li
-+                          key={a.attempt_index}
-+                          className="text-muted-foreground"
-+                        >
-+                          #{a.attempt_index} · {a.source} · {a.outcome}
-+                          {a.http_status != null && ` · HTTP ${a.http_status}`}
-+                          {a.url && (
-+                            <>
-+                              {" · "}
-+                              <a
-+                                href={a.url}
-+                                target="_blank"
-+                                rel="noreferrer"
-+                                className="underline-offset-4 hover:underline"
-+                              >
-+                                {a.url}
-+                              </a>
-+                            </>
-+                          )}
-+                        </li>
-+                      ))}
-+                    </ul>
-+                  </details>
-+                )}
-+              </CardContent>
-+            </Card>
-+          </li>
-+        ))}
-+      </ul>
-+    </div>
+-                    bundle={bundle}
++                    ir={ir}
+                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                   />
+                 )}
+@@ -614,14 +614,30 @@ function FramesTab({ ir }: { ir: AuditIrRun }) {
    );
  }
  
++/** Heuristic color for a contradiction-cluster severity (free string). */
++function contradictionSeverityClass(severity: string): string {
++  if (severity === "high") return "bg-red-100 text-red-900";
++  if (severity === "moderate" || severity === "medium")
++    return "bg-amber-100 text-amber-900";
++  return "bg-muted text-muted-foreground";
++}
++
++/**
++ * I-rdy-008 (#504) slice 6 — the contradictions tab reads the faithful
++ * AuditIR `contradictions` (N-claim clusters) instead of the legacy 2-sided
++ * A/B bundle shape. Each cluster carries subject/predicate, severity, the
++ * numeric disagreement, and a recommended_action; each claim row carries the
++ * arm/dose/value/unit measurement + its source. Token clicks still resolve
++ * through the bundle-backed EvidencePane during the dual-fetch transition.
++ */
+ function ContradictionsTab({
+-  bundle,
++  ir,
+   onSelect,
+ }: {
+-  bundle: EvidenceContract;
++  ir: AuditIrRun;
+   onSelect: (id: string) => void;
+ }) {
+-  if (bundle.contradictions.length === 0) {
++  if (ir.contradictions.length === 0) {
+     return (
+       <p className="text-muted-foreground text-sm">
+         No contradictions detected.
+@@ -630,49 +646,72 @@ function ContradictionsTab({
+   }
+   return (
+     <ul className="flex flex-col gap-3">
+-      {bundle.contradictions.map((c) => (
+-        <li key={c.contradiction_id}>
++      {ir.contradictions.map((c) => (
++        <li key={c.cluster_id}>
+           <Card>
+             <CardHeader>
+               <CardDescription className="text-xs tracking-widest uppercase">
+-                {c.contradiction_id} · {c.section_id} · {c.resolution}
++                <span
++                  className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium normal-case ${contradictionSeverityClass(c.severity)}`}
++                >
++                  {c.severity}
++                </span>{" "}
++                · Δabs {c.absolute_difference} · Δrel {c.relative_difference}
+               </CardDescription>
++              <CardTitle className="text-base">
++                {c.subject} — {c.predicate}
++              </CardTitle>
+             </CardHeader>
+-            <CardContent>
+-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+-                <div className="border-border rounded-md border p-2">
+-                  <p className="text-foreground text-sm font-medium">A</p>
+-                  <p className="text-sm">{c.claim_a}</p>
+-                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+-                    {c.evidence_a.map((id) => (
+-                      <button
+-                        key={id}
+-                        type="button"
+-                        onClick={() => onSelect(id)}
+-                        className="bg-muted rounded px-1 font-mono"
+-                      >
+-                        {id}
+-                      </button>
+-                    ))}
+-                  </div>
+-                </div>
+-                <div className="border-border rounded-md border p-2">
+-                  <p className="text-foreground text-sm font-medium">B</p>
+-                  <p className="text-sm">{c.claim_b}</p>
+-                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+-                    {c.evidence_b.map((id) => (
++            <CardContent className="flex flex-col gap-2">
++              {c.recommended_action && (
++                <p className="text-foreground text-sm font-medium">
++                  Recommended: {c.recommended_action}
++                </p>
++              )}
++              <ul className="flex flex-col gap-2">
++                {c.claims.map((claim, idx) => (
++                  <li
++                    key={`${c.cluster_id}:${idx}`}
++                    className="border-border rounded-md border p-2 text-xs"
++                  >
++                    <p className="text-foreground text-sm font-medium">
++                      {claim.value} {claim.unit}
++                      {claim.endpoint_phrase && ` · ${claim.endpoint_phrase}`}
++                    </p>
++                    <p className="text-muted-foreground mt-1">
++                      {claim.arm && `arm: ${claim.arm}`}
++                      {claim.arm && claim.dose && " · "}
++                      {claim.dose && `dose: ${claim.dose}`}
++                      {(claim.arm || claim.dose) && " · "}
++                      tier {claim.source_tier}
++                    </p>
++                    {claim.context_snippet && (
++                      <p className="text-muted-foreground mt-1">
++                        {claim.context_snippet}
++                      </p>
++                    )}
++                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                       <button
+-                        key={id}
+                         type="button"
+-                        onClick={() => onSelect(id)}
++                        onClick={() => onSelect(claim.evidence_id)}
+                         className="bg-muted rounded px-1 font-mono"
+                       >
+-                        {id}
++                        {claim.evidence_id}
+                       </button>
+-                    ))}
+-                  </div>
+-                </div>
+-              </div>
++                      {claim.source_url && (
++                        <a
++                          href={claim.source_url}
++                          target="_blank"
++                          rel="noreferrer"
++                          className="text-muted-foreground underline-offset-4 hover:underline"
++                        >
++                          source
++                        </a>
++                      )}
++                    </div>
++                  </li>
++                ))}
++              </ul>
+             </CardContent>
+           </Card>
+         </li>
 
-# canonical-diff-sha256: b1f9551e46e09d9c003e18e5cfe09c5a049d2ea3635df9255eeb527226b70a3a
+# canonical-diff-sha256: e7caf58a976719d38dd6ff6cd3cb1af82c09c5ae60811f232853f8adcc9fd751
