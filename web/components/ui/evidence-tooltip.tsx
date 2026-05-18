@@ -7,7 +7,7 @@ interface EvidenceTooltipProps {
   evidenceId: string;
   sourceUrl?: string;
   spanText?: string;
-  sourceTier?: "T1" | "T2" | "T3";
+  sourceTier?: string;
   /**
    * I-f6-001: optional publication-date string surfaced in the popup
    * as `Published: <date>`. When undefined/null, the line is omitted.

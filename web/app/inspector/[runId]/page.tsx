@@ -19,6 +19,7 @@ import {
   getBundle,
   getChart,
   type ApiError,
+  type AuditIrBibliographyEntry,
   type AuditIrRun,
   type ChartType,
   type EvidenceContract,
@@ -120,40 +121,43 @@ export default function InspectorPage({ params }: InspectorPageProps) {
   const evidenceById = (id: string) =>
     bundle?.evidence_pool.find((s) => s.evidence_id === id) ?? null;
 
-  const tabs: { id: typeof activeTab; label: string; count: number }[] = bundle
-    ? [
-        {
-          id: "summary",
-          label: "Executive summary",
-          count: 3,
-        },
-        {
-          id: "sentences",
-          label: "Verified sentences",
-          count: bundle.verified_sentences.length,
-        },
-        {
-          id: "frames",
-          label: "Frame coverage",
-          count: bundle.frame_coverage.length,
-        },
-        {
-          id: "contradictions",
-          label: "Contradictions",
-          count: bundle.contradictions.length,
-        },
-        {
-          id: "pool",
-          label: "Evidence pool",
-          count: bundle.evidence_pool.length,
-        },
-        {
-          id: "charts",
-          label: "Charts",
-          count: 3,
-        },
-      ]
-    : [];
+  const tabs: { id: typeof activeTab; label: string; count: number }[] =
+    ir && bundle
+      ? [
+          {
+            id: "summary",
+            label: "Executive summary",
+            count: 3,
+          },
+          {
+            id: "sentences",
+            label: "Verified sentences",
+            count:
+              ir.verified_report.sentences_verified +
+              ir.verified_report.sentences_dropped,
+          },
+          {
+            id: "frames",
+            label: "Frame coverage",
+            count: bundle.frame_coverage.length,
+          },
+          {
+            id: "contradictions",
+            label: "Contradictions",
+            count: bundle.contradictions.length,
+          },
+          {
+            id: "pool",
+            label: "Evidence pool",
+            count: bundle.evidence_pool.length,
+          },
+          {
+            id: "charts",
+            label: "Charts",
+            count: 3,
+          },
+        ]
+      : [];
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -226,8 +230,8 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 )}
                 {activeTab === "sentences" && (
                   <SentencesTab
+                    ir={ir}
                     bundle={bundle}
-                    evidenceById={evidenceById}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
                     onJumpToContradictions={() =>
                       setActiveTab("contradictions")
@@ -350,38 +354,62 @@ function RunShell({ ir }: { ir: AuditIrRun }) {
   );
 }
 
+/**
+ * Slug of a section title — mirrors the backend `_slugify` in
+ * `src/polaris_v6/api/artifact_to_slice_chain.py`
+ * (`re.sub(r"[^a-z0-9_]+", "_", text.lower()).strip("_")[:60]`) so an
+ * AuditIR section title (`AuditIrSentence.section`, a display title) can be
+ * matched against the legacy bundle's slugified `contradictions[].section_id`.
+ */
+function slugifySection(text: string): string {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * I-rdy-008 (#504) slice 4 — the verified-sentences tab reads the faithful
+ * AuditIR `verified_report.sections[].sentences[]` (flattened) instead of the
+ * legacy flat `bundle.verified_sentences`. The contradiction-in-section
+ * cross-link stays bundle-backed (AuditIR contradiction clusters carry no
+ * section field); the contradictions tab itself migrates in a later slice.
+ */
 function SentencesTab({
+  ir,
   bundle,
-  evidenceById,
   onSelect,
   onJumpToContradictions,
 }: {
+  ir: AuditIrRun;
   bundle: EvidenceContract;
-  evidenceById: (id: string) => SourceSpan | null;
   onSelect: (id: string) => void;
   onJumpToContradictions: () => void;
 }) {
-  if (bundle.verified_sentences.length === 0) {
+  const sentences = ir.verified_report.sections.flatMap((sec) => sec.sentences);
+  if (sentences.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
         No verified sentences. Pipeline status:{" "}
-        <span className="font-mono">{bundle.pipeline_status}</span>.
+        <span className="font-mono">{ir.manifest.status}</span>.
       </p>
     );
   }
   const sectionsWithContradictions = new Set(
     bundle.contradictions.map((c) => c.section_id),
   );
+  const bibById = (id: string): AuditIrBibliographyEntry | null =>
+    ir.bibliography.find((b) => b.evidence_id === id) ?? null;
   return (
     <ul className="flex flex-col gap-3">
-      {bundle.verified_sentences.map((s, idx) => (
-        <li key={idx}>
+      {sentences.map((s) => (
+        <li key={s.claim_id}>
           <Card>
             <CardHeader>
               <CardDescription className="text-xs tracking-widest uppercase">
-                {s.section_id} · {s.verifier_local_pass ? "local✓" : "local✗"} ·{" "}
-                {s.verifier_global_pass ? "global✓" : "global✗"}
-                {sectionsWithContradictions.has(s.section_id) && (
+                {s.section} · {s.is_verified ? "verified✓" : "verified✗"}
+                {sectionsWithContradictions.has(slugifySection(s.section)) && (
                   <button
                     type="button"
                     onClick={onJumpToContradictions}
@@ -394,16 +422,19 @@ function SentencesTab({
             </CardHeader>
             <CardContent>
               <p className="text-sm">
-                {renderSentenceWithTokens(
-                  s.sentence_text,
-                  onSelect,
-                  evidenceById,
-                )}
+                {renderSentenceWithTokens(s.text, onSelect, bibById)}
               </p>
-              {s.drop_reason && (
-                <p className="text-foreground mt-2 text-xs font-medium">
-                  Dropped: {s.drop_reason}
-                </p>
+              {s.failure_reasons.length > 0 && (
+                <ul className="mt-2 flex flex-col gap-1">
+                  {s.failure_reasons.map((reason, ridx) => (
+                    <li
+                      key={ridx}
+                      className="text-foreground text-xs font-medium"
+                    >
+                      Dropped: {reason}
+                    </li>
+                  ))}
+                </ul>
               )}
             </CardContent>
           </Card>
@@ -416,7 +447,7 @@ function SentencesTab({
 function renderSentenceWithTokens(
   text: string,
   onSelect: (id: string) => void,
-  evidenceById?: (id: string) => SourceSpan | null,
+  bibById?: (id: string) => AuditIrBibliographyEntry | null,
 ): React.ReactNode {
   const parts: React.ReactNode[] = [];
   const re = /\[#ev:([^:\]]+):\d+-\d+\]/g;
@@ -425,14 +456,14 @@ function renderSentenceWithTokens(
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
     const evidenceId = match[1];
-    const span = evidenceById?.(evidenceId);
+    const bib = bibById?.(evidenceId);
     parts.push(
       <EvidenceTooltip
         key={`${match.index}-${evidenceId}`}
         evidenceId={evidenceId}
-        sourceUrl={span?.source_url}
-        spanText={span?.span_text}
-        sourceTier={span?.source_tier}
+        sourceUrl={bib?.url}
+        spanText={bib?.statement}
+        sourceTier={bib?.tier}
         onClickToInspect={() => onSelect(evidenceId)}
       >
         {match[0]}
