@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/live_run_artifact_contract.schema.json",
+  "title": "POLARIS live-run artifact contract",
+  "description": "Schema for the JSON files in a completed v6 run's artifact_dir. Companion to docs/live_run_artifact_contract.md (I-rdy-007 / #503). Each $def validates one artifact file; the root object validates an artifact bundle keyed by file stem. Conservative by design: additionalProperties is permitted everywhere so a forward-compatible producer change does not break consumers; only genuinely-universal identity fields are required. Status-conditional note (see contract doc s2.3): verification_details and evidence_pool are absent on abort_*/error_* runs, so they are NOT in the root required list.",
+  "$defs": {
+    "pipeline_status": {
+      "description": "The 14-value pipeline verdict — authoritative source is PipelineStatus in src/polaris_v6/schemas/run_status.py and UNIFIED_STATUS_VALUES in scripts/run_honest_sweep_r3.py.",
+      "type": "string",
+      "enum": [
+        "success",
+        "partial_thin_corpus",
+        "partial_incomplete_corpus",
+        "partial_rule_check_warnings",
+        "partial_outline_fallback",
+        "partial_evaluator_advisory",
+        "partial_qwen_advisory",
+        "abort_scope_rejected",
+        "abort_no_sources",
+        "abort_corpus_inadequate",
+        "abort_corpus_approval_denied",
+        "abort_no_verified_sections",
+        "abort_evaluator_critical",
+        "error_unexpected"
+      ]
+    },
+    "manifest": {
+      "description": "manifest.json — the pipeline verdict + run metadata. Always present in artifact_dir.",
+      "type": "object",
+      "required": ["run_id", "status", "question"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "slug": { "type": "string" },
+        "status": { "$ref": "#/$defs/pipeline_status" },
+        "question": { "type": "string" },
+        "error": { "type": ["string", "null"] },
+        "protocol_sha256": { "type": "string" },
+        "cost_usd": { "type": "number" },
+        "budget_cap_usd": { "type": "number" },
+        "contradictions_found": { "type": "integer", "minimum": 0 },
+        "release_allowed": { "type": "boolean" },
+        "v30_enabled": { "type": "boolean" },
+        "v30_warnings": { "type": "array", "items": { "type": "string" } },
+        "completeness": { "type": ["object", "number"] },
+        "evaluator_gate": {
+          "description": "Object in current runs; legacy artifacts stored a bare string class.",
+          "type": ["object", "string"]
+        },
+        "adequacy": { "type": "object" },
+        "corpus": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "tier_fractions": {
+              "type": "object",
+              "additionalProperties": { "type": "number" }
+            },
+            "approved": { "type": "boolean" },
+            "material_deviation": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "generator": { "type": "object" },
+        "frame_coverage_report": { "type": "object" },
+        "retrieval": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "bibliography": {
+      "description": "bibliography.json — the [N] -> evidence_id -> source mapping. A JSON array.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["num", "evidence_id"],
+        "properties": {
+          "num": { "type": "integer" },
+          "evidence_id": { "type": "string" },
+          "statement": { "type": "string" },
+          "tier": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "verification_details": {
+      "description": "verification_details.json — per-section kept/dropped sentences + evidence-span tokens. Present for success/partial_* runs; absent on abort_*/error_* runs (contract doc s2.3).",
+      "type": "object",
+      "required": ["sections"],
+      "properties": {
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title"],
+            "properties": {
+              "title": { "type": "string" },
+              "kept": { "type": "array", "items": { "$ref": "#/$defs/verified_sentence" } },
+              "dropped": { "type": "array", "items": { "$ref": "#/$defs/verified_sentence" } },
+              "total_in": { "type": "integer", "minimum": 0 },
+              "total_kept": { "type": "integer", "minimum": 0 },
+              "total_dropped": { "type": "integer", "minimum": 0 },
+              "dropped_due_to_failure": {
+                "description": "Loosely typed by the producer: it emits boolean false for the zero case rather than 0; src/polaris_graph/audit_ir/loader.py int()-coerces it. Schema accepts both.",
+                "type": ["integer", "boolean"]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "totals": { "type": "object" },
+        "drop_reason_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "verified_sentence": {
+      "description": "One sentence in verification_details.json (kept or dropped).",
+      "type": "object",
+      "properties": {
+        "sentence": { "type": "string" },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "evidence_id": { "type": "string" },
+              "start": { "type": "integer" },
+              "end": { "type": "integer" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "failure_reasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "contradictions": {
+      "description": "contradictions.json — tier-labelled disagreement clusters. A JSON array; each cluster carries >=2 claims.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["predicate", "claims"],
+        "properties": {
+          "subject": { "type": "string" },
+          "predicate": { "type": "string" },
+          "severity": { "type": "string" },
+          "absolute_difference": { "type": "number" },
+          "relative_difference": { "type": "number" },
+          "recommended_action": { "type": "string" },
+          "claims": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["evidence_id", "predicate", "value"],
+              "properties": {
+                "evidence_id": { "type": "string" },
+                "subject": { "type": "string" },
+                "predicate": { "type": "string" },
+                "value": { "type": "number" },
+                "unit": { "type": "string" },
+                "source_tier": { "type": "string" },
+                "source_url": { "type": "string" }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "corpus_approval": {
+      "description": "corpus_approval.json — the corpus-approval gate decision. Absent on auto-approved runs.",
+      "type": "object",
+      "properties": {
+        "approved": { "type": "boolean" },
+        "material_deviation": { "type": "boolean" },
+        "decision_at_iso": { "type": "string" },
+        "user_note": { "type": "string" },
+        "note": { "type": "string" },
+        "note_is_substantive": { "type": "boolean" },
+        "tier_distribution": { "type": "object" },
+        "approved_source_urls": { "type": "array", "items": { "type": "string" } },
+        "rejected_source_urls": { "type": "array", "items": { "type": "string" } },
+        "timestamp": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "evidence_pool": {
+      "description": "evidence_pool.json / live_corpus_dump.json — per-evidence detail (id, url, tier, statement, quote). Shape is run-dependent (array of evidence rows, or an object envelope); kept permissive. Present for success/partial_* runs; absent on abort_*/error_* runs (contract doc s2.3).",
+      "type": ["array", "object"]
+    }
+  },
+  "type": "object",
+  "description-root": "An artifact-bundle object keyed by file stem. manifest is the only universally-required member; verification_details / evidence_pool are absent on abort_*/error_* runs and so are optional at the root.",
+  "required": ["manifest"],
+  "properties": {
+    "manifest": { "$ref": "#/$defs/manifest" },
+    "bibliography": { "$ref": "#/$defs/bibliography" },
+    "verification_details": { "$ref": "#/$defs/verification_details" },
+    "contradictions": { "$ref": "#/$defs/contradictions" },
+    "corpus_approval": { "$ref": "#/$defs/corpus_approval" },
+    "evidence_pool": { "$ref": "#/$defs/evidence_pool" }
+  },
+  "additionalProperties": true
+}

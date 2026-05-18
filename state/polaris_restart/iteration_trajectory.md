@@ -358,3 +358,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 0 P2 (clean). convergence accept_remaining. Pure doc consolidation — definitive BEAT_BOTH_SUMMARY.md from cross_review_v12 (55-claim cross-review, 0 fab); no code/test/config. Canonical diff = trajectory append only (deliverable in CI-excluded outputs/audits/I-beat-001/). P1 trajectory 0.
+
+## I-rdy-007 (#503) — define the live-run artifact contract
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 2 P1 (brief anchored on stale 10-value manifest.status; real code-defined set is 14 — partial_outline_fallback/partial_evaluator_advisory/partial_qwen_advisory/abort_evaluator_critical; schema plan omitted verification_details.json, a load_audit_ir()-required file), 3 P2 (provenance-file specifics; schema-validation requirement; bundle has 2 distinct routes).
+- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (status-condition the AuditIR requirement — abort/error dirs lack verification_details.json/evidence_pool.json). convergence accept_remaining. P1 trajectory 2→0. Phase 3.4 — 2 docs-only deliverables: docs/live_run_artifact_contract.md + docs/schemas/live_run_artifact_contract.schema.json. Grounded in run_status.py/loader.py; schema check_schema PASS + validates real success+abort artifacts. No src/web/config/test change.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (doc §2.3 wording 'schema marks required only under non-abort' vs the schema's root required=[manifest] with no if/then conditional — accepted: the optional-at-root schema achieves the abort-dir effect; Codex 'prose contract otherwise correct'). convergence accept_remaining. Docs-only, no code; schema check_schema PASS + validates real success+abort artifacts. P1 trajectory 0.
