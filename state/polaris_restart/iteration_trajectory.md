@@ -495,3 +495,6 @@ Recut of PR #540 (`bot/I-rdy-012-durable-workspace-memory`): #540 earned Codex b
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded #540's prior brief+diff APPROVE, the recut/staleness rationale, the zero-divergence verbatim re-application, and the #508-vs-deferred-semantic-recall scope boundary. 4 files, +436/-7. ~80k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (sqlite_store.py `_migrate_schema` is idempotent for absent/full-schema DBs but not truly additive for a pre-existing memory_entries table missing later columns — Codex: "Non-blocking for this first SQLite memory rollout"; there is no pre-existing field DB with an older schema, the edge only bites once a future column is added — residual noted). convergence accept_remaining. Codex confirmed: durability (fresh store instance reads prior entries), workspace isolation (workspace_id normalized identically write+read, no cross-workspace leak path), cited recall (derived_from_run_ids round-trips), migration safety (HTTP contract unchanged), and the verbatim recut fidelity. 4 files + trajectory.md. ~82k tokens.
