@@ -408,3 +408,8 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; zero-entry frame_coverage returns the empty-state before the report-level semantics_warning/summary — Codex explicitly "edge-case UI omission, not an execution blocker", accepted-residual: a run with zero frame entries does not occur in practice). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +140/-30 — FramesTab on AuditIR frame_coverage. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~54k tokens.
+
+## I-rdy-008 (#504) slice 6 — migrate the contradictions tab to the AuditIR client
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1, 1 P2 (render source_url link only when non-empty — loader defaults missing to "" — baked into commit 1; all 6 §3 scope-boundary calls ruled accept: N-claim cluster list replaces 2-sided A/B; cluster_id key-only header; recommended_action as the resolution successor; bundle-backed onSelect during dual-fetch; full claim detail; SentencesTab contradiction-in-section badge unaffected). convergence accept_remaining. Slice 6 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — ContradictionsTab migrates off EvidenceContract onto AuditIR contradictions (AuditIrContradictionCluster → AuditIrContradictionClaim); ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 7+). ~22k tokens.
