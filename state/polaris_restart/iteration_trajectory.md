@@ -366,4 +366,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (status-condition the AuditIR requirement — abort/error dirs lack verification_details.json/evidence_pool.json). convergence accept_remaining. P1 trajectory 2→0. Phase 3.4 — 2 docs-only deliverables: docs/live_run_artifact_contract.md + docs/schemas/live_run_artifact_contract.schema.json. Grounded in run_status.py/loader.py; schema check_schema PASS + validates real success+abort artifacts. No src/web/config/test change.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (doc §2.3 wording 'schema marks required only under non-abort' vs the schema's root required=[manifest] with no if/then conditional — accepted: the optional-at-root schema achieves the abort-dir effect; Codex 'prose contract otherwise correct'). convergence accept_remaining. Docs-only, no code; schema check_schema PASS + validates real success+abort artifacts. P1 trajectory 0.
